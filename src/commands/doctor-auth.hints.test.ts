@@ -26,7 +26,7 @@ describe("resolveUnusableProfileHint", () => {
     );
   });
 
-  it("formats permanent OAuth refresh failures as reauth-required", () => {
+  it("formats permanent OAuth refresh failures as account sign-in guidance", () => {
     expect(
       formatOAuthRefreshFailureDoctorLine({
         profileId: "openai-codex:default",
@@ -35,11 +35,11 @@ describe("resolveUnusableProfileHint", () => {
           "OAuth token refresh failed for openai-codex: refresh_token_reused. Please try again or re-authenticate.",
       }),
     ).toBe(
-      "- openai-codex:default: re-auth required [refresh_token_reused] — Run `openclaw models auth login --provider openai-codex`.",
+      "- openai-codex:default: OpenClaw can't use your OpenAI account for Codex right now (refresh_token_reused). Sign in again with `openclaw models auth login --provider openai-codex`.",
     );
   });
 
-  it("formats non-permanent OAuth refresh failures as retry-then-reauth guidance", () => {
+  it("formats non-permanent OAuth refresh failures as retry-then-sign-in guidance", () => {
     expect(
       formatOAuthRefreshFailureDoctorLine({
         profileId: "openai-codex:default",
@@ -48,7 +48,7 @@ describe("resolveUnusableProfileHint", () => {
           "OAuth token refresh failed for openai-codex: temporary upstream issue. Please try again or re-authenticate.",
       }),
     ).toBe(
-      "- openai-codex:default: OAuth refresh failed — Try again; if this persists, run `openclaw models auth login --provider openai-codex`.",
+      "- openai-codex:default: OpenClaw couldn't refresh your OpenAI account for Codex. Try again; if this keeps happening, sign in again with `openclaw models auth login --provider openai-codex`.",
     );
   });
 
@@ -61,7 +61,7 @@ describe("resolveUnusableProfileHint", () => {
           "OAuth token refresh failed for openai-codex`\nrm -rf /: invalid_grant. Please try again or re-authenticate.",
       }),
     ).toBe(
-      "- openai-codex:default: re-auth required [invalid_grant] — Run `openclaw models auth login --provider openai-codex`.",
+      "- openai-codex:default: OpenClaw can't use your OpenAI account for Codex right now (invalid_grant). Sign in again with `openclaw models auth login --provider openai-codex`.",
     );
   });
 });

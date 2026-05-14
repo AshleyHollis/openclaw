@@ -13,6 +13,7 @@ import {
 import {
   buildOAuthRefreshFailureLoginCommand,
   classifyOAuthRefreshFailure,
+  formatOAuthRefreshFailureAccountLabel,
 } from "../../agents/auth-profiles/oauth-refresh-failure.js";
 import { resolveBootstrapWarningSignaturesSeen } from "../../agents/bootstrap-budget.js";
 import { getCliSessionBinding } from "../../agents/cli-session.js";
@@ -584,14 +585,15 @@ function buildExternalRunFailureReply(
   const oauthRefreshFailure = classifyOAuthRefreshFailure(normalizedMessage);
   if (oauthRefreshFailure) {
     const loginCommand = buildOAuthRefreshFailureLoginCommand(oauthRefreshFailure.provider);
+    const accountLabel = formatOAuthRefreshFailureAccountLabel(oauthRefreshFailure.provider);
     if (oauthRefreshFailure.reason) {
       return {
-        text: `⚠️ Model login expired on the gateway${oauthRefreshFailure.provider ? ` for ${oauthRefreshFailure.provider}` : ""}. Re-auth with \`${loginCommand}\`, then try again.`,
+        text: `⚠️ OpenClaw can't use ${accountLabel} right now. This usually happens when the account sign-in expired, was signed out, or was replaced by another account. Sign in again with \`${loginCommand}\`, then try again.`,
         isGenericRunnerFailure: false,
       };
     }
     return {
-      text: `⚠️ Model login failed on the gateway${oauthRefreshFailure.provider ? ` for ${oauthRefreshFailure.provider}` : ""}. Please try again. If this keeps happening, re-auth with \`${loginCommand}\`.`,
+      text: `⚠️ OpenClaw couldn't refresh ${accountLabel}. Please try again. If this keeps happening, sign in again with \`${loginCommand}\`.`,
       isGenericRunnerFailure: false,
     };
   }

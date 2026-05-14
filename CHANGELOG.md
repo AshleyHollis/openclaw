@@ -660,6 +660,7 @@ Docs: https://docs.openclaw.ai
 - Plugins: keep process-local plugin metadata snapshot memo freshness tied to the cached registry snapshot so policy-stale derived plugin metadata edits invalidate the memo instead of returning stale owners or command aliases. (#81064) Thanks @Kaspre.
 - Plugins: discover provider plugins from `setup.providers[].envVars` credentials during provider discovery while keeping the deprecated `providerAuthEnvVars` fallback. (#81542) Thanks @JARVIS-Glasses.
 - Docs/Codex harness: clarify that per-agent `CODEX_HOME` isolates `~/.codex` while inherited `HOME` intentionally keeps `.agents` discovery and subprocess user-home state available.
+- Codex harness: show plain OpenAI account sign-in guidance for terminal Codex OAuth refresh failures while leaving generic account-state drift non-terminal.
 - CLI/plugins: keep bare plugin and parent-command help on the lightweight path, avoiding plugin registry discovery before rendering help.
 - Auth: reclaim dead-owner stale file locks before retrying locked writes, so crashed OAuth refreshes no longer wedge `auth-profiles.json` until manual cleanup.
 - CLI tables: preserve muted/color styling on wrapped continuation lines after multiline cells, keeping `openclaw plugins list` descriptions readable.

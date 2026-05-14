@@ -4124,7 +4124,7 @@ describe("runAgentTurnWithFallback", () => {
     expect(result.kind).toBe("final");
     if (result.kind === "final") {
       expect(result.payload.text).toBe(
-        "⚠️ Model login expired on the gateway for openai-codex. Re-auth with `openclaw models auth login --provider openai-codex`, then try again.",
+        "⚠️ OpenClaw can't use your OpenAI account for Codex right now. This usually happens when the account sign-in expired, was signed out, or was replaced by another account. Sign in again with `openclaw models auth login --provider openai-codex`, then try again.",
       );
     }
   });
@@ -4242,7 +4242,7 @@ describe("runAgentTurnWithFallback", () => {
     expect(result.kind).toBe("final");
     if (result.kind === "final") {
       expect(result.payload.text).toBe(
-        "⚠️ Model login expired on the gateway. Re-auth with `openclaw models auth login`, then try again.",
+        "⚠️ OpenClaw can't use your model provider account right now. This usually happens when the account sign-in expired, was signed out, or was replaced by another account. Sign in again with `openclaw models auth login`, then try again.",
       );
     }
   });

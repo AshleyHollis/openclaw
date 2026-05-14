@@ -4,6 +4,8 @@ import { normalizeProviderId } from "../provider-id.js";
 
 export type OAuthRefreshFailureReason =
   | "refresh_token_reused"
+  | "refresh_token_expired"
+  | "refresh_token_invalidated"
   | "invalid_grant"
   | "sign_in_again"
   | "invalid_refresh_token"
@@ -36,20 +38,31 @@ export function classifyOAuthRefreshFailureReason(
   message: string,
 ): OAuthRefreshFailureReason | null {
   const lower = message.toLowerCase();
-  if (lower.includes("refresh_token_reused")) {
+  if (
+    lower.includes("refresh_token_reused") ||
+    lower.includes("refresh token was already used") ||
+    lower.includes("refresh token has already been used") ||
+    lower.includes("already been used to generate a new access token")
+  ) {
     return "refresh_token_reused";
+  }
+  if (lower.includes("refresh_token_expired") || lower.includes("refresh token has expired")) {
+    return "refresh_token_expired";
+  }
+  if (lower.includes("refresh_token_invalidated")) {
+    return "refresh_token_invalidated";
   }
   if (lower.includes("invalid_grant")) {
     return "invalid_grant";
-  }
-  if (lower.includes("signing in again") || lower.includes("sign in again")) {
-    return "sign_in_again";
   }
   if (lower.includes("invalid refresh token")) {
     return "invalid_refresh_token";
   }
   if (lower.includes("expired or revoked") || lower.includes("revoked")) {
     return "revoked";
+  }
+  if (lower.includes("signing in again") || lower.includes("sign in again")) {
+    return "sign_in_again";
   }
   return null;
 }
@@ -65,6 +78,20 @@ export function classifyOAuthRefreshFailure(message: string): {
     provider: sanitizeOAuthRefreshFailureProvider(extractOAuthRefreshFailureProvider(message)),
     reason: classifyOAuthRefreshFailureReason(message),
   };
+}
+
+export function formatOAuthRefreshFailureAccountLabel(provider: string | null | undefined): string {
+  const safeProvider = sanitizeOAuthRefreshFailureProvider(provider);
+  switch (safeProvider) {
+    case "openai-codex":
+      return "your OpenAI account for Codex";
+    case "openai":
+      return "your OpenAI account";
+    case null:
+      return "your model provider account";
+    default:
+      return `your ${safeProvider} account`;
+  }
 }
 
 export function buildOAuthRefreshFailureLoginCommand(provider: string | null | undefined): string {

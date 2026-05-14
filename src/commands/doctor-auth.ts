@@ -14,6 +14,7 @@ import { formatAuthDoctorHint } from "../agents/auth-profiles/doctor.js";
 import {
   buildOAuthRefreshFailureLoginCommand,
   classifyOAuthRefreshFailure,
+  formatOAuthRefreshFailureAccountLabel,
   type OAuthRefreshFailureReason,
 } from "../agents/auth-profiles/oauth-refresh-failure.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -138,6 +139,10 @@ function formatOAuthRefreshFailureReason(reason: OAuthRefreshFailureReason | nul
   switch (reason) {
     case "refresh_token_reused":
       return "refresh_token_reused";
+    case "refresh_token_expired":
+      return "refresh_token_expired";
+    case "refresh_token_invalidated":
+      return "refresh_token_invalidated";
     case "invalid_grant":
       return "invalid_grant";
     case "sign_in_again":
@@ -162,10 +167,11 @@ export function formatOAuthRefreshFailureDoctorLine(params: {
   }
   const provider = classified.provider ?? params.provider;
   const command = buildOAuthRefreshFailureLoginCommand(provider);
+  const accountLabel = formatOAuthRefreshFailureAccountLabel(provider);
   if (classified.reason) {
-    return `- ${params.profileId}: re-auth required [${formatOAuthRefreshFailureReason(classified.reason)}] — Run \`${command}\`.`;
+    return `- ${params.profileId}: OpenClaw can't use ${accountLabel} right now (${formatOAuthRefreshFailureReason(classified.reason)}). Sign in again with \`${command}\`.`;
   }
-  return `- ${params.profileId}: OAuth refresh failed — Try again; if this persists, run \`${command}\`.`;
+  return `- ${params.profileId}: OpenClaw couldn't refresh ${accountLabel}. Try again; if this keeps happening, sign in again with \`${command}\`.`;
 }
 
 async function resolveAuthIssueHint(

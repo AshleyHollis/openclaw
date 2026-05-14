@@ -119,7 +119,11 @@ export function summarizeLogTail(rawLines: string[], opts?: { maxLines?: number 
         const code = normalizeOptionalString(parsed?.error?.code) ?? null;
         const msg = normalizeOptionalString(parsed?.error?.message) ?? null;
         const refreshReason = classifyOAuthRefreshFailureReason(msg ?? "");
-        const msgShort = msg ? (refreshReason ? "re-auth required" : shorten(msg, 52)) : null;
+        const msgShort = msg
+          ? refreshReason
+            ? "OpenAI sign-in needs attention"
+            : shorten(msg, 52)
+          : null;
         const base = `[${tag}] token refresh ${status}${code ? ` ${code}` : ""}${msgShort ? ` · ${msgShort}` : ""}`;
         addGroup(`token:${tag}:${status}:${code ?? ""}:${msgShort ?? ""}`, base);
         continue;
