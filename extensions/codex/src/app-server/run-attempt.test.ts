@@ -791,6 +791,13 @@ describe("runCodexAppServerAttempt", () => {
   });
 
   it("does not expose OpenClaw Tool Search controls through Codex dynamic tools", async () => {
+    __testing.setOpenClawCodingToolsFactoryForTests(() => [
+      createRuntimeDynamicTool("message"),
+      createRuntimeDynamicTool("tool_search_code"),
+      createRuntimeDynamicTool("tool_search"),
+      createRuntimeDynamicTool("tool_describe"),
+      createRuntimeDynamicTool("tool_call"),
+    ]);
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");
     const params = createParams(sessionFile, workspaceDir);
@@ -823,6 +830,7 @@ describe("runCodexAppServerAttempt", () => {
     });
     const dynamicToolNames = bridge.specs.map((tool) => tool.name);
 
+    expect(dynamicToolNames).toContain("message");
     for (const toolName of ["tool_search_code", "tool_search", "tool_describe", "tool_call"]) {
       expect(dynamicToolNames).not.toContain(toolName);
     }
