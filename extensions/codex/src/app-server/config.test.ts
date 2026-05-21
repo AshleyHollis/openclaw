@@ -1045,6 +1045,39 @@ allowed_sandbox_modes = ["read-only", "workspace-write"]
     ).toBe("auto");
   });
 
+  it("preserves legacy full exec security before applying current ask overrides", () => {
+    expect(
+      resolveOpenClawExecModeForCodexAppServer({
+        config: {
+          tools: {
+            exec: {
+              security: "full",
+              ask: "always",
+            },
+          },
+        },
+        execOverrides: {
+          ask: "off",
+        },
+      }),
+    ).toBe("full");
+    expect(
+      resolveOpenClawExecModeForCodexAppServer({
+        config: {
+          tools: {
+            exec: {
+              security: "full",
+              ask: "on-miss",
+            },
+          },
+        },
+        execOverrides: {
+          ask: "off",
+        },
+      }),
+    ).toBe("full");
+  });
+
   it("accepts the latest auto_review reviewer and legacy guardian_subagent alias", () => {
     expect(
       resolveRuntimeForTest({

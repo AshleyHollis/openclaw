@@ -1007,12 +1007,20 @@ export function resolveOpenClawExecModeFromConfig(params: {
   config?: unknown;
   agentId?: string;
 }): OpenClawExecMode | undefined {
+  const policy = resolveOpenClawExecPolicyFromConfig(params);
+  return policy.touched ? policy.mode : undefined;
+}
+
+function resolveOpenClawExecPolicyFromConfig(params: {
+  config?: unknown;
+  agentId?: string;
+}): OpenClawExecPolicy {
   const root = readRecord(params.config);
   const globalExec = readRecord(readRecord(root?.tools)?.exec);
   const globalPolicy = applyOpenClawExecPolicyLayer(createDefaultOpenClawExecPolicy(), globalExec);
   const agentId = params.agentId?.trim();
   if (!agentId) {
-    return globalPolicy.touched ? globalPolicy.mode : undefined;
+    return globalPolicy;
   }
   const agents = readRecord(root?.agents);
   const agentList = Array.isArray(agents?.list) ? agents.list : [];
@@ -1022,8 +1030,7 @@ export function resolveOpenClawExecModeFromConfig(params: {
     return typeof id === "string" && normalizeAgentId(id) === normalizedAgentId;
   });
   const agentExec = readRecord(readRecord(readRecord(agentEntry)?.tools)?.exec);
-  const agentPolicy = applyOpenClawExecPolicyLayer(globalPolicy, agentExec);
-  return agentPolicy.touched ? agentPolicy.mode : undefined;
+  return applyOpenClawExecPolicyLayer(globalPolicy, agentExec);
 }
 
 export function resolveOpenClawExecModeForCodexAppServer(params: {
@@ -1035,13 +1042,10 @@ export function resolveOpenClawExecModeForCodexAppServer(params: {
   config?: unknown;
   agentId?: string;
 }): OpenClawExecMode | undefined {
-  const baseMode = resolveOpenClawExecModeFromConfig({
+  const basePolicy = resolveOpenClawExecPolicyFromConfig({
     config: params.config,
     agentId: params.agentId,
   });
-  const basePolicy = baseMode
-    ? { ...resolveOpenClawExecPolicyForMode(baseMode), touched: true }
-    : createDefaultOpenClawExecPolicy();
   const overridePolicy = applyOpenClawExecPolicyLayer(basePolicy, params.execOverrides);
   return overridePolicy.touched ? overridePolicy.mode : undefined;
 }
