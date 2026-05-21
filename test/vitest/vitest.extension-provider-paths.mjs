@@ -23,6 +23,7 @@ export const providerExtensionIds = [
   "moonshot",
   "nvidia",
   "ollama",
+  "openai-compatible-embeddings",
   "openrouter",
   "qianfan",
   "stepfun",

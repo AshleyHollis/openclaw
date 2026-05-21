@@ -1,0 +1,21 @@
+{
+  "name": "@openclaw/openai-compatible-embeddings-provider",
+  "version": "2026.5.20",
+  "private": true,
+  "description": "OpenClaw generic embedding provider for OpenAI-compatible /v1/embeddings HTTP servers",
+  "type": "module",
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "workspace:*"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.5.20"
+    },
+    "build": {
+      "openclawVersion": "2026.5.20"
+    }
+  }
+}

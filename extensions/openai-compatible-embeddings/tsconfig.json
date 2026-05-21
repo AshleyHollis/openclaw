@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.extensions.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "../../dist/extensions/openai-compatible-embeddings"
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules"]
+}
