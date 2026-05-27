@@ -274,7 +274,7 @@ describe("mcp loopback server", () => {
       agentId: "main",
       tools: [
         {
-          name: "fuzzplugin_move_angles",
+          name: "fuzz_move_delta",
           description: "exercise malformed MCP union schemas",
           parameters: {
             anyOf: [
@@ -325,7 +325,7 @@ describe("mcp loopback server", () => {
       agentId: "main",
       tools: [
         {
-          name: "fuzzplugin_optional_angles",
+          name: "fuzz_optional_delta",
           description: "exercise boolean MCP union schemas",
           parameters: {
             anyOf: [
@@ -372,7 +372,7 @@ describe("mcp loopback server", () => {
       agentId: "main",
       tools: [
         {
-          name: "fuzzplugin_boolean_angles",
+          name: "fuzz_boolean_delta",
           description: "exercise false boolean MCP union schemas",
           parameters: {
             anyOf: [

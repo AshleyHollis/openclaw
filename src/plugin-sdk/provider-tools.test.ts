@@ -244,7 +244,7 @@ describe("buildProviderToolCompatFamilyHooks", () => {
       }) as never;
     const tools = [
       {
-        name: "fuzzplugin_move_angles",
+        name: "fuzz_move_delta",
         description: "",
         parameters: {
           type: "object",
@@ -271,11 +271,11 @@ describe("buildProviderToolCompatFamilyHooks", () => {
 
     expect(hooks.inspectToolSchemas(geminiCtx(tools))).toEqual([
       {
-        toolName: "fuzzplugin_move_angles",
+        toolName: "fuzz_move_delta",
         toolIndex: 0,
         violations: [
-          "fuzzplugin_move_angles.parameters.dependencies.mode.properties.angle.maxLength",
-          "fuzzplugin_move_angles.parameters.dependencies.mode.additionalProperties",
+          "fuzz_move_delta.parameters.dependencies.mode.properties.angle.maxLength",
+          "fuzz_move_delta.parameters.dependencies.mode.additionalProperties",
         ],
       },
     ]);
