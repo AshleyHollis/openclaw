@@ -36,6 +36,8 @@ const CODEX_MEDIA_PATH_SCENARIO_PATH = "scripts/e2e/lib/codex-media-path/scenari
 const CODEX_NPM_PLUGIN_LIVE_DOCKER_E2E_PATH = "scripts/e2e/codex-npm-plugin-live-docker.sh";
 const LIVE_PLUGIN_TOOL_DOCKER_E2E_PATH = "scripts/e2e/live-plugin-tool-docker.sh";
 const NPM_ONBOARD_CHANNEL_AGENT_DOCKER_E2E_PATH = "scripts/e2e/npm-onboard-channel-agent-docker.sh";
+const NPM_ONBOARD_CHANNEL_AGENT_ASSERTIONS_PATH =
+  "scripts/e2e/lib/npm-onboard-channel-agent/assertions.mjs";
 const SKILL_INSTALL_DOCKER_E2E_PATH = "scripts/e2e/skill-install-docker.sh";
 const PLUGIN_BINDING_COMMAND_ESCAPE_DOCKER_E2E_PATH =
   "scripts/e2e/plugin-binding-command-escape-docker.sh";
@@ -1072,6 +1074,7 @@ grep -qx -- "OPENCLAW_E2E_COMMAND_TIMEOUT=23s" "$TMPDIR/package-args"
 
   it("accepts config-only channel status during npm onboarding smoke", () => {
     const runner = readFileSync(NPM_ONBOARD_CHANNEL_AGENT_DOCKER_E2E_PATH, "utf8");
+    const assertions = readFileSync(NPM_ONBOARD_CHANNEL_AGENT_ASSERTIONS_PATH, "utf8");
 
     expect(runner).toContain(
       "if ! openclaw channels status --json >/tmp/openclaw-channels-status.json 2>/tmp/openclaw-channels-status.err; then",
@@ -1080,6 +1083,7 @@ grep -qx -- "OPENCLAW_E2E_COMMAND_TIMEOUT=23s" "$TMPDIR/package-args"
     expect(runner).toContain(
       'assert-status-surfaces "$CHANNEL" /tmp/openclaw-channels-status.json /tmp/openclaw-status.txt',
     );
+    expect(assertions).toContain("if (channelsStatus.configOnly === true)");
   });
 
   it("kills timed Docker scenario runners after the grace period", () => {
