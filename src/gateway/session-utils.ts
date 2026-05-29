@@ -74,6 +74,7 @@ import {
   normalizeMainKey,
   parseAgentSessionKey,
 } from "../routing/session-key.js";
+import { hasStaleAutoRuntimeAuthProfileSelection } from "../sessions/model-overrides.js";
 import { isCronRunSessionKey } from "../sessions/session-key-utils.js";
 import {
   AVATAR_MAX_BYTES,
@@ -762,6 +763,43 @@ function resolveSessionSelectedModelRef(params: {
   });
   params.rowContext.selectedModelByOverrideRef.set(key, selected);
   return selected;
+}
+
+function resolveStaleAutoRuntimeExpectedModelRef(params: {
+  cfg: OpenClawConfig;
+  entry?:
+    | SessionEntry
+    | Pick<
+        SessionEntry,
+        | "authProfileOverride"
+        | "authProfileOverrideCompactionCount"
+        | "authProfileOverrideSource"
+        | "providerOverride"
+        | "modelOverride"
+        | "modelProvider"
+        | "model"
+      >;
+  agentId?: string;
+  allowPluginNormalization?: boolean;
+}): ReturnType<typeof resolveSessionModelRef> | null {
+  const expected = params.agentId
+    ? resolveDefaultModelForAgent({
+        cfg: params.cfg,
+        agentId: params.agentId,
+        allowPluginNormalization: params.allowPluginNormalization,
+      })
+    : resolveConfiguredModelRef({
+        cfg: params.cfg,
+        defaultProvider: DEFAULT_PROVIDER,
+        defaultModel: DEFAULT_MODEL,
+        allowPluginNormalization: params.allowPluginNormalization,
+      });
+  return hasStaleAutoRuntimeAuthProfileSelection(params.entry, {
+    ...expected,
+    config: params.cfg,
+  })
+    ? expected
+    : null;
 }
 
 function resolveSessionRowThinkingMetadata(params: {
@@ -1733,14 +1771,29 @@ export function resolveSessionModelIdentityRef(
   cfg: OpenClawConfig,
   entry?:
     | SessionEntry
-    | Pick<SessionEntry, "model" | "modelProvider" | "modelOverride" | "providerOverride">,
+    | Pick<
+        SessionEntry,
+        | "model"
+        | "modelProvider"
+        | "modelOverride"
+        | "providerOverride"
+        | "authProfileOverride"
+        | "authProfileOverrideSource"
+        | "authProfileOverrideCompactionCount"
+      >,
   agentId?: string,
   fallbackModelRef?: string,
   options?: { allowPluginNormalization?: boolean },
 ): { provider?: string; model: string } {
   const runtimeModel = entry?.model?.trim();
   const runtimeProvider = entry?.modelProvider?.trim();
-  if (runtimeModel) {
+  const staleRuntimeExpected = resolveStaleAutoRuntimeExpectedModelRef({
+    cfg,
+    entry,
+    agentId,
+    allowPluginNormalization: options?.allowPluginNormalization,
+  });
+  if (runtimeModel && !staleRuntimeExpected) {
     if (runtimeProvider) {
       return { provider: runtimeProvider, model: runtimeModel };
     }
@@ -1782,7 +1835,8 @@ export function resolveSessionModelIdentityRef(
   const resolved = resolveSessionModelRef(cfg, entry, agentId, {
     allowPluginNormalization: options?.allowPluginNormalization,
   });
-  return { provider: resolved.provider, model: resolved.model };
+  const selected = staleRuntimeExpected ?? resolved;
+  return { provider: selected.provider, model: selected.model };
 }
 
 function resolveSessionDisplayModelIdentityRefCached(params: {
@@ -1964,8 +2018,15 @@ export function buildGatewaySessionRow(params: {
     subagentRun?.model,
     { allowPluginNormalization: !lightweight },
   );
+  const staleRuntimeExpected = resolveStaleAutoRuntimeExpectedModelRef({
+    cfg,
+    entry,
+    agentId: sessionAgentId,
+    allowPluginNormalization: !lightweight,
+  });
   const runtimeModelPresent =
-    Boolean(entry?.model?.trim()) || Boolean(entry?.modelProvider?.trim());
+    !staleRuntimeExpected &&
+    (Boolean(entry?.model?.trim()) || Boolean(entry?.modelProvider?.trim()));
   const needsTranscriptTotalTokens =
     resolvePositiveNumber(resolveFreshSessionTotalTokens(entry)) === undefined;
   const needsTranscriptContextTokens = resolvePositiveNumber(entry?.contextTokens) === undefined;

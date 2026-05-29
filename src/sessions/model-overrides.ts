@@ -1,5 +1,5 @@
-import { areRuntimeModelRefsEquivalent } from "../agents/model-runtime-aliases.js";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { areRuntimeModelRefsEquivalent } from "../agents/model-runtime-aliases.js";
 import type { SessionEntry } from "../config/sessions.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 

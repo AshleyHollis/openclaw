@@ -370,16 +370,18 @@ test("sessions.create follows inherited channel selection for nested parents", a
   expect(created.payload?.entry?.authProfileOverrideSource).toBe("auto");
 });
 
-test("sessions.create inherits runtime-equivalent OpenAI Codex auth aliases", async () => {
+test("sessions.create inherits matching CLI runtime auth selection", async () => {
   await createSessionStoreDir();
-  testState.agentConfig = { model: { primary: "openai/gpt-5.5" } };
+  testState.agentConfig = {
+    model: { primary: "claude-cli/claude-opus-4-7" },
+  };
   await writeSessionStore({
     entries: {
       main: sessionStoreEntry("sess-parent", {
-        modelProvider: "openai-codex",
-        model: "gpt-5.5",
+        modelProvider: "claude-cli",
+        model: "claude-opus-4-7",
         contextTokens: 200000,
-        authProfileOverride: "openai-codex:default",
+        authProfileOverride: "claude-cli:default",
         authProfileOverrideSource: "auto",
       }),
     },
@@ -402,10 +404,10 @@ test("sessions.create inherits runtime-equivalent OpenAI Codex auth aliases", as
 
   expect(created.ok).toBe(true);
   expect(created.payload?.entry?.parentSessionKey).toBe("agent:main:main");
-  expect(created.payload?.entry?.modelProvider).toBe("openai-codex");
-  expect(created.payload?.entry?.model).toBe("gpt-5.5");
+  expect(created.payload?.entry?.modelProvider).toBe("claude-cli");
+  expect(created.payload?.entry?.model).toBe("claude-opus-4-7");
   expect(created.payload?.entry?.contextTokens).toBe(200000);
-  expect(created.payload?.entry?.authProfileOverride).toBe("openai-codex:default");
+  expect(created.payload?.entry?.authProfileOverride).toBe("claude-cli:default");
   expect(created.payload?.entry?.authProfileOverrideSource).toBe("auto");
 });
 

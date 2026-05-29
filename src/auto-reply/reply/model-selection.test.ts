@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { testing as cliBackendsTesting } from "../../agents/cli-backends.js";
 import { MODEL_CONTEXT_TOKEN_CACHE } from "../../agents/context-cache.js";
 import {
   loadManifestModelCatalog,
@@ -60,6 +61,7 @@ afterEach(() => {
   vi.mocked(loadManifestModelCatalog).mockReset();
   vi.mocked(loadManifestModelCatalog).mockReturnValue([]);
   authProfileStoreMock.reset();
+  cliBackendsTesting.resetDepsForTest();
 });
 
 const makeConfiguredModel = (overrides: Record<string, unknown> = {}) => ({
@@ -1490,49 +1492,71 @@ describe("createModelSelectionState auto-failover overrides", () => {
     expect(sessionStore[sessionKey]?.authProfileOverride).toBeUndefined();
   });
 
-  it("preserves runtime-equivalent OpenAI Codex auto auth selections", async () => {
+  it("preserves runtime-equivalent CLI auto auth selections", async () => {
+    cliBackendsTesting.setDepsForTest({
+      resolvePluginSetupCliBackend: ({ backend }) =>
+        backend === "claude-cli"
+          ? {
+              pluginId: "anthropic",
+              backend: {
+                id: "claude-cli",
+                modelProvider: "anthropic",
+                config: { command: "claude" },
+                bundleMcp: false,
+              },
+            }
+          : undefined,
+    });
     authProfileStoreMock.store = {
       version: 1,
       profiles: {
-        "openai-codex:default": {
+        "anthropic:claude-cli": {
           type: "api_key",
-          provider: "openai-codex",
-          key: "codex-key",
+          provider: "anthropic",
+          key: "anthropic-key",
         },
       },
     };
     const sessionEntry = makeEntry({
-      modelProvider: "openai-codex",
-      model: "gpt-5.5",
+      modelProvider: "claude-cli",
+      model: "claude-opus-4-7",
       contextTokens: 200_000,
-      authProfileOverride: "openai-codex:default",
+      authProfileOverride: "anthropic:claude-cli",
       authProfileOverrideSource: "auto",
       authProfileOverrideCompactionCount: 0,
     });
     const sessionStore = { [sessionKey]: sessionEntry };
 
     const state = await createModelSelectionState({
-      cfg: { auth: { order: { openai: ["openai-codex:default"] } } } as OpenClawConfig,
+      cfg: {
+        agents: {
+          defaults: {
+            cliBackends: {
+              "claude-cli": { command: "claude" },
+            },
+          },
+        },
+      } as OpenClawConfig,
       agentCfg: undefined,
       sessionEntry,
       sessionStore,
       sessionKey,
-      defaultProvider: "openai",
-      defaultModel: "gpt-5.5",
-      primaryProvider: "openai",
-      primaryModel: "gpt-5.5",
-      provider: "openai",
-      model: "gpt-5.5",
+      defaultProvider: "anthropic",
+      defaultModel: "claude-opus-4-7",
+      primaryProvider: "anthropic",
+      primaryModel: "claude-opus-4-7",
+      provider: "anthropic",
+      model: "claude-opus-4-7",
       hasModelDirective: false,
     });
 
-    expect(state.provider).toBe("openai");
-    expect(state.model).toBe("gpt-5.5");
+    expect(state.provider).toBe("anthropic");
+    expect(state.model).toBe("claude-opus-4-7");
     expect(state.resetModelOverride).toBe(false);
-    expect(sessionStore[sessionKey]?.modelProvider).toBe("openai-codex");
-    expect(sessionStore[sessionKey]?.model).toBe("gpt-5.5");
+    expect(sessionStore[sessionKey]?.modelProvider).toBe("claude-cli");
+    expect(sessionStore[sessionKey]?.model).toBe("claude-opus-4-7");
     expect(sessionStore[sessionKey]?.contextTokens).toBe(200_000);
-    expect(sessionStore[sessionKey]?.authProfileOverride).toBe("openai-codex:default");
+    expect(sessionStore[sessionKey]?.authProfileOverride).toBe("anthropic:claude-cli");
     expect(sessionStore[sessionKey]?.authProfileOverrideSource).toBe("auto");
   });
 

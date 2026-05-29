@@ -84,31 +84,42 @@ describe("stale auto runtime auth profile selection", () => {
     expect((entry.updatedAt ?? 0) > before).toBe(true);
   });
 
-  it("does not treat runtime-equivalent OpenAI Codex aliases as stale", () => {
+  it("does not treat configured runtime-equivalent CLI aliases as stale", () => {
     const entry: SessionEntry = {
-      sessionId: "sess-openai-codex-alias",
+      sessionId: "sess-cli-runtime-alias",
       updatedAt: Date.now(),
-      modelProvider: "openai-codex",
-      model: "gpt-5.5",
+      modelProvider: "claude-cli",
+      model: "claude-opus-4-7",
       contextTokens: 200_000,
-      authProfileOverride: "openai-codex:default",
+      authProfileOverride: "claude-cli:default",
       authProfileOverrideSource: "auto",
+    };
+    const config = {
+      agents: {
+        defaults: {
+          cliBackends: {
+            "claude-cli": { command: "claude" },
+          },
+        },
+      },
     };
 
     const isStale = hasStaleAutoRuntimeAuthProfileSelection(entry, {
-      provider: "openai",
-      model: "gpt-5.5",
+      provider: "anthropic",
+      model: "claude-opus-4-7",
+      config,
     });
     const result = clearStaleAutoRuntimeAuthProfileSelection(entry, {
-      provider: "openai",
-      model: "gpt-5.5",
+      provider: "anthropic",
+      model: "claude-opus-4-7",
+      config,
     });
 
     expect(isStale).toBe(false);
     expect(result.updated).toBe(false);
-    expect(entry.modelProvider).toBe("openai-codex");
-    expect(entry.model).toBe("gpt-5.5");
-    expect(entry.authProfileOverride).toBe("openai-codex:default");
+    expect(entry.modelProvider).toBe("claude-cli");
+    expect(entry.model).toBe("claude-opus-4-7");
+    expect(entry.authProfileOverride).toBe("claude-cli:default");
   });
 });
 
