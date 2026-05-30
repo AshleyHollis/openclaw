@@ -550,6 +550,88 @@ describe("gateway node pairing authorization", () => {
       }
     });
 
+    test("does not refresh rejected stable node metadata through a legacy pairing match", async () => {
+      const approvedDevice = await pairDeviceIdentity({
+        name: "node-stable-metadata-approved",
+        role: "node",
+        scopes: [],
+        clientId: GATEWAY_CLIENT_NAMES.NODE_HOST,
+        clientMode: GATEWAY_CLIENT_MODES.NODE,
+      });
+      const legacyDevice = await pairDeviceIdentity({
+        name: "node-stable-metadata-legacy",
+        role: "node",
+        scopes: [],
+        clientId: GATEWAY_CLIENT_NAMES.NODE_HOST,
+        clientMode: GATEWAY_CLIENT_MODES.NODE,
+      });
+      const stableNodeId = "stable-node-metadata-spoof-guard";
+      const stableRequest = await requestNodePairing({
+        nodeId: stableNodeId,
+        deviceId: approvedDevice.identity.deviceId,
+        platform: "macos",
+        deviceFamily: "Mac",
+        commands: ["system.which"],
+      });
+      requireApprovedPairing(
+        await approveNodePairing(stableRequest.request.requestId, {
+          callerScopes: ["operator.pairing", "operator.admin"],
+        }),
+      );
+      const legacyRequest = await requestNodePairing({
+        nodeId: legacyDevice.identity.deviceId,
+        deviceId: legacyDevice.identity.deviceId,
+        platform: "macos",
+        deviceFamily: "Mac",
+        commands: ["system.which"],
+      });
+      requireApprovedPairing(
+        await approveNodePairing(legacyRequest.request.requestId, {
+          callerScopes: ["operator.pairing", "operator.admin"],
+        }),
+      );
+
+      const controlWs = await openTrackedWs(started.port);
+      let nodeClient: Awaited<ReturnType<typeof connectGatewayClient>> | undefined;
+      try {
+        await connectOk(controlWs, { token: "secret" });
+        nodeClient = await connectNodeClient({
+          port: started.port,
+          deviceIdentity: legacyDevice.identity,
+          instanceId: stableNodeId,
+          commands: ["system.which"],
+        });
+
+        await vi.waitFor(async () => {
+          const list = await rpcReq<{
+            nodes?: Array<{ nodeId: string; connected?: boolean; commands?: string[] }>;
+          }>(controlWs, "node.list", {});
+          const stableNode = list.payload?.nodes?.find((entry) => entry.nodeId === stableNodeId);
+          const legacyNode = list.payload?.nodes?.find(
+            (entry) => entry.nodeId === legacyDevice.identity.deviceId,
+          );
+          if (
+            stableNode?.connected !== true &&
+            legacyNode?.connected === true &&
+            legacyNode.commands?.includes("system.which")
+          ) {
+            return;
+          }
+          throw new Error(`legacy-matched spoof not isolated yet: ${JSON.stringify(list.payload)}`);
+        });
+
+        await vi.waitFor(async () => {
+          const pairedLegacyNode = await getPairedNode(legacyDevice.identity.deviceId);
+          expect(pairedLegacyNode?.lastConnectedAtMs).toBeDefined();
+        });
+        const pairedStableNode = await getPairedNode(stableNodeId);
+        expect(pairedStableNode?.lastConnectedAtMs).toBeUndefined();
+      } finally {
+        controlWs.close();
+        await nodeClient?.stopAndWait();
+      }
+    });
+
     test("deauthorizes a stale stable session when approval moves to another device", async () => {
       const approvedDevice = await pairDeviceIdentity({
         name: "node-stable-rebind-approved",
