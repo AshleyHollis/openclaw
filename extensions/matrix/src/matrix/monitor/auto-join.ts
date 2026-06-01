@@ -59,28 +59,30 @@ export function registerMatrixAutoJoin(params: {
     return resolved.filter((roomId): roomId is string => Boolean(roomId));
   };
 
+  const handleInvite = async (roomId: string): Promise<void> => {
+    if (autoJoin === "allowlist") {
+      const allowedAliasRoomIds = await resolveAllowedAliasRoomIds();
+      const allowed =
+        autoJoinAllowlist.has("*") ||
+        allowedRoomIds.has(roomId) ||
+        allowedAliasRoomIds.some((resolvedRoomId) => resolvedRoomId === roomId);
+
+      if (!allowed) {
+        logVerbose(`matrix: invite ignored (not in allowlist) room=${roomId}`);
+        return;
+      }
+    }
+
+    try {
+      await client.joinRoom(roomId);
+      logVerbose(`matrix: joined room ${roomId}`);
+    } catch (err) {
+      runtime.error?.(`matrix: failed to join room ${roomId}: ${String(err)}`);
+    }
+  };
+
   // Handle invites directly so both "always" and "allowlist" modes share the same path.
   client.on("room.invite", (roomId: string, _inviteEvent: unknown) => {
-    void (async () => {
-      if (autoJoin === "allowlist") {
-        const allowedAliasRoomIds = await resolveAllowedAliasRoomIds();
-        const allowed =
-          autoJoinAllowlist.has("*") ||
-          allowedRoomIds.has(roomId) ||
-          allowedAliasRoomIds.some((resolvedRoomId) => resolvedRoomId === roomId);
-
-        if (!allowed) {
-          logVerbose(`matrix: invite ignored (not in allowlist) room=${roomId}`);
-          return;
-        }
-      }
-
-      try {
-        await client.joinRoom(roomId);
-        logVerbose(`matrix: joined room ${roomId}`);
-      } catch (err) {
-        runtime.error?.(`matrix: failed to join room ${roomId}: ${String(err)}`);
-      }
-    })();
+    void handleInvite(roomId);
   });
 }
