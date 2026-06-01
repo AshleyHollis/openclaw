@@ -3,7 +3,17 @@
  * Responses. The HTTP boundary uses this narrow shape so both endpoints enforce
  * caller-supplied client-tool requirements the same way.
  */
-export type ToolChoiceConstraint = { type: "required" } | { type: "function"; name: string };
+export type ToolChoiceConstraint =
+  | {
+      /** Any structured client-tool call satisfies the request. */
+      type: "required";
+    }
+  | {
+      /** A specific structured client-tool call must be produced. */
+      type: "function";
+      /** OpenAI tool/function name required by the caller. */
+      name: string;
+    };
 
 /**
  * Produces the system-prompt nudge paired with endpoint-level validation.
@@ -22,7 +32,9 @@ export function toolChoiceConstraintPrompt(constraint: ToolChoiceConstraint): st
  * functions require a name match so callers can reject non-compliant turns.
  */
 export function isToolChoiceConstraintSatisfied(params: {
+  /** Active caller constraint, or undefined when tool_choice does not require a call. */
   constraint: ToolChoiceConstraint | undefined;
+  /** Structured client-tool calls collected from the agent turn. */
   pendingToolCalls: ReadonlyArray<{ name: string }> | undefined;
 }): boolean {
   const { constraint, pendingToolCalls } = params;
