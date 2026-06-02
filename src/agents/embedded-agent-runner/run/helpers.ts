@@ -18,6 +18,7 @@ type UsageSnapshot = {
 
 export type RuntimeAuthState = {
   generation: number;
+  /** Original credential used to mint short-lived runtime credentials. */
   sourceApiKey: string;
   authMode: string;
   profileId?: string;
@@ -107,6 +108,10 @@ export function resolveActiveErrorContext(params: {
   return resolveReportedModelRef(params);
 }
 
+/**
+ * Returns whether an assistant response belongs to the reported provider/model
+ * after applying embedded-harness normalization.
+ */
 export function isAssistantForModelRef(
   assistant: { provider?: string; model?: string } | undefined,
   ref: { provider: string; model: string },
@@ -125,6 +130,11 @@ function isEmbeddedHarnessProvider(provider: string): boolean {
   return provider.trim().toLowerCase() === "openclaw";
 }
 
+/**
+ * Resolves the provider/model pair shown in diagnostics and user-visible error
+ * metadata. Embedded OpenClaw harness responses are transport shims, so they
+ * report the underlying runtime provider/model instead.
+ */
 export function resolveReportedModelRef(params: {
   provider: string;
   model: string;
