@@ -306,6 +306,7 @@ export class PlivoProvider implements VoiceCallProvider {
     return null;
   }
 
+  /** Starts an outbound Plivo call and stores the webhook base needed by later transfer flows. */
   async initiateCall(input: InitiateCallInput): Promise<InitiateCallResult> {
     const webhookUrl = new URL(input.webhookUrl);
     webhookUrl.searchParams.set("provider", "plivo");
@@ -418,6 +419,7 @@ export class PlivoProvider implements VoiceCallProvider {
     });
   }
 
+  /** Queues one speak payload and transfers the call leg so Plivo fetches XML once. */
   async playTts(input: PlayTtsInput): Promise<void> {
     const { callUuid, webhookBase } = this.resolveCallContext({
       providerCallId: input.providerCallId,
@@ -439,6 +441,7 @@ export class PlivoProvider implements VoiceCallProvider {
     });
   }
 
+  /** Queues one listen payload and transfers the call leg to a GetInput XML callback. */
   async startListening(input: StartListeningInput): Promise<void> {
     const { callUuid, webhookBase } = this.resolveCallContext({
       providerCallId: input.providerCallId,
@@ -459,6 +462,7 @@ export class PlivoProvider implements VoiceCallProvider {
     });
   }
 
+  /** No-op because Plivo GetInput ends itself after speech or timeout. */
   async stopListening(_input: StopListeningInput): Promise<void> {
     // GetInput ends automatically when speech ends.
   }
