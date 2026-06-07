@@ -44,6 +44,13 @@ function parseMemoryMiB(raw) {
   return undefined;
 }
 
+function isDockerTerminalZeroMemorySample(raw) {
+  const [used, limit] = String(raw || "")
+    .split("/")
+    .map((part) => part.trim());
+  return parseMemoryMiB(used) === 0 && parseMemoryMiB(limit) === 0;
+}
+
 function parseCpuPercent(raw) {
   const parsed = Number(String(raw || "").replace(/%$/u, ""));
   return Number.isFinite(parsed) ? parsed : undefined;
@@ -78,6 +85,7 @@ async function scanStatsFileLines(file, onLine) {
 let maxObservedMemoryMiB = 0;
 let maxObservedCpuPercent = 0;
 let parsedSamples = 0;
+let skippedTerminalZeroMemorySamples = 0;
 
 assertFiniteLimit(maxMemoryMiB, maxMemoryRaw, "max memory MiB");
 assertFiniteLimit(maxCpuPercent, maxCpuRaw, "max CPU percent");
@@ -89,6 +97,10 @@ await scanStatsFileLines(statsFile, (line) => {
   } catch {
     throw new Error(`docker stats sample for ${label} was not valid JSON`);
   }
+  if (isDockerTerminalZeroMemorySample(parsed.MemUsage)) {
+    skippedTerminalZeroMemorySamples += 1;
+    return;
+  }
   const observedMemoryMiB = parseMemoryMiB(parsed.MemUsage);
   const observedCpuPercent = parseCpuPercent(parsed.CPUPerc);
   assertSampleValue(observedMemoryMiB, parsed.MemUsage, "MemUsage", label);
@@ -99,7 +111,7 @@ await scanStatsFileLines(statsFile, (line) => {
 });
 
 console.log(
-  `${label} resource peak: memory=${maxObservedMemoryMiB.toFixed(1)}MiB cpu=${maxObservedCpuPercent.toFixed(1)}% samples=${parsedSamples}`,
+  `${label} resource peak: memory=${maxObservedMemoryMiB.toFixed(1)}MiB cpu=${maxObservedCpuPercent.toFixed(1)}% samples=${parsedSamples} skippedZeroMemorySamples=${skippedTerminalZeroMemorySamples}`,
 );
 if (parsedSamples === 0) {
   throw new Error(`no docker stats samples captured for ${label}`);

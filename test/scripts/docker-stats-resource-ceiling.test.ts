@@ -96,4 +96,20 @@ describe("scripts/e2e/lib/docker-stats/assert-resource-ceiling.mjs", () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("had non-positive MemUsage");
   });
+
+  it("skips Docker terminal zero-memory samples when positive samples exist", () => {
+    const result = runAssert(
+      writeStats(
+        [
+          '{"MemUsage":"128MiB / 2GiB","CPUPerc":"25.0%"}',
+          '{"MemUsage":"0B / 0B","CPUPerc":"0.0%"}',
+        ].join("\n") + "\n",
+      ),
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("memory=128.0MiB");
+    expect(result.stdout).toContain("samples=1");
+    expect(result.stdout).toContain("skippedZeroMemorySamples=1");
+  });
 });
