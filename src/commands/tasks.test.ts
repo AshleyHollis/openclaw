@@ -134,7 +134,7 @@ describe("tasks commands", () => {
     await withTaskCommandStateDir(async () => {
       const now = Date.now();
       vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(now - 40 * 60_000);
+      vi.setSystemTime(now);
       createTaskRecord({
         runtime: "cli",
         ownerKey: "agent:main:main",
@@ -247,7 +247,7 @@ describe("tasks commands", () => {
     await withTaskCommandStateDir(async (state) => {
       const now = Date.now();
       vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(now - 45 * 60_000);
+      vi.setSystemTime(now);
       const childSessionKey = "agent:main:subagent:child-retained";
       const task = createTaskRecord({
         runtime: "subagent",
@@ -306,7 +306,7 @@ describe("tasks commands", () => {
     await withTaskCommandStateDir(async (state) => {
       const now = Date.now();
       vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(now - 45 * 60_000);
+      vi.setSystemTime(now);
       const childSessionKey = "agent:main:cron:done-job:run:old-run";
       const task = createTaskRecord({
         runtime: "subagent",
