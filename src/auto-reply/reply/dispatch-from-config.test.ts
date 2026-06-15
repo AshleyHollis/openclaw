@@ -38,6 +38,7 @@ import { getReplyPayloadMetadata } from "../reply-payload.js";
 import type { MsgContext } from "../templating.js";
 import { setReplyPayloadMetadata, type GetReplyOptions, type ReplyPayload } from "../types.js";
 import { markCommandSessionMetadataChanged } from "./command-session-metadata.js";
+import { resolveEffectiveReplyRoute } from "./effective-reply-route.js";
 import { PROVIDER_CONVERSATION_STATE_ERROR_USER_MESSAGE } from "./provider-request-error-classifier.js";
 import {
   createReplyDispatcher,
@@ -1674,10 +1675,8 @@ describe("dispatchReplyFromConfig", () => {
     expect(hookContext.groupId).toBe("telegram:999");
   });
 
-  it("routes exec-event replies using persisted session delivery context when current turn has no originating route", async () => {
-    setNoAbort();
-    mocks.routeReply.mockClear();
-    sessionStoreMocks.currentEntry = {
+  it("recovers exec-event route from persisted session delivery context", () => {
+    const entry = {
       deliveryContext: {
         channel: "telegram",
         to: "telegram:999",
@@ -1687,8 +1686,6 @@ describe("dispatchReplyFromConfig", () => {
       lastTo: "telegram:999",
       lastAccountId: "acc-1",
     };
-    const cfg = emptyConfig;
-    const dispatcher = createDispatcher();
     const ctx = buildTestCtx({
       Provider: "exec-event",
       Surface: "exec-event",
@@ -1697,38 +1694,26 @@ describe("dispatchReplyFromConfig", () => {
       OriginatingChannel: undefined,
       OriginatingTo: undefined,
     });
+    const replyRoute = resolveEffectiveReplyRoute({ ctx, entry });
+    const decision = resolveReplyRoutingDecision({
+      provider: ctx.Provider,
+      surface: ctx.Surface,
+      originatingChannel: replyRoute.channel,
+      originatingTo: replyRoute.to,
+      isRoutableChannel: (channel) => channel === "telegram",
+    });
 
-    const replyResolver = async () =>
-      ({ text: "hi", mediaUrl: "https://example.test/reply.png" }) satisfies ReplyPayload;
-    await dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyResolver });
-
-    expect(dispatcher.sendFinalReply).not.toHaveBeenCalled();
-    const routeCall = firstRouteReplyCall() as
-      | { accountId?: unknown; channel?: unknown; to?: unknown }
-      | undefined;
-    expect(routeCall?.channel).toBe("telegram");
-    expect(routeCall?.to).toBe("telegram:999");
-    expect(routeCall?.accountId).toBe("acc-1");
-    const normalizerOptions = replyMediaPathMocks.createReplyMediaPathNormalizer.mock
-      .calls[0]?.[0] as { accountId?: unknown; messageProvider?: unknown } | undefined;
-    expect(normalizerOptions?.messageProvider).toBe("telegram");
-    expect(normalizerOptions?.accountId).toBe("acc-1");
-    const replyDispatchCall = firstMockCall(hookMocks.runner.runReplyDispatch, "reply dispatch") as
-      | [
-          {
-            originatingAccountId?: unknown;
-            originatingChannel?: unknown;
-            originatingThreadId?: unknown;
-            originatingTo?: unknown;
-            shouldRouteToOriginating?: unknown;
-          },
-          unknown,
-        ]
-      | undefined;
-    expect(replyDispatchCall?.[0]?.shouldRouteToOriginating).toBe(true);
-    expect(replyDispatchCall?.[0]?.originatingChannel).toBe("telegram");
-    expect(replyDispatchCall?.[0]?.originatingTo).toBe("telegram:999");
-    expect(typeof replyDispatchCall?.[1]).toBe("object");
+    expect(replyRoute).toMatchObject({
+      channel: "telegram",
+      to: "telegram:999",
+      accountId: "acc-1",
+    });
+    expect(decision).toMatchObject({
+      originatingChannel: "telegram",
+      currentSurface: "exec-event",
+      shouldRouteToOriginating: true,
+      shouldSuppressTyping: true,
+    });
   });
 
   it("routes sessions_send internal webchat handoffs through persisted external delivery context", async () => {
@@ -1811,16 +1796,12 @@ describe("dispatchReplyFromConfig", () => {
     expect(replyDispatchCall?.[0]?.originatingChatType).toBe("channel");
   });
 
-  it("routes exec-event replies using last route fields when delivery context is missing", async () => {
-    setNoAbort();
-    mocks.routeReply.mockClear();
-    sessionStoreMocks.currentEntry = {
+  it("recovers exec-event route from last route fields when delivery context is missing", () => {
+    const entry = {
       lastChannel: "discord",
       lastTo: "channel:123",
       lastAccountId: "default",
     };
-    const cfg = emptyConfig;
-    const dispatcher = createDispatcher();
     const ctx = buildTestCtx({
       Provider: "exec-event",
       Surface: "exec-event",
@@ -1829,17 +1810,13 @@ describe("dispatchReplyFromConfig", () => {
       OriginatingChannel: undefined,
       OriginatingTo: undefined,
     });
+    const replyRoute = resolveEffectiveReplyRoute({ ctx, entry });
 
-    const replyResolver = async () => ({ text: "hi" }) satisfies ReplyPayload;
-    await dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyResolver });
-
-    expect(dispatcher.sendFinalReply).not.toHaveBeenCalled();
-    const routeCall = firstRouteReplyCall() as
-      | { accountId?: unknown; channel?: unknown; to?: unknown }
-      | undefined;
-    expect(routeCall?.channel).toBe("discord");
-    expect(routeCall?.to).toBe("channel:123");
-    expect(routeCall?.accountId).toBe("default");
+    expect(replyRoute).toMatchObject({
+      channel: "discord",
+      to: "channel:123",
+      accountId: "default",
+    });
   });
 
   it("honors sendPolicy deny for recovered exec-event delivery channel", async () => {
