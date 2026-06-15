@@ -491,9 +491,22 @@ function createReplyDispatchEvent(
   }) as PluginHookReplyDispatchEvent;
 }
 
+function replyPayloadHasTranscriptOwner(payload: ReplyPayload): boolean {
+  const payloadMetadata = getReplyPayloadMetadata(payload);
+  return (
+    payloadMetadata?.assistantMessageIndex !== undefined ||
+    payloadMetadata?.assistantTranscriptOwned === true
+  );
+}
+
+function resolveRoutedFinalDeliveryMirrorOption(payload: ReplyPayload): { mirror?: false } {
+  return replyPayloadHasTranscriptOwner(payload) ? { mirror: false } : {};
+}
+
 /** Test-only hooks for overriding selected dispatch dependencies. */
 export const testing = {
   createReplyDispatchEvent,
+  resolveRoutedFinalDeliveryMirrorOption,
 };
 
 function resolveHarnessDefaultChannel(params: {
@@ -2320,9 +2333,6 @@ export async function dispatchReplyFromConfig(
             storePath: sourceReplySessionBinding?.storePath ?? sessionStoreEntry.storePath,
           }
         : undefined;
-      const hasTranscriptOwner =
-        payloadMetadata?.assistantMessageIndex !== undefined ||
-        payloadMetadata?.assistantTranscriptOwned === true;
       const hasVisibleFinalContent = hasOutboundReplyContent(payload, { trimText: true });
       if (hasVisibleFinalContent) {
         markInboundDedupeReplayUnsafe();
@@ -2344,7 +2354,7 @@ export async function dispatchReplyFromConfig(
       const result = await routeReplyToOriginating(normalizedPayload, {
         abortSignal,
         kind: "final",
-        ...(hasTranscriptOwner ? { mirror: false } : {}),
+        ...resolveRoutedFinalDeliveryMirrorOption(normalizedPayload),
       });
       if (result) {
         if (!result.ok) {
@@ -2374,7 +2384,7 @@ export async function dispatchReplyFromConfig(
       );
       const transcriptMirror =
         sourceReplyTranscriptMirror ??
-        (!hasTranscriptOwner &&
+        (!replyPayloadHasTranscriptOwner(normalizedPayload) &&
         normalizedCurrentSurface === "slack" &&
         hasVisibleFinalContent &&
         transcriptMirrorSessionKey
