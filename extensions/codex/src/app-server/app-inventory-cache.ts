@@ -211,17 +211,32 @@ export class CodexAppInventoryCache {
         message: sanitizeErrorMessage(error instanceof Error ? error.message : String(error)),
         atMs: nowMs,
       };
-      this.diagnostics.set(params.key, diagnostic);
+      const shouldPublish = this.refreshTokens.get(params.key) === refreshToken;
       const entry = this.entries.get(params.key);
-      if (entry) {
-        entry.lastError = diagnostic;
+      if (shouldPublish) {
+        this.revision += 1;
+        this.diagnostics.set(params.key, diagnostic);
+        if (entry) {
+          entry.lastError = diagnostic;
+          entry.invalidated = true;
+          entry.revision = this.revision;
+        }
       }
       embeddedAgentLog.warn("codex app inventory refresh failed", {
         forceRefetch: params.forceRefetch === true,
         keyFingerprint: fingerprintInventoryCacheKey(params.key),
         error: serializeCodexAppInventoryError(error),
       });
-      throw error;
+      return (
+        (entry && stripEntryState(entry)) ?? {
+          key: params.key,
+          apps: [],
+          fetchedAtMs: nowMs,
+          expiresAtMs: 0,
+          revision: this.revision,
+          ...(shouldPublish ? { lastError: diagnostic } : {}),
+        }
+      );
     }
   }
 }

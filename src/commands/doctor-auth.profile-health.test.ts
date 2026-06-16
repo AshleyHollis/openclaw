@@ -3,21 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AuthProfileStore } from "../agents/auth-profiles.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { DoctorPrompter } from "./doctor-prompter.js";
 
 const authProfileMocks = vi.hoisted(() => ({
   ensureAuthProfileStore: vi.fn<
-    (
-      agentDir?: string,
-      options?: { allowKeychainPrompt?: boolean },
-    ) => {
-      version: number;
-      profiles: Record<
-        string,
-        { type: "oauth"; provider: string; access: string; refresh: string; expires: number }
-      >;
-    }
+    (agentDir?: string, options?: { allowKeychainPrompt?: boolean }) => AuthProfileStore
   >(() => {
     throw new Error("unexpected auth profile load");
   }),
@@ -81,6 +73,32 @@ describe("noteAuthProfileHealth", () => {
       },
     };
   }
+
+  function openaiStore(params: { orderedProfileId: string; staleProfileId: string; now: number }) {
+    return {
+      version: 1,
+      order: {
+        openai: [params.orderedProfileId],
+      },
+      profiles: {
+        [params.orderedProfileId]: {
+          type: "oauth" as const,
+          provider: "openai",
+          access: "healthy-access",
+          refresh: "healthy-refresh",
+          expires: params.now + 7 * 24 * 60 * 60 * 1_000,
+        },
+        [params.staleProfileId]: {
+          type: "oauth" as const,
+          provider: "openai",
+          access: "stale-access",
+          refresh: "stale-refresh",
+          expires: params.now - 60_000,
+        },
+      },
+    };
+  }
+
   it("skips external auth profile resolution when no auth source exists", async () => {
     await noteAuthProfileHealth({
       cfg: { channels: { telegram: { enabled: true } } } as OpenClawConfig,
@@ -241,6 +259,40 @@ describe("noteAuthProfileHealth", () => {
         agentDir: coderDir,
         profileId: "openai-codex:coder",
       }),
+    );
+  });
+
+  it("does not warn or refresh stale OpenAI profiles outside the effective order", async () => {
+    const now = 1_700_000_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const mainDir = path.join(tempDir, "main-agent");
+    authProfileMocks.hasAnyAuthProfileStoreSource.mockImplementation(
+      (agentDir) => agentDir === mainDir,
+    );
+    authProfileMocks.ensureAuthProfileStore.mockReturnValue(
+      openaiStore({
+        orderedProfileId: "openai:hanyizuo",
+        staleProfileId: "openai:default",
+        now,
+      }),
+    );
+
+    await noteAuthProfileHealth({
+      cfg: {
+        agents: {
+          list: [{ id: "main", default: true, agentDir: mainDir }],
+        },
+      } as OpenClawConfig,
+      prompter: {
+        confirmAutoFix: vi.fn(async () => true),
+      } as unknown as DoctorPrompter,
+      allowKeychainPrompt: false,
+    });
+
+    expect(authProfileMocks.resolveApiKeyForProfile).not.toHaveBeenCalled();
+    expect(noteMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("openai:default"),
+      "Model auth",
     );
   });
 });

@@ -307,13 +307,15 @@ async function noteAuthProfileHealthForTarget(params: {
   });
 
   const findIssues = () =>
-    summary.profiles.filter(
-      (profile) =>
-        (profile.type === "oauth" || profile.type === "token") &&
-        (profile.status === "expired" ||
-          profile.status === "expiring" ||
-          profile.status === "missing"),
-    );
+    summary.providers
+      .flatMap((provider) => provider.effectiveProfiles ?? provider.profiles)
+      .filter(
+        (profile) =>
+          (profile.type === "oauth" || profile.type === "token") &&
+          (profile.status === "expired" ||
+            profile.status === "expiring" ||
+            profile.status === "missing"),
+      );
 
   let issues = findIssues();
   if (issues.length === 0) {

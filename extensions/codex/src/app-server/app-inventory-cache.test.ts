@@ -98,7 +98,7 @@ describe("Codex app inventory cache", () => {
     expect(read.snapshot?.apps.map((item) => item.id)).toEqual(["app-overflow"]);
   });
 
-  it("records refresh errors without discarding the last successful snapshot", async () => {
+  it("returns stale snapshots with diagnostics when refresh fails", async () => {
     const cache = new CodexAppInventoryCache({ ttlMs: 1 });
     const key = "runtime";
     await cache.refreshNow({
@@ -107,16 +107,16 @@ describe("Codex app inventory cache", () => {
       request: async () => ({ data: [app("app-1")], nextCursor: null }),
     });
 
-    await expect(
-      cache.refreshNow({
-        key,
-        nowMs: 2,
-        request: async () => {
-          throw new Error("app list failed");
-        },
-      }),
-    ).rejects.toThrow("app list failed");
+    const failed = await cache.refreshNow({
+      key,
+      nowMs: 2,
+      request: async () => {
+        throw new Error("app list failed");
+      },
+    });
 
+    expect(failed.apps.map((item) => item.id)).toEqual(["app-1"]);
+    expect(failed.lastError?.message).toBe("app list failed");
     const read = cache.read({
       key,
       nowMs: 2,
@@ -124,6 +124,72 @@ describe("Codex app inventory cache", () => {
     });
     expect(read.snapshot?.apps.map((item) => item.id)).toEqual(["app-1"]);
     expect(read.diagnostic?.message).toBe("app list failed");
+  });
+
+  it("returns an empty diagnostic snapshot when initial refresh fails", async () => {
+    const cache = new CodexAppInventoryCache({ ttlMs: 1 });
+    const key = "runtime";
+
+    const failed = await cache.refreshNow({
+      key,
+      nowMs: 2,
+      request: async () => {
+        throw new Error("app list failed");
+      },
+    });
+
+    expect(failed).toStrictEqual({
+      key,
+      apps: [],
+      fetchedAtMs: 2,
+      expiresAtMs: 0,
+      revision: 1,
+      lastError: {
+        message: "app list failed",
+        atMs: 2,
+      },
+    });
+    const read = cache.read({
+      key,
+      nowMs: 2,
+      suppressRefresh: true,
+      request: async () => ({ data: [app("app-2")], nextCursor: null }),
+    });
+    expect(read.state).toBe("missing");
+    expect(read.diagnostic?.message).toBe("app list failed");
+  });
+
+  it("does not let an older failed refresh invalidate a newer forced snapshot", async () => {
+    const cache = new CodexAppInventoryCache({ ttlMs: 1_000 });
+    const key = "runtime";
+    let rejectStale: ((error: Error) => void) | undefined;
+    let resolveFresh: ((response: v2.AppsListResponse) => void) | undefined;
+    const request = vi.fn(
+      async (_method: "app/list", _params: v2.AppsListParams): Promise<v2.AppsListResponse> => {
+        return await new Promise((resolve, reject) => {
+          if (request.mock.calls.length === 1) {
+            rejectStale = reject;
+          } else {
+            resolveFresh = resolve;
+          }
+        });
+      },
+    );
+
+    const stale = cache.refreshNow({ key, request, nowMs: 0 });
+    const fresh = cache.refreshNow({ key, request, nowMs: 1, forceRefetch: true });
+    resolveFresh?.({ data: [app("fresh-app")], nextCursor: null });
+    const freshSnapshot = await fresh;
+    expect(freshSnapshot.apps).toEqual([app("fresh-app")]);
+    expect(freshSnapshot.lastError).toBeUndefined();
+
+    rejectStale?.(new Error("stale app list failed"));
+    await stale;
+
+    const read = cache.read({ key, request, nowMs: 2, suppressRefresh: true });
+    expect(read.state).toBe("fresh");
+    expect(read.snapshot?.apps.map((item) => item.id)).toEqual(["fresh-app"]);
+    expect(read.diagnostic).toBeUndefined();
   });
 
   it("omits challenge HTML when serializing app/list errors", () => {
