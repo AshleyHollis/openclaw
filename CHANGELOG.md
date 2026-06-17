@@ -2,6 +2,12 @@
 
 Docs: https://docs.openclaw.ai
 
+## 2026.6.9-alpha.6
+
+### Fixes
+
+- Stabilize the alpha package train by preserving Codex app-server bindings, refreshing generated plugin metadata, and aligning channel and runtime validation fixtures for release gates.
+
 ## 2026.6.8
 
 ### Highlights
