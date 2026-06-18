@@ -1,0 +1,13 @@
+{
+  "id": "snapshot",
+  "name": "Snapshot",
+  "description": "Creates and verifies SQLite-safe OpenClaw state snapshots.",
+  "activation": {
+    "onStartup": false
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
