@@ -4,7 +4,7 @@ import path from "node:path";
 import {
   createVacuumedSqliteSnapshot,
   verifySqliteDatabaseIntegrity,
-} from "@openclaw/memory-host-sdk/engine-storage";
+} from "../../packages/memory-host-sdk/src/engine-storage.js";
 import {
   buildSnapshotArtifact,
   readSnapshotManifest,
