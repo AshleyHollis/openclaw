@@ -2,6 +2,7 @@
 // across providers, so channel-keyed fields do not reference a now-inactive channel.
 import { describe, expect, it } from "vitest";
 import type { MsgContext } from "../../auto-reply/templating.js";
+import { buildChannelInboundEventContext } from "../../channels/inbound-event/context.js";
 import { deriveSessionMetaPatch } from "./metadata.js";
 import type { SessionEntry } from "./types.js";
 
@@ -92,5 +93,67 @@ describe("session origin across a channel switch", () => {
     // Same provider: the established channel id and thread are retained when omitted.
     expect(afterFollowUp.origin?.nativeChannelId).toBe("D111SLACK");
     expect(afterFollowUp.origin?.threadId).toBe("1700000000.000100");
+  });
+});
+
+// Drive the production inbound-event context builder so the bug premise itself is proven, not
+// assumed: a Slack DM turn populates ctx.NativeChannelId (from conversation.nativeChannelId), a
+// Telegram DM turn omits it, and the same derivation path runs that real context.
+function buildDirectTurn(opts: {
+  provider: string;
+  from: string;
+  to: string;
+  accountId: string;
+  conversationId: string;
+  nativeChannelId?: string;
+}): MsgContext {
+  return buildChannelInboundEventContext({
+    channel: opts.provider,
+    provider: opts.provider,
+    surface: opts.provider,
+    accountId: opts.accountId,
+    messageId: "m-1",
+    from: opts.from,
+    sender: { id: opts.from },
+    conversation: {
+      kind: "direct",
+      id: opts.conversationId,
+      ...(opts.nativeChannelId ? { nativeChannelId: opts.nativeChannelId } : {}),
+    },
+    route: { agentId: "main", accountId: opts.accountId, routeSessionKey: sessionKey },
+    reply: { to: opts.to },
+    message: { rawBody: "hi" },
+  }) as MsgContext;
+}
+
+describe("session origin across a channel switch (real inbound-event context builder)", () => {
+  const slackCtx = buildDirectTurn({
+    provider: "slack",
+    from: "slack:U0001",
+    to: "slack:D111SLACK",
+    accountId: "slack-team-1",
+    conversationId: "D111SLACK",
+    nativeChannelId: "D111SLACK",
+  });
+  const telegramCtx = buildDirectTurn({
+    provider: "telegram",
+    from: "telegram:42",
+    to: "telegram:42",
+    accountId: "telegram-bot-1",
+    conversationId: "42",
+  });
+
+  it("confirms the premise: Slack DM context supplies NativeChannelId, Telegram DM context omits it", () => {
+    expect(slackCtx.NativeChannelId).toBe("D111SLACK");
+    expect(telegramCtx.NativeChannelId).toBeUndefined();
+  });
+
+  it("resets the stale Slack channel id after a real-context Slack->Telegram switch", () => {
+    const afterSlack = applyOrigin(undefined, slackCtx);
+    expect(afterSlack.origin?.nativeChannelId).toBe("D111SLACK");
+
+    const afterTelegram = applyOrigin(afterSlack, telegramCtx);
+    expect(afterTelegram.origin?.provider).toBe("telegram");
+    expect(afterTelegram.origin?.nativeChannelId).toBeUndefined();
   });
 });
