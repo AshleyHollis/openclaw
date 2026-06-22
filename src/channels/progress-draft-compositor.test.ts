@@ -103,7 +103,10 @@ describe("createChannelProgressDraftCompositor", () => {
         allowAfterFinal: true,
       }),
     ).toBe(true);
-    expect(update).toHaveBeenCalledWith("Shelling\n\n💨Fast: auto-on", { flush: true });
+    expect(update).toHaveBeenCalledWith("Shelling\n\n💨Fast: auto-on", {
+      flush: true,
+      lines: ["💨Fast: auto-on"],
+    });
   });
 
   it("composes reasoning deltas with tool progress", async () => {

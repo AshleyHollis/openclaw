@@ -402,13 +402,6 @@ describe("dispatchTelegramMessage draft streaming", () => {
     return { text: html, parseMode: "HTML" as const };
   }
 
-  function telegramProgressPreview(text: string, html: string) {
-    return {
-      text,
-      richMessage: { html: html.replaceAll("\n", "<br>"), skip_entity_detection: true },
-    };
-  }
-
   function createContext(overrides?: Partial<TelegramMessageContext>): TelegramMessageContext {
     const base = {
       ctxPayload: {},
@@ -2637,10 +2630,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(lastUpdate?.text).toContain("install dependencies");
     expect(lastUpdate?.text).not.toContain("completed");
     expect(lastUpdate).toEqual(
-      telegramProgressPreview(
-        "Shelling\n\n🛠️ install dependencies",
-        "<b>Shelling</b>\n<b>🛠️ Exec</b> <code>install dependencies</code>",
-      ),
+      telegramHtmlPreview("<b>Shelling</b><br><b>🛠️ Exec</b> <code>install dependencies</code>"),
     );
   });
 
