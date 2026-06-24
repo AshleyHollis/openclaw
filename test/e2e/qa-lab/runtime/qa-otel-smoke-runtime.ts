@@ -1191,13 +1191,6 @@ async function startDockerOtelCollector(
   const osTmpdir = deps.tmpdir ?? tmpdir;
 
   const collectorPort = await reservePort();
-  let collectorTelemetryPort = await reservePort();
-  for (let attempt = 0; collectorTelemetryPort === collectorPort && attempt < 5; attempt += 1) {
-    collectorTelemetryPort = await reservePort();
-  }
-  if (collectorTelemetryPort === collectorPort) {
-    throw new Error("OpenTelemetry collector telemetry port matched receiver port after retries.");
-  }
   const tempDir = await makeTempDir(path.join(osTmpdir(), "openclaw-otel-collector-"));
   const configPath = path.join(tempDir, "collector.yaml");
   const containerName = `openclaw-otel-smoke-${makeUuid()}`;
@@ -1215,9 +1208,6 @@ exporters:
   otlphttp/openclaw:
     endpoint: ${receiverEndpoint}
 service:
-  telemetry:
-    metrics:
-      address: 127.0.0.1:${collectorTelemetryPort}
   pipelines:
     traces:
       receivers: [otlp]
