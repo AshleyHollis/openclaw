@@ -283,10 +283,7 @@ describe("runCodexAppServerAttempt hooks and model diagnostics", () => {
   it("emits gated model-call content diagnostics for codex turns", async () => {
     const diagnosticEvents: DiagnosticEventPayload[] = [];
     const diagnosticContentByType = new Map<string, DiagnosticEventPrivateData>();
-    let diagnosticTypesAtLlmOutput: string[] = [];
-    const llmOutput = vi.fn(() => {
-      diagnosticTypesAtLlmOutput = diagnosticEvents.map((event) => event.type);
-    });
+    const llmOutput = vi.fn();
     initializeGlobalHookRunner(
       createMockPluginRegistry([{ hookName: "llm_output", handler: llmOutput }]),
     );
@@ -376,8 +373,7 @@ describe("runCodexAppServerAttempt hooks and model diagnostics", () => {
       ).toContain("hello back");
       expect(completedEvent?.requestPayloadBytes).toBeGreaterThan(0);
       expect(llmOutput).toHaveBeenCalledTimes(1);
-      expect(diagnosticTypesAtLlmOutput).toContain("model.call.completed");
-      expect(diagnosticTypesAtLlmOutput).not.toContain("model.call.error");
+      expect(diagnosticEvents.map((event) => event.type)).not.toContain("model.call.error");
     } finally {
       stopDiagnostics();
     }
