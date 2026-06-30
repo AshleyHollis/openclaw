@@ -51,12 +51,8 @@ const log = createSubsystemLogger("provider-transport-fetch");
  *  without Content-Length. */
 const SSE_SYNTHESIZE_JSON_MAX_BYTES = 16 * 1024 * 1024;
 
-/** Max bytes for the internal SSE sanitization buffer between event boundaries.
- *  A single legitimate event (e.g. a large reasoning summary on the chatgpt-responses
- *  API) can far exceed 64 KiB, so bound this at the same 16 MiB ceiling as the
- *  JSON-synthesis path: only a genuinely boundary-less (hostile/broken) stream trips
- *  the guard, not a real large event. */
-const SSE_SANITIZE_BUFFER_MAX_BYTES = 16 * 1024 * 1024;
+/** Max decoded characters buffered while waiting for the next SSE event boundary. */
+const SSE_SANITIZE_BUFFER_MAX_CHARS = 16 * 1024 * 1024;
 
 const BLOCKED_EXACT_ORIGIN_TRUST_HOSTNAME_LABELS = new Set(["instance-data"]);
 const PLAIN_DECIMAL_NUMBER_RE = /^\d+(?:\.\d+)?$/;
@@ -179,9 +175,9 @@ function sanitizeOpenAISdkSseResponse(
     for (;;) {
       const boundary = findSseEventBoundary(buffer);
       if (!boundary) {
-        if (buffer.length > SSE_SANITIZE_BUFFER_MAX_BYTES) {
+        if (buffer.length > SSE_SANITIZE_BUFFER_MAX_CHARS) {
           throw new Error(
-            `SSE response exceeded max buffer size (${SSE_SANITIZE_BUFFER_MAX_BYTES} bytes) without event boundary`,
+            `SSE response exceeded max buffer size (${SSE_SANITIZE_BUFFER_MAX_CHARS} chars) without event boundary`,
           );
         }
         return enqueued;
