@@ -1648,6 +1648,41 @@ describe("diagnostics-otel service", () => {
     }
   });
 
+  test("keeps diagnostic logs out of the trusted security event namespace", async () => {
+    const service = createDiagnosticsOtelService();
+    const ctx = createOtelContext("", {
+      logs: true,
+      logsExporter: "stdout",
+    });
+    const stdout = captureStdoutWrites();
+
+    try {
+      await service.start(ctx);
+      emitDiagnosticEvent({
+        type: "log.record",
+        level: "WARN",
+        message: "plugin diagnostic event",
+        event: "security.tool.execution.blocked",
+        category: "plugin",
+        outcome: "warning",
+        reason: "plugin_diagnostic",
+      });
+      await flushDiagnosticEvents();
+
+      const record = parseSingleStdoutDiagnosticLogLine(stdout.writes);
+      expect(record.eventName).toBe("openclaw.diagnostic.security.tool.execution.blocked");
+      expect(record.attributes).toMatchObject({
+        "otel.event.name": "openclaw.diagnostic.security.tool.execution.blocked",
+        "openclaw.log.event": "security.tool.execution.blocked",
+        "openclaw.signal.type": "log.record",
+      });
+      expect(record.eventName).not.toBe("openclaw.security.tool.execution.blocked");
+    } finally {
+      stdout.spy.mockRestore();
+      await service.stop?.(ctx);
+    }
+  });
+
   test("keeps explicit OTLP log export off stdout", async () => {
     const service = createDiagnosticsOtelService();
     const ctx = createOtelContext(OTEL_TEST_ENDPOINT, {
@@ -1732,6 +1767,7 @@ describe("diagnostics-otel service", () => {
         "log.reason": "spoofed",
         "log.site_id": "spoofed",
         "log.body_redacted": false,
+        "log.category_source": "module",
         ...cappedAttributes,
       },
       code: {
@@ -1749,6 +1785,7 @@ describe("diagnostics-otel service", () => {
       "openclaw.log.reason": "configured",
       "openclaw.log.site_id": "0123456789abcdef",
       "openclaw.signal.type": "log.record",
+      "openclaw.log.category_source": "module",
     });
     expect(emitCall?.attributes?.["openclaw.log.body_redacted"]).toBe(true);
     expect(Object.hasOwn(emitCall?.attributes ?? {}, "openclaw.signal.type")).toBe(true);

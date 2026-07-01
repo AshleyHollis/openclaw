@@ -150,8 +150,10 @@ logs remain queryable without message content. OpenClaw-owned log calls may set
 an explicit low-cardinality event such as `heartbeat.runner.started`; generic
 diagnostic logs fall back to safe category + code-owner + severity semantics and
 carry `openclaw.log.site_id` so repeated call sites can be grouped without
-exporting local file paths. Trusted security records are exported separately
-with `openclaw.signal.type=security.event`,
+exporting local file paths. Logs categorized from module, plugin/feature, name,
+or capability bindings also carry `openclaw.log.category_source` so those
+fallback categories can be audited. Trusted security records are exported
+separately with `openclaw.signal.type=security.event`,
 `eventName=openclaw.security.<action>`, `otel.event.name`, and the structured
 `openclaw.security.*` fields. Labels that look like scoped agent session keys
 are replaced with `unknown`.

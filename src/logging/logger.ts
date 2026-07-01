@@ -114,6 +114,10 @@ type DiagnosticLogSemantics = {
   outcome?: unknown;
   reason?: unknown;
 };
+type DiagnosticLogCategoryCandidate = {
+  value: unknown;
+  source: string;
+};
 type AttachedDiagnosticLogSemantics = {
   fields: DiagnosticLogSemantics;
   proof: string;
@@ -216,6 +220,56 @@ function diagnosticLogEventFromCategory(category: string, level: string): string
   return `${category}.${levelSegment}`;
 }
 
+function normalizeDiagnosticLogCategorySegment(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = sanitizeDiagnosticLogText(value.trim(), MAX_DIAGNOSTIC_LOG_NAME_CHARS)
+    .replace(/[/:]+/gu, ".")
+    .replace(/[^A-Za-z0-9_.:-]+/gu, ".")
+    .replace(/\.+/gu, ".")
+    .replace(/^\.|\.$/gu, "")
+    .toLowerCase();
+  return DIAGNOSTIC_LOG_SEMANTIC_VALUE_RE.test(normalized) ? normalized : undefined;
+}
+
+function firstDiagnosticLogCategoryCandidate(
+  sources: readonly (Record<string, unknown> | undefined)[],
+): DiagnosticLogCategoryCandidate | undefined {
+  for (const source of sources) {
+    if (!source) {
+      continue;
+    }
+    const semanticValue = readDiagnosticLogSemanticValue(source, "category");
+    if (semanticValue !== undefined) {
+      return { value: semanticValue, source: "semantic" };
+    }
+    if (Object.hasOwn(source, "logCategory")) {
+      return { value: source.logCategory, source: "logCategory" };
+    }
+  }
+
+  const bindings = sources[1];
+  if (!bindings) {
+    return undefined;
+  }
+  for (const key of ["subsystem", "module", "name", "capability"]) {
+    if (Object.hasOwn(bindings, key)) {
+      return { value: bindings[key], source: key };
+    }
+  }
+  if (Object.hasOwn(bindings, "feature") && Object.hasOwn(bindings, "plugin")) {
+    return {
+      value: `${String(bindings.plugin)}.${String(bindings.feature)}`,
+      source: "plugin.feature",
+    };
+  }
+  if (Object.hasOwn(bindings, "plugin")) {
+    return { value: bindings.plugin, source: "plugin" };
+  }
+  return undefined;
+}
+
 function normalizeDiagnosticLogEventSegment(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -245,11 +299,22 @@ function normalizeDiagnosticSourcePath(value: unknown): string | undefined {
     return undefined;
   }
   const normalized = value.replace(/\\/gu, "/");
-  for (const marker of ["/src/", "/extensions/", "/packages/", "/ui/", "/docs/"]) {
-    const index = normalized.lastIndexOf(marker);
-    if (index >= 0) {
-      return normalized.slice(index + 1);
+  for (const root of ["src/", "extensions/", "packages/", "ui/", "docs/"]) {
+    if (normalized.startsWith(root)) {
+      return normalized;
     }
+  }
+  const rootMarkerIndex = ["src/", "extensions/", "packages/", "ui/", "docs/"].reduce<
+    number | undefined
+  >((best, root) => {
+    const index = normalized.indexOf(`/${root}`);
+    if (index < 0) {
+      return best;
+    }
+    return best === undefined || index < best ? index : best;
+  }, undefined);
+  if (rootMarkerIndex !== undefined) {
+    return normalized.slice(rootMarkerIndex + 1);
   }
   const basename = path.basename(normalized);
   return basename || undefined;
@@ -735,6 +800,7 @@ function buildDiagnosticLogRecord(logObj: TsLogRecord) {
     }
     return undefined;
   };
+  const categoryCandidate = firstDiagnosticLogCategoryCandidate(semanticSources);
   const firstReasonCodeValue = (keys: readonly string[]) => {
     for (const source of semanticSources) {
       if (!source) {
@@ -753,10 +819,22 @@ function buildDiagnosticLogRecord(logObj: TsLogRecord) {
     return undefined;
   };
   const logLevelName = meta?.logLevelName ?? "INFO";
-  const category = normalizeDiagnosticLogSemanticValue(
-    firstSemanticSourceValue("category", ["logCategory"]) ?? bindings?.subsystem,
-    "unknown",
-  );
+  const category =
+    normalizeDiagnosticLogCategorySegment(categoryCandidate?.value) ??
+    normalizeDiagnosticLogSemanticValue(categoryCandidate?.value, "unknown");
+  if (
+    categoryCandidate?.source &&
+    categoryCandidate.source !== "semantic" &&
+    categoryCandidate.source !== "subsystem" &&
+    categoryCandidate.source !== "logCategory"
+  ) {
+    assignDiagnosticLogAttribute(
+      attributes,
+      attributeState,
+      "log.category_source",
+      categoryCandidate.source,
+    );
+  }
   const event = normalizeDiagnosticLogSemanticValue(
     firstSemanticSourceValue("event", ["logEvent"]),
     diagnosticLogEventFromCode(category, logLevelName, code),
@@ -1079,6 +1157,7 @@ export function resetLogger() {
 }
 
 export const testApi = {
+  normalizeDiagnosticSourcePath,
   resolveActiveLogFile,
   setHostnameResolverForTests: (resolver?: HostnameResolver) => {
     hostnameResolver = resolver ?? defaultHostnameResolver;

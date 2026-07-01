@@ -1141,6 +1141,18 @@ function openClawOtelEventName(event: string, fallback: string): string {
   return `openclaw.${normalized}`;
 }
 
+function openClawDiagnosticLogEventName(event: string): string {
+  const normalized = lowCardinalityAttr(
+    event.startsWith("openclaw.") ? event.slice("openclaw.".length) : event,
+    "log.record",
+  );
+  const eventSegment =
+    normalized === "security" || normalized.startsWith("security.")
+      ? `diagnostic.${normalized}`
+      : normalized;
+  return `openclaw.${eventSegment}`;
+}
+
 function normalizeTraceContext(value: unknown): DiagnosticTraceContext | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
@@ -2021,7 +2033,7 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
           const severityNumber = logSeverityMap[logLevelName] ?? (9 as SeverityNumber);
           const captureLogBody = shouldCaptureOtelLogBody(contentCapturePolicy);
           const logEvent = lowCardinalityAttr(evt.event, "log.record");
-          const eventName = openClawOtelEventName(logEvent, "log.record");
+          const eventName = openClawDiagnosticLogEventName(logEvent);
           const body = captureLogBody
             ? normalizeOtelLogString(evt.message || "log", MAX_OTEL_LOG_BODY_CHARS)
             : REDACTED_OTEL_LOG_BODY;

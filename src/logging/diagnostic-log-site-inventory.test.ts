@@ -5,9 +5,26 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const PRODUCTION_ROOTS = ["src", "extensions/diagnostics-otel"] as const;
+const BROAD_PRODUCTION_ROOTS = ["src", "extensions", "packages", "ui"] as const;
 const LOG_METHODS = new Set(["trace", "debug", "info", "warn", "error", "fatal", "raw"]);
-const TEST_FILE_RE = /(?:\.test|\.spec|\.d)\.ts$/u;
-const EXCLUDED_DIRS = new Set([".git", "dist", "build", "node_modules"]);
+const TEST_FILE_RE = /(?:\.test|\.spec|\.d)\.tsx?$/u;
+const EXCLUDED_DIRS = new Set([
+  ".artifacts",
+  ".git",
+  ".turbo",
+  "build",
+  "coverage",
+  "dist",
+  "fixtures",
+  "node_modules",
+]);
+const TS_SOURCE_FILE_RE = /\.tsx?$/u;
+const SUBSYSTEM_LOGGER_RE = /\bcreateSubsystemLogger\s*\(/gu;
+const CHILD_LOGGER_RE = /\bgetChildLogger\s*\(/gu;
+const EXPLICIT_LOG_EVENT_RE = /\blogEvent\s*:\s*["']/gu;
+const TRUSTED_SECURITY_EVENT_RE = /\bemitTrustedSecurityEvent\s*\(/gu;
+const INJECTED_LOGGER_CALL_RE =
+  /\b(?:api|ctx|params|this)?\.?logger\.(?:trace|debug|info|warn|error|fatal)\s*\(/gu;
 
 type KnownSubsystemLogCall = {
   file: string;
@@ -38,11 +55,52 @@ function walkTsFiles(dir: string, out: string[] = []): string[] {
       walkTsFiles(entryPath, out);
       continue;
     }
-    if (entry.isFile() && entryPath.endsWith(".ts") && !TEST_FILE_RE.test(entryPath)) {
+    if (entry.isFile() && TS_SOURCE_FILE_RE.test(entryPath) && !TEST_FILE_RE.test(entryPath)) {
       out.push(entryPath.replace(/\\/gu, "/"));
     }
   }
   return out;
+}
+
+function countMatches(sourceText: string, pattern: RegExp): number {
+  return Array.from(sourceText.matchAll(pattern)).length;
+}
+
+function inventoryBroadDiagnosticLogSources(): {
+  files: number;
+  subsystemLoggerFactories: number;
+  childLoggerFactories: number;
+  injectedLoggerCalls: number;
+  explicitLogEvents: number;
+  trustedSecurityEventEmitters: number;
+} {
+  const totals = {
+    files: 0,
+    subsystemLoggerFactories: 0,
+    childLoggerFactories: 0,
+    injectedLoggerCalls: 0,
+    explicitLogEvents: 0,
+    trustedSecurityEventEmitters: 0,
+  };
+
+  for (const file of BROAD_PRODUCTION_ROOTS.flatMap((root) => walkTsFiles(root))) {
+    if (!TS_SOURCE_FILE_RE.test(file)) {
+      continue;
+    }
+    const sourceText = fs.readFileSync(file, "utf8");
+    totals.files += 1;
+    totals.subsystemLoggerFactories += countMatches(sourceText, SUBSYSTEM_LOGGER_RE);
+    totals.childLoggerFactories += countMatches(sourceText, CHILD_LOGGER_RE);
+    totals.injectedLoggerCalls += countMatches(sourceText, INJECTED_LOGGER_CALL_RE);
+    totals.explicitLogEvents += countMatches(sourceText, EXPLICIT_LOG_EVENT_RE);
+    totals.trustedSecurityEventEmitters += countMatches(sourceText, TRUSTED_SECURITY_EVENT_RE);
+  }
+
+  // Drop the create/export function declarations; this test tracks emitted log sources.
+  totals.subsystemLoggerFactories -= 1;
+  totals.childLoggerFactories -= 1;
+  totals.trustedSecurityEventEmitters -= 1;
+  return totals;
 }
 
 function propName(name: ts.Node | undefined): string | undefined {
@@ -213,5 +271,16 @@ describe("diagnostic OTEL log site inventory", () => {
         "tasks/registry",
       ]),
     );
+  });
+
+  it("keeps the broad OpenClaw logger source census visible", () => {
+    const inventory = inventoryBroadDiagnosticLogSources();
+
+    expect(inventory.files).toBeGreaterThanOrEqual(9_000);
+    expect(inventory.subsystemLoggerFactories).toBeGreaterThanOrEqual(220);
+    expect(inventory.childLoggerFactories).toBeGreaterThanOrEqual(45);
+    expect(inventory.injectedLoggerCalls).toBeGreaterThanOrEqual(400);
+    expect(inventory.explicitLogEvents).toBeGreaterThanOrEqual(14);
+    expect(inventory.trustedSecurityEventEmitters).toBeGreaterThanOrEqual(7);
   });
 });
