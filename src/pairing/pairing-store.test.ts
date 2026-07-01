@@ -620,7 +620,7 @@ describe("pairing store", () => {
     });
   });
 
-  it("refuses to clobber the allowFrom store when the base file is present-but-unreadable", async () => {
+  it("refuses to clobber the allowFrom store when the warm-cached base file is unreadable", async () => {
     await withTempStateDir(async (stateDir, env) => {
       const allowFromPath = resolveAllowFromFilePath(stateDir, "telegram", "yy");
       await writeAllowFromFixture({
@@ -630,6 +630,8 @@ describe("pairing store", () => {
         allowFrom: ["1001", "1002"],
       });
       clearPairingAllowFromReadCacheForTest();
+      expect(await readChannelAllowFromStore("telegram", env, "yy")).toEqual(["1001", "1002"]);
+      const originalBytes = fsSync.readFileSync(allowFromPath, "utf8");
 
       const error = Object.assign(new Error("permission denied"), { code: "EACCES" });
       const originalReadFile = fsSync.promises.readFile.bind(fsSync.promises);
@@ -655,10 +657,7 @@ describe("pairing store", () => {
         readSpy.mockRestore();
       }
 
-      const persisted = JSON.parse(fsSync.readFileSync(allowFromPath, "utf8")) as {
-        allowFrom: string[];
-      };
-      expect(persisted.allowFrom).toEqual(["1001", "1002"]);
+      expect(fsSync.readFileSync(allowFromPath, "utf8")).toBe(originalBytes);
     });
   });
 

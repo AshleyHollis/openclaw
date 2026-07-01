@@ -25,6 +25,7 @@ type AllowFromReadCacheEntry = {
 };
 
 type AllowFromStatLike = { mtimeMs: number; size: number } | null;
+type AllowFromReadCachePolicy = "reuse" | "refresh";
 
 type NormalizeAllowFromStore = (store: AllowFromStore) => string[];
 
@@ -180,16 +181,19 @@ function resolveAllowFromReadCacheOrMissing(params: {
   cacheNamespace: string;
   filePath: string;
   stat: AllowFromStatLike;
+  cachePolicy?: AllowFromReadCachePolicy;
 }): { entries: string[]; exists: boolean } | null {
-  const cached = resolveAllowFromReadCacheHit({
-    cacheNamespace: params.cacheNamespace,
-    filePath: params.filePath,
-    exists: Boolean(params.stat),
-    mtimeMs: params.stat?.mtimeMs ?? null,
-    size: params.stat?.size ?? null,
-  });
-  if (cached) {
-    return { entries: cached.entries, exists: cached.exists };
+  if (params.cachePolicy !== "refresh") {
+    const cached = resolveAllowFromReadCacheHit({
+      cacheNamespace: params.cacheNamespace,
+      filePath: params.filePath,
+      exists: Boolean(params.stat),
+      mtimeMs: params.stat?.mtimeMs ?? null,
+      size: params.stat?.size ?? null,
+    });
+    if (cached) {
+      return { entries: cached.entries, exists: cached.exists };
+    }
   }
   if (!params.stat) {
     setAllowFromFileReadCache({
@@ -211,6 +215,7 @@ export async function readAllowFromFileWithExists(params: {
   cacheNamespace: string;
   filePath: string;
   normalizeStore: NormalizeAllowFromStore;
+  cachePolicy?: AllowFromReadCachePolicy;
 }): Promise<{ entries: string[]; exists: boolean }> {
   let stat: Awaited<ReturnType<typeof fs.promises.stat>> | null = null;
   try {
@@ -226,6 +231,7 @@ export async function readAllowFromFileWithExists(params: {
     cacheNamespace: params.cacheNamespace,
     filePath: params.filePath,
     stat,
+    cachePolicy: params.cachePolicy,
   });
   if (cachedOrMissing) {
     return cachedOrMissing;
@@ -268,6 +274,7 @@ export function readAllowFromFileSyncWithExists(params: {
   cacheNamespace: string;
   filePath: string;
   normalizeStore: NormalizeAllowFromStore;
+  cachePolicy?: AllowFromReadCachePolicy;
 }): { entries: string[]; exists: boolean } {
   let stat: fs.Stats | null = null;
   try {
@@ -283,6 +290,7 @@ export function readAllowFromFileSyncWithExists(params: {
     cacheNamespace: params.cacheNamespace,
     filePath: params.filePath,
     stat,
+    cachePolicy: params.cachePolicy,
   });
   if (cachedOrMissing) {
     return cachedOrMissing;
