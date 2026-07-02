@@ -263,6 +263,9 @@ describe("slash-http cfg threading", () => {
 
   it("passes cfg through the no-models slash reply send path", async () => {
     const cfg = {
+      agents: {
+        list: [{ id: "main", default: true }, { id: "agent-1" }],
+      },
       channels: {
         mattermost: {
           botToken: "exec:secret-ref",
