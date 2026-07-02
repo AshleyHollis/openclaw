@@ -3,29 +3,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PROTOCOL_VERSION } from "../../packages/gateway-protocol/src/index.js";
 import type { OpenClawConfig } from "../config/config.js";
+import type { SessionEntry } from "../config/sessions/types.js";
 import type {
   ConversationIdentityDecision,
   ConversationIdentityParams,
 } from "../routing/conversation-identity.js";
+import type { PersistedConversationIdentityContext } from "../routing/persisted-conversation-identity.js";
 import { NodeRegistry } from "./node-registry.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
 import type { loadSessionEntry as loadSessionEntryType } from "./session-utils.js";
 
 const buildSessionLookup = (
   sessionKey: string,
-  entry: {
-    sessionId?: string;
-    model?: string;
-    modelProvider?: string;
-    lastChannel?: string;
-    lastTo?: string;
-    lastAccountId?: string;
-    lastThreadId?: string | number;
-    updatedAt?: number;
-    label?: string;
-    spawnedBy?: string;
-    parentSessionKey?: string;
-  } = {},
+  entry: Partial<SessionEntry> = {},
 ): ReturnType<typeof loadSessionEntryType> => ({
   cfg: { session: { mainKey: "agent:main:main" } } as OpenClawConfig,
   storePath: "/tmp/sessions.json",
@@ -33,15 +23,7 @@ const buildSessionLookup = (
   entry: {
     sessionId: entry.sessionId ?? `sid-${sessionKey}`,
     updatedAt: entry.updatedAt ?? Date.now(),
-    model: entry.model,
-    modelProvider: entry.modelProvider,
-    lastChannel: entry.lastChannel,
-    lastTo: entry.lastTo,
-    lastAccountId: entry.lastAccountId,
-    lastThreadId: entry.lastThreadId,
-    label: entry.label,
-    spawnedBy: entry.spawnedBy,
-    parentSessionKey: entry.parentSessionKey,
+    ...entry,
   },
   canonicalKey: sessionKey,
   storeKeys: [sessionKey],
@@ -82,6 +64,16 @@ const resolveConversationIdentityModeMock = vi.hoisted(() =>
     }),
   ),
 );
+const resolvePersistedConversationIdentityContextMock = vi.hoisted(() =>
+  vi.fn(
+    async (): Promise<PersistedConversationIdentityContext> => ({
+      decision: { mode: "personal", allowed: true, reason: "owner_direct" },
+      routeMatchedBy: "default",
+      chatType: "direct",
+      senderIsOwner: true,
+    }),
+  ),
+);
 
 const runtimeMocks = vi.hoisted(() => ({
   agentCommandFromIngress: ingressAgentCommandMock,
@@ -106,6 +98,7 @@ const runtimeMocks = vi.hoisted(() => ({
   registerApnsRegistration: registerApnsRegistrationMock,
   requestHeartbeat: vi.fn(),
   resolveConversationIdentityMode: resolveConversationIdentityModeMock,
+  resolvePersistedConversationIdentityContext: resolvePersistedConversationIdentityContextMock,
   resolveChatAttachmentMaxBytes: vi.fn(() => 20 * 1024 * 1024),
   resolveGatewayModelSupportsImages: vi.fn(
     async ({
@@ -174,6 +167,8 @@ const loadSessionEntryMock = runtimeMocks.loadSessionEntry;
 const registerApnsRegistrationVi = runtimeMocks.registerApnsRegistration;
 const normalizeChannelIdVi = runtimeMocks.normalizeChannelId;
 const resolveConversationIdentityModeVi = runtimeMocks.resolveConversationIdentityMode;
+const resolvePersistedConversationIdentityContextVi =
+  runtimeMocks.resolvePersistedConversationIdentityContext;
 const resolveSessionAgentIdVi = runtimeMocks.resolveSessionAgentId;
 const sendDurableMessageBatchVi = runtimeMocks.sendDurableMessageBatch;
 
@@ -805,6 +800,13 @@ describe("voice transcript events", () => {
       allowed: true,
       reason: "owner_direct",
     });
+    resolvePersistedConversationIdentityContextVi.mockReset();
+    resolvePersistedConversationIdentityContextVi.mockResolvedValue({
+      decision: { mode: "personal", allowed: true, reason: "owner_direct" },
+      routeMatchedBy: "default",
+      chatType: "direct",
+      senderIsOwner: true,
+    });
   });
 
   it("admits the current agent before dedupe or session state", async () => {
@@ -843,6 +845,81 @@ describe("voice transcript events", () => {
     expect(canonicalizeSessionEntryAliasesMock).toHaveBeenCalledTimes(1);
     expect(addChatRun).toHaveBeenCalledTimes(1);
     expect(agentCommandMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a stale persisted audience before dedupe, mutation, or dispatch", async () => {
+    const addChatRun = vi.fn();
+    const ctx = buildCtx();
+    ctx.addChatRun = addChatRun;
+    loadSessionEntryMock.mockReturnValueOnce(
+      buildSessionLookup("agent:service:discord:channel:ops", {
+        sessionId: "stale-voice-session",
+        chatType: "channel",
+        lastChannel: "discord",
+        lastTo: "ops",
+      }),
+    );
+    resolveSessionAgentIdVi.mockReturnValueOnce("service");
+    resolvePersistedConversationIdentityContextVi.mockResolvedValueOnce({
+      decision: { mode: "external", allowed: false, reason: "stale_route" },
+    });
+
+    await handleNodeEvent(ctx, "node-stale-voice", {
+      event: "voice.transcript",
+      payloadJSON: JSON.stringify({
+        text: "do not run",
+        sessionKey: "agent:service:discord:channel:ops",
+      }),
+    });
+
+    expect(resolvePersistedConversationIdentityContextVi).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "service",
+        sessionKey: "agent:service:discord:channel:ops",
+        audienceless: "owner-direct",
+      }),
+    );
+    expect(canonicalizeSessionEntryAliasesMock).not.toHaveBeenCalled();
+    expect(addChatRun).not.toHaveBeenCalled();
+    expect(agentCommandMock).not.toHaveBeenCalled();
+  });
+
+  it("carries a revalidated persisted audience into voice dispatch", async () => {
+    const ctx = buildCtx();
+    resolveSessionAgentIdVi.mockReturnValueOnce("service");
+    resolvePersistedConversationIdentityContextVi.mockResolvedValueOnce({
+      decision: { mode: "organization", allowed: true, reason: "bound_service_agent" },
+      routeMatchedBy: "binding.channel",
+      messageProvider: "discord",
+      chatType: "channel",
+      agentAccountId: "work",
+      groupId: "ops",
+      senderId: "member-1",
+      senderIsOwner: false,
+    });
+
+    await handleNodeEvent(ctx, "node-current-voice-route", {
+      event: "voice.transcript",
+      payloadJSON: JSON.stringify({
+        text: "run safely",
+        sessionKey: "agent:service:discord:channel:ops",
+      }),
+    });
+
+    const opts = mockCallArg(agentCommandMock);
+    expectFields(opts, {
+      messageProvider: "discord",
+      policyMessageProvider: "discord",
+      senderIsOwner: false,
+    });
+    expectFields((opts as Record<string, unknown>).runContext, {
+      messageChannel: "node",
+      accountId: "work",
+      chatType: "channel",
+      routeMatchedBy: "binding.channel",
+      groupId: "ops",
+      senderId: "member-1",
+    });
   });
 
   it("dedupes repeated transcript payloads for the same session", async () => {
@@ -1222,11 +1299,22 @@ describe("agent request events", () => {
       return { canonicalKey: target.canonicalKey, entry };
     });
     loadSessionEntryMock.mockImplementation((sessionKey: string) => buildSessionLookup(sessionKey));
+    loadConfigMock.mockReset();
+    loadConfigMock.mockReturnValue({ session: { mainKey: "agent:main:main" } });
+    resolveSessionAgentIdVi.mockReset();
+    resolveSessionAgentIdVi.mockReturnValue("main");
     resolveConversationIdentityModeVi.mockReset();
     resolveConversationIdentityModeVi.mockReturnValue({
       mode: "personal",
       allowed: true,
       reason: "internal",
+    });
+    resolvePersistedConversationIdentityContextVi.mockReset();
+    resolvePersistedConversationIdentityContextVi.mockResolvedValue({
+      decision: { mode: "personal", allowed: true, reason: "owner_direct" },
+      routeMatchedBy: "default",
+      chatType: "direct",
+      senderIsOwner: true,
     });
     sendDurableMessageBatchVi.mockClear();
   });
@@ -1258,6 +1346,90 @@ describe("agent request events", () => {
     expect(sendDurableMessageBatchVi).not.toHaveBeenCalled();
     expect(addChatRun).not.toHaveBeenCalled();
     expect(agentCommandMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale persisted audience before attachments, receipts, or writes", async () => {
+    const addChatRun = vi.fn();
+    const ctx = buildCtx();
+    ctx.addChatRun = addChatRun;
+    loadSessionEntryMock.mockReturnValueOnce(
+      buildSessionLookup("agent:service:discord:channel:ops", {
+        sessionId: "stale-node-session",
+        chatType: "channel",
+        lastChannel: "discord",
+        lastTo: "ops",
+      }),
+    );
+    resolveSessionAgentIdVi.mockReturnValueOnce("service");
+    resolvePersistedConversationIdentityContextVi.mockResolvedValueOnce({
+      decision: { mode: "external", allowed: false, reason: "stale_route" },
+    });
+
+    await handleNodeEvent(ctx, "node-stale-route", {
+      event: "agent.request",
+      payloadJSON: JSON.stringify({
+        message: "do not run",
+        sessionKey: "agent:service:discord:channel:ops",
+        attachments: [{ type: "image", content: "AAAA" }],
+        deliver: true,
+        receipt: true,
+      }),
+    });
+
+    expect(resolvePersistedConversationIdentityContextVi).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "service",
+        sessionKey: "agent:service:discord:channel:ops",
+        audienceless: "owner-direct",
+      }),
+    );
+    expect(parseMessageWithAttachmentsMock).not.toHaveBeenCalled();
+    expect(canonicalizeSessionEntryAliasesMock).not.toHaveBeenCalled();
+    expect(sendDurableMessageBatchVi).not.toHaveBeenCalled();
+    expect(addChatRun).not.toHaveBeenCalled();
+    expect(agentCommandMock).not.toHaveBeenCalled();
+  });
+
+  it("carries the revalidated audience into node-selected dispatch", async () => {
+    const ctx = buildCtx();
+    resolveSessionAgentIdVi.mockReturnValueOnce("service");
+    resolvePersistedConversationIdentityContextVi.mockResolvedValueOnce({
+      decision: { mode: "organization", allowed: true, reason: "bound_service_agent" },
+      routeMatchedBy: "binding.channel",
+      messageProvider: "discord",
+      chatType: "channel",
+      agentAccountId: "work",
+      groupId: "ops",
+      groupChannel: "Operations",
+      groupSpace: "guild-1",
+      senderId: "member-1",
+      senderIsOwner: false,
+    });
+
+    await handleNodeEvent(ctx, "node-current-route", {
+      event: "agent.request",
+      payloadJSON: JSON.stringify({
+        message: "run safely",
+        sessionKey: "agent:service:discord:channel:ops",
+      }),
+    });
+
+    const opts = mockCallArg(agentCommandMock);
+    expectFields(opts, {
+      messageProvider: "discord",
+      policyMessageProvider: "discord",
+      senderIsOwner: false,
+    });
+    expectFields((opts as Record<string, unknown>).runContext, {
+      messageChannel: "node",
+      accountId: "work",
+      chatType: "channel",
+      routeMatchedBy: "binding.channel",
+      groupId: "ops",
+      groupChannel: "Operations",
+      groupSpace: "guild-1",
+      senderId: "member-1",
+    });
   });
 
   it("disables delivery when route is unresolved instead of falling back globally", async () => {

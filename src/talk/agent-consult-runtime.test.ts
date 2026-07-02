@@ -460,6 +460,7 @@ describe("realtime voice agent consult runtime", () => {
     expect(call.sessionKey).toBe("voice:google-meet:meet-1");
     expect(call.spawnedBy).toBe("agent:main:discord:channel:123");
     expect(call.messageProvider).toBe("discord");
+    expect(call.policyMessageProvider).toBe("voice");
     expect(call.agentAccountId).toBe("default");
     expect(call.messageTo).toBe("channel:123");
     expect(call.currentChannelId).toBe("channel:123");
@@ -517,6 +518,7 @@ describe("realtime voice agent consult runtime", () => {
     expect(call.sessionId).toBe("call-session");
     expect(call.sessionKey).toBe("voice:google-meet:meet-1");
     expect(call.messageProvider).toBe("discord");
+    expect(call.policyMessageProvider).toBe("voice");
     expect(call.agentAccountId).toBe("default");
     expect(call.messageTo).toBe("channel:123");
     expect(call.messageThreadId).toBe("thread-456");

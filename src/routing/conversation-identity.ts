@@ -157,7 +157,7 @@ export function resolveConversationIdentityMode(
   if (usesServiceAgent) {
     return { mode: "organization", allowed: true, reason: "bound_service_agent" };
   }
-  if (scope === "direct" && params.senderIsOwner === true) {
+  if (scope === "direct" && agentId === defaultAgentId && params.senderIsOwner === true) {
     return { mode: "personal", allowed: true, reason: "owner_direct" };
   }
   return scope === "shared"

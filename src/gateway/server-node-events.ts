@@ -16,6 +16,7 @@ import {
 } from "../infra/event-session-routing.js";
 import { updatePairedNodeMetadata } from "../infra/node-pairing.js";
 import type { PromptImageOrderEntry } from "../media/prompt-image-order.js";
+import type { PersistedConversationIdentityContext } from "../routing/persisted-conversation-identity.js";
 import {
   NODE_PRESENCE_ALIVE_EVENT,
   normalizeNodePresenceAliveReason,
@@ -39,6 +40,7 @@ import {
   registerApnsRegistration,
   requestHeartbeat,
   resolveConversationIdentityMode,
+  resolvePersistedConversationIdentityContext,
   resolveChatAttachmentMaxBytes,
   resolveGatewayModelSupportsImages,
   resolveOutboundTarget,
@@ -402,17 +404,27 @@ export const handleNodeEvent = async (
       const rawMainKey = normalizeMainKey(cfg.session?.mainKey);
       const sessionKey = sessionKeyRaw.length > 0 ? sessionKeyRaw : rawMainKey;
       const agentId = resolveSessionAgentId({ sessionKey, config: cfg });
-      const identity = resolveConversationIdentityMode({
+      const currentAgent = resolveConversationIdentityMode({
         config: cfg,
         agentId,
-        routeMatchedBy: "default",
-        chatType: "direct",
-        senderIsOwner: true,
+        isInternal: true,
       });
-      if (!identity.allowed) {
+      if (!currentAgent.allowed) {
         return undefined;
       }
       const { storePath, entry, canonicalKey, storeKeys } = loadSessionEntry(sessionKey);
+      // Persisted channel sessions must re-prove their current route before the
+      // transcript dedupe or store touch can consume state.
+      const identity = await resolvePersistedConversationIdentityContext({
+        cfg,
+        agentId,
+        sessionKey: canonicalKey,
+        sessionEntry: entry,
+        audienceless: "owner-direct",
+      });
+      if (!identity.decision.allowed || !identity.chatType || !identity.routeMatchedBy) {
+        return undefined;
+      }
       const now = Date.now();
       const fingerprint = resolveVoiceTranscriptFingerprint(obj, text);
       if (shouldDropDuplicateVoiceTranscript({ sessionKey: canonicalKey, fingerprint, now })) {
@@ -445,13 +457,20 @@ export const handleNodeEvent = async (
         thinking: "low",
         deliver: false,
         messageChannel: "node",
+        messageProvider: identity.messageProvider ?? "node",
+        policyMessageProvider: identity.messageProvider,
         runContext: {
           messageChannel: "node",
-          chatType: "direct",
-          routeMatchedBy: "default",
+          accountId: identity.agentAccountId,
+          chatType: identity.chatType,
+          routeMatchedBy: identity.routeMatchedBy,
+          groupId: identity.groupId,
+          groupChannel: identity.groupChannel,
+          groupSpace: identity.groupSpace,
+          senderId: identity.senderId,
         },
         identityContractVersion: 1,
-        senderIsOwner: true,
+        senderIsOwner: identity.senderIsOwner === true,
         inputProvenance: {
           kind: "external_user",
           sourceChannel: "voice",
@@ -495,11 +514,29 @@ export const handleNodeEvent = async (
       const sessionKey = sessionKeyRaw.length > 0 ? sessionKeyRaw : `node-${nodeId}`;
       const cfg = getRuntimeConfig();
       const agentId = resolveSessionAgentId({ sessionKey, config: cfg });
-      const identity = resolveConversationIdentityMode({ config: cfg, agentId, isInternal: true });
-      if (!identity.allowed) {
+      const currentAgent = resolveConversationIdentityMode({
+        config: cfg,
+        agentId,
+        isInternal: true,
+      });
+      if (!currentAgent.allowed) {
         return undefined;
       }
       const { storePath, entry, canonicalKey, storeKeys } = loadSessionEntry(sessionKey);
+      // Caller-selected sessions can retain stale channel authority. Only the
+      // generated node-owned key is an opaque internal session.
+      const identity: PersistedConversationIdentityContext = sessionKeyRaw
+        ? await resolvePersistedConversationIdentityContext({
+            cfg,
+            agentId,
+            sessionKey: canonicalKey,
+            sessionEntry: entry,
+            audienceless: "owner-direct",
+          })
+        : { decision: currentAgent };
+      if (!identity.decision.allowed) {
+        return undefined;
+      }
 
       let message = (link?.message ?? "").trim();
       const normalizedAttachments = normalizeRpcAttachmentsToChatAttachments(
@@ -634,8 +671,23 @@ export const handleNodeEvent = async (
         timeout:
           typeof link?.timeoutSeconds === "number" ? link.timeoutSeconds.toString() : undefined,
         messageChannel: "node",
-        runContext: { isInternal: true, messageChannel: "node" },
+        messageProvider: identity.messageProvider ?? "node",
+        policyMessageProvider: identity.messageProvider,
+        runContext:
+          identity.chatType && identity.routeMatchedBy
+            ? {
+                messageChannel: "node",
+                accountId: identity.agentAccountId,
+                chatType: identity.chatType,
+                routeMatchedBy: identity.routeMatchedBy,
+                groupId: identity.groupId,
+                groupChannel: identity.groupChannel,
+                groupSpace: identity.groupSpace,
+                senderId: identity.senderId,
+              }
+            : { isInternal: true, messageChannel: "node" },
         identityContractVersion: 1,
+        senderIsOwner: identity.senderIsOwner === true,
         allowModelOverride: false,
       });
       return undefined;

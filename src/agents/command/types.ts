@@ -98,6 +98,8 @@ export type AgentCommandOpts = {
   messageChannel?: string;
   /** Tool-policy/output surface context. Defaults to messageChannel. */
   messageProvider?: string;
+  /** Admitted source provider for group/sender policy when transport and audience differ. */
+  policyMessageProvider?: string;
   /** Delivery channel. */
   channel?: string;
   /** Account ID for multi-account channel routing. */

@@ -5,6 +5,7 @@ import {
   resolveConversationIdentityMode,
   resolveStableSenderIsOwner,
 } from "../routing/conversation-identity.js";
+import { resolvePersistedConversationIdentityContext } from "../routing/persisted-conversation-identity.js";
 import { resolveConversationCapabilityProfile } from "./conversation-capability-profile.js";
 
 const identityConfig: OpenClawConfig = {
@@ -166,6 +167,13 @@ describe("resolveConversationCapabilityProfile", () => {
       senderIsOwner: true,
     },
     {
+      name: "an owner direct fallback that names a service agent",
+      agentId: "team-ops",
+      routeMatchedBy: "default" as const,
+      chatType: "direct",
+      senderIsOwner: true,
+    },
+    {
       name: "a service agent without binding provenance",
       agentId: "team-ops",
       routeMatchedBy: undefined,
@@ -204,6 +212,22 @@ describe("resolveConversationCapabilityProfile", () => {
         chatType: "channel",
       }),
     ).toEqual({ mode: "organization", allowed: true, reason: "bound_service_agent" });
+  });
+
+  it("does not reinterpret an audienceless service session as personal owner context", async () => {
+    await expect(
+      resolvePersistedConversationIdentityContext({
+        cfg: identityConfig,
+        agentId: "team-ops",
+        sessionKey: "agent:team-ops:main",
+        audienceless: "owner-direct",
+      }),
+    ).resolves.toEqual({
+      decision: { mode: "external", allowed: false, reason: "untrusted_direct" },
+      routeMatchedBy: "default",
+      chatType: "direct",
+      senderIsOwner: true,
+    });
   });
 
   it("derives personal ownership only from an explicit stable sender allowlist", () => {

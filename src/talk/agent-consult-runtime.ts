@@ -297,6 +297,7 @@ export async function consultRealtimeVoiceAgent(params: {
     senderIsOwner: params.senderIsOwner,
     spawnedBy: params.spawnedBy,
     messageProvider: consultDeliveryContext?.channel ?? params.messageProvider,
+    policyMessageProvider: params.messageProvider,
     agentAccountId: consultDeliveryContext?.accountId,
     messageTo: consultDeliveryContext?.to,
     messageThreadId: consultDeliveryContext?.threadId,

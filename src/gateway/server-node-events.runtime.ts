@@ -18,6 +18,7 @@ export { enqueueSystemEvent } from "../infra/system-events.js";
 export { deleteMediaBuffer } from "../media/store.js";
 export { normalizeMainKey, scopedHeartbeatWakeOptions } from "../routing/session-key.js";
 export { resolveConversationIdentityMode } from "../routing/conversation-identity.js";
+export { resolvePersistedConversationIdentityContext } from "../routing/persisted-conversation-identity.js";
 export { defaultRuntime } from "../runtime.js";
 export { parseMessageWithAttachments, resolveChatAttachmentMaxBytes } from "./chat-attachments.js";
 export { normalizeRpcAttachmentsToChatAttachments } from "./server-methods/attachment-normalize.js";
