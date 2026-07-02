@@ -349,6 +349,9 @@ function createRuntimeCore(
 }
 
 const testConfig: OpenClawConfig = {
+  agents: {
+    list: [{ id: "main", default: true }, { id: "mattermost-service" }],
+  },
   channels: {
     mattermost: {
       enabled: true,
@@ -774,6 +777,7 @@ describe("mattermost inbound user posts", () => {
     };
     mockState.createMattermostDraftStream.mockReturnValue(draftStream);
     const progressConfig: OpenClawConfig = {
+      ...testConfig,
       channels: {
         mattermost: {
           enabled: true,
@@ -878,6 +882,7 @@ describe("mattermost inbound user posts", () => {
     const abortController = new AbortController();
     mockState.abortController = abortController;
     const inlineCommandConfig: OpenClawConfig = {
+      ...testConfig,
       commands: { useAccessGroups: true },
       channels: {
         mattermost: {
@@ -954,6 +959,7 @@ describe("mattermost inbound user posts", () => {
     const abortController = new AbortController();
     mockState.abortController = abortController;
     const directConfig: OpenClawConfig = {
+      ...testConfig,
       channels: {
         mattermost: {
           enabled: true,
@@ -1140,6 +1146,7 @@ describe("mattermost inbound user posts", () => {
     const abortController = new AbortController();
     mockState.abortController = abortController;
     const mentionConfig: OpenClawConfig = {
+      ...testConfig,
       commands: { useAccessGroups: false },
       messages: { inbound: { debounceMs: 60_000 } },
       channels: {
@@ -1232,6 +1239,7 @@ describe("mattermost inbound user posts", () => {
     const abortController = new AbortController();
     mockState.abortController = abortController;
     const directConfig: OpenClawConfig = {
+      ...testConfig,
       channels: {
         mattermost: {
           enabled: true,
