@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import {
   acquireSessionWriteLock,
   resolveSessionWriteLockOptions,
@@ -972,8 +973,113 @@ function cloneSessionEntries(store: Record<string, SessionEntry>): Record<string
   );
 }
 
-function createReplySessionInitializationRevision(entry: SessionEntry | undefined): string {
-  return JSON.stringify(entry ?? null);
+function collectSessionEntryKeys(...entries: SessionEntry[]): Array<keyof SessionEntry> {
+  const keys = new Set<keyof SessionEntry>();
+  for (const entry of entries) {
+    for (const key of Object.keys(entry) as Array<keyof SessionEntry>) {
+      keys.add(key);
+    }
+  }
+  return [...keys];
+}
+
+function sessionEntryFieldEqual(
+  left: SessionEntry[keyof SessionEntry],
+  right: SessionEntry[keyof SessionEntry],
+): boolean {
+  return Object.is(left, right) || isDeepStrictEqual(left, right);
+}
+
+function sessionEntryFieldUnset(
+  hasValue: boolean,
+  value: SessionEntry[keyof SessionEntry],
+): boolean {
+  return !hasValue || value === undefined;
+}
+
+function sessionEntryFieldUnchanged(params: {
+  leftHasValue: boolean;
+  leftValue: SessionEntry[keyof SessionEntry];
+  rightHasValue: boolean;
+  rightValue: SessionEntry[keyof SessionEntry];
+}): boolean {
+  const { leftHasValue, leftValue, rightHasValue, rightValue } = params;
+  if (
+    sessionEntryFieldUnset(leftHasValue, leftValue) &&
+    sessionEntryFieldUnset(rightHasValue, rightValue)
+  ) {
+    return true;
+  }
+  return leftHasValue === rightHasValue && sessionEntryFieldEqual(leftValue, rightValue);
+}
+
+// Background activity can mutate non-identity fields after the initialization
+// snapshot. Carry forward only same-session changes; the prepared entry still
+// wins for any field it explicitly modified relative to the snapshot. This
+// preserves heartbeat/delivery/context metadata without resurrecting fields that
+// a reset intentionally cleared or carrying old-session metadata into /new.
+function mergeConcurrentReplySessionMetadata(params: {
+  currentEntry: SessionEntry;
+  preparedEntry: SessionEntry;
+  snapshotEntry?: SessionEntry;
+}): SessionEntry {
+  const { currentEntry, preparedEntry, snapshotEntry } = params;
+  if (!snapshotEntry || preparedEntry.sessionId !== snapshotEntry.sessionId) {
+    return preparedEntry;
+  }
+  const merged: SessionEntry = { ...preparedEntry };
+  const mergedFields = merged as Partial<
+    Record<keyof SessionEntry, SessionEntry[keyof SessionEntry]>
+  >;
+  for (const key of collectSessionEntryKeys(currentEntry, preparedEntry, snapshotEntry)) {
+    const currentHasValue = Object.hasOwn(currentEntry, key);
+    const snapshotHasValue = Object.hasOwn(snapshotEntry, key);
+    const preparedHasValue = Object.hasOwn(preparedEntry, key);
+    const currentValue = currentEntry[key];
+    const snapshotValue = snapshotEntry[key];
+    const preparedValue = preparedEntry[key];
+    const currentChanged = !sessionEntryFieldUnchanged({
+      leftHasValue: currentHasValue,
+      leftValue: currentValue,
+      rightHasValue: snapshotHasValue,
+      rightValue: snapshotValue,
+    });
+    const preparedKeptSnapshot = sessionEntryFieldUnchanged({
+      leftHasValue: preparedHasValue,
+      leftValue: preparedValue,
+      rightHasValue: snapshotHasValue,
+      rightValue: snapshotValue,
+    });
+    if (currentChanged && preparedKeptSnapshot) {
+      if (currentHasValue) {
+        mergedFields[key] = currentValue;
+      } else {
+        delete mergedFields[key];
+      }
+    }
+  }
+  return merged;
+}
+
+function createReplySessionInitializationRevision(params: {
+  entry: SessionEntry | undefined;
+  storePath: string;
+}): string {
+  const { entry, storePath } = params;
+  if (!entry) {
+    return JSON.stringify(null);
+  }
+  // The guard only rejects a true session-identity rebind. Same-session
+  // activity/context writes are merged below; comparing them here would reject
+  // before the merge can preserve the concurrent metadata.
+  const projected = projectSessionEntryForPersistenceRevision({ storePath, entry });
+  const revisionEntry: Pick<SessionEntry, "sessionFile" | "sessionId"> = {
+    sessionId: projected.sessionId,
+  };
+  if (projected.sessionFile !== undefined) {
+    revisionEntry.sessionFile = projected.sessionFile;
+  }
+  return JSON.stringify(revisionEntry);
 }
 
 function resolveInitializedReplySessionEntry(params: {
@@ -1391,7 +1497,10 @@ export function loadReplySessionInitializationSnapshot(params: {
       const entry = resolveSessionStoreEntry({ store: entries, sessionKey }).existing;
       return entry ? { ...entry } : undefined;
     },
-    revision: createReplySessionInitializationRevision(currentEntry),
+    revision: createReplySessionInitializationRevision({
+      entry: currentEntry,
+      storePath: params.storePath,
+    }),
   };
 }
 
@@ -1415,6 +1524,7 @@ export async function commitReplySessionInitialization(params: {
   retiredEntry?: SessionEntryRetirement;
   sessionEntry: SessionEntry;
   sessionKey: string;
+  snapshotEntry?: SessionEntry;
   storePath: string;
 }): Promise<ReplySessionInitializationCommitResult> {
   const committed = await updateSessionStore(
@@ -1422,7 +1532,10 @@ export async function commitReplySessionInitialization(params: {
     async (store): Promise<ReplySessionInitializationCommitResult> => {
       const resolved = resolveSessionStoreEntry({ store, sessionKey: params.sessionKey });
       const currentEntry = resolved.existing ? { ...resolved.existing } : undefined;
-      const revision = createReplySessionInitializationRevision(currentEntry);
+      const revision = createReplySessionInitializationRevision({
+        entry: currentEntry,
+        storePath: params.storePath,
+      });
       if (revision !== params.expectedRevision) {
         return {
           ok: false,
@@ -1450,7 +1563,18 @@ export async function commitReplySessionInitialization(params: {
         sessionEntry: preparedSessionEntry,
         storePath: params.storePath,
       });
-      store[resolved.normalizedKey] = sessionEntry;
+      // The identity-only guard allows commits when background activity touched
+      // non-identity metadata after the snapshot. Merge only the fields that
+      // actually changed since the snapshot so heartbeat/delivery/context
+      // metadata is not rolled back, while reset-cleared fields (e.g. provider
+      // or model overrides on /new) stay cleared.
+      store[resolved.normalizedKey] = currentEntry
+        ? mergeConcurrentReplySessionMetadata({
+            currentEntry,
+            preparedEntry: sessionEntry,
+            snapshotEntry: params.snapshotEntry ?? params.previousEntry,
+          })
+        : sessionEntry;
       if (params.retiredEntry) {
         store[params.retiredEntry.key] = params.retiredEntry.entry;
       }
