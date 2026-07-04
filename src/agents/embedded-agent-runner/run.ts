@@ -285,13 +285,17 @@ function resolveAttemptTrajectoryAttribution(params: {
   model: { api?: string; provider?: string };
   modelId: string;
   provider: string;
-  runtimePlan: AgentRuntimePlan;
+  runtimePlan: {
+    auth?: Pick<AgentRuntimePlan["auth"], "authProfileProviderForAuth">;
+    observability?: Pick<AgentRuntimePlan["observability"], "harnessId">;
+  };
 }): { modelApi?: string; modelId: string; provider: string } {
   const authProfileProvider = normalizeRuntimeId(
-    params.runtimePlan.auth.authProfileProviderForAuth,
+    params.runtimePlan.auth?.authProfileProviderForAuth,
   );
+  const harnessId = normalizeRuntimeId(params.runtimePlan.observability?.harnessId);
   if (
-    normalizeRuntimeId(params.runtimePlan.observability.harnessId) === CODEX_HARNESS_ID &&
+    harnessId === CODEX_HARNESS_ID &&
     authProfileProvider !== OPENAI_PROVIDER_ID &&
     normalizeRuntimeId(params.model.provider) === OPENAI_PROVIDER_ID &&
     normalizeRuntimeId(params.model.api) === OPENAI_RESPONSES_API
