@@ -263,6 +263,8 @@ export function resolveMissingPluginCommandMessage(
       });
   const parentPluginId = commandAlias?.pluginId;
   if (parentPluginId) {
+    const configuredMemorySlot =
+      normalizeOptionalLowercaseString(config?.plugins?.slots?.memory) ?? "memory-core";
     if (allow.length > 0 && !allow.includes(parentPluginId)) {
       if (parentPluginId === normalizedPluginId) {
         return (
@@ -303,6 +305,18 @@ export function resolveMissingPluginCommandMessage(
         `"${normalizedPluginId}" is a runtime slash command (/${normalizedPluginId}), not a CLI command. ` +
         `It is provided by the "${parentPluginId}" plugin. ` +
         `${cliHint}\`/${normalizedPluginId}\` in a chat session.`
+      );
+    }
+    if (
+      commandAlias.kind !== "runtime-slash" &&
+      pluginKindIncludes(commandAlias.pluginKind, "memory") &&
+      configuredMemorySlot !== parentPluginId
+    ) {
+      return (
+        `The \`openclaw ${normalizedPluginId}\` command is provided by the ` +
+        `"${parentPluginId}" memory plugin, but the active memory slot is ` +
+        `"${configuredMemorySlot}". Set \`plugins.slots.memory="${parentPluginId}"\` to use ` +
+        "that CLI surface."
       );
     }
   }
@@ -397,4 +411,8 @@ export function resolveMissingPluginCommandMessage(
     );
   }
   return null;
+}
+
+function pluginKindIncludes(kind: unknown, target: string): boolean {
+  return kind === target || (Array.isArray(kind) && kind.includes(target));
 }

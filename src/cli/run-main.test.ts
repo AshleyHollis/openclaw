@@ -30,7 +30,18 @@ const memoryCoreCommandAliasRegistry: PluginManifestCommandAliasRegistry = {
   plugins: [
     {
       id: "memory-core",
+      kind: "memory",
       commandAliases: [{ name: "dreaming", kind: "runtime-slash", cliCommand: "memory" }],
+    },
+  ],
+};
+
+const memoryLancedbCommandAliasRegistry: PluginManifestCommandAliasRegistry = {
+  plugins: [
+    {
+      id: "memory-lancedb",
+      kind: "memory",
+      commandAliases: [{ name: "ltm" }],
     },
   ],
 };
@@ -474,6 +485,43 @@ describe("resolveMissingPluginCommandMessage", () => {
       },
     );
 
+    expect(message).toBeNull();
+  });
+
+  it("explains memory plugin CLI aliases disabled by memory slot selection", () => {
+    const message = resolveMissingPluginCommandMessage(
+      "ltm",
+      {
+        plugins: {
+          entries: {
+            "memory-lancedb": {
+              enabled: true,
+            },
+          },
+        },
+      },
+      { registry: memoryLancedbCommandAliasRegistry },
+    );
+    expect(message).toContain('"memory-lancedb" memory plugin');
+    expect(message).toContain('active memory slot is "memory-core"');
+    expect(message).toContain('plugins.slots.memory="memory-lancedb"');
+  });
+
+  it("allows memory plugin CLI aliases for the selected memory slot", () => {
+    const message = resolveMissingPluginCommandMessage(
+      "ltm",
+      {
+        plugins: {
+          slots: { memory: "memory-lancedb" },
+          entries: {
+            "memory-lancedb": {
+              enabled: true,
+            },
+          },
+        },
+      },
+      { registry: memoryLancedbCommandAliasRegistry },
+    );
     expect(message).toBeNull();
   });
 

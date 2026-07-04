@@ -17,6 +17,7 @@ export type PluginManifestCommandAlias = {
 
 export type PluginManifestCommandAliasRecord = PluginManifestCommandAlias & {
   pluginId: string;
+  pluginKind?: unknown;
   enabledByDefault?: boolean;
 };
 
@@ -40,6 +41,7 @@ export type PluginManifestToolOwnerRecord = {
 export type PluginManifestCommandAliasRegistry = {
   plugins: readonly {
     id: string;
+    kind?: unknown;
     enabledByDefault?: boolean;
     commandAliases?: readonly PluginManifestCommandAlias[];
     contracts?: { tools?: readonly string[] };
@@ -127,6 +129,7 @@ export function resolveManifestCommandAliasOwnerInRegistry(params: {
       return {
         ...alias,
         pluginId: plugin.id,
+        ...(plugin.kind !== undefined ? { pluginKind: plugin.kind } : {}),
         ...(plugin.enabledByDefault === true ? { enabledByDefault: true } : {}),
       };
     }
