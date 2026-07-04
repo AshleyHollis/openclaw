@@ -16,8 +16,10 @@ export const page = definePage({
       shell: "page" as const,
       header: true,
       render: ({ state, navigate }: SkillWorkshopRenderContext) => {
-        const stateKey = `${state.sessionKey}\u0000${state.assistantAgentId ?? ""}`;
-        skillWorkshopStateKeys.set(state, stateKey);
+        if (!skillWorkshopStateKeys.has(state)) {
+          const stateKey = `${state.sessionKey}\u0000${state.assistantAgentId ?? ""}`;
+          skillWorkshopStateKeys.set(state, stateKey);
+        }
         return module.renderSkillWorkshopPage(state, navigate);
       },
       onStateChange: (

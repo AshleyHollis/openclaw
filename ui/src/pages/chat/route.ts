@@ -33,6 +33,7 @@ import { loadLocalAssistantIdentity } from "../../ui/storage.ts";
 import { isRenderableControlUiAvatarUrl } from "../../ui/views/agents-utils.ts";
 import { renderChat, resetChatViewState } from "../../ui/views/chat.ts";
 import { loadChatPage } from "../loaders.ts";
+import { chatSessionLoaderDeps } from "./loader-deps.ts";
 import { createSessionWorkspaceProps } from "./session-workspace.ts";
 
 type ChatLoadContext = { host: SettingsHost; app: SettingsAppHost };
@@ -116,6 +117,7 @@ function renderGuardedChatControls(state: AppViewState, navigate: RouteRenderCon
 export const page = definePage({
   id: "chat",
   path: "/chat",
+  loaderDeps: (_context: ChatLoadContext, location) => chatSessionLoaderDeps(location),
   loader: async ({ host, app }: ChatLoadContext) => {
     await loadChatPage(host, app);
   },
