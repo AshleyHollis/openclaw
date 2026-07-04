@@ -1,20 +1,9 @@
-import { scopedAgentParamsForSession } from "../../ui/app-chat.ts";
+import { resolveChatAgentId } from "../../ui/app-render.helpers.ts";
 import type { AppViewState } from "../../ui/app-view-state.ts";
-import {
-  normalizeAgentId,
-  parseAgentSessionKey,
-  resolveUiSelectedGlobalAgentId,
-} from "../../ui/session-key.ts";
 import { loadLocalAssistantIdentity } from "../../ui/storage.ts";
 import { isRenderableControlUiAvatarUrl } from "../../ui/views/agents-utils.ts";
 
-export function resolveChatAgentId(state: AppViewState): string {
-  return normalizeAgentId(
-    parseAgentSessionKey(state.sessionKey)?.agentId ??
-      scopedAgentParamsForSession(state, state.sessionKey).agentId ??
-      resolveUiSelectedGlobalAgentId(state),
-  );
-}
+export { resolveChatAgentId };
 
 export function resolveChatAvatarUrl(state: AppViewState): string | null {
   const agentId = resolveChatAgentId(state);

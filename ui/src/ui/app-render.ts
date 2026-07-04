@@ -23,6 +23,7 @@ import {
   isTerminalAvailable,
   patchSessionFromSessionsView,
   renderRouteNavItem,
+  resolveChatAgentId,
   resolveDashboardHeaderContext,
   renderSidebarConnectionStatus,
   renderTopbarThemeModeToggle,
@@ -787,6 +788,7 @@ function renderConnectedApp(
           : "dark";
         return html`<openclaw-terminal-panel
           .client=${state.client}
+          .agentId=${resolveChatAgentId(state)}
           .available=${terminalAvailable}
           .themeMode=${terminalMode}
         ></openclaw-terminal-panel>`;

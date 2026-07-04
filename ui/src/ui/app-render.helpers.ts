@@ -38,6 +38,7 @@ import {
   normalizeAgentId,
   parseAgentSessionKey,
   resolveAgentIdFromSessionKey,
+  resolveUiSelectedGlobalAgentId,
 } from "./session-key.ts";
 import { normalizeChatAutoScrollMode, type ChatAutoScrollMode } from "./storage.ts";
 import { normalizeLowercaseStringOrEmpty, normalizeOptionalString } from "./string-coerce.ts";
@@ -56,6 +57,14 @@ export function isTerminalAvailable(
   const auth =
     (state.hello as { auth?: { role?: string; scopes?: string[] } } | null)?.auth ?? null;
   return hasOperatorAdminAccess(auth) && isGatewayMethodAdvertised(state, "terminal.open") === true;
+}
+
+export function resolveChatAgentId(state: AppViewState): string {
+  return normalizeAgentId(
+    parseAgentSessionKey(state.sessionKey)?.agentId ??
+      scopedAgentParamsForSession(state, state.sessionKey).agentId ??
+      resolveUiSelectedGlobalAgentId(state),
+  );
 }
 
 export function isCurrentChatSessionArchived(state: AppViewState): boolean {
