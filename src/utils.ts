@@ -7,10 +7,11 @@ import {
   displayPath,
   displayString,
   resolveHomeDir,
+  resolveRequiredHomeDir,
+  resolveUserPath,
   shortenHomeInString,
   shortenHomePath,
-} from "./infra/home-dir-display.js";
-import { resolveRequiredHomeDir, resolveUserPath } from "./infra/home-dir.js";
+} from "./infra/home-dir.js";
 import { isPlainObject } from "./infra/plain-object.js";
 export { escapeRegExp } from "./shared/regexp.js";
 export {

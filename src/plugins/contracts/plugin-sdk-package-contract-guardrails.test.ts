@@ -785,6 +785,32 @@ describe("plugin-sdk package contract guardrails", () => {
     expect(source).not.toContain("GuardedFetchConfiguredLocalOriginOptions");
   });
 
+  it("keeps home directory compatibility exports explicit in deprecated infra-runtime", () => {
+    const source = fs.readFileSync(resolve(REPO_ROOT, "src/plugin-sdk/infra-runtime.ts"), "utf8");
+    const exportMatch = source.match(
+      /export\s*\{(?<names>[^}]+)\}\s*from\s*["']\.\.\/infra\/home-dir\.js["'];/u,
+    );
+    const exportedNames = exportMatch?.groups?.names
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .toSorted();
+
+    expect(source).not.toMatch(/export\s+\*\s+from\s+["']\.\.\/infra\/home-dir\.js["']/);
+    expect(exportedNames).toEqual(
+      [
+        "expandHomePrefix",
+        "resolveEffectiveHomeDir",
+        "resolveHomeRelativePath",
+        "resolveOsHomeDir",
+        "resolveOsHomeRelativePath",
+        "resolveRequiredHomeDir",
+        "resolveRequiredOsHomeDir",
+        "resolveUserPath",
+      ].toSorted(),
+    );
+  });
+
   it("keeps configured local-origin fetch helpers out of the public SSRF runtime", async () => {
     const ssrfRuntime = await import("../../plugin-sdk/ssrf-runtime.js");
 
