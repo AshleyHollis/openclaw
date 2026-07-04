@@ -20,6 +20,7 @@ import type {
 import { resetCommandQueueStateForTest } from "../../process/command-queue.js";
 import type { FailoverReason } from "../embedded-agent-helpers/types.js";
 import { clearAgentHarnesses, registerAgentHarness } from "../harness/registry.js";
+import type { AgentRuntimePlan } from "../runtime-plan/types.js";
 import type { buildEmbeddedRunPayloads } from "./run/payloads.js";
 import type { EmbeddedRunAttemptResult } from "./run/types.js";
 
@@ -115,15 +116,11 @@ export const mockedContextEngine = {
   })),
 };
 
-function makeMockRuntimePlan(): {
-  auth: {
-    authProfileProviderForAuth: string;
-    providerForAuth: string;
-  };
-  observability: {
-    harnessId: string;
-  };
-} {
+type MockRuntimePlan = Pick<AgentRuntimePlan, "auth"> & {
+  observability: Pick<AgentRuntimePlan["observability"], "harnessId">;
+};
+
+function makeMockRuntimePlan(): MockRuntimePlan {
   return {
     auth: {
       authProfileProviderForAuth: "anthropic",
