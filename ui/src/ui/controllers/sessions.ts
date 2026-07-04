@@ -1207,6 +1207,16 @@ export async function loadSessions(state: SessionsState, overrides?: LoadSession
   }
 }
 
+export function loadSessionsForPage(state: SessionsState): Promise<void> {
+  return loadSessions(state, {
+    activeMinutes: parseSessionsFilterInteger(state.sessionsFilterActive),
+    limit: parseSessionsFilterInteger(state.sessionsFilterLimit),
+    includeGlobal: state.sessionsIncludeGlobal,
+    includeUnknown: state.sessionsIncludeUnknown,
+    showArchived: state.sessionsShowArchived,
+  });
+}
+
 async function loadSessionsOnce(
   state: SessionsState,
   client: NonNullable<SessionsState["client"]>,

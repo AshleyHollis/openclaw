@@ -11,6 +11,7 @@ import {
   branchSessionFromCheckpoint,
   deleteSessionsAndRefresh,
   loadSessions,
+  loadSessionsForPage,
   parseSessionsFilterInteger,
   restoreSessionFromCheckpoint,
   toggleSessionCompactionCheckpoints,
@@ -33,7 +34,7 @@ export const page = definePage({
   id: "sessions",
   path: "/sessions",
   loader: ({ app }: SessionsLoadContext) =>
-    Promise.all([loadConfig(app), loadSessions(app)]).then(() => undefined),
+    Promise.all([loadConfig(app), loadSessionsForPage(app)]).then(() => undefined),
   component: () =>
     import("../../ui/views/sessions.ts").then((module) => ({
       render: ({ state, navigate }: SessionsRenderContext) => {
@@ -130,7 +131,7 @@ export const page = definePage({
             state.sessionsPageSize = pageSize;
             state.sessionsPage = 0;
           },
-          onRefresh: () => void loadSessions(state),
+          onRefresh: () => void loadSessionsForPage(state),
           onPatch: (key, patch) => void patchSessionFromSessionsView(state, key, patch),
           onToggleSelect: (key) => {
             const next = new Set(state.sessionsSelectedKeys);
