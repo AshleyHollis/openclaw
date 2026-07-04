@@ -22,55 +22,15 @@ import {
 } from "../../ui/app-render.helpers.ts";
 import { scheduleChatScroll } from "../../ui/app-scroll.ts";
 import type { AppViewState } from "../../ui/app-view-state.ts";
-import {
-  buildAgentMainSessionKey,
-  normalizeAgentId,
-  parseAgentSessionKey,
-  resolveUiSelectedGlobalAgentId,
-} from "../../ui/session-key.ts";
-import { loadLocalAssistantIdentity } from "../../ui/storage.ts";
-import { isRenderableControlUiAvatarUrl } from "../../ui/views/agents-utils.ts";
+import { buildAgentMainSessionKey } from "../../ui/session-key.ts";
 import { renderChat, resetChatViewState } from "../../ui/views/chat.ts";
 import { loadChatPage } from "../loaders.ts";
+import { resolveChatAgentId, resolveChatAvatarUrl } from "./avatar.ts";
 import { chatSessionLoaderDeps } from "./loader-deps.ts";
 import { createSessionWorkspaceProps } from "./session-workspace.ts";
 
 type ChatLoadContext = { host: SettingsHost; app: SettingsAppHost };
 type ChatRenderContext = RouteRenderContext;
-
-function resolveChatAgentId(state: AppViewState): string {
-  return normalizeAgentId(
-    parseAgentSessionKey(state.sessionKey)?.agentId ??
-      scopedAgentParamsForSession(state, state.sessionKey).agentId ??
-      resolveUiSelectedGlobalAgentId(state),
-  );
-}
-
-function resolveChatAvatarUrl(state: AppViewState): string | null {
-  const agentId = resolveChatAgentId(state);
-  const localAvatar = loadLocalAssistantIdentity({ agentId }).avatar;
-  if (localAvatar) {
-    return localAvatar;
-  }
-  const avatarMissing =
-    (state.chatAvatarStatus ?? state.assistantAvatarStatus) === "none" &&
-    (state.chatAvatarReason ?? state.assistantAvatarReason) === "missing";
-  if (
-    !avatarMissing &&
-    state.assistantAvatar &&
-    isRenderableControlUiAvatarUrl(state.assistantAvatar)
-  ) {
-    if (state.assistantAgentId === agentId) {
-      return state.assistantAvatar;
-    }
-  }
-  if (state.chatAvatarUrl) {
-    return state.chatAvatarUrl;
-  }
-  const identity = state.agentsList?.agents?.find((agent) => agent.id === agentId)?.identity;
-  const avatar = identity?.avatarUrl ?? identity?.avatar;
-  return typeof avatar === "string" && isRenderableControlUiAvatarUrl(avatar) ? avatar : null;
-}
 
 function renderGuardedChatControls(state: AppViewState, navigate: RouteRenderContext["navigate"]) {
   return guard(
