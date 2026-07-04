@@ -12,11 +12,7 @@ type RenderableModule<TContext, TData> = {
   render: (context: TContext, data: TData | undefined) => unknown;
 };
 
-export type RouterOutletOptions<
-  TRouteId extends string,
-  TLoadContext = unknown,
-  TData = unknown,
-> = {
+export type RouterOutletOptions<TLoadContext = unknown> = {
   retryContext?: TLoadContext;
 };
 
@@ -58,8 +54,8 @@ function selectRouterOutletState<TRouteId extends string, TModule, TData>(
   };
 }
 
-export function createRouterOutletSnapshot<TRouteId extends string, TModule, TData>(
-  router: Router<TRouteId, unknown, TModule, TData>,
+export function createRouterOutletSnapshot<TRouteId extends string, TLoadContext, TModule, TData>(
+  router: Router<TRouteId, TLoadContext, TModule, TData>,
 ): RouterOutletSnapshotStore<TRouteId, TModule, TData> {
   let selection = selectRouterOutletState(router.getState());
   const listeners = new Set<(next: RouterOutletSelection<TRouteId, TModule, TData>) => void>();
@@ -167,7 +163,7 @@ export function renderRouterOutlet<
   router: Router<TRouteId, TLoadContext, TModule, TData>,
   context: TContext,
   selection: RouterOutletSelection<TRouteId, TModule, TData>,
-  options: RouterOutletOptions<TRouteId, TLoadContext, TData> = {},
+  options: RouterOutletOptions<TLoadContext> = {},
 ): unknown {
   const renderedMatch = selection.pending ?? selection.active;
   if (renderedMatch?.status === "notFound") {
@@ -289,11 +285,12 @@ class RouterOutletDirective extends AsyncDirective {
       this.showPending = false;
       this.pendingTimer = globalThis.setTimeout(() => {
         this.pendingTimer = undefined;
-        if (this.pendingSelection?.pending?.id !== this.pendingMatchId) {
+        const pendingSelection = this.pendingSelection;
+        if (!pendingSelection || pendingSelection.pending?.id !== this.pendingMatchId) {
           return;
         }
         this.showPending = true;
-        this.setValue(this.renderSelection(this.pendingSelection));
+        this.setValue(this.renderSelection(pendingSelection));
       }, PENDING_UI_DELAY_MS);
     }
     if (selection.status === "notFound") {

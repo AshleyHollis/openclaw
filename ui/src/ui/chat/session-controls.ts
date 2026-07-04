@@ -82,6 +82,9 @@ export function renderChatSessionSelect(
   state: AppViewState,
   onSwitchSession: ChatSessionSwitchHandler = () => undefined,
   options: {
+    compact?: boolean;
+    onNavigate?: (routeId: RouteId) => void;
+    sessionSwitcherOnly?: boolean;
     surface?: ChatSessionSelectSurface;
   } = {},
 ) {
@@ -89,16 +92,23 @@ export function renderChatSessionSelect(
   const sessionGroups = resolveSessionOptionGroups(state, state.sessionKey, state.sessionsResult);
   const agentOptions = resolveChatAgentFilterOptions(state);
   const hasAgentSelect = agentOptions.length > 1;
-  const agentSelect = renderChatAgentSelect(state, onSwitchSession, agentOptions);
-  const modelSelect = renderChatModelSelect(state);
-  const quotaPill = renderChatQuotaPill(state);
+  const compact = options.compact ?? false;
+  const agentSelect = compact ? "" : renderChatAgentSelect(state, onSwitchSession, agentOptions);
+  const sessionSwitcherOnly = options.sessionSwitcherOnly ?? false;
+  const modelSelect = sessionSwitcherOnly ? "" : renderChatModelSelect(state);
+  // Quota is informational, not a control: show it whenever there is room
+  // (hidden only in the collapsed/compact sidebar), independent of
+  // sessionSwitcherOnly which suppresses the model *control* (#93041).
+  const quotaPill = compact ? "" : renderChatQuotaPill(state, options.onNavigate);
   const surface = options.surface ?? "desktop";
   const selectedSessionLabel = resolveSelectedChatSessionLabel(state, sessionGroups);
   const pickerOpen = state.chatSessionPickerOpen && state.chatSessionPickerSurface === surface;
   const flashSession = state.sessionSwitchFlashKey === state.sessionKey;
   const rowClass = [
     "chat-controls__session-row",
-    hasAgentSelect ? "" : "chat-controls__session-row--single-agent",
+    sessionSwitcherOnly ? "chat-controls__session-row--session-switcher" : "",
+    hasAgentSelect && !compact ? "" : "chat-controls__session-row--single-agent",
+    compact ? "chat-controls__session-row--compact" : "",
     quotaPill ? "chat-controls__session-row--has-quota" : "",
     flashSession ? "chat-controls__session-row--flash" : "",
   ]
@@ -114,6 +124,7 @@ export function renderChatSessionSelect(
         selectedSessionLabel,
         pickerOpen,
         disabled: !state.connected || !state.client,
+        compact,
       })}
       ${modelSelect} ${quotaPill}
     </div>
@@ -123,25 +134,21 @@ export function renderChatSessionSelect(
   `;
 }
 
-// Sidebar selections must land the user in Chat: the expanded sidebar has no
-// dedicated Chat nav item, so a switch that stays on the current tab would
-// strand the user on Overview/Sessions after picking a session.
-function enterChatOnSwitch(onSwitchSession: ChatSessionSwitchHandler): ChatSessionSwitchHandler {
+function enterChatOnSwitch(
+  onSwitchSession: ChatSessionSwitchHandler,
+  onNavigate: (routeId: RouteId) => void,
+): ChatSessionSwitchHandler {
   return (state, nextSessionKey) => {
     onSwitchSession(state, nextSessionKey);
-    state.setTab("chat");
+    onNavigate("chat");
   };
 }
 
-// Agent filter for the sidebar sessions section; hidden for the common
-// single-agent install, mirrors the removed sidebar select's agent scoping.
 export function renderSidebarAgentFilter(
   state: AppViewState,
   onSwitchSession: ChatSessionSwitchHandler,
+  onNavigate: (routeId: RouteId) => void,
 ) {
-  // Keep the per-agent row cache fresh so resolvePreferredSessionForAgent can
-  // pick each agent's most recent saved session after switching away and back;
-  // the removed sidebar session select used to do this on every render.
   rememberChatAgentSessionRows(state, state.sessionsResult);
   const agentOptions = resolveChatAgentFilterOptions(state);
   if (agentOptions.length <= 1) {
@@ -149,24 +156,20 @@ export function renderSidebarAgentFilter(
   }
   return html`
     <div class="sidebar-agent-filter">
-      ${renderChatAgentSelect(state, enterChatOnSwitch(onSwitchSession), agentOptions)}
+      ${renderChatAgentSelect(state, enterChatOnSwitch(onSwitchSession, onNavigate), agentOptions)}
     </div>
   `;
 }
 
-// Icon-only trigger for the full session picker (search + pagination) in the
-// sidebar sessions section; the recents list covers the common quick switches.
 export function renderSidebarSessionSearch(
   state: AppViewState,
   onSwitchSession: ChatSessionSwitchHandler,
+  onNavigate: (routeId: RouteId) => void,
 ) {
   const surface: ChatSessionSelectSurface = "sidebar";
   const pickerOpen = state.chatSessionPickerOpen && state.chatSessionPickerSurface === surface;
   const pickerId = `chat-session-picker-${surface}`;
   const label = t("chat.selectors.sessionSearch");
-  // display:contents wrapper: groups the trigger and popover for the global
-  // outside-pointerdown close check without adding a layout box, so the
-  // popover keeps anchoring to the positioned sessions header.
   return html`
     <div class="sidebar-session-search">
       <button
@@ -183,10 +186,12 @@ export function renderSidebarSessionSearch(
         ${icons.search}
       </button>
       ${pickerOpen
-        ? renderChatSessionPickerPopover(state, enterChatOnSwitch(onSwitchSession), pickerId, {
-            // Re-picking the current session still needs to open Chat.
-            onSelectCurrent: (s) => s.setTab("chat"),
-          })
+        ? renderChatSessionPickerPopover(
+            state,
+            enterChatOnSwitch(onSwitchSession, onNavigate),
+            pickerId,
+            { onSelectCurrent: () => onNavigate("chat") },
+          )
         : ""}
     </div>
   `;
@@ -622,8 +627,10 @@ function renderChatSessionPicker(params: {
   selectedSessionLabel: string;
   pickerOpen: boolean;
   disabled: boolean;
+  compact: boolean;
 }) {
-  const { state, onSwitchSession, surface, selectedSessionLabel, pickerOpen, disabled } = params;
+  const { state, onSwitchSession, surface, selectedSessionLabel, pickerOpen, disabled, compact } =
+    params;
   const pickerId = `chat-session-picker-${surface}`;
   return html`
     <div class="chat-controls__session chat-controls__session-picker">
@@ -645,6 +652,11 @@ function renderChatSessionPicker(params: {
           }
         }}
       >
+        ${compact
+          ? html`<span class="chat-controls__session-trigger-compact-icon" aria-hidden="true">
+              ${icons.messageSquare}
+            </span>`
+          : ""}
         <span class="chat-controls__session-trigger-label">${selectedSessionLabel}</span>
         <span class="chat-controls__session-trigger-icon" aria-hidden="true">
           ${icons.chevronDown}
@@ -659,7 +671,7 @@ function renderChatSessionPickerPopover(
   state: AppViewState,
   onSwitchSession: ChatSessionSwitchHandler,
   pickerId: string,
-  options: { onSelectCurrent?: (state: AppViewState) => void } = {},
+  options: { onSelectCurrent?: () => void } = {},
 ) {
   const result = resolveChatSessionPickerResult(state);
   const pickerRows = resolveChatSessionPickerRows(state, result);
@@ -778,7 +790,7 @@ function renderChatSessionPickerPopover(
                     onSwitchSession(state, row.key);
                     return;
                   }
-                  options.onSelectCurrent?.(state);
+                  options.onSelectCurrent?.();
                 }}
               >
                 <span class="chat-session-picker__option-main">
@@ -834,7 +846,6 @@ export function renderChatQuotaPill(state: AppViewState, onNavigate?: (routeId: 
     : null;
   const title = [detail, secondaryDetail].filter(Boolean).join(" · ");
   const severity = primary.remaining <= 10 ? "danger" : primary.remaining <= 25 ? "warn" : "ok";
-
   return html`
     <a
       class="chat-controls__quota chat-controls__quota--${severity}"
@@ -941,7 +952,6 @@ export function renderChatModelSelect(state: AppViewState) {
     selectedThinkingLabel,
     selectedThinkingValue: thinking.currentOverride,
     fastMode,
-    thinkingDefaultValue: thinking.defaultValue,
     thinkingDisabled,
     thinkingOptions: [{ value: "", label: thinking.defaultLabel }, ...thinking.options],
     onModelSelect: (next) => switchChatModel(state, next),
@@ -958,8 +968,6 @@ type ChatThinkingSelectOption = {
 type ChatThinkingSelectState = {
   currentOverride: string;
   defaultLabel: string;
-  /** Normalized default level id so the slider can mark the inherited stop. */
-  defaultValue: string;
   options: ChatThinkingSelectOption[];
 };
 
@@ -1145,7 +1153,6 @@ export function resolveChatThinkingSelectState(state: AppViewState): ChatThinkin
   return {
     currentOverride: effectiveOverride,
     defaultLabel: formatInheritedThinkingLabel(defaultLevel),
-    defaultValue: normalizeThinkingOptionValue(defaultLevel),
     options: buildThinkingOptions(levels, effectiveOverride),
   };
 }
@@ -1168,6 +1175,10 @@ function formatCombinedPickerThinkingLabel(label: string): string {
   return label.replace(/^Inherited:\s*/u, "");
 }
 
+function formatCombinedPickerThinkingOptionLabel(option: ChatInlineSelectOption): string {
+  return option.value === "" ? "Default" : formatCombinedPickerThinkingLabel(option.label);
+}
+
 function renderChatModelReasoningSelect(params: {
   fastMode: ChatFastModeSelectState;
   disabled: boolean;
@@ -1176,7 +1187,6 @@ function renderChatModelReasoningSelect(params: {
   selectedModelValue: string;
   selectedThinkingLabel: string;
   selectedThinkingValue: string;
-  thinkingDefaultValue: string;
   thinkingDisabled: boolean;
   thinkingOptions: ChatInlineSelectOption[];
   onFastModeSelect: (value: "" | "on" | "off" | "auto") => Promise<unknown>;
@@ -1191,7 +1201,6 @@ function renderChatModelReasoningSelect(params: {
     selectedModelValue,
     selectedThinkingLabel,
     selectedThinkingValue,
-    thinkingDefaultValue,
     thinkingDisabled,
     thinkingOptions,
     onFastModeSelect,
@@ -1200,53 +1209,7 @@ function renderChatModelReasoningSelect(params: {
   } = params;
   const triggerModel = formatCombinedPickerModelLabel(selectedModelLabel);
   const triggerThinking = formatCombinedPickerThinkingLabel(selectedThinkingLabel);
-  const triggerTitle = `${triggerModel} · ${triggerThinking}`;
-  // The visible trigger stays minimal: the inherited default level is noise,
-  // so reasoning only appears when overridden. Title/aria keep the full pair.
-  const triggerLabel =
-    selectedThinkingValue === "" ? triggerModel : `${triggerModel} · ${triggerThinking}`;
-  // Reasoning renders as a discrete slider over the ordered level list the
-  // gateway offers (faster -> smarter). "" (inherit default) is not a stop:
-  // the thumb parks on the default level until the user sets an override.
-  const sliderStops = thinkingOptions.filter((option) => option.value !== "");
-  const defaultStopIndex = sliderStops.findIndex((option) => option.value === thinkingDefaultValue);
-  const hasThinkingOverride = selectedThinkingValue !== "";
-  const overrideStopIndex = sliderStops.findIndex(
-    (option) => option.value === selectedThinkingValue,
-  );
-  const sliderIndex = Math.max(hasThinkingOverride ? overrideStopIndex : defaultStopIndex, 0);
-  // Inherited defaults like "adaptive" may not exist on the offered scale.
-  // The value label stays truthful ("Default (Adaptive)"); the thumb gets an
-  // unanchored style so its parked position does not read as the default.
-  const sliderUnanchored = !hasThinkingOverride && defaultStopIndex < 0;
-  const sliderFillPercent = (index: number) =>
-    sliderStops.length > 1 ? (index / (sliderStops.length - 1)) * 100 : 0;
-  const reasoningValueLabel = hasThinkingOverride
-    ? triggerThinking
-    : `Default (${triggerThinking})`;
-  const defaultLevelLabel = formatThinkingOverrideLabel(thinkingDefaultValue);
-  // Keep the filled track segment glued to the thumb while dragging; the
-  // sessions.patch commit happens on release (change), not per input tick.
-  const onSliderDrag = (event: Event) => {
-    const input = event.currentTarget as HTMLInputElement;
-    input.style.setProperty("--reasoning-fill", `${sliderFillPercent(Number(input.value))}%`);
-  };
-  const onSliderCommit = async (event: Event) => {
-    if (thinkingDisabled) {
-      return;
-    }
-    const input = event.currentTarget as HTMLInputElement;
-    const stop = sliderStops[Number(input.value)];
-    if (!stop || stop.value === selectedThinkingValue) {
-      return;
-    }
-    await onThinkingSelect(stop.value);
-  };
-  const showReasoning = sliderStops.length > 0;
-  // A one-entry scale is not a slider, but the lone level must stay
-  // selectable from the inherited default (regression guard vs the old list).
-  const onlyStop = sliderStops.length === 1 ? sliderStops[0] : undefined;
-  const showReasoningPanel = showReasoning || fastMode.supported;
+  const triggerLabel = `${triggerModel} · ${triggerThinking}`;
   return html`
     <details class="chat-controls__session chat-controls__inline-select chat-controls__model">
       <summary
@@ -1258,9 +1221,9 @@ function renderChatModelReasoningSelect(params: {
         data-chat-select-value=${selectedModelValue}
         data-chat-thinking-value=${selectedThinkingValue}
         data-chat-thinking-disabled=${thinkingDisabled ? "true" : "false"}
-        aria-label=${`${t("chat.selectors.model")}, ${t("chat.selectors.thinkingLevel")}: ${triggerTitle}`}
+        aria-label=${`${t("chat.selectors.model")}, ${t("chat.selectors.thinkingLevel")}: ${triggerLabel}`}
         aria-disabled=${disabled ? "true" : "false"}
-        title=${triggerTitle}
+        title=${triggerLabel}
         @click=${(event: MouseEvent) => {
           if (disabled) {
             event.preventDefault();
@@ -1320,162 +1283,100 @@ function renderChatModelReasoningSelect(params: {
             },
           )}
         </div>
-        ${showReasoningPanel
-          ? html`
-              <div class="chat-controls__reasoning-panel">
-                ${showReasoning
-                  ? html`
-                      <div class="chat-controls__reasoning-head">
-                        <span class="chat-controls__inline-select-section-label">Reasoning</span>
-                        <span class="chat-controls__reasoning-value">${reasoningValueLabel}</span>
-                      </div>
-                      ${sliderStops.length > 1
-                        ? html`
-                            <div class="chat-controls__reasoning-slider">
-                              <div class="chat-controls__reasoning-dots" aria-hidden="true">
-                                ${sliderStops.map(
-                                  (stop, index) =>
-                                    html`<span
-                                      class="chat-controls__reasoning-dot ${index ===
-                                      defaultStopIndex
-                                        ? "chat-controls__reasoning-dot--default"
-                                        : ""}"
-                                      data-stop=${stop.value}
-                                    ></span>`,
-                                )}
-                              </div>
-                              <input
-                                class="chat-controls__reasoning-range ${hasThinkingOverride
-                                  ? ""
-                                  : "chat-controls__reasoning-range--inherit"} ${sliderUnanchored
-                                  ? "chat-controls__reasoning-range--unanchored"
-                                  : ""}"
-                                type="range"
-                                min="0"
-                                max=${sliderStops.length - 1}
-                                step="1"
-                                .value=${String(sliderIndex)}
-                                style=${`--reasoning-fill: ${sliderFillPercent(sliderIndex)}%`}
-                                data-chat-thinking-slider="true"
-                                data-chat-thinking-values=${sliderStops
-                                  .map((stop) => stop.value)
-                                  .join(",")}
-                                aria-label=${t("chat.selectors.thinkingLevel")}
-                                aria-valuetext=${reasoningValueLabel}
-                                ?disabled=${thinkingDisabled}
-                                @input=${onSliderDrag}
-                                @change=${onSliderCommit}
-                              />
-                            </div>
-                            <div class="chat-controls__reasoning-scale" aria-hidden="true">
-                              <span>Faster</span>
-                              <span>Smarter</span>
-                            </div>
-                          `
-                        : onlyStop
-                          ? html`
-                              <button
-                                class="chat-controls__reasoning-option ${hasThinkingOverride
-                                  ? "chat-controls__reasoning-option--selected"
-                                  : ""}"
-                                data-chat-thinking-option=${onlyStop.value}
-                                type="button"
-                                aria-pressed=${hasThinkingOverride ? "true" : "false"}
-                                ?disabled=${thinkingDisabled}
-                                @click=${async (event: MouseEvent) => {
-                                  event.stopPropagation();
-                                  if (thinkingDisabled || hasThinkingOverride) {
-                                    event.preventDefault();
-                                    return;
-                                  }
-                                  await onThinkingSelect(onlyStop.value);
-                                }}
+        <div
+          class="chat-controls__reasoning-panel"
+          role="listbox"
+          aria-label=${t("chat.selectors.thinkingLevel")}
+        >
+          <div class="chat-controls__inline-select-section-label">Reasoning</div>
+          <div class="chat-controls__reasoning-options">
+            ${repeat(
+              thinkingOptions,
+              (thinking) => thinking.value,
+              (thinking) => {
+                const thinkingSelected = thinking.value === selectedThinkingValue;
+                return html`
+                  <button
+                    class="chat-controls__reasoning-option ${thinkingSelected
+                      ? "chat-controls__reasoning-option--selected"
+                      : ""}"
+                    data-chat-thinking-option=${thinking.value}
+                    role="option"
+                    aria-selected=${thinkingSelected ? "true" : "false"}
+                    type="button"
+                    ?disabled=${thinkingDisabled}
+                    @click=${async (event: MouseEvent) => {
+                      event.stopPropagation();
+                      if (thinkingDisabled) {
+                        event.preventDefault();
+                        return;
+                      }
+                      (event.currentTarget as HTMLElement)
+                        .closest("details")
+                        ?.removeAttribute("open");
+                      await onThinkingSelect(thinking.value);
+                    }}
+                  >
+                    <span>${formatCombinedPickerThinkingOptionLabel(thinking)}</span>
+                    ${thinkingSelected
+                      ? html`<span class="chat-controls__inline-select-check" aria-hidden="true">
+                          ${icons.check}
+                        </span>`
+                      : ""}
+                  </button>
+                `;
+              },
+            )}
+          </div>
+          ${fastMode.supported
+            ? html`
+                <div class="chat-controls__inline-select-section-label">Speed</div>
+                <div class="chat-controls__reasoning-options" role="listbox">
+                  ${repeat(
+                    fastMode.options,
+                    (speed) => speed.value,
+                    (speed) => {
+                      const speedValue = speed.value as "" | "on" | "off" | "auto";
+                      const speedSelected = speedValue === fastMode.currentOverride;
+                      return html`
+                        <button
+                          class="chat-controls__reasoning-option ${speedSelected
+                            ? "chat-controls__reasoning-option--selected"
+                            : ""}"
+                          data-chat-speed-option=${speed.value}
+                          role="option"
+                          aria-selected=${speedSelected ? "true" : "false"}
+                          type="button"
+                          ?disabled=${fastMode.disabled}
+                          @click=${async (event: MouseEvent) => {
+                            event.stopPropagation();
+                            if (fastMode.disabled) {
+                              event.preventDefault();
+                              return;
+                            }
+                            (event.currentTarget as HTMLElement)
+                              .closest("details")
+                              ?.removeAttribute("open");
+                            await onFastModeSelect(speedValue);
+                          }}
+                        >
+                          <span>${speed.label}</span>
+                          ${speedSelected
+                            ? html`<span
+                                class="chat-controls__inline-select-check"
+                                aria-hidden="true"
                               >
-                                <span>${onlyStop.label}</span>
-                                ${hasThinkingOverride
-                                  ? html`<span
-                                      class="chat-controls__inline-select-check"
-                                      aria-hidden="true"
-                                    >
-                                      ${icons.check}
-                                    </span>`
-                                  : ""}
-                              </button>
-                            `
-                          : ""}
-                      ${hasThinkingOverride
-                        ? html`
-                            <button
-                              class="chat-controls__reasoning-reset"
-                              data-chat-thinking-option=""
-                              type="button"
-                              ?disabled=${thinkingDisabled}
-                              @click=${async (event: MouseEvent) => {
-                                event.stopPropagation();
-                                if (thinkingDisabled) {
-                                  event.preventDefault();
-                                  return;
-                                }
-                                await onThinkingSelect("");
-                              }}
-                            >
-                              Use default (${defaultLevelLabel})
-                            </button>
-                          `
-                        : ""}
-                    `
-                  : ""}
-                ${fastMode.supported
-                  ? html`
-                      <div class="chat-controls__inline-select-section-label">Speed</div>
-                      <div class="chat-controls__reasoning-options" role="listbox">
-                        ${repeat(
-                          fastMode.options,
-                          (speed) => speed.value,
-                          (speed) => {
-                            const speedValue = speed.value as "" | "on" | "off" | "auto";
-                            const speedSelected = speedValue === fastMode.currentOverride;
-                            return html`
-                              <button
-                                class="chat-controls__reasoning-option ${speedSelected
-                                  ? "chat-controls__reasoning-option--selected"
-                                  : ""}"
-                                data-chat-speed-option=${speed.value}
-                                role="option"
-                                aria-selected=${speedSelected ? "true" : "false"}
-                                type="button"
-                                ?disabled=${fastMode.disabled}
-                                @click=${async (event: MouseEvent) => {
-                                  event.stopPropagation();
-                                  if (fastMode.disabled) {
-                                    event.preventDefault();
-                                    return;
-                                  }
-                                  (event.currentTarget as HTMLElement)
-                                    .closest("details")
-                                    ?.removeAttribute("open");
-                                  await onFastModeSelect(speedValue);
-                                }}
-                              >
-                                <span>${speed.label}</span>
-                                ${speedSelected
-                                  ? html`<span
-                                      class="chat-controls__inline-select-check"
-                                      aria-hidden="true"
-                                    >
-                                      ${icons.check}
-                                    </span>`
-                                  : ""}
-                              </button>
-                            `;
-                          },
-                        )}
-                      </div>
-                    `
-                  : ""}
-              </div>
-            `
-          : ""}
+                                ${icons.check}
+                              </span>`
+                            : ""}
+                        </button>
+                      `;
+                    },
+                  )}
+                </div>
+              `
+            : ""}
+        </div>
       </div>
     </details>
   `;

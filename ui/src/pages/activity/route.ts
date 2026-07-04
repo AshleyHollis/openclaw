@@ -52,7 +52,10 @@ export const page = definePage({
           },
           onScroll: (event) => state.handleActivityScroll(event),
         }),
-      onStateChange: ({ state }: ActivityRenderContext, changed) => {
+      onStateChange: (
+        { state }: ActivityRenderContext,
+        changed: ReadonlyMap<PropertyKey, unknown>,
+      ) => {
         if (
           state.activityAutoFollow &&
           state.activityAtBottom &&

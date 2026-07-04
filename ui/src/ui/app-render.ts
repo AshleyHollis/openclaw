@@ -27,7 +27,11 @@ import {
   switchChatSession,
 } from "./app-render.helpers.ts";
 import type { AppViewState } from "./app-view-state.ts";
-import { renderChatSessionSelect } from "./chat/session-controls.ts";
+import {
+  renderChatQuotaPill,
+  renderSidebarAgentFilter,
+  renderSidebarSessionSearch,
+} from "./chat/session-controls.ts";
 import { runUpdate } from "./controllers/config.ts";
 import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "./external-link.ts";
 import { formatRelativeTimestamp } from "./format.ts";
@@ -35,10 +39,13 @@ import { icons } from "./icons.ts";
 import { isCronSessionKey, resolveSessionDisplayName } from "./session-display.ts";
 import "./components/dashboard-header.ts";
 import {
+  areUiSessionKeysEquivalent,
   isSessionKeyTiedToAgent,
-  normalizeAgentId,
   isSubagentSessionKey,
+  normalizeAgentId,
   parseAgentSessionKey,
+  resolveUiSelectedGlobalAgentId,
+  uiSessionRowMatchesSelectedChat,
 } from "./session-key.ts";
 import { normalizeOptionalString } from "./string-coerce.ts";
 import type { GatewaySessionRow } from "./types.ts";
@@ -102,16 +109,81 @@ function resolveSidebarRecentSessions(state: AppViewState): GatewaySessionRow[] 
         !isCronSessionKey(row.key) &&
         !isSubagentSessionKey(row.key) &&
         !row.spawnedBy &&
+        !isActiveSidebarSessionRow(state, row.key) &&
         (!shouldFilterByAgent || isSidebarSessionForSelectedAgent(state, row, selectedAgentId)),
     )
     .toSorted((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-    .slice(0, 5);
+    .slice(0, 9);
 }
 
-function renderSidebarSessions(state: AppViewState, navigate: (routeId: RouteId) => void) {
-  const collapsed = state.settings.navCollapsed;
+function isActiveSidebarSessionRow(state: AppViewState, rowKey: string): boolean {
+  return uiSessionRowMatchesSelectedChat(state, rowKey, state.sessionKey);
+}
+
+function resolveSidebarActiveRow(state: AppViewState): GatewaySessionRow | null {
+  const activeKey = normalizeOptionalString(state.sessionKey);
+  if (!activeKey || activeKey.toLowerCase() === "unknown") {
+    return null;
+  }
+  const activeAgentId = normalizeAgentId(
+    parseAgentSessionKey(activeKey)?.agentId ?? resolveUiSelectedGlobalAgentId(state),
+  );
+  const findActiveRow = (rows: readonly GatewaySessionRow[], scopeAgentId: string | null) =>
+    rows.find((row) => areUiSessionKeysEquivalent(row.key, activeKey)) ??
+    (scopeAgentId === activeAgentId
+      ? rows.find((row) => uiSessionRowMatchesSelectedChat(state, row.key, activeKey))
+      : undefined);
+  const fromResult = findActiveRow(
+    state.sessionsResult?.sessions ?? [],
+    state.sessionsResultAgentId ? normalizeAgentId(state.sessionsResultAgentId) : null,
+  );
+  if (fromResult) {
+    return { ...fromResult, key: activeKey };
+  }
+  for (const [agentId, rows] of Object.entries(state.chatAgentSessionRowsByAgent ?? {})) {
+    const cached = findActiveRow(rows, normalizeAgentId(agentId));
+    if (cached) {
+      return { ...cached, key: activeKey };
+    }
+  }
+  return { key: activeKey, kind: "direct", updatedAt: null };
+}
+
+function renderSidebarChatFallbackRow(
+  state: AppViewState,
+  activeRouteId: RouteId | undefined,
+  navigate: (routeId: RouteId) => void,
+) {
+  return html`
+    <a
+      href=${pathForRoute("chat", state.basePath)}
+      class="sidebar-recent-session ${activeRouteId === "chat"
+        ? "sidebar-recent-session--active"
+        : ""}"
+      @click=${(event: MouseEvent) => {
+        if (event.defaultPrevented || event.button !== 0 || hasModifierKey(event)) {
+          return;
+        }
+        event.preventDefault();
+        navigate("chat");
+      }}
+    >
+      <span class="sidebar-recent-session__body">
+        <span class="sidebar-recent-session__name">${t("nav.chat")}</span>
+      </span>
+    </a>
+  `;
+}
+
+function renderSidebarSessions(
+  state: AppViewState,
+  collapsed: boolean,
+  activeRouteId: RouteId | undefined,
+  navigate: (routeId: RouteId) => void,
+) {
   const busy = isSidebarSessionBusy(state);
   const recent = collapsed ? [] : resolveSidebarRecentSessions(state);
+  const activeRow = collapsed ? null : resolveSidebarActiveRow(state);
   const newSessionDisabled = !state.connected || state.sessionsLoading || busy || !state.client;
   const newSessionTitle = !state.connected
     ? "Connect to create a new session"
@@ -143,14 +215,7 @@ function renderSidebarSessions(state: AppViewState, navigate: (routeId: RouteId)
               >${t("chat.runControls.newSession")}</span
             >`}
       </button>
-      <div class="sidebar-session-select ${collapsed ? "sidebar-session-select--collapsed" : ""}">
-        ${renderChatSessionSelect(state, switchChatSession, {
-          compact: collapsed,
-          sessionSwitcherOnly: true,
-          surface: "sidebar",
-        })}
-      </div>
-      ${collapsed || recent.length === 0
+      ${collapsed
         ? nothing
         : html`
             <div
@@ -159,25 +224,50 @@ function renderSidebarSessions(state: AppViewState, navigate: (routeId: RouteId)
                 : ""}"
               aria-label=${t("overview.cards.recentSessions")}
             >
-              <button
-                class="sidebar-recent-sessions__label"
-                type="button"
-                aria-expanded=${String(!state.settings.recentSessionsCollapsed)}
-                @click=${() => {
-                  state.applySettings({
-                    ...state.settings,
-                    recentSessionsCollapsed: !state.settings.recentSessionsCollapsed,
-                  });
+              <div class="sidebar-recent-sessions__head">
+                <button
+                  class="sidebar-recent-sessions__label"
+                  type="button"
+                  aria-expanded=${String(!state.settings.recentSessionsCollapsed)}
+                  @click=${() => {
+                    state.applySettings({
+                      ...state.settings,
+                      recentSessionsCollapsed: !state.settings.recentSessionsCollapsed,
+                    });
+                  }}
+                >
+                  <span class="sidebar-recent-sessions__label-text"
+                    >${t("usage.sessions.recentShort")}</span
+                  >
+                  <span class="sidebar-recent-sessions__chevron"> ${icons.chevronDown} </span>
+                </button>
+                ${renderSidebarSessionSearch(state, switchChatSession, navigate)}
+              </div>
+              ${renderSidebarAgentFilter(state, switchChatSession, navigate)}
+              ${activeRow
+                ? renderSidebarRecentSession(state, activeRow, navigate)
+                : renderSidebarChatFallbackRow(state, activeRouteId, navigate)}
+              ${recent.length === 0
+                ? nothing
+                : html`<div class="sidebar-recent-sessions__list">
+                    ${recent.map((row) => renderSidebarRecentSession(state, row, navigate))}
+                  </div>`}
+              <a
+                href=${pathForRoute("sessions", state.basePath)}
+                class="sidebar-recent-sessions__all"
+                @click=${(event: MouseEvent) => {
+                  if (event.defaultPrevented || event.button !== 0 || hasModifierKey(event)) {
+                    return;
+                  }
+                  event.preventDefault();
+                  navigate("sessions");
                 }}
               >
-                <span class="sidebar-recent-sessions__label-text"
-                  >${t("usage.sessions.recentShort")}</span
+                <span>${t("chat.sidebar.allSessions")}</span>
+                <span class="sidebar-recent-sessions__all-icon" aria-hidden="true"
+                  >${icons.chevronRight}</span
                 >
-                <span class="sidebar-recent-sessions__chevron"> ${icons.chevronDown} </span>
-              </button>
-              <div class="sidebar-recent-sessions__list">
-                ${recent.map((row) => renderSidebarRecentSession(state, row, navigate))}
-              </div>
+              </a>
             </div>
           `}
     </section>
@@ -189,9 +279,9 @@ function renderSidebarRecentSession(
   row: GatewaySessionRow,
   navigate: (routeId: RouteId) => void,
 ) {
-  const active = row.key === state.sessionKey;
+  const active = isActiveSidebarSessionRow(state, row.key);
   const label = resolveSessionDisplayName(row.key, row);
-  const meta = row.updatedAt ? formatRelativeTimestamp(row.updatedAt) : "n/a";
+  const meta = row.updatedAt ? formatRelativeTimestamp(row.updatedAt) : "";
   const href = `${pathForRoute("chat", state.basePath)}?session=${encodeURIComponent(row.key)}`;
   return html`
     <a
@@ -200,18 +290,11 @@ function renderSidebarRecentSession(
       data-session-key=${row.key}
       title=${`${label} · ${row.key}`}
       @click=${(event: MouseEvent) => {
-        if (
-          event.defaultPrevented ||
-          event.button !== 0 ||
-          event.metaKey ||
-          event.ctrlKey ||
-          event.shiftKey ||
-          event.altKey
-        ) {
+        if (event.defaultPrevented || event.button !== 0 || hasModifierKey(event)) {
           return;
         }
         event.preventDefault();
-        if (row.key !== state.sessionKey) {
+        if (!isActiveSidebarSessionRow(state, row.key)) {
           switchChatSession(state, row.key);
         }
         navigate("chat");
@@ -220,7 +303,7 @@ function renderSidebarRecentSession(
       <span class="sidebar-recent-session__dot" aria-hidden="true"></span>
       <span class="sidebar-recent-session__body">
         <span class="sidebar-recent-session__name">${label}</span>
-        <span class="sidebar-recent-session__meta">${meta}</span>
+        ${meta ? html`<span class="sidebar-recent-session__meta">${meta}</span>` : nothing}
       </span>
       ${row.hasActiveRun
         ? html`<span
@@ -230,6 +313,10 @@ function renderSidebarRecentSession(
         : nothing}
     </a>
   `;
+}
+
+function hasModifierKey(event: MouseEvent): boolean {
+  return event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
 }
 
 const UPDATE_BANNER_DISMISS_KEY = "openclaw:control-ui:update-banner-dismissed:v1";
@@ -451,7 +538,6 @@ function renderConnectedApp(
                         alt="OpenClaw"
                       />
                       <span class="sidebar-brand__copy">
-                        <span class="sidebar-brand__eyebrow">${t("nav.control")}</span>
                         <span class="sidebar-brand__title">OpenClaw</span>
                       </span>
                     `}
@@ -478,52 +564,59 @@ function renderConnectedApp(
               </button>
             </div>
             <div class="sidebar-shell__body">
-              ${renderSidebarSessions(state, navigate)}
+              ${renderSidebarSessions(state, navCollapsed, renderedRouteId, navigate)}
               <nav class="sidebar-nav">
-                ${SIDEBAR_SECTIONS.map((group) => {
-                  const isGroupCollapsed = state.settings.navGroupsCollapsed[group.label] ?? false;
-                  const showItems = navCollapsed || !isGroupCollapsed;
+                ${SIDEBAR_SECTIONS.filter((group) => navCollapsed || group.label !== "chat").map(
+                  (group) => {
+                    const isGroupCollapsed =
+                      state.settings.navGroupsCollapsed[group.label] ?? false;
+                    const showItems = navCollapsed || !isGroupCollapsed;
 
-                  return html`
-                    <section class="nav-section ${!showItems ? "nav-section--collapsed" : ""}">
-                      ${!navCollapsed
-                        ? html`
-                            <button
-                              class="nav-section__label"
-                              @click=${() => {
-                                const next = { ...state.settings.navGroupsCollapsed };
-                                next[group.label] = !isGroupCollapsed;
-                                state.applySettings({
-                                  ...state.settings,
-                                  navGroupsCollapsed: next,
-                                });
-                              }}
-                              aria-expanded=${showItems}
-                            >
-                              <span class="nav-section__label-text"
-                                >${t(`nav.${group.label}`)}</span
+                    return html`
+                      <section class="nav-section ${!showItems ? "nav-section--collapsed" : ""}">
+                        ${!navCollapsed
+                          ? html`
+                              <button
+                                class="nav-section__label"
+                                @click=${() => {
+                                  const next = { ...state.settings.navGroupsCollapsed };
+                                  next[group.label] = !isGroupCollapsed;
+                                  state.applySettings({
+                                    ...state.settings,
+                                    navGroupsCollapsed: next,
+                                  });
+                                }}
+                                aria-expanded=${showItems}
                               >
-                              <span class="nav-section__chevron"> ${icons.chevronDown} </span>
-                            </button>
-                          `
-                        : nothing}
-                      <div class="nav-section__items">
-                        ${group.routes.map((routeId) =>
-                          renderRouteNavItem(state, routeId, {
-                            activeRouteId: renderedRouteId,
-                            collapsed: navCollapsed,
-                            onNavigate: navigate,
-                            preloadRoute: application.preload,
-                          }),
-                        )}
-                      </div>
-                    </section>
-                  `;
-                })}
+                                <span class="nav-section__label-text"
+                                  >${t(`nav.${group.label}`)}</span
+                                >
+                                <span class="nav-section__chevron"> ${icons.chevronDown} </span>
+                              </button>
+                            `
+                          : nothing}
+                        <div class="nav-section__items">
+                          ${group.routes.map((routeId) =>
+                            renderRouteNavItem(state, routeId, {
+                              activeRouteId: renderedRouteId,
+                              collapsed: navCollapsed,
+                              onNavigate: navigate,
+                              preloadRoute: application.preload,
+                            }),
+                          )}
+                        </div>
+                      </section>
+                    `;
+                  },
+                )}
               </nav>
             </div>
             <div class="sidebar-shell__footer">
               <div class="sidebar-utility-group">
+                ${(() => {
+                  const quotaPill = navCollapsed ? "" : renderChatQuotaPill(state, navigate);
+                  return quotaPill ? html`<div class="sidebar-quota">${quotaPill}</div>` : nothing;
+                })()}
                 <a
                   class="nav-item nav-item--external sidebar-utility-link"
                   href="https://docs.openclaw.ai"
@@ -540,22 +633,14 @@ function renderConnectedApp(
                     : nothing}
                 </a>
                 <div class="sidebar-mode-switch">${renderTopbarThemeModeToggle(state)}</div>
-                ${(() => {
-                  const version = state.hello?.server?.version ?? "";
-                  return version
-                    ? html`
-                        <div class="sidebar-version" title=${`v${version}`}>
-                          ${!navCollapsed
-                            ? html`
-                                <span class="sidebar-version__label">${t("common.version")}</span>
-                                <span class="sidebar-version__text">v${version}</span>
-                                ${renderSidebarConnectionStatus(state)}
-                              `
-                            : html` ${renderSidebarConnectionStatus(state)} `}
-                        </div>
-                      `
-                    : nothing;
-                })()}
+                <div class="sidebar-status">
+                  ${renderSidebarConnectionStatus(state)}
+                  ${navCollapsed
+                    ? nothing
+                    : html`<span class="sidebar-status__text"
+                        >${state.connected ? t("common.online") : t("common.offline")}</span
+                      >`}
+                </div>
               </div>
             </div>
           </div>

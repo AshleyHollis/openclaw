@@ -195,7 +195,7 @@ function quickChannels(state: AppViewState): QuickSettingsChannel[] {
     configuredIds.length > 0
       ? configuredIds.toSorted((left, right) => left.localeCompare(right))
       : KNOWN_CHANNELS.map(({ id }) => id);
-  const labels = new Map(KNOWN_CHANNELS.map(({ id, label }) => [id, label]));
+  const labels = new Map<string, string>(KNOWN_CHANNELS.map(({ id, label }) => [id, label]));
   return channelIds.map((id) => {
     const value = configured[id];
     const connected = Boolean(value && typeof value === "object" && Object.keys(value).length);
@@ -609,8 +609,8 @@ function renderConfigPage({ state, navigate, pageId }: ConfigRenderContext) {
           },
           onThinkingChange: (level) =>
             void patchSession(state, state.sessionKey, { thinkingLevel: level }),
-          onFastModeToggle: () =>
-            void patchSession(state, state.sessionKey, { fastMode: !fastMode }),
+          onFastModeChange: (mode) =>
+            void patchSession(state, state.sessionKey, { fastMode: mode }),
           onChannelConfigure: () => navigate("channels"),
           onManageCron: () => navigate("cron"),
           onBrowseSkills: () => navigate("skills"),

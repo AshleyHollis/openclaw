@@ -1,6 +1,6 @@
 // Control UI tests cover app renderreaming behavior.
 import { describe, expect, it } from "vitest";
-import { formatDreamNextCycle } from "../pages/dreams/route.ts";
+import { formatDreamNextCycle } from "./controllers/dreaming.ts";
 
 describe("formatDreamNextCycle", () => {
   it("formats valid next-run timestamps", () => {

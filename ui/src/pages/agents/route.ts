@@ -18,12 +18,12 @@ import {
   resetToolsEffectiveState,
   refreshVisibleToolsEffectiveForCurrentSession,
   saveAgentsConfig,
+  setDefaultAgent,
 } from "../../ui/controllers/agents.ts";
 import { loadChannels } from "../../ui/controllers/channels.ts";
 import {
   loadConfig,
   removeConfigFormValue,
-  stageDefaultAgentConfigEntry,
   updateConfigFormValue,
 } from "../../ui/controllers/config.ts";
 import { ensureAgentConfigEntry, findAgentConfigEntryIndex } from "../../ui/controllers/config.ts";
@@ -388,9 +388,7 @@ export const page = definePage({
                 });
               }
             },
-            onSetDefault: (id) => {
-              stageDefaultAgentConfigEntry(state, id);
-            },
+            onSetDefault: (id) => void setDefaultAgent(state, id),
           })}
         `;
       },

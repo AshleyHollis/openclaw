@@ -2,8 +2,8 @@ import { html } from "lit";
 import type { SettingsAppHost, SettingsHost } from "../../app/app-host.ts";
 import { t } from "../../i18n/index.ts";
 import { definePage } from "../../router/index.ts";
-import { switchChatSession } from "../../ui/app-render.helpers.ts";
 import type { AppViewState } from "../../ui/app-view-state.ts";
+import { switchChatSession } from "../../ui/chat-session-switch.ts";
 import {
   resolveChatAgentFilterId,
   resolveChatAgentFilterOptions,
@@ -14,6 +14,7 @@ import {
   backfillDreamDiary,
   copyDreamingArchivePath,
   dedupeDreamDiary,
+  formatDreamNextCycle,
   loadDreamDiary,
   loadDreamingStatus,
   loadWikiImportInsights,
@@ -24,7 +25,6 @@ import {
   resolveConfiguredDreaming,
   updateDreamingEnabled,
 } from "../../ui/controllers/dreaming.ts";
-import { formatTimeMs } from "../../ui/format.ts";
 import { isPluginEnabledInConfigSnapshot } from "../../ui/plugin-activation.ts";
 import { renderDreamingRestartConfirmation } from "../../ui/views/dreaming-restart-confirmation.ts";
 import { renderDreaming } from "../../ui/views/dreaming.ts";
@@ -32,10 +32,6 @@ import { loadDreamsPage } from "../loaders.ts";
 
 type DreamsLoadContext = { host: SettingsHost; app: SettingsAppHost };
 type DreamsRenderContext = { state: AppViewState };
-
-export function formatDreamNextCycle(nextRunAtMs: number | undefined): string | null {
-  return formatTimeMs(nextRunAtMs, { hour: "numeric", minute: "2-digit" }, "") || null;
-}
 
 function resolveDreamingNextCycle(
   status: { phases?: Record<string, { enabled: boolean; nextRunAtMs?: number }> } | null,

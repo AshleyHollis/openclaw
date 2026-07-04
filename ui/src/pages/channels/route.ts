@@ -2,7 +2,6 @@ import type { RouteRenderContext } from "../../app-routes.ts";
 import type { SettingsHost } from "../../app/app-host.ts";
 import { renderSettingsWorkspace } from "../../components/settings-workspace.ts";
 import { definePage } from "../../router/index.ts";
-import type { AppViewState } from "../../ui/app-view-state.ts";
 import { loadChannels } from "../../ui/controllers/channels.ts";
 import { updateConfigFormValue } from "../../ui/controllers/config.ts";
 import { loadChannelsPage } from "../loaders.ts";

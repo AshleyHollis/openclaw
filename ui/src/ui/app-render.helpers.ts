@@ -263,8 +263,14 @@ function renderCronFilterIcon(hiddenCount: number) {
   `;
 }
 
-export function renderChatSessionSelect(state: AppViewState) {
-  return renderChatSessionSelectBase(state, switchChatSession, { surface: "desktop" });
+export function renderChatSessionSelect(
+  state: AppViewState,
+  onNavigate?: (routeId: RouteId) => void,
+) {
+  return renderChatSessionSelectBase(state, switchChatSession, {
+    onNavigate,
+    surface: "desktop",
+  });
 }
 
 function chatAutoScrollLabel(mode: ChatAutoScrollMode) {

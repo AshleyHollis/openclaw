@@ -15,6 +15,17 @@ const restoreChatComposerStateMock = vi.hoisted(() =>
   vi.fn<(...args: unknown[]) => boolean>(() => false),
 );
 const loadControlUiBootstrapConfigMock = vi.hoisted(() => vi.fn(async () => undefined));
+const appRouterRevalidateMock = vi.hoisted(() => vi.fn(async () => undefined));
+
+vi.mock("../app-routes.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../app-routes.ts")>();
+  return {
+    ...actual,
+    appRouter: { ...actual.appRouter, revalidate: appRouterRevalidateMock },
+    getVisibleRouteId: () => "chat",
+    routeLoadContext: (host: unknown) => host,
+  };
+});
 
 type GatewayRequest = (method: string, payload?: unknown) => Promise<unknown>;
 
@@ -150,6 +161,7 @@ type TestGatewayHost = Parameters<typeof connectGateway>[0] & {
 
 function createHost(): TestGatewayHost {
   return {
+    basePath: "",
     settings: {
       gatewayUrl: "ws://127.0.0.1:18789",
       token: "",
@@ -268,6 +280,7 @@ describe("connectGateway", () => {
     restoreChatComposerStateMock.mockReset();
     restoreChatComposerStateMock.mockReturnValue(false);
     loadControlUiBootstrapConfigMock.mockClear();
+    appRouterRevalidateMock.mockClear();
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
       setTimeout(() => callback(Date.now()), 0),
     );
@@ -1227,9 +1240,7 @@ describe("connectGateway", () => {
       },
     } as GatewayHelloOk);
 
-    await vi.waitFor(() => {
-      expect(loadChatHistoryMock).toHaveBeenCalledWith(host, { startup: false });
-    });
+    await vi.waitFor(() => expect(appRouterRevalidateMock).toHaveBeenCalledWith(host));
     expect(host.sessionKey).toBe("agent:main:main");
     expect(host.settings.sessionKey).toBe("agent:main:main");
     expect(host.settings.lastActiveSessionKey).toBe("agent:main:main");

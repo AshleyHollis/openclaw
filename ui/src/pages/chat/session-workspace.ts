@@ -1,5 +1,6 @@
 import { scopedAgentParamsForSession } from "../../ui/app-chat.ts";
 import type { AppViewState } from "../../ui/app-view-state.ts";
+import { copyToClipboard } from "../../ui/chat/clipboard.ts";
 import { resolveAgentIdFromSessionKey, normalizeAgentId } from "../../ui/session-key.ts";
 import type { SidebarContent } from "../../ui/sidebar-content.ts";
 import { normalizeOptionalString } from "../../ui/string-coerce.ts";
@@ -238,11 +239,7 @@ function beginOpenRequest(
   return request;
 }
 
-function isCurrentOpenRequest(
-  state: AppViewState,
-  workspace: WorkspaceState,
-  request: OpenRequest,
-): boolean {
+function isCurrentOpenRequest(state: AppViewState, request: OpenRequest): boolean {
   const currentRequest = openRequests.get(state);
   const current = currentWorkspaceState(state);
   return (
@@ -273,17 +270,17 @@ function openWorkspaceItem<T>(
       const result = await load(request);
       const content = result == null ? null : render(result);
       if (!content) {
-        if (isCurrentOpenRequest(state, workspace, request)) {
+        if (isCurrentOpenRequest(state, request)) {
           workspace.error = missingMessage;
           requestUpdate(state);
         }
         return;
       }
-      if (isCurrentOpenRequest(state, workspace, request)) {
+      if (isCurrentOpenRequest(state, request)) {
         state.handleOpenSidebar(content);
       }
     } catch (error) {
-      if (isCurrentOpenRequest(state, workspace, request)) {
+      if (isCurrentOpenRequest(state, request)) {
         workspace.error = String(error);
       }
     } finally {
@@ -379,7 +376,7 @@ export function createSessionWorkspaceProps(state: AppViewState): SessionWorkspa
       loadWorkspace(state, workspace, true);
     },
     onCopyPath: (path) => {
-      void globalThis.navigator?.clipboard?.writeText?.(path);
+      void copyToClipboard(path);
     },
     onOpenFile: (path) => openFile(state, workspace, path),
     onSearch: (search) => {

@@ -2,8 +2,7 @@ import type { RouteRenderContext } from "../../app-routes.ts";
 import type { SettingsAppHost, SettingsHost } from "../../app/app-host.ts";
 import { hasOperatorAdminAccess, hasOperatorWriteAccess } from "../../app/operator-access.ts";
 import { definePage } from "../../router/index.ts";
-import { switchChatSession } from "../../ui/app-render.helpers.ts";
-import type { AppViewState } from "../../ui/app-view-state.ts";
+import { switchChatSession } from "../../ui/chat-session-switch.ts";
 import { loadAgents } from "../../ui/controllers/agents.ts";
 import { loadConfig } from "../../ui/controllers/config.ts";
 import { loadSessions } from "../../ui/controllers/sessions.ts";
@@ -20,18 +19,21 @@ type WorkboardLoadContext = { host: SettingsHost; app: SettingsAppHost };
 export const page = definePage({
   id: "workboard",
   path: "/workboard",
-  loader: ({ host, app }: WorkboardLoadContext) =>
-    Promise.all([
+  loader: ({ host, app }: WorkboardLoadContext) => {
+    const requestUpdate = () => host.requestUpdate?.();
+    return Promise.all([
       loadConfig(app),
       loadSessions(app),
       loadAgents(app),
       loadWorkboard({
         host,
         client: app.client,
-        requestUpdate: host.requestUpdate,
+        force: true,
+        requestUpdate,
         refreshDiagnostics: hasOperatorWriteAccess(app.hello?.auth ?? null),
       }),
-    ]).then(() => undefined),
+    ]).then(() => undefined);
+  },
   onLeave: ({ host }: WorkboardLoadContext) => {
     stopWorkboardPolling(host);
     stopWorkboardLifecycleRefresh(host);
@@ -40,8 +42,7 @@ export const page = definePage({
     import("../../ui/views/workboard.ts").then((module) => ({
       contentClass: "content--workboard",
       render: ({ state, navigate }: WorkboardRenderContext) => {
-        const requestUpdate = (state as AppViewState & { requestUpdate?: () => void })
-          .requestUpdate;
+        const requestUpdate = () => state.requestUpdate?.();
         const auth =
           (state.hello as { auth?: { role?: string; scopes?: string[] } } | null)?.auth ?? null;
         return module.renderWorkboard({

@@ -1,9 +1,11 @@
 import { html } from "lit";
 import { titleForRoute, subtitleForRoute } from "../../app-navigation.ts";
 import type { SettingsAppHost, SettingsHost } from "../../app/app-host.ts";
+import { hasOperatorAdminAccess } from "../../app/operator-access.ts";
 import { definePage } from "../../router/index.ts";
 import { startNodesPolling, stopNodesPolling } from "../../ui/app-polling.ts";
 import type { AppViewState } from "../../ui/app-view-state.ts";
+import { copyToClipboard } from "../../ui/chat/clipboard.ts";
 import {
   loadConfig,
   removeConfigFormValue,
@@ -12,7 +14,10 @@ import {
 } from "../../ui/controllers/config.ts";
 import {
   approveDevicePairing,
+  closeDevicePairSetup,
   loadDevices,
+  openDevicePairSetup,
+  refreshDevicePairSetup,
   rejectDevicePairing,
   revokeDeviceToken,
   rotateDeviceToken,
@@ -58,6 +63,11 @@ export const page = definePage({
           devicesLoading: state.devicesLoading,
           devicesError: state.devicesError,
           devicesList: state.devicesList,
+          devicePairSetupOpen: state.devicePairSetupOpen,
+          devicePairSetupLoading: state.devicePairSetupLoading,
+          devicePairSetupError: state.devicePairSetupError,
+          devicePairSetup: state.devicePairSetup,
+          canPairDevice: state.connected && hasOperatorAdminAccess(state.hello?.auth ?? null),
           configForm:
             state.configForm ?? (state.configSnapshot?.config as Record<string, unknown> | null),
           configLoading: state.configLoading,
@@ -74,6 +84,10 @@ export const page = definePage({
           execApprovalsTargetNodeId: state.execApprovalsTargetNodeId,
           onRefresh: () => void loadNodes(state),
           onDevicesRefresh: () => void loadDevices(state),
+          onDevicePairSetupOpen: () => void openDevicePairSetup(state),
+          onDevicePairSetupRefresh: () => void refreshDevicePairSetup(state),
+          onDevicePairSetupClose: () => closeDevicePairSetup(state),
+          onDevicePairSetupCopy: (setupCode) => void copyToClipboard(setupCode),
           onDeviceApprove: (requestId) => void approveDevicePairing(state, requestId),
           onDeviceReject: (requestId) => void rejectDevicePairing(state, requestId),
           onDeviceRotate: (deviceId, role, scopes) =>

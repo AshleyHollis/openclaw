@@ -6,7 +6,6 @@ import { renderSettingsWorkspace } from "../../components/settings-workspace.ts"
 import { definePage } from "../../router/index.ts";
 import { startLogsPolling, stopLogsPolling } from "../../ui/app-polling.ts";
 import { scheduleLogsScroll } from "../../ui/app-scroll.ts";
-import type { AppViewState } from "../../ui/app-view-state.ts";
 import { loadLogs } from "../../ui/controllers/logs.ts";
 
 type LogsRenderContext = RouteRenderContext;
@@ -51,7 +50,7 @@ export const page = definePage({
         </section>
       `,
       header: true,
-      onStateChange: ({ state }: LogsRenderContext, changed) => {
+      onStateChange: ({ state }: LogsRenderContext, changed: ReadonlyMap<PropertyKey, unknown>) => {
         if (
           state.logsAutoFollow &&
           state.logsAtBottom &&

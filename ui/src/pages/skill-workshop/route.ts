@@ -1,7 +1,6 @@
 import type { RouteRenderContext } from "../../app-routes.ts";
 import type { SettingsAppHost } from "../../app/app-host.ts";
 import { definePage } from "../../router/index.ts";
-import type { AppViewState } from "../../ui/app-view-state.ts";
 import { loadSkillWorkshopProposals } from "../../ui/controllers/skill-workshop.ts";
 
 type SkillWorkshopLoadContext = { app: SettingsAppHost };
@@ -21,7 +20,10 @@ export const page = definePage({
         skillWorkshopStateKeys.set(state, stateKey);
         return module.renderSkillWorkshopPage(state, navigate);
       },
-      onStateChange: ({ state }: SkillWorkshopRenderContext, changed) => {
+      onStateChange: (
+        { state }: SkillWorkshopRenderContext,
+        changed: ReadonlyMap<PropertyKey, unknown>,
+      ) => {
         if (!changed.has("sessionKey") && !changed.has("assistantAgentId")) {
           return;
         }

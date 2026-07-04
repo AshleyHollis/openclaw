@@ -10,6 +10,11 @@ import {
 
 const originalPerformanceObserver = globalThis.PerformanceObserver;
 
+vi.mock("../app-routes.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../app-routes.ts")>();
+  return { ...actual, getVisibleRouteId: () => "chat" };
+});
+
 type ObserverCallback = ConstructorParameters<typeof PerformanceObserver>[0];
 
 function installPerformanceObserverMock(options: {

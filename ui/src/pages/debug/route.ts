@@ -5,7 +5,6 @@ import type { SettingsAppHost, SettingsHost } from "../../app/app-host.ts";
 import { renderSettingsWorkspace } from "../../components/settings-workspace.ts";
 import { definePage } from "../../router/index.ts";
 import { startDebugPolling, stopDebugPolling } from "../../ui/app-polling.ts";
-import type { AppViewState } from "../../ui/app-view-state.ts";
 import { callDebugMethod, loadDebug } from "../../ui/controllers/debug.ts";
 
 type DebugRenderContext = RouteRenderContext;

@@ -58,6 +58,7 @@ import type { NostrProfileFormState } from "./views/channels.nostr-profile-form.
 import type { SessionLogEntry } from "./views/usage.ts";
 
 export type AppViewState = {
+  requestUpdate?: () => void;
   settings: UiSettings;
   password: string;
   loginShowGatewayToken: boolean;
@@ -171,6 +172,7 @@ export type AppViewState = {
   updateRealtimeTalkOptions: (next: Partial<AppViewState["realtimeTalkOptions"]>) => void;
   fetchRealtimeTalkCatalog: () => Promise<void>;
   chatManualRefreshInFlight: boolean;
+  chatHasAutoScrolled: boolean;
   chatHeaderControlsHidden: boolean;
   chatMobileControlsOpen: boolean;
   nodesLoading: boolean;

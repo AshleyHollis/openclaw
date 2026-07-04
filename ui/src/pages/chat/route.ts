@@ -55,7 +55,11 @@ function resolveChatAvatarUrl(state: AppViewState): string | null {
   const avatarMissing =
     (state.chatAvatarStatus ?? state.assistantAvatarStatus) === "none" &&
     (state.chatAvatarReason ?? state.assistantAvatarReason) === "missing";
-  if (!avatarMissing && isRenderableControlUiAvatarUrl(state.assistantAvatar)) {
+  if (
+    !avatarMissing &&
+    state.assistantAvatar &&
+    isRenderableControlUiAvatarUrl(state.assistantAvatar)
+  ) {
     if (state.assistantAgentId === agentId) {
       return state.assistantAvatar;
     }
@@ -232,7 +236,7 @@ export const page = definePage({
         assistantAttachmentAuthToken: resolveAssistantAttachmentAuthToken(state),
         basePath: state.basePath ?? "",
       }),
-    onStateChange: ({ state }: ChatRenderContext, changed) => {
+    onStateChange: ({ state }: ChatRenderContext, changed: ReadonlyMap<PropertyKey, unknown>) => {
       if (state.chatManualRefreshInFlight) {
         return;
       }

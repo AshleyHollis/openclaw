@@ -223,9 +223,6 @@ export function handleUpdated(
   changed: Map<PropertyKey, unknown>,
   application: ApplicationContext,
 ) {
-  if (changed.has("connected") && host.connected) {
-    void appRouter.revalidate(application.routeLoadContext).catch(() => undefined);
-  }
   if (changed.has("chatQueue")) {
     clearPendingChatComposerPersistence(host);
     persistChatComposerState(host);

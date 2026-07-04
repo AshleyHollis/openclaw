@@ -118,11 +118,14 @@ export function createRouter<
     hasLastContext = true;
     const location = normalizeLocation(requestedLocation);
     const previous = matches.getActiveMatch();
+    const pending = matches.getState().pendingMatches[0];
     const deps = route.loaderDeps?.(context, location) ?? "";
     const sameRoute = previous?.routeId === routeId;
     const matchId = matchIdForLocation(routeId, deps);
     const sameMatch = previous?.id === matchId;
-    const revalidating = navigationOptions.revalidate === true && previous?.routeId === routeId;
+    const revalidating =
+      navigationOptions.revalidate === true &&
+      (previous?.routeId === routeId || pending?.routeId === routeId);
     const cached = matches.getCachedMatch(matchId);
     const cachedReady =
       !sameMatch && cached?.status === "success" && cached.module !== undefined && !cached.invalid;
@@ -137,7 +140,12 @@ export function createRouter<
     }
 
     const ongoing = currentRun;
-    if (ongoing?.matchId === matchId && ongoing.promise && !ongoing.controller.signal.aborted) {
+    if (
+      !navigationOptions.revalidate &&
+      ongoing?.matchId === matchId &&
+      ongoing.promise &&
+      !ongoing.controller.signal.aborted
+    ) {
       matches.updateMatch(matchId, (current) => ({ ...current, location }));
       matches.setLocation(location, matches.getState().resolvedLocation);
       ongoing.location = location;
@@ -186,11 +194,11 @@ export function createRouter<
                 controller,
               ),
             };
-    const activatedCachedMatch =
+    const activatedCachedMatch: RouteMatch<TRouteId, TModule, TData> | undefined =
       cachedReady && (cachedFresh || backgroundReload)
         ? {
             ...match,
-            isFetching: backgroundReload ? ("loader" as const) : false,
+            isFetching: backgroundReload ? "loader" : false,
             preload: false,
           }
         : undefined;
@@ -470,6 +478,7 @@ export function createRouter<
           return preloadLocation(error.location, context);
         }
         matches.removeCached(match.id);
+        return undefined;
       });
   };
 
@@ -533,14 +542,21 @@ export function createRouter<
       }
       return navigate(matched, context, { history: "none" }, normalized);
     },
-    revalidate(context: TLoadContext, routeId = matches.getActiveMatch()?.routeId): Promise<void> {
+    revalidate(
+      context: TLoadContext,
+      routeId = matches.getActiveMatch()?.routeId ?? matches.getState().pendingMatches[0]?.routeId,
+    ): Promise<void> {
       if (!routeId) {
         return Promise.resolve();
       }
-      const target =
+      const currentMatch =
         matches.getActiveMatch()?.routeId === routeId
-          ? matches.getActiveMatch()?.location
-          : locationForPath(compiled.pathForRoute(routeId, basePath));
+          ? matches.getActiveMatch()
+          : matches.getState().pendingMatches[0]?.routeId === routeId
+            ? matches.getState().pendingMatches[0]
+            : undefined;
+      const target =
+        currentMatch?.location ?? locationForPath(compiled.pathForRoute(routeId, basePath));
       return navigate(routeId, context, { history: "none", revalidate: true }, target);
     },
     stop() {

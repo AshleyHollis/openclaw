@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ApplicationContext } from "../app-routes.ts";
 import type { ChatQueueItem } from "./ui-types.ts";
 
 const {
@@ -108,7 +109,17 @@ function createHost() {
 
 function createApplication(host: unknown) {
   return {
-    routeLoadContext: host,
+    routeLoadContext: host as ApplicationContext["routeLoadContext"],
+    routeSnapshot: {
+      get: vi.fn(() => ({
+        status: "idle",
+        active: undefined,
+        pending: undefined,
+        showPending: false,
+      })),
+      subscribe: vi.fn(() => vi.fn()),
+      dispose: vi.fn(),
+    } as ApplicationContext["routeSnapshot"],
     navigate: vi.fn(),
     preload: vi.fn(),
     notifyStateChange: vi.fn(),

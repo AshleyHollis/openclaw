@@ -85,6 +85,7 @@ type SettingsHost = {
   wikiMemoryPalaceLoading: boolean;
   wikiMemoryPalaceError: string | null;
   wikiMemoryPalace: null;
+  updateComplete?: Promise<unknown>;
 };
 
 function setTestWindowUrl(urlString: string) {

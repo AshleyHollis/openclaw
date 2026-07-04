@@ -1,3 +1,4 @@
+import { formatTimeMs } from "../format.ts";
 import { isGatewayMethodAdvertised } from "../gateway-methods.ts";
 // Control UI controller manages dreaming gateway state.
 import type { GatewayBrowserClient, GatewayHelloOk } from "../gateway.ts";
@@ -7,6 +8,10 @@ import type { ConfigSnapshot } from "../types.ts";
 const DEFAULT_DREAM_DIARY_PATH = "DREAMS.md";
 const DEFAULT_DREAMING_PLUGIN_ID = "memory-core";
 const MEMORY_WIKI_PLUGIN_ID = "memory-wiki";
+
+export function formatDreamNextCycle(nextRunAtMs: number | undefined): string | null {
+  return formatTimeMs(nextRunAtMs, { hour: "numeric", minute: "2-digit" }, "") || null;
+}
 
 type DreamingPhaseStatusBase = {
   enabled: boolean;

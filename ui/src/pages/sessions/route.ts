@@ -2,8 +2,8 @@ import type { RouteRenderContext } from "../../app-routes.ts";
 import type { SettingsAppHost } from "../../app/app-host.ts";
 import { hasOperatorWriteAccess } from "../../app/operator-access.ts";
 import { definePage } from "../../router/index.ts";
-import { switchChatSession } from "../../ui/app-render.helpers.ts";
 import type { AppViewState } from "../../ui/app-view-state.ts";
+import { switchChatSession } from "../../ui/chat-session-switch.ts";
 import { clearChatMessagesFromCache } from "../../ui/chat/session-message-cache.ts";
 import { loadConfig } from "../../ui/controllers/config.ts";
 import {

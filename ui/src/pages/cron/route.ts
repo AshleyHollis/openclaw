@@ -4,8 +4,8 @@ import type { RouteRenderContext } from "../../app-routes.ts";
 import type { SettingsAppHost, SettingsHost } from "../../app/app-host.ts";
 import { definePage } from "../../router/index.ts";
 import { DEFAULT_CRON_FORM } from "../../ui/app-defaults.ts";
-import { switchChatSession } from "../../ui/app-render.helpers.ts";
 import type { AppViewState } from "../../ui/app-view-state.ts";
+import { switchChatSession } from "../../ui/chat-session-switch.ts";
 import {
   addCronJob,
   cancelCronEdit,

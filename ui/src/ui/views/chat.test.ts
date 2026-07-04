@@ -427,7 +427,6 @@ function createChatHeaderState(
     applySettings(next: AppViewState["settings"]) {
       state.settings = next;
     },
-    setRoute: vi.fn(),
     loadAssistantIdentity: vi.fn(),
     resetChatInputHistoryNavigation: vi.fn(),
     resetToolStream: vi.fn(),
@@ -3909,6 +3908,7 @@ describe("chat session controls", () => {
 
   it("shows provider quota in the chat header when usage data is loaded", () => {
     const { state } = createChatHeaderState();
+    const onNavigate = vi.fn();
     state.modelAuthStatusResult = {
       ts: Date.now(),
       providers: [
@@ -3927,7 +3927,7 @@ describe("chat session controls", () => {
       ],
     };
     const container = document.createElement("div");
-    render(renderChatSessionSelect(state), container);
+    render(renderChatSessionSelect(state, undefined, { onNavigate }), container);
 
     const quota = container.querySelector<HTMLAnchorElement>('[data-chat-provider-usage="true"]');
     expect(quota?.textContent?.replace(/\s+/g, " ").trim()).toBe("Usage 28%");
@@ -3936,7 +3936,7 @@ describe("chat session controls", () => {
 
     quota?.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0, cancelable: true }));
 
-    expect(state.setRoute).toHaveBeenCalledWith("usage");
+    expect(onNavigate).toHaveBeenCalledWith("usage");
   });
 
   it("falls back to the selected agent's main session when no sessions exist yet", () => {
