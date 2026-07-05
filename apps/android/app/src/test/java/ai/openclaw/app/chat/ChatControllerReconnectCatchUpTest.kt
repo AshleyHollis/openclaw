@@ -27,16 +27,20 @@ class ChatControllerReconnectCatchUpTest {
     return """{"role":"$role","content":[{"type":"text","text":"$text"}],"timestamp":$timestamp$meta}"""
   }
 
-  private fun fullHistory(vararg rows: String): String = """{"sessionId":"sess-1","messages":[${rows.joinToString(",")}]}"""
+  private fun fullHistory(
+    vararg rows: String,
+    sessionId: String = "sess-1",
+  ): String = """{"sessionId":"$sessionId","messages":[${rows.joinToString(",")}]}"""
 
   private fun cursorPage(
     afterSeq: Long,
     nextAfterSeq: Long,
     hasMore: Boolean,
     vararg rows: String,
+    sessionId: String = "sess-1",
   ): String =
     """
-    {"sessionId":"sess-1","afterSeq":$afterSeq,"nextAfterSeq":$nextAfterSeq,"hasMore":$hasMore,
+    {"sessionId":"$sessionId","afterSeq":$afterSeq,"nextAfterSeq":$nextAfterSeq,"hasMore":$hasMore,
      "totalMessages":$nextAfterSeq,"messages":[${rows.joinToString(",")}]}
     """.trimIndent()
 
@@ -92,6 +96,7 @@ class ChatControllerReconnectCatchUpTest {
 
       val deltaParams = calls.historyParams().last()
       assertTrue(deltaParams, deltaParams.contains(""""afterSeq":2"""))
+      assertTrue(calls.historyParams().first().contains(""""offset":0"""))
       assertEquals(listOf("hello", "world", "next"), controller.visibleTexts())
     }
 
@@ -212,7 +217,90 @@ class ChatControllerReconnectCatchUpTest {
       assertEquals(3, historyParams.size)
       assertTrue(historyParams[1].contains("afterSeq"))
       assertTrue(!historyParams[2].contains("afterSeq"))
+      assertTrue(historyParams[2].contains(""""offset":0"""))
       assertEquals(listOf("hello", "world"), controller.visibleTexts())
+    }
+
+  @Test
+  fun changedSessionIdRebasesFromFullHistory() =
+    runTest {
+      val calls = mutableListOf<RecordedCall>()
+      var fullFetches = 0
+      val controller =
+        ChatController(
+          scope = this,
+          json = json,
+          requestGateway = { method, params ->
+            calls += RecordedCall(method, params)
+            when {
+              method != "chat.history" -> "{}"
+              params.orEmpty().contains("afterSeq") ->
+                cursorPage(
+                  afterSeq = 2,
+                  nextAfterSeq = 3,
+                  hasMore = false,
+                  historyRow("assistant", "stale", 3000, seq = 3),
+                  sessionId = "sess-replaced",
+                )
+              fullFetches++ == 0 ->
+                fullHistory(
+                  historyRow("user", "old question", 1000, seq = 1),
+                  historyRow("assistant", "old answer", 2000, seq = 2),
+                )
+              else ->
+                fullHistory(
+                  historyRow("assistant", "replacement", 4000, seq = 1),
+                  sessionId = "sess-replaced",
+                )
+            }
+          },
+        )
+
+      controller.load("main")
+      advanceUntilIdle()
+      controller.onDisconnected("gateway closed")
+      controller.handleGatewayEvent("health", null)
+      advanceUntilIdle()
+
+      assertEquals(listOf("replacement"), controller.visibleTexts())
+      assertEquals(3, calls.historyParams().size)
+    }
+
+  @Test
+  fun backwardCursorRebasesFromFullHistory() =
+    runTest {
+      var fullFetches = 0
+      val controller =
+        ChatController(
+          scope = this,
+          json = json,
+          requestGateway = { method, params ->
+            when {
+              method != "chat.history" -> "{}"
+              params.orEmpty().contains("afterSeq") ->
+                cursorPage(
+                  afterSeq = 2,
+                  nextAfterSeq = 1,
+                  hasMore = false,
+                  historyRow("assistant", "stale", 3000, seq = 1),
+                )
+              fullFetches++ == 0 ->
+                fullHistory(
+                  historyRow("user", "old question", 1000, seq = 1),
+                  historyRow("assistant", "old answer", 2000, seq = 2),
+                )
+              else -> fullHistory(historyRow("assistant", "replacement", 4000, seq = 3))
+            }
+          },
+        )
+
+      controller.load("main")
+      advanceUntilIdle()
+      controller.onDisconnected("gateway closed")
+      controller.handleGatewayEvent("health", null)
+      advanceUntilIdle()
+
+      assertEquals(listOf("replacement"), controller.visibleTexts())
     }
 
   @Test

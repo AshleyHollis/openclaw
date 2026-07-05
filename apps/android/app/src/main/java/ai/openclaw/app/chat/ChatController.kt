@@ -1,8 +1,8 @@
 package ai.openclaw.app.chat
 
-import ai.openclaw.app.resolveAgentIdFromMainSessionKey
 import ai.openclaw.app.gateway.GatewaySession
 import ai.openclaw.app.gateway.parseChatSendAck
+import ai.openclaw.app.resolveAgentIdFromMainSessionKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -92,6 +92,10 @@ class ChatController internal constructor(
   // Highest transcript seq applied for the active session. Survives disconnects so the
   // reconnect catch-up can fetch only missed rows; resets wherever messages reset.
   private var lastAppliedTranscriptSeq: Long? = null
+
+  // Visible session state clears offline; this identity stays paired with the cursor so
+  // a replacement transcript cannot append onto the prior session after reconnect.
+  private var lastAppliedTranscriptSessionId: String? = null
 
   // Armed on disconnect, consumed on the next healthy transition; keeps routine health
   // polls from re-running catch-up while connected.
@@ -250,6 +254,7 @@ class ChatController internal constructor(
     if (clearMessages) {
       _messages.value = emptyList()
       lastAppliedTranscriptSeq = null
+      lastAppliedTranscriptSessionId = null
     }
     return generation
   }
@@ -261,8 +266,7 @@ class ChatController internal constructor(
     return key
   }
 
-  private fun resolveAgentIdForSessionKey(parentKey: String): String =
-    resolveAgentIdFromMainSessionKey(parentKey) ?: "main"
+  private fun resolveAgentIdForSessionKey(parentKey: String): String = resolveAgentIdFromMainSessionKey(parentKey) ?: "main"
 
   /** Queues a chat send without waiting for gateway acceptance. */
   fun sendMessage(
@@ -491,7 +495,10 @@ class ChatController internal constructor(
     val historyJson =
       requestGateway(
         "chat.history",
-        buildJsonObject { put("sessionKey", JsonPrimitive(sessionKey)) }.toString(),
+        buildJsonObject {
+          put("sessionKey", JsonPrimitive(sessionKey))
+          put("offset", JsonPrimitive(0))
+        }.toString(),
       )
     if (!isCurrentHistoryLoad(sessionKey, _sessionKey.value, generation, historyLoadGeneration.get())) return null
     val history = parseHistory(historyJson, sessionKey = sessionKey, previousMessages = _messages.value)
@@ -517,6 +524,7 @@ class ChatController internal constructor(
     // A full page is the authoritative baseline; a pending reconnect catch-up would only
     // re-fetch rows this page already delivered. Null seq (legacy gateway) disables catch-up.
     lastAppliedTranscriptSeq = history.maxTranscriptSeq
+    lastAppliedTranscriptSessionId = history.sessionId
     reconnectCatchUpPending = false
   }
 
@@ -588,11 +596,15 @@ class ChatController internal constructor(
     // Fresh sessions and legacy gateways have no baseline; the existing full-fetch
     // paths (load/refresh/terminal events) stay the only history source for them.
     val afterSeq = lastAppliedTranscriptSeq ?: return
-    scope.launch { catchUpHistoryAfterReconnect(afterSeq) }
+    val sessionId = lastAppliedTranscriptSessionId ?: return
+    scope.launch { catchUpHistoryAfterReconnect(afterSeq, sessionId) }
   }
 
   /** Fetches only transcript rows missed while disconnected by paging the afterSeq cursor. */
-  private suspend fun catchUpHistoryAfterReconnect(startAfterSeq: Long) {
+  private suspend fun catchUpHistoryAfterReconnect(
+    startAfterSeq: Long,
+    expectedSessionId: String,
+  ) {
     val sessionKey = _sessionKey.value
     val generation = historyLoadGeneration.get()
     var afterSeq = startAfterSeq
@@ -609,11 +621,7 @@ class ChatController internal constructor(
         } catch (_: Throwable) {
           // Version-skew fallback: older gateways reject the unknown afterSeq param,
           // so fall back to the plain full-history refetch.
-          try {
-            fetchAndApplyCurrentHistory(sessionKey, generation, updateSessionInfo = false)
-          } catch (_: Throwable) {
-            // best-effort; a re-disconnect re-arms the catch-up
-          }
+          refetchCurrentHistoryBestEffort(sessionKey, generation)
           return
         }
       if (!isCurrentHistoryLoad(sessionKey, _sessionKey.value, generation, historyLoadGeneration.get())) return
@@ -625,11 +633,31 @@ class ChatController internal constructor(
         applyWholesaleHistory(history, updateSessionInfo = false)
         return
       }
-      applyHistoryDeltaPage(history, cursor)
       val nextAfterSeq = cursor.nextAfterSeq
-      // Advance-only guard: a non-advancing cursor echo must not loop forever.
-      if (!cursor.hasMore || nextAfterSeq == null || nextAfterSeq <= afterSeq) return
+      if (
+        cursor.afterSeq != afterSeq ||
+        history.sessionId != expectedSessionId ||
+        nextAfterSeq == null ||
+        nextAfterSeq < afterSeq ||
+        (cursor.hasMore && nextAfterSeq == afterSeq)
+      ) {
+        refetchCurrentHistoryBestEffort(sessionKey, generation)
+        return
+      }
+      applyHistoryDeltaPage(history, cursor)
+      if (!cursor.hasMore) return
       afterSeq = nextAfterSeq
+    }
+  }
+
+  private suspend fun refetchCurrentHistoryBestEffort(
+    sessionKey: String,
+    generation: Long,
+  ) {
+    try {
+      fetchAndApplyCurrentHistory(sessionKey, generation, updateSessionInfo = false)
+    } catch (_: Throwable) {
+      // Best-effort; a re-disconnect re-arms catch-up.
     }
   }
 
@@ -891,11 +919,13 @@ class ChatController internal constructor(
 
     // Max over ALL rows (including role-less rows dropped above): the cursor consumes raw
     // transcript rows, so the baseline must cover rows this page delivered but did not render.
-    val maxTranscriptSeq =
+    val transcriptSeqs =
       array
-        .mapNotNull { item -> item.asObjectOrNull()?.get("__openclaw").asObjectOrNull()?.get("seq").asLongOrNull() }
-        .filter { it > 0L }
-        .maxOrNull()
+        .mapNotNull { item ->
+          val metadata = item.asObjectOrNull()?.get("__openclaw").asObjectOrNull()
+          metadata?.get("seq").asLongOrNull()
+        }
+    val maxTranscriptSeq = transcriptSeqs.filter { it > 0L }.maxOrNull()
     val cursor =
       root["afterSeq"].asLongOrNull()?.let { echoedAfterSeq ->
         ChatHistoryCursor(
@@ -1056,9 +1086,14 @@ internal fun parseChatMessageContents(obj: JsonObject): List<ChatMessageContent>
   return emptyList()
 }
 
-private fun parseCreatedSessionKey(json: Json, sessionJson: String): String? {
+private fun parseCreatedSessionKey(
+  json: Json,
+  sessionJson: String,
+): String? {
   val root = runCatching { json.parseToJsonElement(sessionJson).asObjectOrNull() }.getOrNull() ?: return null
+
   fun clean(value: String?): String? = value?.trim()?.takeIf { it.isNotEmpty() }
+
   return clean(root["key"].asStringOrNull())
     ?: clean(root["sessionKey"].asStringOrNull())
     ?: root["session"].asObjectOrNull()?.let { session ->
