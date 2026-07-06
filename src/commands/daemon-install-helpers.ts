@@ -23,6 +23,7 @@ import { applyManagedServiceEnvRenderPolicy } from "../daemon/service-env-render
 import { buildServiceEnvironment } from "../daemon/service-env.js";
 import {
   formatManagedServiceEnvKeys,
+  hasEnvironmentFileSource,
   readManagedServiceEnvKeysFromEnvironment,
 } from "../daemon/service-managed-env.js";
 import { isNonMinimalServicePathEntry } from "../daemon/service-path-policy.js";
@@ -167,16 +168,17 @@ type ExecSecretRefPassEnvSource = {
   warningTitle: "Config SecretRef" | "Auth profile" | "Plugin config SecretRef";
 };
 
-function collectConfigSecretRefServiceEnvVars(params: {
+function collectConfigSecretRefServiceEnvSources(params: {
   env: Record<string, string | undefined>;
   config?: OpenClawConfig;
   stateDirDotEnvEnvironment: Record<string, string | undefined>;
   warn?: DaemonInstallWarnFn;
-}): Record<string, string> {
+}): { keys: string[]; environment: Record<string, string> } {
+  const keys = new Set<string>();
+  const environment: Record<string, string> = {};
   if (!params.config) {
-    return {};
+    return { keys: [], environment };
   }
-  const entries: Record<string, string> = {};
   for (const target of discoverConfigSecretTargets(params.config)) {
     if (!target.entry.includeInPlan) {
       continue;
@@ -207,6 +209,7 @@ function collectConfigSecretRefServiceEnvVars(params: {
       );
       continue;
     }
+    keys.add(key.toUpperCase());
     if (Object.hasOwn(params.stateDirDotEnvEnvironment, key)) {
       continue;
     }
@@ -214,9 +217,9 @@ function collectConfigSecretRefServiceEnvVars(params: {
     if (!value) {
       continue;
     }
-    entries[key] = value;
+    environment[key] = value;
   }
-  return entries;
+  return { keys: [...keys], environment };
 }
 
 function collectExecSecretRefPassEnvServiceEnvVars(params: {
@@ -496,6 +499,46 @@ function readExistingEnvironmentValueSource(params: {
   return undefined;
 }
 
+function collectExistingEnvironmentFileManagedServiceEnvVars(params: {
+  existingEnvironment: Record<string, string | undefined> | undefined;
+  existingEnvironmentValueSources?: Record<
+    string,
+    GatewayServiceEnvironmentValueSource | undefined
+  >;
+  configSecretRefKeys: ReadonlySet<string>;
+}): Record<string, string | undefined> {
+  if (!params.existingEnvironment || params.configSecretRefKeys.size === 0) {
+    return {};
+  }
+  const preserved: Record<string, string | undefined> = {};
+  for (const [rawKey, rawValue] of Object.entries(params.existingEnvironment)) {
+    const key = normalizeEnvVarKey(rawKey, { portable: true });
+    if (!key) {
+      continue;
+    }
+    const normalizedKey = key.toUpperCase();
+    if (!params.configSecretRefKeys.has(normalizedKey)) {
+      continue;
+    }
+    if (isDangerousHostEnvVarName(key) || isDangerousHostEnvOverrideVarName(key)) {
+      continue;
+    }
+    const source = readExistingEnvironmentValueSource({
+      existingEnvironmentValueSources: params.existingEnvironmentValueSources,
+      normalizedKey,
+    });
+    if (!hasEnvironmentFileSource(source)) {
+      continue;
+    }
+    const value = rawValue?.trim();
+    if (!value) {
+      continue;
+    }
+    preserved[key] = value;
+  }
+  return preserved;
+}
+
 function omitEnvironmentEntriesShadowedBy(
   entries: Record<string, string | undefined>,
   shadowEntries: Array<Record<string, string | undefined>>,
@@ -551,12 +594,13 @@ async function buildGatewayInstallEnvironment(params: {
       env: params.env,
       config: params.config,
     });
-  const configSecretRefEnvironment = collectConfigSecretRefServiceEnvVars({
-    env: params.env,
-    config: params.config,
-    stateDirDotEnvEnvironment,
-    warn: params.warn,
-  });
+  const { keys: configSecretRefKeys, environment: configSecretRefEnvironment } =
+    collectConfigSecretRefServiceEnvSources({
+      env: params.env,
+      config: params.config,
+      stateDirDotEnvEnvironment,
+      warn: params.warn,
+    });
   const authStore = await resolveAuthProfileStoreForServiceEnv(params.authStore);
   const execSecretRefPassEnvEnvironment = collectExecSecretRefPassEnvServiceEnvVars({
     env: params.env,
@@ -596,18 +640,36 @@ async function buildGatewayInstallEnvironment(params: {
   addServiceEnvPlanEntries(plan, configSecretRefEnvironment, {});
   addServiceEnvPlanEntries(plan, execSecretRefPassEnvEnvironment, {});
   addServiceEnvPlanEntries(plan, authProfileEnvironment, {});
+  const configSecretRefKeyEnvironment = Object.fromEntries(
+    configSecretRefKeys.map((key) => [key, "1"]),
+  );
   const managedServiceEnvKeys = formatManagedServiceEnvKeys(
     {
       ...durableEnvironment,
+      ...configSecretRefKeyEnvironment,
       ...configSecretRefEnvironment,
     },
     { omitKeys: Object.keys(params.serviceEnvironment) },
+  );
+  const existingEnvironmentFileRenderEnvironment = omitEnvironmentEntriesShadowedBy(
+    collectExistingEnvironmentFileManagedServiceEnvVars({
+      existingEnvironment: params.existingEnvironment,
+      existingEnvironmentValueSources: params.existingEnvironmentValueSources,
+      configSecretRefKeys: new Set(configSecretRefKeys),
+    }),
+    [
+      stateDirDotEnvRenderEnvironment,
+      configSecretRefEnvironment,
+      execSecretRefPassEnvEnvironment,
+      authProfileEnvironment,
+    ],
   );
   applyManagedServiceEnvRenderPolicy({
     plan,
     managedServiceEnvKeys,
     serviceEnvironment: params.serviceEnvironment,
     platform: params.platform,
+    existingEnvironmentFileEnvironment: existingEnvironmentFileRenderEnvironment,
     stateDirDotEnvEnvironment: stateDirDotEnvRenderEnvironment,
     configSecretRefEnvironment,
   });
