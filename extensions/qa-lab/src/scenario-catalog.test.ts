@@ -813,6 +813,8 @@ describe("qa scenario catalog", () => {
 
   it("marks channel-owned access gates with their required channel driver", () => {
     const liveScenarioIds = [
+      "slack-restart-resume",
+      "whatsapp-restart-resume",
       "whatsapp-access-control-dm-disabled",
       "whatsapp-access-control-dm-open",
       "whatsapp-access-control-group-disabled",
@@ -827,6 +829,12 @@ describe("qa scenario catalog", () => {
         | undefined;
       expect(config?.requiredChannelDriver, scenarioId).toBe("live");
     }
+  });
+
+  it("isolates channel baseline silence assertions from shared transport state", () => {
+    const scenario = readQaScenarioById("channel-chat-baseline");
+
+    expect(scenario.execution.suiteIsolation).toBe("isolated");
   });
 
   it("adds a dreaming shadow trial report scenario", () => {
