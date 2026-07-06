@@ -76,6 +76,17 @@ and export only when `diagnostics.otel.logs` is explicitly `true`. Log export
 defaults to OTLP; set `diagnostics.otel.logsExporter` to `stdout` for JSONL on
 stdout, or `both` for both.
 
+## Which processes export
+
+- **Gateway** starts the exporter at startup and exports for every run the
+  Gateway executes, including `openclaw agent` turns dispatched to it.
+- **One-shot local runs** (`openclaw agent --local`, and Gateway-to-embedded
+  fallback runs) execute in the CLI process. When OTel export and the plugin
+  are enabled, the CLI starts the exporter for that run and flushes buffered
+  spans, metrics, and logs before the process exits; a flush is abandoned
+  after 10 seconds so an unreachable collector cannot hang the CLI.
+- Other CLI commands do not start the exporter.
+
 ## Configuration reference
 
 ```json5
