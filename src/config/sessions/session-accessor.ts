@@ -447,11 +447,6 @@ export type SessionLifecycleTranscriptInfo = {
   transcriptArchived?: boolean;
 };
 
-export type SessionLifecycleRolloverResult = {
-  previousSessionTranscript: SessionLifecycleTranscriptInfo;
-  sessionEntry: SessionEntry;
-};
-
 export type ReplySessionInitializationSnapshot = {
   currentEntry?: SessionEntry;
   readEntry: (sessionKey: string) => SessionEntry | undefined;
@@ -1993,57 +1988,6 @@ function extractReplayMessage(record: unknown): unknown {
     return undefined;
   }
   return candidate.message && typeof candidate.message === "object" ? candidate.message : undefined;
-}
-
-/**
- * Persists a reply session rollover and returns stable previous-transcript
- * data for lifecycle hooks. Non-storage runtime cleanup remains with callers.
- */
-export async function persistSessionRolloverLifecycle(params: {
-  activeSessionKey: string;
-  agentId: string;
-  maintenanceConfig?: ResolvedSessionMaintenanceConfig;
-  onArchiveError?: (error: unknown, sourcePath: string) => void;
-  onMaintenanceWarning?: (warning: SessionMaintenanceWarning) => void | Promise<void>;
-  previousEntry?: SessionEntry;
-  retiredEntry?: SessionEntryRetirement;
-  sessionEntry: SessionEntry;
-  sessionKey: string;
-  storePath: string;
-}): Promise<SessionLifecycleRolloverResult> {
-  const upserts: SessionEntryLifecycleUpsert[] = [
-    {
-      sessionKey: params.sessionKey,
-      buildEntry: ({ currentEntry }) => ({
-        ...currentEntry,
-        ...params.sessionEntry,
-      }),
-    },
-  ];
-  if (params.retiredEntry) {
-    upserts.push({
-      sessionKey: params.retiredEntry.key,
-      entry: params.retiredEntry.entry,
-    });
-  }
-  await applySessionEntryLifecycleMutation({
-    activeSessionKey: params.activeSessionKey,
-    maintenanceOverride: params.maintenanceConfig,
-    storePath: params.storePath,
-    upserts,
-  });
-
-  const previousSessionTranscript = await archivePreviousSessionTranscript({
-    agentId: params.agentId,
-    onArchiveError: params.onArchiveError,
-    previousEntry: params.previousEntry,
-    storePath: params.storePath,
-  });
-
-  return {
-    previousSessionTranscript,
-    sessionEntry: params.sessionEntry,
-  };
 }
 
 /** Loads the reply-session initialization rows without exposing a mutable store. */
