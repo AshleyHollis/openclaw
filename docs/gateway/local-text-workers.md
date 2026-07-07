@@ -242,8 +242,8 @@ and [Multi-agent sandbox tools](/tools/multi-agent-sandbox-tools) controls:
 3. Run one worker-style prompt and confirm the result is text or JSON only.
 4. Ask the main hosted agent to review that output before taking any action.
 
-Use synthetic or redacted inputs for these probes; do not paste credentials or
-production secrets into local-worker prompts.
+Use synthetic or redacted task text for these probes; do not paste credentials
+or production secrets into local-worker prompts.
 
 If direct probes pass but full agent turns fail, use [Local models](/gateway/local-models#smaller-or-stricter-backends)
 to reduce tool pressure with lean mode or model compatibility settings.
