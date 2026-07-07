@@ -78,6 +78,48 @@ describe("startOneShotDiagnosticsExporters", () => {
     ]);
   });
 
+  it("keeps OTLP logs but suppresses stdout JSONL logs when requested", async () => {
+    const config = {
+      diagnostics: { otel: { enabled: true, logs: true, logsExporter: "both" } },
+    } as OpenClawConfig;
+    mockRegistryWithServices(["diagnostics-otel"]);
+    startPluginServices.mockResolvedValue({ stop: vi.fn(async () => {}) });
+
+    const handle = await startOneShotDiagnosticsExporters({
+      config,
+      suppressStdoutDiagnosticLogs: true,
+    });
+
+    expect(handle).not.toBeNull();
+    const startParams = startPluginServices.mock.calls[0]?.[0] as {
+      config: OpenClawConfig;
+    };
+    expect(startParams.config.diagnostics?.otel?.logs).toBe(true);
+    expect(startParams.config.diagnostics?.otel?.logsExporter).toBe("otlp");
+    expect(config.diagnostics?.otel?.logsExporter).toBe("both");
+  });
+
+  it("disables stdout-only JSONL logs when requested", async () => {
+    const config = {
+      diagnostics: { otel: { enabled: true, logs: true, logsExporter: "stdout" } },
+    } as OpenClawConfig;
+    mockRegistryWithServices(["diagnostics-otel"]);
+    startPluginServices.mockResolvedValue({ stop: vi.fn(async () => {}) });
+
+    const handle = await startOneShotDiagnosticsExporters({
+      config,
+      suppressStdoutDiagnosticLogs: true,
+    });
+
+    expect(handle).not.toBeNull();
+    const startParams = startPluginServices.mock.calls[0]?.[0] as {
+      config: OpenClawConfig;
+    };
+    expect(startParams.config.diagnostics?.otel?.logs).toBe(false);
+    expect(startParams.config.diagnostics?.otel?.logsExporter).toBe("otlp");
+    expect(config.diagnostics?.otel?.logsExporter).toBe("stdout");
+  });
+
   it("returns null when the scoped load registers no exporter service", async () => {
     mockRegistryWithServices(["other-service"]);
 

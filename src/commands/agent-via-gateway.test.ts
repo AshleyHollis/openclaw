@@ -1606,6 +1606,9 @@ describe("agentCliCommand", () => {
 
       expect(callGateway).not.toHaveBeenCalled();
       expect(startOneShotDiagnosticsExporters).toHaveBeenCalledTimes(1);
+      expect(startOneShotDiagnosticsExporters).toHaveBeenCalledWith(
+        expect.objectContaining({ suppressStdoutDiagnosticLogs: false }),
+      );
       expect(loadRuntimeConfig).toHaveBeenCalledTimes(1);
       expect(agentCommand).toHaveBeenCalledTimes(1);
       expect(stop).toHaveBeenCalledTimes(1);
@@ -1614,6 +1617,23 @@ describe("agentCliCommand", () => {
       const stopOrder = requireFirstCallOrder(stop, "exporter stop");
       expect(startOrder).toBeLessThan(runOrder);
       expect(runOrder).toBeLessThan(stopOrder);
+    });
+  });
+
+  it("suppresses stdout diagnostic logs around JSON local embedded runs", async () => {
+    await withTempStore(async () => {
+      const stop = vi.fn(async () => {});
+      startOneShotDiagnosticsExporters.mockResolvedValue({ stop });
+      mockLocalAgentReply();
+
+      await agentCliCommand({ message: "hi", to: "+1555", local: true, json: true }, jsonRuntime);
+
+      expect(callGateway).not.toHaveBeenCalled();
+      expect(agentCommand).toHaveBeenCalledTimes(1);
+      expect(startOneShotDiagnosticsExporters).toHaveBeenCalledWith(
+        expect.objectContaining({ suppressStdoutDiagnosticLogs: true }),
+      );
+      expect(stop).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1659,6 +1679,9 @@ describe("agentCliCommand", () => {
 
       expect(agentCommand).toHaveBeenCalledTimes(1);
       expect(startOneShotDiagnosticsExporters).toHaveBeenCalledTimes(1);
+      expect(startOneShotDiagnosticsExporters).toHaveBeenCalledWith(
+        expect.objectContaining({ suppressStdoutDiagnosticLogs: false }),
+      );
       expect(stop).toHaveBeenCalledTimes(1);
       const runOrder = requireFirstCallOrder(agentCommand, "embedded agent");
       const stopOrder = requireFirstCallOrder(stop, "exporter stop");
@@ -1927,6 +1950,9 @@ describe("agentCliCommand", () => {
       const result = await agentCliCommand({ message: "hi", to: "+1555", json: true }, jsonRuntime);
 
       expect(agentCommand).toHaveBeenCalledTimes(1);
+      expect(startOneShotDiagnosticsExporters).toHaveBeenCalledWith(
+        expect.objectContaining({ suppressStdoutDiagnosticLogs: true }),
+      );
       const fallbackOpts = requireRecord(
         requireFirstCallArg(agentCommand, "embedded agent"),
         "embedded agent options",

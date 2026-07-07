@@ -149,12 +149,19 @@ const loadEmbeddedAgentCommand = embeddedAgentCommandLoader.load;
 const loadAgentSessionModule = agentSessionModuleCache.load;
 
 type EmbeddedAgentCommandOpts = Parameters<Awaited<ReturnType<typeof loadEmbeddedAgentCommand>>>[0];
+type EmbeddedRunDiagnosticsOptions = {
+  suppressStdoutDiagnosticLogs: boolean;
+};
 
 async function startEmbeddedRunDiagnosticsExporters(
   runtime: RuntimeEnv,
+  options: EmbeddedRunDiagnosticsOptions,
 ): Promise<OneShotDiagnosticsHandle | null> {
   try {
-    return await startOneShotDiagnosticsExporters({ config: await loadRuntimeConfig() });
+    return await startOneShotDiagnosticsExporters({
+      config: await loadRuntimeConfig(),
+      suppressStdoutDiagnosticLogs: options.suppressStdoutDiagnosticLogs,
+    });
   } catch (err) {
     // Exporter startup must never break the agent run itself.
     runtime.error?.(`diagnostics exporter startup failed for embedded run: ${String(err)}`);
@@ -172,9 +179,10 @@ async function runEmbeddedAgentCommand(
   opts: EmbeddedAgentCommandOpts,
   runtime: RuntimeEnv,
   deps?: AgentCliDeps,
+  diagnosticsOptions: EmbeddedRunDiagnosticsOptions = { suppressStdoutDiagnosticLogs: false },
 ) {
   const agentCommand = await loadEmbeddedAgentCommand();
-  const diagnostics = await startEmbeddedRunDiagnosticsExporters(runtime);
+  const diagnostics = await startEmbeddedRunDiagnosticsExporters(runtime, diagnosticsOptions);
   try {
     return await agentCommand(opts, runtime, deps);
   } finally {
@@ -975,9 +983,10 @@ export async function agentCliCommand(
     oneShotCliRun: dispatchOpts.local === true,
     abortSignal: signalBridge.signal,
   };
+  const diagnosticsOptions = { suppressStdoutDiagnosticLogs: dispatchOpts.json === true };
   try {
     if (dispatchOpts.local === true) {
-      const result = await runEmbeddedAgentCommand(localOpts, runtime, deps);
+      const result = await runEmbeddedAgentCommand(localOpts, runtime, deps, diagnosticsOptions);
       return returnAfterSignalExit(result, signalBridge.getReceivedSignal(), runtime);
     }
 
@@ -1016,6 +1025,7 @@ export async function agentCliCommand(
           },
           runtime,
           deps,
+          diagnosticsOptions,
         );
         return returnAfterSignalExit(result, signalBridge.getReceivedSignal(), runtime);
       }
@@ -1034,6 +1044,7 @@ export async function agentCliCommand(
         },
         runtime,
         deps,
+        diagnosticsOptions,
       );
       return returnAfterSignalExit(result, signalBridge.getReceivedSignal(), runtime);
     }

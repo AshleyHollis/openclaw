@@ -16,6 +16,28 @@ export type OneShotDiagnosticsHandle = {
   stop: () => Promise<void>;
 };
 
+function suppressOtelStdoutLogSink(config: OpenClawConfig): OpenClawConfig {
+  const diagnostics = config.diagnostics;
+  const otel = diagnostics?.otel;
+  if (otel?.logs !== true || (otel.logsExporter !== "stdout" && otel.logsExporter !== "both")) {
+    return config;
+  }
+  // JSON-mode agent CLI stdout is machine-readable output. The OTel stdout
+  // log sink writes directly to process.stdout, so suppress only that sink for
+  // one-shot exporters while preserving OTLP diagnostics where configured.
+  return {
+    ...config,
+    diagnostics: {
+      ...diagnostics,
+      otel: {
+        ...otel,
+        logs: otel.logsExporter === "both",
+        logsExporter: "otlp",
+      },
+    },
+  };
+}
+
 function isOtelExportConfigured(config: OpenClawConfig): boolean {
   // Mirrors the diagnostics-otel service's own start() gate so disabled
   // configs skip plugin loading entirely on the CLI hot path.
@@ -55,8 +77,13 @@ async function stopWithTimeout(run: () => Promise<void>): Promise<void> {
  */
 export async function startOneShotDiagnosticsExporters(params: {
   config: OpenClawConfig;
+  suppressStdoutDiagnosticLogs?: boolean;
 }): Promise<OneShotDiagnosticsHandle | null> {
-  if (!isOtelExportConfigured(params.config)) {
+  const config =
+    params.suppressStdoutDiagnosticLogs === true
+      ? suppressOtelStdoutLogSink(params.config)
+      : params.config;
+  if (!isOtelExportConfigured(config)) {
     return null;
   }
   const [{ loadOpenClawPlugins }, { startPluginServices }] = await Promise.all([
@@ -67,7 +94,7 @@ export async function startOneShotDiagnosticsExporters(params: {
   // the gateway's startup load without replacing the active runtime registry
   // the embedded run resolves providers/tools from.
   const registry = loadOpenClawPlugins({
-    config: params.config,
+    config,
     onlyPluginIds: [...ONE_SHOT_DIAGNOSTICS_SERVICE_IDS],
     activate: false,
     preferBuiltPluginArtifacts: true,
@@ -82,7 +109,7 @@ export async function startOneShotDiagnosticsExporters(params: {
   }
   const handle = await startPluginServices({
     registry: { ...registry, services },
-    config: params.config,
+    config,
   });
   return {
     stop: async () => {
