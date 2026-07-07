@@ -1758,6 +1758,8 @@ describe("agentCliCommand", () => {
   it("uses a fresh embedded session when gateway agent times out", async () => {
     await withTempStore(async () => {
       callGateway.mockRejectedValue(createGatewayTimeoutError());
+      const stop = vi.fn(async () => {});
+      startOneShotDiagnosticsExporters.mockResolvedValue({ stop });
       mockLocalAgentReply();
 
       await agentCliCommand(
@@ -1790,6 +1792,8 @@ describe("agentCliCommand", () => {
       expect(resultMetaOverrides.fallbackReason).toBe("gateway_timeout");
       expect(resultMetaOverrides.fallbackSessionId).toBe(fallbackSessionId);
       expect(resultMetaOverrides.fallbackSessionKey).toBe(fallbackSessionKey);
+      expect(startOneShotDiagnosticsExporters).toHaveBeenCalledTimes(1);
+      expect(stop).toHaveBeenCalledTimes(1);
       expect(
         mockMessages(runtime.error).some((message) =>
           message.includes("Gateway agent timed out; running embedded agent with fresh session"),
