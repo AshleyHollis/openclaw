@@ -53,8 +53,8 @@ openclaw infer model run --local --model local/my-local-model --prompt "Reply wi
 ```
 
 Then keep the hosted model as the orchestrator and register the local model as
-an available model. The provider block can be LM Studio, Ollama, vLLM, MLX,
-LiteLLM, or another OpenAI-compatible server.
+an available model. The provider block can be LiteLLM, LM Studio, MLX, Ollama,
+vLLM, or another OpenAI-compatible server.
 
 ```json5
 {
