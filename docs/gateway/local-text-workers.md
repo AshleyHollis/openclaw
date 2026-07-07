@@ -40,9 +40,9 @@ tool policy.
 4. Require the orchestrator to review worker output before taking side effects.
 5. Add timeouts so slow local generations do not stall the whole run.
 
-The text worker should receive a narrow prompt and a small input. It should return a
-draft, summary, classification, or JSON object, not instructions for itself to
-execute later.
+The text worker should receive a narrow prompt and a small input. It should
+return a draft, summary, classification, or JSON object, not instructions for
+itself to execute later.
 
 ## Configure the local model
 
