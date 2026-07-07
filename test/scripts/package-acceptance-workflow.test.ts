@@ -1484,6 +1484,14 @@ describe("package artifact reuse", () => {
     expect(qaWorkflow).toContain('trusted_reason="repository-branch"');
     expect(qaWorkflow).toContain('"${selected_revision}" != "${EXPECTED_SHA}"');
     expect(qaWorkflow).toContain("EXPECTED_SHA: ${{ inputs.expected_sha }}");
+    expect(
+      workflowStep(
+        workflowJob(QA_LIVE_TRANSPORTS_WORKFLOW, "authorize_actor"),
+        "Require maintainer-level repository access",
+      ).env?.EXPECTED_SHA,
+    ).toBe("${{ inputs.expected_sha }}");
+    expect(qaWorkflow).toContain('(process.env.EXPECTED_SHA ?? "") !== ""');
+    expect(qaWorkflow).not.toContain('"${{ inputs.expected_sha }}" !== ""');
     expect(qaWorkflow).toContain('if [[ -n "${EXPECTED_SHA}" ]]; then');
     expect(qaWorkflow).not.toContain("github.event_name == 'workflow_call'");
     expect(qaWorkflow).not.toContain("github.event_name != 'workflow_call'");

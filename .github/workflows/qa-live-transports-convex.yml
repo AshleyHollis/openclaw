@@ -137,9 +137,11 @@ jobs:
       - name: Require maintainer-level repository access
         id: permission
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
         with:
           script: |
-            if (context.eventName === "schedule" || "${{ inputs.expected_sha }}" !== "") {
+            if (context.eventName === "schedule" || (process.env.EXPECTED_SHA ?? "") !== "") {
               core.info("Trusted scheduled or reusable QA run; actor permission check is only required for manual dispatch.");
               core.setOutput("authorized", "true");
               return;
