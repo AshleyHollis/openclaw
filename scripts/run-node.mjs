@@ -1044,8 +1044,8 @@ const runOpenClaw = async (deps) => {
 
 const createLocalBuildEnv = (deps, overrides = {}) => {
   const env = { ...deps.env, ...overrides };
-  // Build hooks resolve package-manager commands themselves; inheriting a
-  // parent npm_execpath can pin nested hooks to a stale Corepack shim.
+  // Build hooks resolve package-manager commands from their own process; a
+  // parent npm_execpath can otherwise pin nested hooks to a stale Corepack shim.
   delete env.npm_execpath;
   return env;
 };
