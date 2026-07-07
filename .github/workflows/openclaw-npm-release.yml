@@ -54,6 +54,7 @@ concurrency:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   NODE_VERSION: "24.15.0"
+  NPM_CONFIG_LOGLEVEL: verbose
 
 jobs:
   candidate_baselines:
