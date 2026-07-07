@@ -12,12 +12,14 @@ OpenClaw ships four update channels:
 
 - **stable**: npm dist-tag `latest`. Recommended for most users.
 - **extended-stable**: npm dist-tag `extended-stable`. A net-new, trailing
-  supported-month package channel. It is foreground-only in this release.
-- **beta**: npm dist-tag `beta` when it is current; if beta is missing or older than
-  the latest stable release, the update flow falls back to `latest`.
-- **dev**: moving head of `main` (git). npm dist-tag: `dev` (when published).
-  The `main` branch is for experimentation and active development. It may contain
-  incomplete features or breaking changes. Do not use it for production gateways.
+  supported-month package channel. It is package-only, and installation is
+  foreground-only. A stored selection receives read-only update hints when
+  `update.checkOnStart` is enabled, but never applies automatically.
+- **beta**: npm dist-tag `beta`. Falls back to `latest` when `beta` is missing
+  or older than the current stable release.
+- **dev**: moving head of `main` (git). npm dist-tag `dev` when published. `main`
+  is for experimentation and active development; it may contain incomplete
+  features or breaking changes. Do not run it for production gateways.
 
 We usually ship stable builds to **beta** first, test them there, then run an
 explicit promotion step that moves the vetted build to `latest` without

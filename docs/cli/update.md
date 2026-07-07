@@ -151,9 +151,11 @@ from outside the Gateway process tree. If that handoff is unavailable,
 `update.run` returns a structured response with the safe shell command to run
 manually.
 
-Extended-stable is deliberately excluded from startup checks and background
-auto-update scheduling. Explicit foreground updates, bare foreground updates
-with stored `update.channel: "extended-stable"`, on-demand status, and managed
+Stored extended-stable selections receive read-only startup and 24-hour update
+hints when `update.checkOnStart` is enabled. These checks never apply an update,
+start a handoff, restart the Gateway, use stable delay/jitter, or use beta
+polling cadence. Explicit foreground updates, bare foreground updates with
+stored `update.channel: "extended-stable"`, on-demand status, and their managed
 Gateway handoff remain supported.
 
 For package-manager installs, `openclaw update` resolves the target package
