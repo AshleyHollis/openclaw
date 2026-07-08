@@ -676,17 +676,24 @@ describe("crabline transport", () => {
           MATRIX_USER_ID: "@openclaw:matrix.test",
         });
 
-        const roomId = "!qa:matrix.test";
-        expect(transport.buildAgentDelivery({ target: `group:${roomId}` })).toEqual({
+        const roomId = "main";
+        const delivery = transport.buildAgentDelivery({ target: `group:${roomId}` });
+        expect(delivery).toEqual({
           channel: "matrix",
           replyChannel: "matrix",
-          replyTo: `room:${roomId}`,
-          to: `room:${roomId}`,
+          replyTo: expect.stringMatching(/^room:![a-f0-9]{16}:matrix-qa\.test$/u),
+          to: expect.stringMatching(/^room:![a-f0-9]{16}:matrix-qa\.test$/u),
+        });
+        expect(transport.buildAgentDelivery({ target: "!qa:matrix.test" })).toEqual({
+          channel: "matrix",
+          replyChannel: "matrix",
+          replyTo: "room:!qa:matrix.test",
+          to: "room:!qa:matrix.test",
         });
         await expect(
           transport.state.addInboundMessage({
             conversation: { id: roomId, kind: "group" },
-            senderId: "@alice:matrix.test",
+            senderId: "driver",
             senderName: "Alice",
             text: "Matrix baseline marker check.",
           }),
@@ -694,7 +701,7 @@ describe("crabline transport", () => {
           conversation: { id: roomId, kind: "group" },
           direction: "inbound",
           id: expect.stringMatching(/^\$[a-f0-9]{16}:matrix\.test$/u),
-          senderId: "@alice:matrix.test",
+          senderId: "driver",
           text: "Matrix baseline marker check.",
         });
       } finally {
@@ -712,10 +719,10 @@ describe("crabline transport", () => {
       });
 
       try {
-        const roomId = "!qa:matrix.test";
+        const roomId = "main";
         await transport.state.addInboundMessage({
           conversation: { id: roomId, kind: "group" },
-          senderId: "@alice:matrix.test",
+          senderId: "driver",
           senderName: "Alice",
           text: "Matrix baseline marker check.",
         });

@@ -29,6 +29,7 @@ type QaScenarioSearchMatch = QaCoverageScenarioSummary & {
   runtimeParityTier?: string;
   requiredProviderMode?: string;
   requiredChannelDriver?: string;
+  requiredChannelDriverAny?: string[];
   requiredProvider?: string;
   requiredModel?: string;
 };
@@ -153,6 +154,15 @@ function stringifyConfigValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function stringifyConfigValues(value: unknown) {
+  return Array.isArray(value)
+    ? value.flatMap((entry) => {
+        const normalized = stringifyConfigValue(entry);
+        return normalized ? [normalized] : [];
+      })
+    : undefined;
+}
+
 function summarizeScenarioSearchMatch(scenario: QaSeedScenarioWithSource): QaScenarioSearchMatch {
   const config = scenario.execution.config ?? {};
   return {
@@ -171,6 +181,7 @@ function summarizeScenarioSearchMatch(scenario: QaSeedScenarioWithSource): QaSce
     runtimeParityTier: scenario.runtimeParityTier,
     requiredProviderMode: stringifyConfigValue(config.requiredProviderMode),
     requiredChannelDriver: stringifyConfigValue(config.requiredChannelDriver),
+    requiredChannelDriverAny: stringifyConfigValues(config.requiredChannelDriverAny),
     requiredProvider: stringifyConfigValue(config.requiredProvider),
     requiredModel: stringifyConfigValue(config.requiredModel),
   };
@@ -476,7 +487,9 @@ function formatOptionalScenarioMetadata(match: QaScenarioSearchMatch) {
   const metadata = [
     match.runtimeParityTier ? `runtimeParityTier=${match.runtimeParityTier}` : "",
     match.requiredProviderMode ? `providerMode=${match.requiredProviderMode}` : "",
-    match.requiredChannelDriver ? `channelDriver=${match.requiredChannelDriver}` : "",
+    match.requiredChannelDriver || match.requiredChannelDriverAny?.length
+      ? `channelDriver=${match.requiredChannelDriver ?? match.requiredChannelDriverAny?.join("|")}`
+      : "",
     match.requiredProvider ? `provider=${match.requiredProvider}` : "",
     match.requiredModel ? `model=${match.requiredModel}` : "",
   ].filter(Boolean);
@@ -485,17 +498,17 @@ function formatOptionalScenarioMetadata(match: QaScenarioSearchMatch) {
 
 function formatSuiteCommand(matches: readonly QaScenarioSearchMatch[]) {
   const scenarioArgs = matches.map((match) => `--scenario ${match.id}`).join(" ");
-  const requiredDrivers = [
-    ...new Set(
-      matches
-        .map((match) => match.requiredChannelDriver)
-        .filter((driver): driver is string => Boolean(driver)),
-    ),
-  ];
-  const driverArg =
-    requiredDrivers.length === 1 && requiredDrivers[0] !== "qa-channel"
-      ? ` --channel-driver ${requiredDrivers[0]}`
-      : "";
+  const allowedDrivers = matches.map((match) =>
+    match.requiredChannelDriver
+      ? [match.requiredChannelDriver]
+      : (match.requiredChannelDriverAny ?? []),
+  );
+  const firstRequiredDrivers = allowedDrivers.find((drivers) => drivers.length > 0);
+  const requiredDrivers = firstRequiredDrivers?.filter((driver) =>
+    allowedDrivers.every((allowed) => allowed.length === 0 || allowed.includes(driver)),
+  );
+  const selectedDriver = requiredDrivers?.find((driver) => driver !== "qa-channel");
+  const driverArg = selectedDriver !== undefined ? ` --channel-driver ${selectedDriver}` : "";
   const channels = [
     ...new Set(
       matches

@@ -335,6 +335,36 @@ describe("qa coverage report", () => {
     );
   });
 
+  it("chooses a runnable driver for multi-driver scenario matches", () => {
+    const matches = findQaScenarioMatches(readQaScenarioPack().scenarios, "dm-per-room-session");
+    const report = renderQaScenarioMatchesMarkdownReport({
+      query: "dm-per-room-session",
+      matches,
+    });
+
+    expect(report).toContain(
+      "- Suite command: `pnpm openclaw qa suite --channel-driver crabline --channel matrix --scenario dm-per-room-session`",
+    );
+  });
+
+  it("keeps required drivers when earlier matches are unconstrained", () => {
+    const scenarios = readQaScenarioPack().scenarios;
+    const unconstrained = findQaScenarioMatches(scenarios, "channel-canary").find(
+      (match) => match.id === "channel-canary",
+    );
+    const constrained = findQaScenarioMatches(scenarios, "dm-per-room-session").find(
+      (match) => match.id === "dm-per-room-session",
+    );
+    expect(unconstrained).toBeDefined();
+    expect(constrained).toBeDefined();
+    const report = renderQaScenarioMatchesMarkdownReport({
+      query: "mixed drivers",
+      matches: [unconstrained!, constrained!],
+    });
+
+    expect(report).toContain("--channel-driver crabline");
+  });
+
   it("splits qa suite targets when matches mix execution kinds", () => {
     const playwrightExecutionPath = "ui/src/e2e/chat-flow.e2e.test.ts";
     const flowScenario = scenarioWithCoverage({

@@ -26,11 +26,21 @@ function normalizeQaConfigString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function normalizeQaConfigStringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.flatMap((entry) => {
+        const normalized = normalizeQaConfigString(entry);
+        return normalized ? [normalized] : [];
+      })
+    : [];
+}
+
 function describeQaProviderLaneMismatches(params: {
   scenario: QaSeedScenario;
   primaryModel: string;
   providerMode: QaProviderMode;
   channelDriver?: QaScorecardChannelDriver | null;
+  channel?: string | null;
   claudeCliAuthMode?: QaCliBackendAuthMode;
 }) {
   const mismatches: string[] = [];
@@ -44,9 +54,23 @@ function describeQaProviderLaneMismatches(params: {
     mismatches.push(`providerMode=${requiredProviderMode}`);
   }
   const requiredChannelDriver = normalizeQaConfigString(config.requiredChannelDriver);
+  const requiredChannelDriverAny = normalizeQaConfigStringList(config.requiredChannelDriverAny);
   const effectiveChannelDriver = params.channelDriver ?? "qa-channel";
-  if (requiredChannelDriver && effectiveChannelDriver !== requiredChannelDriver) {
-    mismatches.push(`channelDriver=${requiredChannelDriver}`);
+  const requiredChannelDrivers = requiredChannelDriverAny.length
+    ? requiredChannelDriverAny
+    : requiredChannelDriver
+      ? [requiredChannelDriver]
+      : [];
+  if (requiredChannelDrivers.length && !requiredChannelDrivers.includes(effectiveChannelDriver)) {
+    mismatches.push(`channelDriver=${requiredChannelDrivers.join("|")}`);
+  }
+  const scenarioChannel = params.scenario.execution.channel?.trim().toLowerCase();
+  if (
+    effectiveChannelDriver !== "qa-channel" &&
+    scenarioChannel &&
+    params.channel !== scenarioChannel
+  ) {
+    mismatches.push(`channel=${scenarioChannel}`);
   }
   if (provider.kind !== "live") {
     return mismatches;
@@ -72,6 +96,7 @@ function scenarioMatchesQaProviderLane(params: {
   primaryModel: string;
   providerMode: QaProviderMode;
   channelDriver?: QaScorecardChannelDriver | null;
+  channel?: string | null;
   claudeCliAuthMode?: QaCliBackendAuthMode;
 }) {
   return describeQaProviderLaneMismatches(params).length === 0;
@@ -83,6 +108,7 @@ function selectQaFlowSuiteScenarios(params: {
   providerMode: QaProviderMode;
   primaryModel: string;
   channelDriver?: QaScorecardChannelDriver | null;
+  channel?: string | null;
   claudeCliAuthMode?: QaCliBackendAuthMode;
 }) {
   const requestedScenarioIds =
@@ -115,8 +141,11 @@ function selectQaFlowSuiteScenarios(params: {
         providerMode: params.providerMode,
         primaryModel: params.primaryModel,
         channelDriver: params.channelDriver,
+        channel: params.channel,
         claudeCliAuthMode: params.claudeCliAuthMode,
-      }).filter((mismatch) => mismatch.startsWith("channelDriver="));
+      }).filter(
+        (mismatch) => mismatch.startsWith("channelDriver=") || mismatch.startsWith("channel="),
+      );
       return mismatches.length > 0 ? [`${scenario.id} (${mismatches.join(", ")})`] : [];
     });
     if (channelDriverMismatches.length > 0) {
@@ -134,6 +163,7 @@ function selectQaFlowSuiteScenarios(params: {
         providerMode: params.providerMode,
         primaryModel: params.primaryModel,
         channelDriver: params.channelDriver,
+        channel: params.channel,
         claudeCliAuthMode: params.claudeCliAuthMode,
       }),
   );

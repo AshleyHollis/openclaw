@@ -667,6 +667,9 @@ describe("qa suite planning helpers", () => {
       makeQaSuiteTestScenario("crabline-only", {
         config: { requiredChannelDriver: "crabline" },
       }),
+      makeQaSuiteTestScenario("matrix-transport", {
+        config: { requiredChannelDriverAny: ["crabline", "live"] },
+      }),
     ];
 
     expect(
@@ -683,8 +686,19 @@ describe("qa suite planning helpers", () => {
         providerMode: "mock-openai",
         primaryModel: "mock-openai/gpt-5.5",
         channelDriver: "crabline",
+        channel: "matrix",
       }).map((scenario) => scenario.id),
-    ).toEqual(["generic", "crabline-only"]);
+    ).toEqual(["generic", "crabline-only", "matrix-transport"]);
+
+    expect(
+      selectQaFlowSuiteScenarios({
+        scenarios,
+        providerMode: "mock-openai",
+        primaryModel: "mock-openai/gpt-5.5",
+        channelDriver: "live",
+        channel: "matrix",
+      }).map((scenario) => scenario.id),
+    ).toEqual(["generic", "matrix-transport"]);
   });
 
   it("rejects explicitly requested scenarios that do not match the current lane", () => {
@@ -715,6 +729,35 @@ describe("qa suite planning helpers", () => {
         primaryModel: "mock-openai/gpt-5.5",
       }).map((scenario) => scenario.id),
     ).toEqual(["qa-channel-only"]);
+  });
+
+  it("describes multi-driver lane mismatches", () => {
+    const matrixScenario = makeMatrixFlowQaSuiteTestScenario("matrix-transport");
+    matrixScenario.execution.config = { requiredChannelDriverAny: ["crabline", "live"] };
+    const scenarios = [matrixScenario];
+
+    expect(() =>
+      selectQaFlowSuiteScenarios({
+        scenarios,
+        scenarioIds: ["matrix-transport"],
+        providerMode: "mock-openai",
+        primaryModel: "mock-openai/gpt-5.5",
+      }),
+    ).toThrow(
+      "selected QA scenario(s) do not match the current QA lane: matrix-transport (channelDriver=crabline|live)",
+    );
+
+    expect(() =>
+      selectQaFlowSuiteScenarios({
+        scenarios,
+        scenarioIds: ["matrix-transport"],
+        providerMode: "mock-openai",
+        primaryModel: "mock-openai/gpt-5.5",
+        channelDriver: "live",
+      }),
+    ).toThrow(
+      "selected QA scenario(s) do not match the current QA lane: matrix-transport (channel=matrix)",
+    );
   });
 
   it("keeps live-only runtime parity scenarios out of implicit mock selections", () => {
