@@ -22,10 +22,12 @@ type OpenClawSkillSecurityVerdictItem = Omit<
 };
 
 function readSecurityStatus(security: unknown): string | null | undefined {
-  if (!security || typeof security !== "object" || !("status" in security)) {
+  if (!security || typeof security !== "object") {
     return undefined;
   }
-  const status = (security as { status?: unknown }).status;
+  const status =
+    (security as { rawStatus?: unknown; status?: unknown }).status ??
+    (security as { rawStatus?: unknown }).rawStatus;
   return typeof status === "string" ? status : undefined;
 }
 

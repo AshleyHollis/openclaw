@@ -247,27 +247,27 @@ export const skillsHandlers: GatewayRequestHandlers = {
       const p = params as {
         items?: Array<{ slug: string; version: string; ownerHandle?: string }>;
       };
+      const hasExplicitItems = Array.isArray(p.items);
       const explicitItems = p.items ?? [];
       const registry = resolveClawHubBaseUrl();
-      const targets =
-        explicitItems.length > 0
-          ? explicitItems.map((item) => {
-              const target: {
-                registry: string;
-                slug: string;
-                version: string;
-                ownerHandle?: string;
-              } = {
-                registry,
-                slug: item.slug,
-                version: item.version,
-              };
-              if (item.ownerHandle) {
-                target.ownerHandle = item.ownerHandle;
-              }
-              return target;
-            })
-          : collectClawHubVerdictTargets(buildRemoteAwareWorkspaceSkillStatus(resolved));
+      const targets = hasExplicitItems
+        ? explicitItems.map((item) => {
+            const target: {
+              registry: string;
+              slug: string;
+              version: string;
+              ownerHandle?: string;
+            } = {
+              registry,
+              slug: item.slug,
+              version: item.version,
+            };
+            if (item.ownerHandle) {
+              target.ownerHandle = item.ownerHandle;
+            }
+            return target;
+          })
+        : collectClawHubVerdictTargets(buildRemoteAwareWorkspaceSkillStatus(resolved));
       if (targets.length === 0) {
         respond(true, { schema: "openclaw.skills.security-verdicts.v1", items: [] }, undefined);
         return;

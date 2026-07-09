@@ -214,7 +214,7 @@ describe("skills gateway handlers (clawhub)", () => {
           publisherDisplayName: "OpenClaw",
           securityAuditUrl:
             "https://clawhub.ai/openclaw/skills/calendar/security-audit?version=2.0.0",
-          security: { status: "clean", passed: true },
+          security: { rawStatus: "clean", passed: true },
         },
       ],
     });
@@ -248,6 +248,18 @@ describe("skills gateway handlers (clawhub)", () => {
         }),
       ],
     });
+  });
+
+  it("treats an explicit empty ClawHub verdict batch as a no-op without scanning skills", async () => {
+    const { ok, response, error } = await callSkillsHandler("skills.securityVerdicts", {
+      items: [],
+    });
+
+    expect(buildWorkspaceSkillStatusMock).not.toHaveBeenCalled();
+    expect(fetchClawHubSkillSecurityVerdictsMock).not.toHaveBeenCalled();
+    expect(ok).toBe(true);
+    expect(error).toBeUndefined();
+    expectEmptySecurityVerdicts(response);
   });
 
   it("rejects oversized explicit ClawHub verdict batches", async () => {

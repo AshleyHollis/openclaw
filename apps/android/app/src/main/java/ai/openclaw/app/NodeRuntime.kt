@@ -4694,7 +4694,11 @@ class NodeRuntime private constructor(
             json
               .parseToJsonElement(requestGatewayData(gatewayScope, "skills.securityVerdicts", verdictParams.toString()))
               .asObjectOrNull()
-          parseClawHubSecurityVerdict((verdictRoot?.get("items") as? JsonArray)?.firstOrNull()?.asObjectOrNull())
+          val verdicts =
+            (verdictRoot?.get("items") as? JsonArray)
+              ?.mapNotNull { item -> parseClawHubSecurityVerdict(item.asObjectOrNull()) }
+              .orEmpty()
+          verdicts.firstOrNull { item -> item.requestedSlug == slug && item.requestedVersion == resolvedVersion }
         } catch (err: CancellationException) {
           throw err
         } catch (err: Throwable) {
@@ -4782,6 +4786,7 @@ class NodeRuntime private constructor(
         )
       return
     }
+    val attemptedVersion = version?.trim()?.takeIf { it.isNotEmpty() }
     publishGatewayData(gatewayScope) {
       _clawHubSkillSearchState.value =
         _clawHubSkillSearchState.value.copy(
@@ -4799,10 +4804,7 @@ class NodeRuntime private constructor(
         buildJsonObject {
           put("source", JsonPrimitive("clawhub"))
           put("slug", JsonPrimitive(slug))
-          version
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { put("version", JsonPrimitive(it)) }
+          attemptedVersion?.let { put("version", JsonPrimitive(it)) }
           if (acknowledgeClawHubRisk) put("acknowledgeClawHubRisk", JsonPrimitive(true))
           put("timeoutMs", JsonPrimitive(120_000))
         }
@@ -4840,7 +4842,7 @@ class NodeRuntime private constructor(
         _clawHubSkillSearchState.value =
           _clawHubSkillSearchState.value.copy(
             acknowledgeSlug = if (acknowledgementDetails != null) slug else null,
-            acknowledgeVersion = acknowledgementDetails?.clawhubVersion,
+            acknowledgeVersion = acknowledgementDetails?.clawhubVersion ?: attemptedVersion,
             errorText =
               if (acknowledgementDetails != null) {
                 formatClawHubInstallMessage(
@@ -6255,9 +6257,8 @@ private fun clawHubReviewAuthor(
 private fun clawHubSafetyLabel(verdict: GatewayClawHubSkillSecurityVerdict?): String {
   verdict ?: return "Unavailable"
   val status = verdict.securityStatus?.lowercase()
-  val decision = verdict.decision?.lowercase()
-  if (verdict.ok && decision == "pass" && verdict.securityPassed != false) {
-    return if (status == null || status == "clean") "Clean" else status.toDisplayToken()
+  if (clawHubReviewClean(verdict)) {
+    return "Clean"
   }
   return when (status) {
     "malicious" -> "Blocked"
@@ -6297,14 +6298,14 @@ private fun clawHubReviewBlocked(verdict: GatewayClawHubSkillSecurityVerdict?): 
 private fun clawHubReviewRequiresAcknowledgement(verdict: GatewayClawHubSkillSecurityVerdict?): Boolean {
   verdict ?: return false
   if (clawHubReviewBlocked(verdict)) return false
-  val decision = verdict.decision?.lowercase()
-  return !(verdict.ok && decision == "pass" && verdict.securityPassed != false)
+  return !clawHubReviewClean(verdict)
 }
 
-private fun String.toDisplayToken(): String =
-  split('-', '_', ' ')
-    .filter { it.isNotBlank() }
-    .joinToString(" ") { token -> token.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } }
+private fun clawHubReviewClean(verdict: GatewayClawHubSkillSecurityVerdict): Boolean =
+  verdict.ok &&
+    verdict.decision?.lowercase() == "pass" &&
+    verdict.securityPassed == true &&
+    verdict.securityStatus?.lowercase() == "clean"
 
 data class GatewayClawHubSkillSearchState(
   val query: String = "",
