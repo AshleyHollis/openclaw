@@ -120,7 +120,10 @@ function canAutoFetchVerdictRegistry(registry: string): boolean {
 export function collectClawHubVerdictTargets(
   report: ReturnType<typeof buildWorkspaceSkillStatus>,
 ): Array<{ registry: string; slug: string; version: string; ownerHandle?: string }> {
-  const targets = new Map<string, { registry: string; slug: string; version: string }>();
+  const targets = new Map<
+    string,
+    { registry: string; slug: string; version: string; ownerHandle?: string }
+  >();
   for (const skill of report.skills) {
     const link = skill.clawhub;
     if (!link || link.status !== "linked" || !link.valid) {
@@ -129,11 +132,12 @@ export function collectClawHubVerdictTargets(
     if (!canAutoFetchVerdictRegistry(link.registry)) {
       continue;
     }
-    const key = `${link.registry}\0${link.slug}\0${link.installedVersion}`;
+    const key = `${link.registry}\0${link.ownerHandle ?? ""}\0${link.slug}\0${link.installedVersion}`;
     targets.set(key, {
       registry: link.registry,
       slug: link.slug,
       version: link.installedVersion,
+      ...(link.ownerHandle ? { ownerHandle: link.ownerHandle } : {}),
     });
   }
   return [...targets.values()];

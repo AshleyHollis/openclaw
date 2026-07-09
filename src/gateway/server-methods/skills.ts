@@ -106,6 +106,39 @@ type ResolvedSkillsWorkspace = Extract<
   { ok: true }
 >;
 
+type ExplicitClawHubVerdictItem = { slug: string; version: string; ownerHandle?: string };
+type ClawHubVerdictTarget = ExplicitClawHubVerdictItem & { registry: string };
+
+function hasExplicitClawHubVerdictItems(
+  params: unknown,
+): params is { items?: ExplicitClawHubVerdictItem[] } {
+  return params !== null && typeof params === "object" && Object.hasOwn(params, "items");
+}
+
+function buildExplicitClawHubVerdictTargets(
+  items: readonly ExplicitClawHubVerdictItem[],
+): ClawHubVerdictTarget[] {
+  const registry = resolveClawHubBaseUrl();
+  return items.map((item) => ({
+    registry,
+    slug: item.slug,
+    version: item.version,
+    ...(item.ownerHandle ? { ownerHandle: item.ownerHandle } : {}),
+  }));
+}
+
+async function respondWithClawHubVerdictTargets(
+  targets: readonly ClawHubVerdictTarget[],
+  respond: RespondFn,
+): Promise<void> {
+  if (targets.length === 0) {
+    respond(true, { schema: "openclaw.skills.security-verdicts.v1", items: [] }, undefined);
+    return;
+  }
+  const items = await fetchOpenClawSkillSecurityVerdicts([...targets]);
+  respond(true, { schema: "openclaw.skills.security-verdicts.v1", items }, undefined);
+}
+
 function buildRemoteAwareWorkspaceSkillStatus(resolved: ResolvedSkillsWorkspace) {
   // Remote skill availability depends on the agent's executable-node surface,
   // not only the workspace contents, so status reports include live eligibility.
@@ -238,42 +271,23 @@ export const skillsHandlers: GatewayRequestHandlers = {
     ) {
       return;
     }
-    const resolved = resolveSkillsAgentWorkspace(params, context);
-    if (!resolved.ok) {
-      respond(false, undefined, resolved.error);
-      return;
-    }
     try {
-      const p = params as {
-        items?: Array<{ slug: string; version: string; ownerHandle?: string }>;
-      };
-      const hasExplicitItems = Array.isArray(p.items);
-      const explicitItems = p.items ?? [];
-      const registry = resolveClawHubBaseUrl();
-      const targets = hasExplicitItems
-        ? explicitItems.map((item) => {
-            const target: {
-              registry: string;
-              slug: string;
-              version: string;
-              ownerHandle?: string;
-            } = {
-              registry,
-              slug: item.slug,
-              version: item.version,
-            };
-            if (item.ownerHandle) {
-              target.ownerHandle = item.ownerHandle;
-            }
-            return target;
-          })
-        : collectClawHubVerdictTargets(buildRemoteAwareWorkspaceSkillStatus(resolved));
-      if (targets.length === 0) {
-        respond(true, { schema: "openclaw.skills.security-verdicts.v1", items: [] }, undefined);
+      if (hasExplicitClawHubVerdictItems(params)) {
+        await respondWithClawHubVerdictTargets(
+          buildExplicitClawHubVerdictTargets(params.items ?? []),
+          respond,
+        );
         return;
       }
-      const items = await fetchOpenClawSkillSecurityVerdicts(targets);
-      respond(true, { schema: "openclaw.skills.security-verdicts.v1", items }, undefined);
+      const resolved = resolveSkillsAgentWorkspace(params, context);
+      if (!resolved.ok) {
+        respond(false, undefined, resolved.error);
+        return;
+      }
+      await respondWithClawHubVerdictTargets(
+        collectClawHubVerdictTargets(buildRemoteAwareWorkspaceSkillStatus(resolved)),
+        respond,
+      );
     } catch (err) {
       respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatErrorMessage(err)));
     }

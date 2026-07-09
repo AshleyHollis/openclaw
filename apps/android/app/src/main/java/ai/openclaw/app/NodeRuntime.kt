@@ -4646,17 +4646,24 @@ class NodeRuntime private constructor(
     }
     try {
       val detailParams = buildJsonObject { put("slug", JsonPrimitive(slug)) }
-      val detailRoot =
-        json
-          .parseToJsonElement(requestGatewayData(gatewayScope, "skills.detail", detailParams.toString()))
-          .asObjectOrNull()
+      val detailRaw = requestGatewayData(gatewayScope, "skills.detail", detailParams.toString())
+      val detailRoot = json.parseToJsonElement(detailRaw).asObjectOrNull()
       val skillRoot = detailRoot?.get("skill").asObjectOrNull()
       val versionRoot = detailRoot?.get("latestVersion").asObjectOrNull()
       val ownerRoot = detailRoot?.get("owner").asObjectOrNull()
-      val ownerHandle = ownerRoot?.get("handle").asStringOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+      val ownerHandle =
+        ownerRoot
+          ?.get("handle")
+          .asStringOrNull()
+          ?.trim()
+          ?.takeIf { it.isNotEmpty() }
       val resolvedVersion =
         skill.version
-          ?: versionRoot?.get("version").asStringOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+          ?: versionRoot
+            ?.get("version")
+            .asStringOrNull()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
       if (resolvedVersion == null) {
         publishGatewayData(gatewayScope) {
           if (clawHubSkillInstallReviewSeq.get() == reviewSeq) {
@@ -4690,15 +4697,20 @@ class NodeRuntime private constructor(
                 ),
               )
             }
-          val verdictRoot =
-            json
-              .parseToJsonElement(requestGatewayData(gatewayScope, "skills.securityVerdicts", verdictParams.toString()))
-              .asObjectOrNull()
+          val verdictRaw =
+            requestGatewayData(
+              gatewayScope,
+              "skills.securityVerdicts",
+              verdictParams.toString(),
+            )
+          val verdictRoot = json.parseToJsonElement(verdictRaw).asObjectOrNull()
           val verdicts =
             (verdictRoot?.get("items") as? JsonArray)
               ?.mapNotNull { item -> parseClawHubSecurityVerdict(item.asObjectOrNull()) }
               .orEmpty()
-          verdicts.firstOrNull { item -> item.requestedSlug == slug && item.requestedVersion == resolvedVersion }
+          verdicts.firstOrNull { item ->
+            item.requestedSlug == slug && item.requestedVersion == resolvedVersion
+          }
         } catch (err: CancellationException) {
           throw err
         } catch (err: Throwable) {
@@ -6212,42 +6224,79 @@ private fun formatClawHubInstallMessage(
 
 private fun parseClawHubSecurityVerdict(obj: JsonObject?): GatewayClawHubSkillSecurityVerdict? {
   obj ?: return null
-  val requestedSlug = obj["requestedSlug"].asStringOrNull()?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-  val requestedVersion = obj["requestedVersion"].asStringOrNull()?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+  val requestedSlug =
+    obj["requestedSlug"]
+      .asStringOrNull()
+      ?.trim()
+      ?.takeIf { it.isNotEmpty() }
+      ?: return null
+  val requestedVersion =
+    obj["requestedVersion"]
+      .asStringOrNull()
+      ?.trim()
+      ?.takeIf { it.isNotEmpty() }
+      ?: return null
   return GatewayClawHubSkillSecurityVerdict(
     ok = obj.boolean("ok"),
-    decision = obj["decision"].asStringOrNull()?.trim()?.takeIf { it.isNotEmpty() },
+    decision =
+      obj["decision"]
+        .asStringOrNull()
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() },
     reasons = parseClawHubStringArray(obj["reasons"] as? JsonArray),
     requestedSlug = requestedSlug,
     requestedVersion = requestedVersion,
-    slug = obj["slug"].asStringOrNull()?.trim()?.takeIf { it.isNotEmpty() },
-    version = obj["version"].asStringOrNull()?.trim()?.takeIf { it.isNotEmpty() },
-    displayName = obj["displayName"].asStringOrNull()?.trim()?.takeIf { it.isNotEmpty() },
-    publisherHandle = obj["publisherHandle"].asStringOrNull()?.trim()?.takeIf { it.isNotEmpty() },
-    publisherDisplayName = obj["publisherDisplayName"].asStringOrNull()?.trim()?.takeIf { it.isNotEmpty() },
-    securityAuditUrl = obj["securityAuditUrl"].asStringOrNull()?.trim()?.takeIf { it.isNotEmpty() },
-    securityStatus = obj["securityStatus"].asStringOrNull()?.trim()?.takeIf { it.isNotEmpty() },
+    slug = obj["slug"].asTrimmedNonEmptyString(),
+    version = obj["version"].asTrimmedNonEmptyString(),
+    displayName = obj["displayName"].asTrimmedNonEmptyString(),
+    publisherHandle = obj["publisherHandle"].asTrimmedNonEmptyString(),
+    publisherDisplayName = obj["publisherDisplayName"].asTrimmedNonEmptyString(),
+    securityAuditUrl = obj["securityAuditUrl"].asTrimmedNonEmptyString(),
+    securityStatus = obj["securityStatus"].asTrimmedNonEmptyString(),
     securityPassed = obj.optionalBoolean("securityPassed"),
   )
 }
 
 private fun parseClawHubStringArray(items: JsonArray?): List<String> =
   items
-    ?.mapNotNull { item -> item.asStringOrNull()?.trim()?.takeIf { it.isNotEmpty() } }
+    ?.mapNotNull { item -> item.asTrimmedNonEmptyString() }
     .orEmpty()
+
+private fun JsonElement?.asTrimmedNonEmptyString(): String? =
+  this
+    .asStringOrNull()
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+
+private fun String?.asTrimmedNonEmptyString(): String? =
+  this
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
 
 private fun clawHubReviewAuthor(
   ownerRoot: JsonObject?,
   verdict: GatewayClawHubSkillSecurityVerdict?,
 ): String {
-  val ownerDisplay = ownerRoot?.get("displayName").asStringOrNull()?.trim()?.takeIf { it.isNotEmpty() }
-  val ownerHandle = ownerRoot?.get("handle").asStringOrNull()?.trim()?.takeIf { it.isNotEmpty() }
-  val publisherDisplay = verdict?.publisherDisplayName?.trim()?.takeIf { it.isNotEmpty() }
-  val publisherHandle = verdict?.publisherHandle?.trim()?.takeIf { it.isNotEmpty() }
+  val ownerDisplay =
+    ownerRoot
+      ?.get("displayName")
+      .asStringOrNull()
+      ?.trim()
+      ?.takeIf { it.isNotEmpty() }
+  val ownerHandle =
+    ownerRoot
+      ?.get("handle")
+      .asStringOrNull()
+      ?.trim()
+      ?.takeIf { it.isNotEmpty() }
+  val publisherDisplay = verdict?.publisherDisplayName.asTrimmedNonEmptyString()
+  val publisherHandle = verdict?.publisherHandle.asTrimmedNonEmptyString()
   val display = ownerDisplay ?: publisherDisplay
   val handle = ownerHandle ?: publisherHandle
   return when {
-    display != null && handle != null && !display.equals(handle, ignoreCase = true) -> "$display (@$handle)"
+    display != null &&
+      handle != null &&
+      !display.equals(handle, ignoreCase = true) -> "$display (@$handle)"
     display != null -> display
     handle != null -> "@$handle"
     else -> "Unknown"
@@ -6273,15 +6322,23 @@ private fun clawHubSafetyDetail(
   error: Throwable?,
 ): String {
   if (verdict == null) {
-    return error?.message?.trim()?.takeIf { it.isNotEmpty() }?.let { "Security audit unavailable: $it" }
+    return error
+      ?.message
+      ?.trim()
+      ?.takeIf { it.isNotEmpty() }
+      ?.let { "Security audit unavailable: $it" }
       ?: "Security audit unavailable. The gateway will re-check ClawHub before downloading."
   }
   val reasons = verdict.reasons.takeIf { it.isNotEmpty() }?.joinToString(", ")
   val status = verdict.securityStatus?.trim()?.takeIf { it.isNotEmpty() }
   val passed = verdict.securityPassed?.let { if (it) "passed" else "failed" }
-  return listOfNotNull(status?.let { "status: $it" }, passed?.let { "scan: $it" }, reasons?.let { "reasons: $it" })
-    .joinToString(" · ")
-    .ifBlank { "ClawHub returned a signed review verdict for this release." }
+  val detail =
+    listOfNotNull(
+      status?.let { "status: $it" },
+      passed?.let { "scan: $it" },
+      reasons?.let { "reasons: $it" },
+    ).joinToString(" · ")
+  return detail.ifBlank { "ClawHub returned a signed review verdict for this release." }
 }
 
 private fun clawHubReviewBlocked(verdict: GatewayClawHubSkillSecurityVerdict?): Boolean {
@@ -6291,11 +6348,14 @@ private fun clawHubReviewBlocked(verdict: GatewayClawHubSkillSecurityVerdict?): 
   return status == "malicious" ||
     decision == "blocked" ||
     verdict.reasons.any { reason ->
-      reason.contains("malicious", ignoreCase = true) || reason.contains("blocked", ignoreCase = true)
+      reason.contains("malicious", ignoreCase = true) ||
+        reason.contains("blocked", ignoreCase = true)
     }
 }
 
-private fun clawHubReviewRequiresAcknowledgement(verdict: GatewayClawHubSkillSecurityVerdict?): Boolean {
+private fun clawHubReviewRequiresAcknowledgement(
+  verdict: GatewayClawHubSkillSecurityVerdict?,
+): Boolean {
   verdict ?: return false
   if (clawHubReviewBlocked(verdict)) return false
   return !clawHubReviewClean(verdict)

@@ -140,6 +140,7 @@ describe("skills gateway handlers (clawhub)", () => {
             valid: true,
             registry: "https://clawhub.ai",
             slug: "agentreceipt",
+            ownerHandle: "openclaw",
             installedVersion: "1.2.3",
             installedAt: 123,
           },
@@ -175,7 +176,7 @@ describe("skills gateway handlers (clawhub)", () => {
     expect(fetchClawHubSkillSecurityVerdictsMock).toHaveBeenCalledTimes(1);
     expect(fetchClawHubSkillSecurityVerdictsMock).toHaveBeenCalledWith({
       baseUrl: "https://clawhub.ai",
-      items: [{ slug: "agentreceipt", version: "1.2.3" }],
+      items: [{ slug: "agentreceipt", version: "1.2.3", ownerHandle: "openclaw" }],
       skipAuth: true,
     });
     expect(ok).toBe(true);
@@ -223,6 +224,7 @@ describe("skills gateway handlers (clawhub)", () => {
       items: [{ slug: "calendar", version: "2.0.0", ownerHandle: "openclaw" }],
     });
 
+    expect(resolveAgentWorkspaceDirMock).not.toHaveBeenCalled();
     expect(buildWorkspaceSkillStatusMock).not.toHaveBeenCalled();
     expect(fetchClawHubSkillSecurityVerdictsMock).toHaveBeenCalledWith({
       baseUrl: "https://clawhub.ai",
@@ -255,6 +257,7 @@ describe("skills gateway handlers (clawhub)", () => {
       items: [],
     });
 
+    expect(resolveAgentWorkspaceDirMock).not.toHaveBeenCalled();
     expect(buildWorkspaceSkillStatusMock).not.toHaveBeenCalled();
     expect(fetchClawHubSkillSecurityVerdictsMock).not.toHaveBeenCalled();
     expect(ok).toBe(true);
