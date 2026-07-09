@@ -149,7 +149,9 @@ actor MacNodeRuntime {
             let params = try? Self.decodeParams(OpenClawCanvasSnapshotParams.self, from: req.paramsJSON)
             let format = params?.format ?? .jpeg
             let maxWidth: Int? = {
-                if let raw = params?.maxWidth, raw > 0 { return raw }
+                if let raw = params?.maxWidth, raw > 0 {
+                    return raw
+                }
                 return switch format {
                 case .png: 900
                 case .jpeg: 1600
@@ -447,7 +449,9 @@ actor MacNodeRuntime {
     }
 
     private func mainActorServices() async -> any MacNodeRuntimeMainActorServices {
-        if let cachedMainActorServices { return cachedMainActorServices }
+        if let cachedMainActorServices {
+            return cachedMainActorServices
+        }
         let services = await self.makeMainActorServices()
         self.cachedMainActorServices = services
         return services
@@ -504,7 +508,9 @@ actor MacNodeRuntime {
     }
 
     private func ensureA2UIHost() async throws {
-        if await self.isA2UIReady() { return }
+        if await self.isA2UIReady() {
+            return
+        }
         guard let a2uiUrl = await self.resolveA2UIHostUrlWithCapabilityRefresh() else {
             throw NSError(domain: "Canvas", code: 30, userInfo: [
                 NSLocalizedDescriptionKey: "A2UI_HOST_NOT_CONFIGURED: gateway did not advertise canvas host",
@@ -514,12 +520,16 @@ actor MacNodeRuntime {
         _ = try await MainActor.run {
             try CanvasManager.shared.show(sessionKey: sessionKey, path: a2uiUrl)
         }
-        if await self.isA2UIReady(poll: true) { return }
+        if await self.isA2UIReady(poll: true) {
+            return
+        }
         if let refreshedUrl = await self.resolveA2UIHostUrlWithCapabilityRefresh(forceRefresh: true) {
             _ = try await MainActor.run {
                 try CanvasManager.shared.show(sessionKey: sessionKey, path: refreshedUrl)
             }
-            if await self.isA2UIReady(poll: true) { return }
+            if await self.isA2UIReady(poll: true) {
+                return
+            }
         }
         throw NSError(domain: "Canvas", code: 31, userInfo: [
             NSLocalizedDescriptionKey: "A2UI_HOST_UNAVAILABLE: A2UI host not reachable",
@@ -558,7 +568,9 @@ actor MacNodeRuntime {
                 })()
                 """)
                 let trimmed = ready.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmed == "true" { return true }
+                if trimmed == "true" {
+                    return true
+                }
             } catch {
                 // Ignore transient eval failures while the page is loading.
             }
@@ -631,7 +643,9 @@ actor MacNodeRuntime {
                 skillAllow: evaluation.skillAllow,
                 sessionKey: sessionKey,
                 runId: runId))
-        if let response = approval.response { return response }
+        if let response = approval.response {
+            return response
+        }
         let approvedByAsk = approval.approvedByAsk
         let persistAllowlist = approval.persistAllowlist
         self.persistAllowlistPatterns(
@@ -842,51 +856,36 @@ actor MacNodeRuntime {
         }
 
         let params = try Self.decodeParams(SetParams.self, from: req.paramsJSON)
-        let current = ExecApprovalsStore.ensureFile()
-        let snapshot = ExecApprovalsStore.readSnapshot()
-        if snapshot.exists {
-            if snapshot.hash.isEmpty {
-                return Self.errorResponse(
-                    req,
-                    code: .invalidRequest,
-                    message: "INVALID_REQUEST: exec approvals base hash unavailable; reload and retry")
-            }
-            let baseHash = params.baseHash?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if baseHash.isEmpty {
-                return Self.errorResponse(
-                    req,
-                    code: .invalidRequest,
-                    message: "INVALID_REQUEST: exec approvals base hash required; reload and retry")
-            }
-            if baseHash != snapshot.hash {
-                return Self.errorResponse(
-                    req,
-                    code: .invalidRequest,
-                    message: "INVALID_REQUEST: exec approvals changed; reload and retry")
-            }
+        switch ExecApprovalsStore.saveFile(params.file, ifBaseHash: params.baseHash) {
+        case let .saved(snapshot):
+            let redacted = ExecApprovalsSnapshot(
+                path: snapshot.path,
+                exists: snapshot.exists,
+                hash: snapshot.hash,
+                file: ExecApprovalsStore.redactForSnapshot(snapshot.file))
+            let payload = try Self.encodePayload(redacted)
+            return BridgeInvokeResponse(id: req.id, ok: true, payloadJSON: payload)
+        case .baseHashUnavailable:
+            return Self.errorResponse(
+                req,
+                code: .invalidRequest,
+                message: "INVALID_REQUEST: exec approvals base hash unavailable; reload and retry")
+        case .baseHashRequired:
+            return Self.errorResponse(
+                req,
+                code: .invalidRequest,
+                message: "INVALID_REQUEST: exec approvals base hash required; reload and retry")
+        case .conflict:
+            return Self.errorResponse(
+                req,
+                code: .invalidRequest,
+                message: "INVALID_REQUEST: exec approvals changed; reload and retry")
+        case .unavailable:
+            return Self.errorResponse(
+                req,
+                code: .unavailable,
+                message: "UNAVAILABLE: exec approvals update lock unavailable; retry")
         }
-
-        var normalized = ExecApprovalsStore.normalizeIncoming(params.file)
-        let socketPath = normalized.socket?.path?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let token = normalized.socket?.token?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedPath = (socketPath?.isEmpty == false)
-            ? socketPath!
-            : current.socket?.path?.trimmingCharacters(in: .whitespacesAndNewlines) ??
-            ExecApprovalsStore.socketPath()
-        let resolvedToken = (token?.isEmpty == false)
-            ? token!
-            : current.socket?.token?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        normalized.socket = ExecApprovalsSocketConfig(path: resolvedPath, token: resolvedToken)
-
-        ExecApprovalsStore.saveFile(normalized)
-        let nextSnapshot = ExecApprovalsStore.readSnapshot()
-        let redacted = ExecApprovalsSnapshot(
-            path: nextSnapshot.path,
-            exists: nextSnapshot.exists,
-            hash: nextSnapshot.hash,
-            file: ExecApprovalsStore.redactForSnapshot(nextSnapshot.file))
-        let payload = try Self.encodePayload(redacted)
-        return BridgeInvokeResponse(id: req.id, ok: true, payloadJSON: payload)
     }
 
     private func emitExecEvent(_ event: String, payload: ExecEventPayload) async {
@@ -1127,7 +1126,9 @@ extension MacNodeRuntime {
     }
 
     private nonisolated static func locationPreciseEnabled() -> Bool {
-        if UserDefaults.standard.object(forKey: locationPreciseKey) == nil { return true }
+        if UserDefaults.standard.object(forKey: locationPreciseKey) == nil {
+            return true
+        }
         return UserDefaults.standard.bool(forKey: locationPreciseKey)
     }
 
