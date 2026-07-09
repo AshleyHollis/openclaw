@@ -19,9 +19,10 @@ import {
 
 function createRemoteSkillWorkspace(bin: string): { cfg: OpenClawConfig; workspaceDir: string } {
   const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-remote-skills-"));
-  fs.mkdirSync(path.join(workspaceDir, "remote-skill"), { recursive: true });
+  const skillDir = path.join(workspaceDir, "skills", "remote-skill");
+  fs.mkdirSync(skillDir, { recursive: true });
   fs.writeFileSync(
-    path.join(workspaceDir, "remote-skill", "SKILL.md"),
+    path.join(skillDir, "SKILL.md"),
     [
       "---",
       "name: remote-skill",
