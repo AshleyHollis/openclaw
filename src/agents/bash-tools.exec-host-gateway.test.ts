@@ -695,6 +695,10 @@ describe("processGatewayAllowlist", () => {
     if (!authorizationPlan.ok) {
       throw new Error(authorizationPlan.reason);
     }
+    const execution =
+      authorizationPlan.groups[0]?.candidates[0]?.sourceSegment.resolution?.execution;
+    const resolvedExecutable = execution?.resolvedRealPath ?? execution?.resolvedPath;
+    expect(resolvedExecutable).toBeTruthy();
     requiresExecApprovalMock.mockReturnValue(false);
     evaluateShellAllowlistWithAuthorizationMock.mockReturnValue({
       allowlistMatches: [],
@@ -718,7 +722,7 @@ describe("processGatewayAllowlist", () => {
     });
 
     expect(result).toEqual({
-      execCommandOverride: "/usr/bin/head -c 16",
+      execCommandOverride: `${resolvedExecutable} -c 16`,
     });
   });
 
