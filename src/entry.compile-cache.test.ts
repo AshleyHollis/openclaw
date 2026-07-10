@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanupTempDirs, makeTempDir } from "../test/helpers/temp-dir.js";
+import { makeTempDir, useAutoCleanupTempDirTracker } from "../test/helpers/temp-dir.js";
 import {
   buildOpenClawCompileCacheRespawnPlan,
   isNodeVersionAffectedByCompileCacheDeadlock,
@@ -23,13 +23,9 @@ function requireFirstMockCall(mock: { mock: { calls: unknown[][] } }, label: str
   return call;
 }
 
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+
 describe("entry compile cache", () => {
-  const tempDirs: string[] = [];
-
-  afterEach(() => {
-    cleanupTempDirs(tempDirs);
-  });
-
   it("resolves install roots from source and dist entry paths", () => {
     expect(resolveEntryInstallRoot("/repo/openclaw/src/entry.ts")).toBe("/repo/openclaw");
     expect(resolveEntryInstallRoot("/repo/openclaw/dist/entry.js")).toBe("/repo/openclaw");
