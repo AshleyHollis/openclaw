@@ -4,7 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import { withSuppressedNotes } from "../../../packages/terminal-core/src/note.js";
 import { readConfigFileSnapshot, setRuntimeConfigSnapshot } from "../../config/config.js";
-import { resolveLegacyStateDirs, resolveOAuthDir, resolveStateDir } from "../../config/paths.js";
+import {
+  resolveLegacyStateDirs,
+  resolveNewStateDir,
+  resolveOAuthDir,
+  resolveStateDir,
+} from "../../config/paths.js";
 import type { ConfigFileSnapshot } from "../../config/types.js";
 import { resolveRequiredHomeDir } from "../../infra/home-dir.js";
 import type { RuntimeEnv } from "../../runtime.js";

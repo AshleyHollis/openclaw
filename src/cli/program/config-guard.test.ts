@@ -176,6 +176,7 @@ describe("ensureConfigReady", () => {
         migrateState: true,
         migrateLegacyConfig: false,
         invalidConfigNote: false,
+        crossStateDirImports: false,
       });
     }
   });
@@ -226,6 +227,7 @@ describe("ensureConfigReady", () => {
       migrateState: true,
       migrateLegacyConfig: false,
       invalidConfigNote: false,
+      crossStateDirImports: false,
     });
   });
 
@@ -235,7 +237,7 @@ describe("ensureConfigReady", () => {
     setTestEnvValue("OPENCLAW_STATE_DIR", stateDir);
     writeStateMarker(root, "exec-approvals.json");
 
-    await runEnsureConfigReady(["agent"]);
+      await runEnsureConfigReady(commandPath);
 
     expect(loadAndMaybeMigrateDoctorConfigMock).toHaveBeenCalledOnce();
     expect(loadAndMaybeMigrateDoctorConfigMock).toHaveBeenCalledWith({
