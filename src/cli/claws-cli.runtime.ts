@@ -1,3 +1,4 @@
+import { redactSensitiveUrlLikeString } from "@openclaw/net-policy/redact-sensitive-url";
 import { resolve } from "node:path";
 import { listAgentIds, resolveAgentWorkspaceDir } from "../agents/agent-scope-config.js";
 import {
@@ -32,6 +33,7 @@ import {
 import { agentsDeleteCommand } from "../commands/agents.commands.delete.js";
 // Runtime handlers for experimental local Claws commands.
 import { getRuntimeConfig } from "../config/config.js";
+import { redactSensitiveArgv } from "../config/redact-argv.js";
 import {
   loadCronJobsStoreWithConfigJobsReadOnly,
   resolveCronJobsStorePath,
@@ -72,6 +74,21 @@ function logClawAddPlanSummary(plan: ClawAddPlan, runtime: RuntimeEnv): void {
   runtime.log(`Actions: ${plan.summary.totalActions}`);
   runtime.log(`Packages: ${plan.summary.packageActions}`);
   runtime.log(`MCP servers: ${plan.summary.mcpServerActions}`);
+  for (const action of plan.actions.filter((candidate) => candidate.kind === "mcpServer")) {
+    const server = action.details as Record<string, unknown> | undefined;
+    const target =
+      typeof server?.url === "string"
+        ? redactSensitiveUrlLikeString(server.url)
+        : typeof server?.command === "string"
+          ? redactSensitiveArgv([
+              server.command,
+              ...(Array.isArray(server.args)
+                ? server.args.filter((arg): arg is string => typeof arg === "string")
+                : []),
+            ]).join(" ")
+          : "invalid declaration";
+    runtime.log(`  MCP ${action.id}: ${target}`);
+  }
   runtime.log(`Cron jobs: ${plan.summary.cronJobActions}`);
   if (plan.summary.blockedActions > 0) {
     runtime.log(`Blocked actions: ${plan.summary.blockedActions}`);
