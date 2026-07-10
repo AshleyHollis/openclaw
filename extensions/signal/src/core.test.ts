@@ -899,7 +899,7 @@ describe("signal outbound", () => {
   });
 
   it("message adapter sends direct reply targets as Signal native quote metadata", async () => {
-    const send = vi.fn(async () => ({
+    const send = vi.fn(async (..._args: unknown[]) => ({
       messageId: "signal-1",
       receipt: createMessageReceiptFromOutboundResults({
         results: [{ channel: "signal", messageId: "signal-1" }],
@@ -907,15 +907,18 @@ describe("signal outbound", () => {
       }),
     }));
 
-    await signalPlugin.message?.send?.text?.({
-      cfg: {} as OpenClawConfig,
-      to: "signal:+15551234567",
-      text: "quoted reply",
-      replyToId: "1700000000001",
-      deps: { signal: send },
-    } as Parameters<NonNullable<typeof signalPlugin.message.send.text>>[0] & {
-      deps: { signal: typeof send };
-    });
+    const sendReply = async () =>
+      await signalPlugin.message?.send?.text?.({
+        cfg: {} as OpenClawConfig,
+        to: "signal:+15551234567",
+        text: "quoted reply",
+        replyToId: "1700000000001",
+        deps: { signal: send },
+      } as Parameters<NonNullable<typeof signalPlugin.message.send.text>>[0] & {
+        deps: { signal: typeof send };
+      });
+
+    await sendReply();
 
     expect(send).toHaveBeenCalledWith(
       "+15551234567",
@@ -926,6 +929,13 @@ describe("signal outbound", () => {
         replyToAuthor: "+15551234567",
       }),
     );
+    const replyContext = { to: "signal:+15551234567", replyToId: "1700000000001" };
+    await registerSignalReplyContext({ ...replyContext, author: "+15551234567" });
+    await registerSignalReplyContext({ ...replyContext, author: "+15550001111" });
+    send.mockClear();
+    await sendReply();
+    expect(send.mock.calls[0]?.[2]).not.toHaveProperty("replyToAuthor");
+    await clearSignalReplyAuthorsForTest();
   });
 
   it("normalizes direct Signal targets before deriving native quote authors", async () => {
@@ -1249,11 +1259,6 @@ describe("signal outbound", () => {
       await expect(resolveSignalReplyContextWithPersistence(replyContext)).resolves.toEqual({
         author: "uuid:sender-1",
       });
-      await registerSignalReplyContext({
-        ...replyContext,
-        author: "uuid:sender-2",
-      });
-      await expect(resolveSignalReplyContextWithPersistence(replyContext)).resolves.toBeUndefined();
     } finally {
       clearSignalRuntime();
       await clearSignalReplyAuthorsForTest();
@@ -1330,7 +1335,9 @@ describe("signal outbound", () => {
         }),
       ]);
       await registerSignalReplyContext({ ...shared, author: "uuid:sender-2" });
-      await expect(resolveSignalReplyContextWithPersistence(shared)).resolves.toBeUndefined();
+      await expect(resolveSignalReplyContextWithPersistence(shared)).resolves.toEqual({
+        ambiguous: true,
+      });
     } finally {
       clearSignalRuntime();
       await clearSignalReplyAuthorsForTest();

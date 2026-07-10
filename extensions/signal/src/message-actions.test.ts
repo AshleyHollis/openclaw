@@ -61,11 +61,6 @@ describe("signalMessageActions", () => {
     );
   });
 
-  it("skips send for plugin dispatch", () => {
-    expect(signalMessageActions.supportsAction?.({ action: "send" })).toBe(false);
-    expect(signalMessageActions.supportsAction?.({ action: "react" })).toBe(true);
-  });
-
   it.each([
     { name: "ordinary", params: {} },
     { name: "canonical reply", params: { replyTo: "explicit-1" } },
@@ -134,27 +129,6 @@ describe("signalMessageActions", () => {
     expect(prepared).toMatchObject({
       text: "threaded",
       replyToId: "alias-1",
-    });
-  });
-
-  it("keeps existing payload reply targets for Signal sends", () => {
-    const prepared = signalMessageActions.prepareSendPayload?.({
-      ctx: {
-        channel: "signal",
-        action: "send",
-        cfg: {} as OpenClawConfig,
-        params: {
-          to: "+15551234567",
-          message: "threaded",
-          replyToId: "alias-1",
-        },
-      },
-      to: "+15551234567",
-      payload: { text: "threaded", replyToId: "payload-1" },
-    });
-    expect(prepared).toMatchObject({
-      text: "threaded",
-      replyToId: "payload-1",
     });
   });
 

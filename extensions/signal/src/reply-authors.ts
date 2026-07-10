@@ -25,7 +25,9 @@ type MemoryReplyContextRecord = SignalReplyContextRecord & {
   expiresAt: number;
 };
 
-export type SignalPersistedReplyContext = { author: string; body?: string };
+export type SignalPersistedReplyContext =
+  | { author: string; body?: string; ambiguous?: never }
+  | { ambiguous: true; author?: never; body?: never };
 
 const memoryReplyContexts = new Map<string, MemoryReplyContextRecord>();
 let persistentStoreDisabled = false;
@@ -84,8 +86,11 @@ function pruneMemoryReplyContexts(now = Date.now()): void {
 function resolveReplyContext(
   record: SignalReplyContextRecord | undefined,
 ): SignalPersistedReplyContext | undefined {
-  if (record?.kind !== "resolved") {
+  if (!record) {
     return undefined;
+  }
+  if (record.kind === "ambiguous") {
+    return { ambiguous: true };
   }
   const author = normalizeOptionalString(record.author);
   if (!author) {

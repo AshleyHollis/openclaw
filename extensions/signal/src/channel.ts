@@ -157,7 +157,10 @@ function resolveSignalReplyOptions(params: {
     to: params.to,
     replyToId,
   }).then((persistedContext) => {
-    const replyToAuthor = persistedContext?.author ?? resolveDirectSignalReplyAuthor(params.to);
+    const replyToAuthor =
+      persistedContext?.ambiguous === true
+        ? undefined
+        : (persistedContext?.author ?? resolveDirectSignalReplyAuthor(params.to));
     return {
       replyToId,
       ...(replyToAuthor ? { replyToAuthor } : {}),
