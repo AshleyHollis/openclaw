@@ -375,7 +375,9 @@ describe("package acceptance workflow", () => {
     const publishOrchestration = workflowStep(publishJob, "Dispatch publish workflows");
 
     for (const stepName of [
-      "Download OpenClaw npm preflight manifest",
+      "Checkout trusted release tooling",
+      "Resolve exact OpenClaw npm preflight artifact",
+      "Download exact OpenClaw npm preflight artifact",
       "Resolve full release validation run",
       "Download full release validation manifest",
       "Download trusted release validation tooling",

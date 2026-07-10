@@ -277,7 +277,7 @@ jobs:
           echo "- Windows Node source release: prevalidated \`${WINDOWS_NODE_TAG}\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Checkout trusted release tooling
-        if: ${{ inputs.publish_openclaw_npm }}
+        if: ${{ inputs.publish_openclaw_npm || inputs.plugin_publish_scope == 'all-publishable' || inputs.preflight_run_id != '' || inputs.full_release_validation_run_id != '' }}
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: ${{ github.sha }}
@@ -301,7 +301,7 @@ jobs:
             "$run_file" "$artifacts_file" "$GITHUB_OUTPUT"
 
       - name: Download exact OpenClaw npm preflight artifact
-        if: ${{ inputs.publish_openclaw_npm }}
+        if: ${{ inputs.publish_openclaw_npm || inputs.plugin_publish_scope == 'all-publishable' || inputs.preflight_run_id != '' || inputs.full_release_validation_run_id != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           PREFLIGHT_RUN_ID: ${{ inputs.preflight_run_id }}
