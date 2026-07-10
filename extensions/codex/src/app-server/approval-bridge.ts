@@ -178,7 +178,7 @@ export async function handleCodexAppServerApprovalRequest(params: {
       description: context.description,
       severity: context.severity,
       toolName: context.toolName,
-      toolCallId: context.itemId,
+      toolCallId: context.approvalId,
     });
 
     const approvalId = requestResult?.id;
@@ -300,6 +300,9 @@ function buildApprovalContext(params: {
     readString(params.requestParams, "itemId") ??
     readString(params.requestParams, "callId") ??
     readString(params.requestParams, "approvalId");
+  // Codex gives every execve callback its own approvalId while retaining the
+  // parent itemId. Policy and relay dedupe must use the callback identity.
+  const approvalId = readString(params.requestParams, "approvalId") ?? itemId;
   const commandDetailLines =
     params.method === "item/commandExecution/requestApproval"
       ? describeCommandApprovalDetails(params.requestParams)
@@ -360,6 +363,7 @@ function buildApprovalContext(params: {
           ? "codex_permission_approval"
           : "codex_file_approval",
     itemId,
+    approvalId,
     requestParams: params.requestParams,
     eventDetails: {
       ...(itemId ? { itemId } : {}),
@@ -419,7 +423,7 @@ async function runInternalExecAutoReviewForApprovalRequest(params: {
       input,
     }),
   });
-  if (decision.decision !== "allow-once") {
+  if (decision.decision !== "allow-once" || decision.risk !== "low") {
     return undefined;
   }
   return {
@@ -662,7 +666,7 @@ async function runOpenClawToolPolicyForApprovalRequest(params: {
   const outcome = await runBeforeToolCallHook({
     toolName: policyRequest.toolName,
     params: policyRequest.params,
-    ...(params.context.itemId ? { toolCallId: params.context.itemId } : {}),
+    ...(params.context.approvalId ? { toolCallId: params.context.approvalId } : {}),
     approvalMode: "request",
     signal: params.signal,
     ctx: {
@@ -740,12 +744,12 @@ async function runNativeRelayToolPolicyForApprovalRequest(params: {
     hasNativeHookRelayInvocation({
       relayId: params.nativeHookRelay.relayId,
       event: "pre_tool_use",
-      toolUseId: params.context.itemId,
+      toolUseId: params.context.approvalId,
     })
   ) {
     const approvalOutcome = await resolveNativeHookRelayDeferredToolApproval({
       relayId: params.nativeHookRelay.relayId,
-      toolUseId: params.context.itemId,
+      toolUseId: params.context.approvalId,
       signal: params.signal,
     });
     if (approvalOutcome?.outcome === "denied") {
@@ -771,7 +775,7 @@ async function runNativeRelayToolPolicyForApprovalRequest(params: {
     }
     const approvalOutcome = await resolveNativeHookRelayDeferredToolApproval({
       relayId: params.nativeHookRelay.relayId,
-      toolUseId: params.context.itemId,
+      toolUseId: params.context.approvalId,
       signal: params.signal,
     });
     if (approvalOutcome?.outcome === "denied") {
@@ -807,7 +811,7 @@ function buildNativeRelayPreToolUsePayload(params: {
     hook_event_name: "PreToolUse",
     openclaw_approval_mode: "report",
     tool_name: "exec_command",
-    ...(params.context.itemId ? { tool_use_id: params.context.itemId } : {}),
+    ...(params.context.approvalId ? { tool_use_id: params.context.approvalId } : {}),
     ...(params.cwd ? { cwd: params.cwd } : {}),
     ...(turnId ? { turn_id: turnId } : {}),
     tool_input: {

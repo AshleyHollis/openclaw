@@ -202,9 +202,10 @@ Examples that strict mode catches:
 - `lua -e`
 - `osascript -e`
 
-In strict mode these commands still need explicit approval, and
-`allow-always` does not persist new allowlist entries for them
-automatically.
+In strict mode these commands need reviewer or explicit approval. With
+`tools.exec.mode: "auto"`, the reviewer may grant one low-risk execution when
+the command has an enforceable plan; otherwise OpenClaw asks a human.
+`allow-always` does not persist new allowlist entries for inline-eval commands.
 
 ### `tools.exec.commandHighlighting`
 
