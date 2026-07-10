@@ -11,6 +11,7 @@ import {
 } from "../infra/diagnostic-events.js";
 import { withDiagnosticPhase } from "./diagnostic-phase.js";
 import {
+  BLOCKED_TOOL_CALL_ABORT_FLOOR_MS,
   getDiagnosticSessionActivitySnapshot,
   markDiagnosticEmbeddedRunEnded,
   markDiagnosticEmbeddedRunStarted,
@@ -648,7 +649,7 @@ describe("stuck session diagnostics threshold", () => {
     );
   });
 
-  it("recovers stale native tool calls through the active-run abort path", async () => {
+  it("keeps quiet native tools alive until the blocked-tool floor", async () => {
     const events: DiagnosticEventPayload[] = [];
     const recoverStuckSession = vi.fn();
     const stuckSessionWarnMs = 30_000;
@@ -677,7 +678,7 @@ describe("stuck session diagnostics threshold", () => {
         toolCallId: "cmd-1",
       });
 
-      vi.advanceTimersByTime(stuckSessionAbortMs - 30_000);
+      vi.advanceTimersByTime(BLOCKED_TOOL_CALL_ABORT_FLOOR_MS - 30_000);
       expect(recoverStuckSession).not.toHaveBeenCalled();
 
       vi.advanceTimersByTime(30_000);
@@ -942,7 +943,7 @@ describe("stuck session diagnostics threshold", () => {
       toolCallId: "cmd-1",
     });
 
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(BLOCKED_TOOL_CALL_ABORT_FLOOR_MS - 30_000);
     expect(recoverStuckSession).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(30_000);

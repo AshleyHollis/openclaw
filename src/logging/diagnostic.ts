@@ -17,6 +17,7 @@ import {
   resetDiagnosticPhasesForTest,
 } from "./diagnostic-phase.js";
 import {
+  BLOCKED_TOOL_CALL_ABORT_FLOOR_MS,
   getDiagnosticSessionActivitySnapshot,
   resetDiagnosticRunActivityForTest,
   type DiagnosticSessionActivitySnapshot,
@@ -518,14 +519,15 @@ function isBlockedToolCallRecoveryEligible(params: {
 }): boolean {
   const toolAgeMs = params.activity?.activeToolAgeMs;
   const lastProgressAgeMs = params.activity?.lastProgressAgeMs;
+  const blockedToolAbortMs = Math.max(params.stuckSessionAbortMs, BLOCKED_TOOL_CALL_ABORT_FLOOR_MS);
   return (
     params.classification?.eventType === "session.stalled" &&
     params.classification.classification === "blocked_tool_call" &&
     params.classification.activeWorkKind === "tool_call" &&
     typeof toolAgeMs === "number" &&
     typeof lastProgressAgeMs === "number" &&
-    toolAgeMs >= params.stuckSessionAbortMs &&
-    lastProgressAgeMs >= params.stuckSessionAbortMs
+    toolAgeMs >= blockedToolAbortMs &&
+    lastProgressAgeMs >= blockedToolAbortMs
   );
 }
 

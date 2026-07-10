@@ -867,6 +867,7 @@ export async function executePreparedCliRun(
           name: string;
           args: Record<string, unknown>;
         }) => {
+          params.replyOperation?.recordActivity();
           observedCliActivity = true;
           const toolName = normalizeCliMessagingToolName(event.name);
           if (
@@ -909,6 +910,7 @@ export async function executePreparedCliRun(
           isError: boolean;
           result?: unknown;
         }) => {
+          params.replyOperation?.recordActivity();
           observedCliActivity = true;
           const pending = pendingMessagingCalls.get(event.toolCallId);
           if (pending) {
@@ -938,6 +940,7 @@ export async function executePreparedCliRun(
         };
         let commentaryCounter = 0;
         const emitCliCommentaryText = (text: string) => {
+          params.replyOperation?.recordActivity();
           if (!emitLiveEvents) {
             return;
           }
@@ -987,6 +990,7 @@ export async function executePreparedCliRun(
             getProcessSupervisor: executeDeps.getProcessSupervisor,
             onAssistantDelta: ({ text, delta }) => {
               if (text || delta) {
+                params.replyOperation?.recordActivity();
                 observedCliActivity = true;
               }
               if (!emitLiveEvents) {
@@ -1041,6 +1045,7 @@ export async function executePreparedCliRun(
                 providerId: context.backendResolved.id,
                 onAssistantDelta: ({ text, delta }) => {
                   if (text || delta) {
+                    params.replyOperation?.recordActivity();
                     observedCliActivity = true;
                   }
                   if (!emitLiveEvents) {
@@ -1102,6 +1107,7 @@ export async function executePreparedCliRun(
             input: stdinPayload,
             captureOutput: false,
             onStdout: (chunk: string) => {
+              params.replyOperation?.recordActivity();
               stdoutTail = appendCliOutputTail(stdoutTail, chunk);
               if (!stdoutParseExceeded) {
                 const nextStdoutParse = appendCliOutputParseBuffer(stdoutParseBuffer, chunk);
@@ -1111,6 +1117,7 @@ export async function executePreparedCliRun(
               streamingParser?.push(chunk);
             },
             onStderr: (chunk: string) => {
+              params.replyOperation?.recordActivity();
               stderrTail = appendCliOutputTail(stderrTail, chunk);
               if (!stderrParseExceeded) {
                 const nextStderrParse = appendCliOutputParseBuffer(stderrParseBuffer, chunk);

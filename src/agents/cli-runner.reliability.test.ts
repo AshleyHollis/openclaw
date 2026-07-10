@@ -1744,7 +1744,9 @@ describe("runCliAgent reliability", () => {
       resetTriggered: false,
     });
     operation.setPhase("running");
+    const recordActivity = vi.spyOn(operation, "recordActivity");
     let finishRun: (() => void) | undefined;
+    let onStderr: ((chunk: string) => void) | undefined;
     const waitForExit = new Promise<
       Awaited<ReturnType<ReturnType<typeof createManagedRun>["wait"]>>
     >((resolve) => {
@@ -1761,18 +1763,22 @@ describe("runCliAgent reliability", () => {
         });
       };
     });
-    supervisorSpawnMock.mockResolvedValueOnce({
-      ...createManagedRun({
-        reason: "exit",
-        exitCode: 0,
-        exitSignal: null,
-        durationMs: 50,
-        stdout: "unused",
-        stderr: "",
-        timedOut: false,
-        noOutputTimedOut: false,
-      }),
-      wait: vi.fn(() => waitForExit),
+    supervisorSpawnMock.mockImplementationOnce(async (...args: unknown[]) => {
+      const input = (args[0] ?? {}) as { onStderr?: (chunk: string) => void };
+      onStderr = input.onStderr;
+      return {
+        ...createManagedRun({
+          reason: "exit",
+          exitCode: 0,
+          exitSignal: null,
+          durationMs: 50,
+          stdout: "unused",
+          stderr: "",
+          timedOut: false,
+          noOutputTimedOut: false,
+        }),
+        wait: vi.fn(() => waitForExit),
+      };
     });
 
     const run = executePreparedCliRun({
@@ -1786,6 +1792,9 @@ describe("runCliAgent reliability", () => {
     await vi.waitFor(() => {
       expect(replyRunRegistry.isStreaming("agent:main:main")).toBe(true);
     });
+    recordActivity.mockClear();
+    onStderr?.("still working\n");
+    expect(recordActivity).toHaveBeenCalledOnce();
 
     finishRun?.();
     const result = await run;

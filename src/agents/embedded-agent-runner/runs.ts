@@ -6,13 +6,17 @@ import {
   abortActiveReplyRuns,
   abortReplyRunBySessionId,
   forceClearReplyRunBySessionId,
+  isReplyRunEvidenceStaleBySessionId,
   isReplyRunActiveForSessionId,
   isReplyRunAbortableForCompaction,
   isReplyRunStreamingForSessionId,
   queueReplyRunMessage,
   waitForReplyRunEndBySessionId,
 } from "../../auto-reply/reply/reply-run-registry.js";
+import { areDiagnosticsEnabledForProcess } from "../../infra/diagnostic-events.js";
 import {
+  BLOCKED_TOOL_CALL_ABORT_FLOOR_MS,
+  getDiagnosticSessionActivitySnapshot,
   markDiagnosticEmbeddedRunEnded,
   markDiagnosticEmbeddedRunStarted,
 } from "../../logging/diagnostic-run-activity.js";
@@ -57,6 +61,7 @@ export {
 export type EmbeddedAgentQueueFailureReason =
   | "no_active_run"
   | "not_streaming"
+  | "stale_run"
   | "compacting"
   | "source_reply_delivery_mode_mismatch"
   | "transcript_commit_wait_unsupported"
@@ -88,6 +93,12 @@ type PreparedEmbeddedAgentQueueMessage =
       kind: "embedded_run";
       handle: EmbeddedAgentQueueHandle;
     };
+
+// Paired with the reply registry's stale-takeover window without importing
+// auto-reply policy into this owner.
+const EMBEDDED_STEER_STALE_CAPTURE_MS = 10 * 60_000;
+const STALE_OWNER_MAX_SETTLE_MS = 15_000;
+const STALE_OWNER_MIN_DRAIN_MS = 100;
 
 function createQueueFailureOutcome(
   sessionId: string,
@@ -314,6 +325,11 @@ export function queueEmbeddedAgentMessageWithOutcome(
 ): EmbeddedAgentQueueMessageOutcome {
   const prepared = prepareEmbeddedAgentQueueMessage(sessionId, text, options);
   if (prepared.kind === "complete") {
+    if (!prepared.outcome.queued && prepared.outcome.reason === "stale_run") {
+      // The sync compatibility API cannot wait for teardown. Start cancellation,
+      // but leave ownership in place until the backend's normal cleanup runs.
+      abortEmbeddedAgentRun(sessionId);
+    }
     return prepared.outcome;
   }
   logMessageQueued({ sessionId, source: "embedded-agent-runner" });
@@ -344,6 +360,9 @@ export async function queueEmbeddedAgentMessageWithOutcomeAsync(
 ): Promise<EmbeddedAgentQueueMessageOutcome> {
   const prepared = prepareEmbeddedAgentQueueMessage(sessionId, text, options);
   if (prepared.kind === "complete") {
+    if (!prepared.outcome.queued && prepared.outcome.reason === "stale_run") {
+      await releaseStaleQueueOwner(sessionId, options?.deliveryTimeoutMs);
+    }
     return prepared.outcome;
   }
   try {
@@ -373,6 +392,10 @@ function prepareEmbeddedAgentQueueMessage(
 ): PreparedEmbeddedAgentQueueMessage {
   const handle = ACTIVE_EMBEDDED_RUNS.get(sessionId);
   if (!handle) {
+    if (isReplyRunEvidenceStaleBySessionId(sessionId)) {
+      diag.debug(`queue message failed: sessionId=${sessionId} reason=stale_run`);
+      return { kind: "complete", outcome: createQueueFailureOutcome(sessionId, "stale_run") };
+    }
     const queuedReplyRunMessage = queueReplyRunMessage(sessionId, text);
     if (queuedReplyRunMessage) {
       logMessageQueued({ sessionId, source: "embedded-agent-runner" });
@@ -403,6 +426,19 @@ function prepareEmbeddedAgentQueueMessage(
     diag.debug(`queue message failed: sessionId=${sessionId} reason=not_streaming`);
     return { kind: "complete", outcome: createQueueFailureOutcome(sessionId, "not_streaming") };
   }
+  const activity = getDiagnosticSessionActivitySnapshot({ sessionId });
+  const staleCaptureMs =
+    activity.activeWorkKind === "tool_call"
+      ? Math.max(EMBEDDED_STEER_STALE_CAPTURE_MS, BLOCKED_TOOL_CALL_ABORT_FLOOR_MS)
+      : EMBEDDED_STEER_STALE_CAPTURE_MS;
+  if (
+    areDiagnosticsEnabledForProcess() &&
+    typeof activity.lastProgressAgeMs === "number" &&
+    activity.lastProgressAgeMs > staleCaptureMs
+  ) {
+    diag.debug(`queue message failed: sessionId=${sessionId} reason=stale_run`);
+    return { kind: "complete", outcome: createQueueFailureOutcome(sessionId, "stale_run") };
+  }
   if (handle.isCompacting()) {
     diag.debug(`queue message failed: sessionId=${sessionId} reason=compacting`);
     return { kind: "complete", outcome: createQueueFailureOutcome(sessionId, "compacting") };
@@ -429,6 +465,39 @@ function prepareEmbeddedAgentQueueMessage(
     };
   }
   return { kind: "embedded_run", handle };
+}
+
+function resolveStaleOwnerSettleMs(deliveryTimeoutMs: number | undefined): number {
+  if (deliveryTimeoutMs === undefined) {
+    return STALE_OWNER_MAX_SETTLE_MS;
+  }
+  if (!Number.isFinite(deliveryTimeoutMs) || deliveryTimeoutMs <= 0) {
+    return 0;
+  }
+  const boundedDeliveryMs = Math.floor(deliveryTimeoutMs);
+  const fallbackReserveMs = Math.min(1_000, Math.max(1, Math.floor(boundedDeliveryMs / 2)));
+  return Math.min(STALE_OWNER_MAX_SETTLE_MS, boundedDeliveryMs - fallbackReserveMs);
+}
+
+async function releaseStaleQueueOwner(
+  sessionId: string,
+  deliveryTimeoutMs: number | undefined,
+): Promise<void> {
+  const settleMs = resolveStaleOwnerSettleMs(deliveryTimeoutMs);
+  if (settleMs < STALE_OWNER_MIN_DRAIN_MS) {
+    // Tiny remaining budgets cannot safely wait or force-clear. Start normal
+    // cancellation and preserve ownership until backend cleanup completes.
+    abortEmbeddedAgentRun(sessionId);
+    return;
+  }
+  // Direct fallback waits for normal teardown, then force-clears only after a
+  // bounded settle window so a stale backend cannot race the replacement turn.
+  await abortAndDrainEmbeddedAgentRun({
+    sessionId,
+    settleMs,
+    forceClear: true,
+    reason: "stale_steering_recovery",
+  });
 }
 
 /**
