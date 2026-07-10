@@ -231,13 +231,21 @@ describe("ensureConfigReady", () => {
     });
   });
 
-  it("runs doctor flow before agent commands when default exec approvals must move to a custom state dir", async () => {
+  it("preserves plugin listing migrations when the legacy plugin install index exists", async () => {
     const root = useTempOpenClawHome();
-    const stateDir = path.join(root, "custom-state");
-    setTestEnvValue("OPENCLAW_STATE_DIR", stateDir);
-    writeStateMarker(root, "exec-approvals.json");
+    writeStateMarker(root, "plugins/installs.json");
+    const migratedSnapshot = {
+      ...makeSnapshot(),
+      config: { plugins: { entries: { legacy: { enabled: true } } } },
+      runtimeConfig: { plugins: { entries: { legacy: { enabled: true } } } },
+      sourceConfig: { plugins: { entries: { legacy: { enabled: true } } } },
+    };
+    loadAndMaybeMigrateDoctorConfigMock.mockResolvedValue({
+      snapshot: migratedSnapshot,
+      baseConfig: {},
+    });
 
-      await runEnsureConfigReady(commandPath);
+    await runEnsureConfigReady(["plugins", "list"]);
 
     expect(loadAndMaybeMigrateDoctorConfigMock).toHaveBeenCalledOnce();
     expect(loadAndMaybeMigrateDoctorConfigMock).toHaveBeenCalledWith({
@@ -245,6 +253,32 @@ describe("ensureConfigReady", () => {
       migrateLegacyConfig: false,
       invalidConfigNote: false,
     });
+    expect(setRuntimeConfigSnapshotMock).toHaveBeenCalledWith(
+      migratedSnapshot.runtimeConfig,
+      migratedSnapshot.sourceConfig,
+    );
+  });
+
+  it("preserves plugin listing migrations when the shared state database exists", async () => {
+    const root = useTempOpenClawHome();
+    writeStateMarker(root, "state/openclaw.sqlite");
+
+    await runEnsureConfigReady(["plugins", "list"]);
+
+    expect(loadAndMaybeMigrateDoctorConfigMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not run doctor flow for default-state-dir exec approvals when a custom state dir is set", async () => {
+    // Cross-state-dir imports are doctor-owned; the implicit preflight must not
+    // trigger (and must never archive) files that belong to the default dir.
+    const root = useTempOpenClawHome();
+    const stateDir = path.join(root, "custom-state");
+    setTestEnvValue("OPENCLAW_STATE_DIR", stateDir);
+    writeStateMarker(root, "exec-approvals.json");
+
+      await runEnsureConfigReady(commandPath);
+
+    expect(loadAndMaybeMigrateDoctorConfigMock).not.toHaveBeenCalled();
   });
 
   it.each([

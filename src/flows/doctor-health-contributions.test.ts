@@ -379,6 +379,10 @@ describe("doctor health contributions", () => {
     mocks.registerHealthCheck.mockReset();
     mocks.noteChromeMcpBrowserReadiness.mockReset();
     mocks.noteChromeMcpBrowserReadiness.mockResolvedValue(undefined);
+    mocks.detectLegacyStateMigrations.mockReset();
+    mocks.detectLegacyStateMigrations.mockResolvedValue({ preview: [], warnings: [], notices: [] });
+    mocks.runLegacyStateMigrations.mockReset();
+    mocks.runLegacyStateMigrations.mockResolvedValue({ changes: [], warnings: [] });
     mocks.detectLegacyClawdBrowserProfileResidue.mockReset();
     mocks.detectLegacyClawdBrowserProfileResidue.mockReturnValue(null);
     mocks.maybeArchiveLegacyClawdBrowserProfileResidue.mockReset();
@@ -917,7 +921,59 @@ describe("doctor health contributions", () => {
       "local",
       ctx.runtime,
       ctx.prompter,
-      { allowExecSecretRefs: true },
+      expect.objectContaining({ allowExecSecretRefs: true }),
+    );
+  });
+
+  it("passes the active config into legacy state migration", async () => {
+    const contribution = requireDoctorContribution("doctor:legacy-state");
+    const legacyStateCheck = CORE_HEALTH_CHECKS.find(
+      (check) => check.id === "core/doctor/legacy-state",
+    );
+    expect(legacyStateCheck).toMatchObject({ defaultEnabled: false });
+
+    const cfg = { session: { store: "/tmp/shared-sessions.json" } };
+    const detected = { preview: ["legacy sessions"], warnings: [], notices: [] };
+    mocks.detectLegacyStateMigrations.mockResolvedValue(detected);
+    const ctx = {
+      cfg,
+      sourceConfigValid: true,
+      prompter: buildDoctorPrompter(true),
+      runtime: { log: vi.fn(), error: vi.fn(), exit: vi.fn() },
+      options: { nonInteractive: true },
+    } as unknown as Parameters<(typeof contribution)["run"]>[0];
+
+    await contribution.run(ctx);
+
+    expect(mocks.runLegacyStateMigrations).toHaveBeenCalledWith({
+      detected,
+      config: cfg,
+      recoverCorruptTargetStore: false,
+    });
+  });
+
+  it("prints legacy state migration notices during manual doctor runs", async () => {
+    const contribution = requireDoctorContribution("doctor:legacy-state");
+    const detected = { preview: ["legacy sessions"], warnings: [], notices: [] };
+    mocks.detectLegacyStateMigrations.mockResolvedValue(detected);
+    mocks.runLegacyStateMigrations.mockResolvedValue({
+      changes: [],
+      warnings: [],
+      notices: ["Left reviewed legacy residue in place."],
+    });
+    const ctx = {
+      cfg: {},
+      sourceConfigValid: true,
+      prompter: buildDoctorPrompter(true),
+      runtime: { log: vi.fn(), error: vi.fn(), exit: vi.fn() },
+      options: { nonInteractive: true },
+    } as unknown as Parameters<(typeof contribution)["run"]>[0];
+
+    await contribution.run(ctx);
+
+    expect(mocks.note).toHaveBeenCalledWith(
+      "Left reviewed legacy residue in place.",
+      "Doctor notices",
     );
   });
 
