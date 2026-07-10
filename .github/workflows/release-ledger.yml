@@ -1,0 +1,844 @@
+name: Release Ledger
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact release/YYYY.M.PATCH branch whose live tip must equal release_sha
+        required: true
+        type: string
+      release_sha:
+        description: Full lowercase SHA of the final release candidate
+        required: true
+        type: string
+      source_sha:
+        description: Full lowercase SHA of the immutable product/contribution cutoff
+        required: true
+        type: string
+      base_ref:
+        description: Previous shipped release tag, for example v2026.6.11
+        required: true
+        type: string
+      version:
+        description: Stable or correction changelog heading, for example 2026.7.1 or 2026.7.1-1
+        required: true
+        type: string
+      max_changelog_tail:
+        description: Maximum CHANGELOG.md-only commits from source_sha to release_sha
+        required: true
+        default: "1"
+        type: string
+      provenance_json:
+        description: Immutable provenance arrays for exact, adapted, integrated, partial, comparison-overlap, and ref evidence
+        required: true
+        default: '{"pullRequests":[],"adaptedPullRequests":[],"comparisonPullRequestMemberOverlaps":[],"integratedPullRequests":[],"partialPullRequests":[],"refs":[]}'
+        type: string
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: release-ledger-${{ inputs.release_sha }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  NODE_VERSION: "24.15.0"
+
+jobs:
+  generate_release_ledger:
+    name: Generate release ledger
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    outputs:
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_member: ${{ steps.ledger.outputs.artifact_member }}
+      artifact_name: ${{ steps.ledger.outputs.artifact_name }}
+      artifact_url: ${{ steps.upload.outputs.artifact-url }}
+      manifest_bytes: ${{ steps.ledger.outputs.manifest_bytes }}
+      manifest_sha256: ${{ steps.ledger.outputs.manifest_sha256 }}
+      publicationAuthority: ${{ steps.ledger.outputs.publicationAuthority }}
+      release_sha: ${{ steps.ledger.outputs.release_sha }}
+      source_sha: ${{ steps.ledger.outputs.source_sha }}
+      tooling_commit: ${{ steps.ledger.outputs.tooling_commit }}
+      tooling_tree: ${{ steps.ledger.outputs.tooling_tree }}
+    steps:
+      - name: Authorize trusted dispatch
+        env:
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW_REF: ${{ github.ref }}
+          WORKFLOW_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ATTEMPT" == "1" ]] || {
+            echo "Release Ledger accepts only workflow run attempt 1; dispatch a fresh run." >&2
+            exit 1
+          }
+          [[ "$WORKFLOW_REPOSITORY" == "openclaw/openclaw" ]] || {
+            echo "Release Ledger must run in openclaw/openclaw." >&2
+            exit 1
+          }
+          [[ "$WORKFLOW_REF" == "refs/heads/main" ]] || {
+            echo "Release Ledger must be dispatched from trusted main." >&2
+            exit 1
+          }
+
+      - name: Checkout trusted main tooling
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Checkout exact release candidate
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          clean: true
+          fetch-depth: 0
+          fetch-tags: true
+          path: .release-candidate
+          persist-credentials: false
+          ref: ${{ inputs.release_sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Validate trusted workflow and release refs
+        id: refs
+        env:
+          BASE_REF: ${{ inputs.base_ref }}
+          PROVENANCE_JSON: ${{ inputs.provenance_json }}
+          RELEASE_REF: ${{ inputs.release_ref }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          WORKFLOW_REF: ${{ github.ref }}
+          WORKFLOW_REPOSITORY: ${{ github.repository }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          export GIT_CONFIG_GLOBAL=/dev/null
+          export GIT_CONFIG_NOSYSTEM=1
+          export GIT_NO_REPLACE_OBJECTS=1
+          export GIT_PAGER=cat
+          export GIT_TERMINAL_PROMPT=0
+          export LC_ALL=C
+
+          [[ "$RUN_ATTEMPT" == "1" ]] || {
+            echo "Release Ledger accepts only workflow run attempt 1; dispatch a fresh run." >&2
+            exit 1
+          }
+          [[ "$WORKFLOW_REPOSITORY" == "openclaw/openclaw" ]] || {
+            echo "Release Ledger must run in openclaw/openclaw." >&2
+            exit 1
+          }
+          [[ "$WORKFLOW_REF" == "refs/heads/main" ]] || {
+            echo "Release Ledger must be dispatched from trusted main." >&2
+            exit 1
+          }
+          [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Workflow SHA must be a full lowercase commit SHA." >&2
+            exit 1
+          }
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "release_sha must be a full lowercase commit SHA." >&2
+            exit 1
+          }
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "source_sha must be a full lowercase commit SHA." >&2
+            exit 1
+          }
+          [[ "$RELEASE_REF" =~ ^release/[0-9]{4}\.([1-9]|1[0-2])\.[1-9][0-9]*$ ]] || {
+            echo "release_ref must match release/YYYY.M.PATCH." >&2
+            exit 1
+          }
+          [[ "$BASE_REF" =~ ^v[0-9]{4}\.([1-9]|1[0-2])\.[1-9][0-9]*(-[1-9][0-9]*)?$ ]] || {
+            echo "base_ref must be a stable vYYYY.M.PATCH or correction tag." >&2
+            exit 1
+          }
+
+          trusted_head="$(git rev-parse HEAD)"
+          [[ "$trusted_head" == "$WORKFLOW_SHA" ]] || {
+            echo "Trusted tooling checkout resolved to $trusted_head, expected $WORKFLOW_SHA." >&2
+            exit 1
+          }
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$WORKFLOW_SHA" refs/remotes/origin/main || {
+            echo "Workflow SHA $WORKFLOW_SHA is not reachable from current origin/main." >&2
+            exit 1
+          }
+          tooling_tree="$(git show -s --format=%T "$WORKFLOW_SHA")"
+          [[ "$tooling_tree" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Trusted tooling tree did not resolve to a full lowercase SHA." >&2
+            exit 1
+          }
+
+          cd .release-candidate
+          [[ "$(git rev-parse --is-shallow-repository)" == "false" ]] || {
+            echo "Release Ledger refuses shallow candidate history." >&2
+            exit 1
+          }
+          [[ -z "$(git for-each-ref --format='%(refname)' refs/replace)" ]] || {
+            echo "Release Ledger refuses Git replacement refs." >&2
+            exit 1
+          }
+          candidate_head="$(git rev-parse HEAD)"
+          [[ "$candidate_head" == "$RELEASE_SHA" ]] || {
+            echo "Candidate checkout resolved to $candidate_head, expected $RELEASE_SHA." >&2
+            exit 1
+          }
+
+          git fetch --force origin \
+            "+refs/heads/main:refs/remotes/origin/main" \
+            "+refs/heads/${RELEASE_REF}:refs/remotes/origin/${RELEASE_REF}" \
+            "+refs/tags/*:refs/tags/*"
+          release_tip="$(git rev-parse --verify "refs/remotes/origin/${RELEASE_REF}^{commit}")"
+          [[ "$release_tip" == "$RELEASE_SHA" ]] || {
+            echo "Live $RELEASE_REF tip is $release_tip, expected $RELEASE_SHA." >&2
+            exit 1
+          }
+          [[ "$(git rev-parse --verify "${SOURCE_SHA}^{commit}")" == "$SOURCE_SHA" ]] || {
+            echo "source_sha did not resolve exactly." >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$SOURCE_SHA" "$RELEASE_SHA" || {
+            echo "source_sha must be an ancestor of release_sha." >&2
+            exit 1
+          }
+          git rev-parse --verify "${BASE_REF}^{commit}" >/dev/null
+          git rev-parse --verify "${WORKFLOW_SHA}^{commit}" >/dev/null
+
+          provenance_numbers="$(
+            node --input-type=module <<'NODE'
+          const value = JSON.parse(process.env.PROVENANCE_JSON);
+          const keys = [
+            "adaptedPullRequests",
+            "comparisonPullRequestMemberOverlaps",
+            "integratedPullRequests",
+            "partialPullRequests",
+            "pullRequests",
+            "refs",
+          ];
+          if (
+            value === null ||
+            Array.isArray(value) ||
+            typeof value !== "object" ||
+            JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(keys)
+          ) {
+            throw new Error(`provenance_json must contain exactly: ${keys.join(", ")}`);
+          }
+          for (const key of keys) {
+            if (!Array.isArray(value[key]) || value[key].some((entry) => typeof entry !== "string")) {
+              throw new Error(`provenance_json.${key} must be a string array`);
+            }
+          }
+          const numbers = new Set();
+          for (const key of keys.filter((entry) => entry !== "refs")) {
+            for (const entry of value[key]) {
+              const match = entry.match(/^#?([1-9][0-9]*):/u);
+              if (!match) {
+                throw new Error(`invalid ${key} entry: ${entry}`);
+              }
+              numbers.add(Number(match[1]));
+            }
+          }
+          process.stdout.write([...numbers].sort((left, right) => left - right).join("\n"));
+          NODE
+          )"
+          while IFS= read -r number; do
+            [[ -n "$number" ]] || continue
+            git fetch --force --no-tags origin \
+              "+refs/pull/${number}/head:refs/remotes/origin/pull/${number}/head"
+          done <<<"$provenance_numbers"
+          provenance_commits="$(
+            node --input-type=module <<'NODE'
+          const value = JSON.parse(process.env.PROVENANCE_JSON);
+          const commits = new Set();
+          for (const key of [
+            "adaptedPullRequests",
+            "comparisonPullRequestMemberOverlaps",
+            "integratedPullRequests",
+            "partialPullRequests",
+            "pullRequests",
+          ]) {
+            for (const entry of value[key]) {
+              for (const commit of entry.split(":").slice(1)) {
+                if (!/^[0-9a-f]{40}$/u.test(commit)) {
+                  throw new Error(`invalid ${key} commit: ${commit}`);
+                }
+                commits.add(commit);
+              }
+            }
+          }
+          for (const commit of value.refs) {
+            if (!/^[0-9a-f]{40}$/u.test(commit)) {
+              throw new Error(`provenance ref must be an immutable full SHA: ${commit}`);
+            }
+            commits.add(commit);
+          }
+          process.stdout.write([...commits].sort().join("\n"));
+          NODE
+          )"
+          while IFS= read -r commit; do
+            [[ -n "$commit" ]] || continue
+            if ! git cat-file -e "${commit}^{commit}" 2>/dev/null; then
+              git fetch --force --no-tags origin "$commit"
+            fi
+            [[ "$(git rev-parse --verify "${commit}^{commit}")" == "$commit" ]] || {
+              echo "Provenance commit did not resolve exactly: $commit" >&2
+              exit 1
+            }
+          done <<<"$provenance_commits"
+
+          {
+            echo "tooling_commit=$WORKFLOW_SHA"
+            echo "tooling_tree=$tooling_tree"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate and validate schema-v6 ledger
+        id: ledger
+        working-directory: .release-candidate
+        env:
+          BASE_REF: ${{ inputs.base_ref }}
+          GH_TOKEN: ${{ github.token }}
+          MAX_CHANGELOG_TAIL: ${{ inputs.max_changelog_tail }}
+          PROVENANCE_JSON: ${{ inputs.provenance_json }}
+          RELEASE_REF: ${{ inputs.release_ref }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          TOOLING_COMMIT: ${{ steps.refs.outputs.tooling_commit }}
+          TOOLING_TREE: ${{ steps.refs.outputs.tooling_tree }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { spawnSync, execFileSync } from "node:child_process";
+          import { createHash } from "node:crypto";
+          import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+          import os from "node:os";
+          import path from "node:path";
+
+          const fail = (message) => {
+            throw new Error(message);
+          };
+          const assert = (condition, message) => {
+            if (!condition) fail(message);
+          };
+          const sha256 = (value) => createHash("sha256").update(value).digest("hex");
+          const shaPattern = /^[0-9a-f]{40}$/u;
+          const versionPattern = /^[0-9]{4}\.([1-9]|1[0-2])\.[1-9][0-9]*(?:-[1-9][0-9]*)?$/u;
+          const gitEnv = {
+            ...process.env,
+            GIT_CONFIG_GLOBAL: os.devNull,
+            GIT_CONFIG_NOSYSTEM: "1",
+            GIT_NO_REPLACE_OBJECTS: "1",
+            GIT_PAGER: "cat",
+            GIT_TERMINAL_PROMPT: "0",
+            LC_ALL: "C",
+          };
+          const git = (...args) =>
+            execFileSync("git", args, {
+              encoding: "utf8",
+              env: gitEnv,
+              maxBuffer: 128 * 1024 * 1024,
+            }).trimEnd();
+
+          const base = process.env.BASE_REF;
+          const releaseRef = process.env.RELEASE_REF;
+          const releaseSha = process.env.RELEASE_SHA;
+          const sourceSha = process.env.SOURCE_SHA;
+          const toolingCommit = process.env.TOOLING_COMMIT;
+          const toolingTree = process.env.TOOLING_TREE;
+          const version = process.env.VERSION;
+          const maxChangelogTailText = process.env.MAX_CHANGELOG_TAIL;
+          for (const [name, value] of Object.entries({
+            releaseSha,
+            sourceSha,
+            toolingCommit,
+            toolingTree,
+          })) {
+            assert(shaPattern.test(value ?? ""), `${name} must be a full lowercase SHA`);
+          }
+          assert(
+            versionPattern.test(version ?? ""),
+            "version must match YYYY.M.PATCH or YYYY.M.PATCH-N",
+          );
+          assert(/^(?:0|[1-9][0-9]*)$/u.test(maxChangelogTailText ?? ""), "max_changelog_tail must be a nonnegative integer");
+          const maxChangelogTail = Number(maxChangelogTailText);
+          assert(Number.isSafeInteger(maxChangelogTail), "max_changelog_tail is outside the safe integer range");
+
+          const provenance = JSON.parse(process.env.PROVENANCE_JSON);
+          const provenanceKeys = [
+            "adaptedPullRequests",
+            "comparisonPullRequestMemberOverlaps",
+            "integratedPullRequests",
+            "partialPullRequests",
+            "pullRequests",
+            "refs",
+          ];
+          assert(
+            provenance !== null &&
+              !Array.isArray(provenance) &&
+              typeof provenance === "object" &&
+              JSON.stringify(Object.keys(provenance).sort()) === JSON.stringify(provenanceKeys),
+            `provenance_json must contain exactly: ${provenanceKeys.join(", ")}`,
+          );
+          for (const key of provenanceKeys) {
+            assert(
+              Array.isArray(provenance[key]) &&
+                provenance[key].every((entry) => typeof entry === "string"),
+              `provenance_json.${key} must be a string array`,
+            );
+            assert(
+              new Set(provenance[key]).size === provenance[key].length,
+              `provenance_json.${key} must not contain duplicates`,
+            );
+          }
+
+          const exactPattern = /^#?(?<number>[1-9][0-9]*):(?<commit>[0-9a-f]{40})$/u;
+          const pairPattern =
+            /^#?(?<number>[1-9][0-9]*):(?<source>[0-9a-f]{40}):(?<target>[0-9a-f]{40})$/u;
+          const overlapPattern =
+            /^#?(?<number>[1-9][0-9]*):(?<source>[0-9a-f]{40}):(?<target>[0-9a-f]{40}):(?<witness>[0-9a-f]{40})$/u;
+          const parseExact = (entry) => {
+            const match = entry.match(exactPattern);
+            assert(match?.groups, `invalid exact provenance entry: ${entry}`);
+            return {
+              commitRef: match.groups.commit,
+              number: Number(match.groups.number),
+            };
+          };
+          const parsePair = (entry, sourceName) => {
+            const match = entry.match(pairPattern);
+            assert(match?.groups, `invalid ${sourceName} provenance entry: ${entry}`);
+            return {
+              number: Number(match.groups.number),
+              source: match.groups.source,
+              target: match.groups.target,
+            };
+          };
+          const provenancePullRequests = provenance.pullRequests
+            .map(parseExact)
+            .sort((left, right) => left.number - right.number || left.commitRef.localeCompare(right.commitRef));
+          const provenanceAdaptedPullRequests = provenance.adaptedPullRequests
+            .map((entry) => {
+              const parsed = parsePair(entry, "adapted");
+              return {
+                number: parsed.number,
+                originCommitRef: parsed.source,
+                targetCommitRef: parsed.target,
+              };
+            })
+            .sort(
+              (left, right) =>
+                left.number - right.number ||
+                left.originCommitRef.localeCompare(right.originCommitRef) ||
+                left.targetCommitRef.localeCompare(right.targetCommitRef),
+            );
+          const comparisonPullRequestMemberOverlaps =
+            provenance.comparisonPullRequestMemberOverlaps
+              .map((entry) => {
+                const match = entry.match(overlapPattern);
+                assert(match?.groups, `invalid comparison-overlap provenance entry: ${entry}`);
+                return {
+                  number: Number(match.groups.number),
+                  sourceCommitRef: match.groups.source,
+                  targetCommitRef: match.groups.target,
+                  witnessCommitRef: match.groups.witness,
+                };
+              })
+              .sort(
+                (left, right) =>
+                  left.number - right.number ||
+                  left.sourceCommitRef.localeCompare(right.sourceCommitRef) ||
+                  left.targetCommitRef.localeCompare(right.targetCommitRef) ||
+                  left.witnessCommitRef.localeCompare(right.witnessCommitRef),
+              );
+          const provenanceIntegratedPullRequests = provenance.integratedPullRequests
+            .map((entry) => {
+              const parsed = parsePair(entry, "integrated");
+              return {
+                number: parsed.number,
+                sourceCommitRef: parsed.source,
+                targetCommitRef: parsed.target,
+              };
+            })
+            .sort(
+              (left, right) =>
+                left.number - right.number ||
+                left.targetCommitRef.localeCompare(right.targetCommitRef) ||
+                left.sourceCommitRef.localeCompare(right.sourceCommitRef),
+            );
+          const provenancePartialPullRequests = provenance.partialPullRequests
+            .map((entry) => {
+              const parsed = parsePair(entry, "partial");
+              return {
+                number: parsed.number,
+                sourceCommitRef: parsed.source,
+                targetCommitRef: parsed.target,
+              };
+            })
+            .sort(
+              (left, right) =>
+                left.number - right.number ||
+                left.sourceCommitRef.localeCompare(right.sourceCommitRef) ||
+                left.targetCommitRef.localeCompare(right.targetCommitRef),
+            );
+          const provenanceRefs = provenance.refs.toSorted();
+          for (const ref of provenanceRefs) {
+            assert(shaPattern.test(ref), `provenance ref must be an immutable full SHA: ${ref}`);
+          }
+
+          const workspace = process.env.GITHUB_WORKSPACE;
+          const toolingRoot = path.resolve(workspace);
+          const verifier = path.join(
+            toolingRoot,
+            ".agents/skills/openclaw-changelog-update/scripts/verify-release-notes.mjs",
+          );
+          const renderer = path.join(toolingRoot, "scripts/render-github-release-notes.mjs");
+          const manifestPath = path.resolve(".local/release-ledger-manifest.json");
+          mkdirSync(path.dirname(manifestPath), { recursive: true });
+
+          const args = [
+            verifier,
+            "--base",
+            base,
+            "--target",
+            releaseSha,
+            "--source-target",
+            sourceSha,
+            "--max-changelog-tail",
+            String(maxChangelogTail),
+            "--comparison-base",
+            "main",
+            "--tooling-commit",
+            toolingCommit,
+            "--tooling-tree",
+            toolingTree,
+            "--shipped-ref",
+            base,
+          ];
+          for (const entry of provenance.pullRequests) args.push("--provenance-pr", entry);
+          for (const entry of provenance.adaptedPullRequests) args.push("--provenance-pr-adapted", entry);
+          for (const entry of provenance.comparisonPullRequestMemberOverlaps) {
+            args.push("--comparison-pr-member-overlap", entry);
+          }
+          for (const entry of provenance.integratedPullRequests) args.push("--provenance-pr-integrated", entry);
+          for (const entry of provenance.partialPullRequests) args.push("--provenance-pr-partial", entry);
+          for (const ref of provenanceRefs) args.push("--provenance-ref", ref);
+          args.push(
+            "--version",
+            version,
+            "--manifest",
+            manifestPath,
+            "--write-ledger",
+            "--json",
+          );
+
+          const result = spawnSync(process.execPath, args, {
+            env: { ...gitEnv, NO_COLOR: "1" },
+            stdio: "inherit",
+          });
+          assert(result.status === 0, `release ledger verifier failed with status ${result.status ?? result.signal}`);
+
+          const manifestStat = lstatSync(manifestPath);
+          assert(manifestStat.isFile() && !manifestStat.isSymbolicLink(), "ledger manifest must be one regular file");
+          const rawManifest = readFileSync(manifestPath);
+          const manifest = JSON.parse(rawManifest);
+          const expectedTopLevelKeys = [
+            "artifacts",
+            "base",
+            "directCommits",
+            "directReconciliation",
+            "finalTarget",
+            "inventory",
+            "invocation",
+            "mergeBase",
+            "pullRequests",
+            "reconciliation",
+            "reconciliations",
+            "schemaVersion",
+            "seedAuthorization",
+            "shippedBaselines",
+            "source",
+            "status",
+            "target",
+            "tooling",
+            "unlinkedCommits",
+            "version",
+          ];
+          assert(
+            JSON.stringify(Object.keys(manifest).sort()) === JSON.stringify(expectedTopLevelKeys),
+            "ledger manifest must have the exact schema-v6 top-level shape",
+          );
+          assert(manifest.schemaVersion === 6, "ledger manifest schemaVersion must be 6");
+          assert(manifest.status === "pass", "ledger manifest status must be pass");
+          assert(manifest.base === base, "ledger manifest base mismatch");
+          assert(manifest.version === version, "ledger manifest version mismatch");
+          // Schema v6 records the contribution cutoff as target; finalTarget
+          // preserves the release SHA after a bounded changelog-only tail.
+          assert(manifest.target === sourceSha, "ledger manifest target must equal source_sha");
+          assert(manifest.finalTarget === releaseSha, "ledger manifest finalTarget must equal release_sha");
+          assert(manifest.seedAuthorization === null, "release ledger workflow does not authorize seeded manifests");
+
+          const expectedInvocationCore = {
+            base,
+            checkGithub: false,
+            comparisonBase: "main",
+            maxChangelogTail,
+            provenanceAdaptedPullRequests,
+            comparisonPullRequestMemberOverlaps,
+            provenanceIntegratedPullRequests,
+            provenancePartialPullRequests,
+            provenancePullRequests,
+            provenanceRefs,
+            releaseTags: [],
+            seedRef: null,
+            shippedRefs: [base],
+            sourceTarget: sourceSha,
+            target: releaseSha,
+            toolingCommit,
+            toolingTree,
+            version,
+            writeLedger: true,
+          };
+          const expectedInvocation = {
+            ...expectedInvocationCore,
+            sha256: sha256(`${JSON.stringify(expectedInvocationCore)}\n`),
+          };
+          assert(
+            JSON.stringify(manifest.invocation) === JSON.stringify(expectedInvocation),
+            "ledger manifest invocation does not exactly match the dispatch",
+          );
+
+          const changelog = readFileSync("CHANGELOG.md");
+          const changelogSha256 = sha256(changelog);
+          const { extractChangelogSection } = await import(`file://${renderer}`);
+          const releaseSection = extractChangelogSection(changelog.toString("utf8"), version);
+          assert(
+            manifest.artifacts?.changelogSha256 === changelogSha256,
+            "ledger manifest changelog hash does not match the candidate",
+          );
+          assert(
+            manifest.artifacts?.releaseSectionSha256 === sha256(releaseSection),
+            "ledger manifest release section hash does not match the candidate",
+          );
+
+          assert(manifest.inventory?.schemaVersion === 4, "ledger inventory schemaVersion must be 4");
+          assert(manifest.inventory?.complete === true, "ledger inventory must be complete");
+          assert(
+            Array.isArray(manifest.inventory?.unresolved) && manifest.inventory.unresolved.length === 0,
+            "ledger inventory must not contain unresolved commits",
+          );
+          const { sha256: inventoryDigest, ...inventoryCore } = manifest.inventory;
+          assert(
+            inventoryDigest === sha256(`${JSON.stringify(inventoryCore)}\n`),
+            "ledger inventory hash is stale",
+          );
+          const comparison = manifest.inventory.comparison;
+          assert(comparison?.baseBranch === "main", "ledger comparison base must be main");
+          assert(comparison?.unclassified?.count === 0, "ledger comparison must not contain unclassified PRs");
+          for (const field of ["missing", "overlaps", "unexpected"]) {
+            assert(
+              Array.isArray(comparison?.partitionAudit?.[field]) &&
+                comparison.partitionAudit[field].length === 0,
+              `ledger comparison partition audit ${field} must be empty`,
+            );
+          }
+
+          const referenceEntries = manifest.source?.referenceEntries;
+          assert(
+            Number.isInteger(referenceEntries?.count) &&
+              Array.isArray(referenceEntries?.records) &&
+              referenceEntries.count === referenceEntries.records.length,
+            "ledger reference entries must have a complete counted record set",
+          );
+          const serializedReferenceEntries = referenceEntries.records.map((entry) =>
+            JSON.stringify(entry),
+          );
+          assert(
+            referenceEntries.sha256 ===
+              sha256(serializedReferenceEntries.map((entry) => `${entry}\n`).join("")),
+            "ledger reference entry hash is stale",
+          );
+          assert(
+            manifest.source.references === referenceEntries.count,
+            "ledger source reference count does not match its bound entries",
+          );
+          const referencePullRequests = referenceEntries.records
+            .filter((entry) => entry.type === "PullRequest")
+            .map((entry) => entry.number);
+          const manifestPullRequests = manifest.pullRequests.map((entry) => entry.number);
+          assert(
+            JSON.stringify(referencePullRequests) === JSON.stringify(manifestPullRequests) &&
+              manifest.source.pullRequests === manifestPullRequests.length,
+            "ledger pull request entries do not match their bound reference records",
+          );
+          assert(
+            manifest.source.issues ===
+              referenceEntries.records.filter((entry) => entry.type === "Issue").length,
+            "ledger issue count does not match its bound reference records",
+          );
+
+          const reconciliation = manifest.reconciliation;
+          for (const field of [
+            "generatedMissingRows",
+            "generatedUnexpectedRows",
+            "missingRows",
+            "staleRows",
+          ]) {
+            assert(reconciliation?.[field]?.count === 0, `ledger reconciliation ${field} must be empty`);
+          }
+          assert(reconciliation?.coverage === 1, "ledger reconciliation coverage must be 1");
+          assert(reconciliation?.generatedCoverage === 1, "ledger generated coverage must be 1");
+          assert(
+            JSON.stringify(manifest.reconciliations?.afterWrite) === JSON.stringify(reconciliation),
+            "ledger after-write reconciliation must equal the terminal reconciliation",
+          );
+
+          const pullRequestNumbers = manifest.pullRequests
+            .map((entry) => entry.number)
+            .sort((left, right) => left - right);
+          assert(
+            JSON.stringify(pullRequestNumbers) === JSON.stringify(reconciliation.canonicalRows.members),
+            "ledger top-level pull requests must equal the canonical reconciliation set",
+          );
+          const directCommits = manifest.directCommits.map((entry) => entry.commit).sort();
+          const unlinkedCommits = manifest.directCommits
+            .filter((entry) => Array.isArray(entry.references) && entry.references.length === 0)
+            .map((entry) => entry.commit)
+            .sort();
+          assert(
+            JSON.stringify(directCommits) ===
+              JSON.stringify(manifest.directReconciliation.inventoryManifestDirect.members),
+            "ledger direct commits must equal manifest-direct inventory",
+          );
+          assert(
+            JSON.stringify(unlinkedCommits) ===
+              JSON.stringify(manifest.unlinkedCommits.map((entry) => entry.commit).sort()),
+            "ledger unlinked commits must be the zero-reference direct subset",
+          );
+
+          const toolingFiles = [
+            ".agents/skills/openclaw-changelog-update/scripts/lib/github-team-inventory.mjs",
+            ".agents/skills/openclaw-changelog-update/scripts/lib/release-source-inventory.mjs",
+            ".agents/skills/openclaw-changelog-update/scripts/verify-release-notes.mjs",
+            "scripts/render-github-release-notes.mjs",
+          ];
+          assert(
+            manifest.tooling?.trustedSource?.commit === toolingCommit &&
+              manifest.tooling?.trustedSource?.tree === toolingTree &&
+              manifest.tooling?.trustedSource?.verifiedFiles === toolingFiles.length,
+            "ledger tooling source is not the trusted workflow commit/tree",
+          );
+          const toolingRecords = toolingFiles.map((file) => {
+            const bytes = execFileSync("git", ["show", `${toolingCommit}:${file}`], {
+              encoding: null,
+              env: gitEnv,
+              maxBuffer: 128 * 1024 * 1024,
+            });
+            return { bytes: bytes.length, path: file, sha256: sha256(bytes) };
+          });
+          assert(
+            JSON.stringify(manifest.tooling.files) === JSON.stringify(toolingRecords),
+            "ledger tooling file hashes do not match the trusted workflow commit",
+          );
+          assert(
+            manifest.tooling.aggregateSha256 ===
+              sha256(toolingRecords.map((file) => `${file.path}\0${file.bytes}\0${file.sha256}\n`).join("")),
+            "ledger tooling aggregate hash is stale",
+          );
+
+          assert(
+            git("status", "--porcelain=v1", "--untracked-files=no") === "",
+            "verifier changed tracked candidate bytes; commit the generated CHANGELOG.md first",
+          );
+          assert(
+            git("rev-parse", "HEAD") === releaseSha,
+            "candidate HEAD changed while generating the ledger",
+          );
+
+          const artifactPath = path.join(workspace, ".local/release-ledger-manifest.json");
+          mkdirSync(path.dirname(artifactPath), { recursive: true });
+          writeFileSync(artifactPath, rawManifest, { flag: "wx" });
+          const output = [
+            ["artifact_member", "release-ledger-manifest.json"],
+            ["artifact_name", "release-ledger-evidence"],
+            ["manifest_bytes", String(rawManifest.length)],
+            ["manifest_sha256", sha256(rawManifest)],
+            ["publicationAuthority", "false"],
+            ["release_sha", releaseSha],
+            ["source_sha", sourceSha],
+            ["tooling_commit", toolingCommit],
+            ["tooling_tree", toolingTree],
+          ];
+          writeFileSync(
+            process.env.GITHUB_OUTPUT,
+            `${output.map(([key, value]) => `${key}=${value}`).join("\n")}\n`,
+            { flag: "a" },
+          );
+          NODE
+
+      - name: Revalidate live release ref
+        working-directory: .release-candidate
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          export GIT_CONFIG_GLOBAL=/dev/null
+          export GIT_CONFIG_NOSYSTEM=1
+          export GIT_NO_REPLACE_OBJECTS=1
+          export GIT_PAGER=cat
+          export GIT_TERMINAL_PROMPT=0
+          export LC_ALL=C
+          git fetch --force --no-tags origin \
+            "+refs/heads/${RELEASE_REF}:refs/remotes/origin/${RELEASE_REF}"
+          release_tip="$(git rev-parse --verify "refs/remotes/origin/${RELEASE_REF}^{commit}")"
+          [[ "$release_tip" == "$RELEASE_SHA" ]] || {
+            echo "Live $RELEASE_REF moved to $release_tip while the ledger ran; dispatch again." >&2
+            exit 1
+          }
+          [[ "$(git rev-parse HEAD)" == "$RELEASE_SHA" ]]
+          [[ -z "$(git status --porcelain=v1 --untracked-files=no)" ]]
+
+      - name: Upload immutable ledger evidence
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          compression-level: 0
+          if-no-files-found: error
+          include-hidden-files: true
+          name: release-ledger-evidence
+          overwrite: false
+          path: .local/release-ledger-manifest.json
+          retention-days: 90
+
+      - name: Summarize ledger evidence
+        env:
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_MEMBER: ${{ steps.ledger.outputs.artifact_member }}
+          MANIFEST_BYTES: ${{ steps.ledger.outputs.manifest_bytes }}
+          MANIFEST_SHA256: ${{ steps.ledger.outputs.manifest_sha256 }}
+          RELEASE_SHA: ${{ steps.ledger.outputs.release_sha }}
+          SOURCE_SHA: ${{ steps.ledger.outputs.source_sha }}
+          TOOLING_COMMIT: ${{ steps.ledger.outputs.tooling_commit }}
+          TOOLING_TREE: ${{ steps.ledger.outputs.tooling_tree }}
+        run: |
+          {
+            echo "## Release ledger evidence"
+            echo
+            echo "- Publication authority: false"
+            echo "- Release SHA: \`$RELEASE_SHA\`"
+            echo "- Source SHA: \`$SOURCE_SHA\`"
+            echo "- Trusted tooling: \`$TOOLING_COMMIT\` / \`$TOOLING_TREE\`"
+            echo "- Manifest: \`sha256:$MANIFEST_SHA256\` ($MANIFEST_BYTES bytes)"
+            echo "- Artifact: \`release-ledger-evidence\` member \`$ARTIFACT_MEMBER\` (id \`$ARTIFACT_ID\`, digest \`$ARTIFACT_DIGEST\`)"
+          } >> "$GITHUB_STEP_SUMMARY"
