@@ -46,9 +46,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test -n "${EXPECTED_PR_HEAD_INPUT}"
           cp scripts/proof/android-clawhub-skills-real-media-capture.sh /tmp/pr101864-media-capture.sh
           expected_pr_head="${EXPECTED_PR_HEAD_INPUT}"
+          if [ -z "${expected_pr_head}" ]; then
+            expected_pr_head="$(tr -d '[:space:]' < scripts/proof/pr101864-expected-head.txt)"
+          fi
+          test -n "${expected_pr_head}"
           github_api_pr_head="$(gh api repos/openclaw/openclaw/pulls/101864 --jq .head.sha)"
           test "${github_api_pr_head}" = "${expected_pr_head}"
           git cat-file -e "${expected_pr_head}^{commit}"
