@@ -207,6 +207,10 @@ jobs:
             proof-output/gateway-proof-summary.json
             proof-output/fixture-startup.txt
             proof-output/gateway-skills-*.err
+            proof-output/device-pair-list.json
+            proof-output/device-pair-list.err
+            proof-output/device-pair-approve-*.json
+            proof-output/device-pair-approve-*.err
             proof-output/*-ui.xml
             proof-output/*.png
             proof-output/*.mp4

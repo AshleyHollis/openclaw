@@ -420,18 +420,49 @@ PY
 }
 
 wait_for_android_operator_pairing() {
-  local attempts="${1:-120}"
+  local attempts="${1:-90}"
   local raw_list="proof-output/device-pair-list.raw.json"
-  for _ in $(seq 1 "${attempts}"); do
-    approve_pending_device_pairings 1 || true
+  local ids_file="proof-output/device-pair-pending-ids.txt"
+  for attempt in $(seq 1 "${attempts}"); do
     if run_openclaw devices list --json > "${raw_list}" 2> proof-output/device-pair-list.err; then
       redact_json_file "${raw_list}" proof-output/device-pair-list.json
       if android_operator_admin_paired "${raw_list}"; then
         rm -f "${raw_list}"
         return 0
       fi
+      python3 - "${raw_list}" > "${ids_file}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+for item in data.get("pending", []) if isinstance(data, dict) else []:
+    request_id = str(item.get("requestId") or "").strip()
+    if request_id:
+        print(request_id)
+PY
+      while IFS= read -r request_id; do
+        [ -z "${request_id}" ] && continue
+        local safe_id
+        safe_id="$(printf '%s' "${request_id}" | tr -c 'A-Za-z0-9_.-' '_')"
+        local raw_approve="proof-output/device-pair-approve-${safe_id}.raw.json"
+        echo "[proof] approve Android pairing ${request_id}" | tee -a proof-output/capture.log
+        run_openclaw devices approve "${request_id}" --json > "${raw_approve}" 2> "proof-output/device-pair-approve-${safe_id}.err"
+        redact_json_file "${raw_approve}" "proof-output/device-pair-approve-${safe_id}.json"
+        rm -f "${raw_approve}"
+      done < "${ids_file}"
     fi
-    sleep 1
+    if (( attempt % 3 == 0 )); then
+      if wait_for_text "Reconnect" 1 || wait_for_text "Reconnect gateway" 1; then
+        tap_text "Reconnect" "570 1070" || tap_text "Reconnect gateway" "570 1070" || true
+      fi
+    fi
+    if (( attempt % 15 == 0 )); then
+      echo "[proof] relaunch Android app to renew pairing request (attempt ${attempt})" | tee -a proof-output/capture.log
+      adb shell am force-stop "$APP_ID" || true
+      timeout 30 adb shell monkey -p "$APP_ID" -c android.intent.category.LAUNCHER 1 >> proof-output/monkey-launch.log || true
+    fi
+    sleep 2
   done
   rm -f "${raw_list}"
   echo "Timed out waiting for Android operator.admin pairing" >&2
