@@ -8,8 +8,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   testing as replyRunTesting,
   createReplyOperation,
+  isReplyRunActiveForSessionId,
 } from "../../auto-reply/reply/reply-run-registry.js";
 import { setDiagnosticsEnabledForProcess } from "../../infra/diagnostic-events.js";
+import {
+  markDiagnosticToolStartedForTest,
+  resetDiagnosticRunActivityForTest,
+} from "../../logging/diagnostic-run-activity.js";
 import {
   getDiagnosticSessionState,
   resetDiagnosticSessionStateForTest,
@@ -69,6 +74,7 @@ describe("embedded-agent runner run registry", () => {
     testing.resetActiveEmbeddedRuns();
     replyRunTesting.resetReplyRunRegistry();
     resetDiagnosticSessionStateForTest();
+    resetDiagnosticRunActivityForTest();
     setDiagnosticsEnabledForProcess(false);
     vi.restoreAllMocks();
   });
@@ -228,6 +234,189 @@ describe("embedded-agent runner run registry", () => {
       true,
     );
 
+    expect(queueMessage).toHaveBeenCalledWith("continue", { steeringMode: "all" });
+  });
+
+  it("drains stale embedded ownership before returning the async outcome", async () => {
+    vi.useFakeTimers();
+    try {
+      setDiagnosticsEnabledForProcess(true);
+      const abort = vi.fn(() => {
+        setTimeout(() => {
+          clearActiveEmbeddedRun("session-stale-steer", handle);
+        }, 1_000);
+      });
+      const queueMessage = vi.fn(async () => {});
+      const handle: RunHandle = {
+        ...createRunHandle({ abort }),
+        queueMessage,
+      };
+      setActiveEmbeddedRun("session-stale-steer", handle);
+
+      vi.advanceTimersByTime(10 * 60_000 + 1);
+
+      const outcomePromise = queueEmbeddedAgentMessageWithOutcomeAsync(
+        "session-stale-steer",
+        "continue",
+      );
+      let settled = false;
+      void outcomePromise.then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(999);
+      expect(settled).toBe(false);
+      expect(isEmbeddedAgentRunHandleActive("session-stale-steer")).toBe(true);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(outcomePromise).resolves.toEqual({
+        queued: false,
+        sessionId: "session-stale-steer",
+        reason: "stale_run",
+        gatewayHealth: "live",
+      });
+      expect(queueMessage).not.toHaveBeenCalled();
+      expect(abort).toHaveBeenCalledOnce();
+      expect(isEmbeddedAgentRunHandleActive("session-stale-steer")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reserves tiny delivery budgets for stale-run fallback", async () => {
+    vi.useFakeTimers();
+    try {
+      setDiagnosticsEnabledForProcess(true);
+      const abort = vi.fn();
+      setActiveEmbeddedRun("session-stale-tight-budget", createRunHandle({ abort }));
+      vi.advanceTimersByTime(10 * 60_000 + 1);
+
+      await expect(
+        queueEmbeddedAgentMessageWithOutcomeAsync("session-stale-tight-budget", "continue", {
+          deliveryTimeoutMs: 10,
+        }),
+      ).resolves.toMatchObject({ queued: false, reason: "stale_run" });
+      expect(abort).toHaveBeenCalledOnce();
+      expect(isEmbeddedAgentRunHandleActive("session-stale-tight-budget")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps steering into a quiet tool phase until the blocked-tool floor", () => {
+    vi.useFakeTimers();
+    try {
+      setDiagnosticsEnabledForProcess(true);
+      const queueMessage = vi.fn(async () => {});
+      setActiveEmbeddedRun("session-quiet-tool-steer", {
+        ...createRunHandle(),
+        queueMessage,
+      });
+      markDiagnosticToolStartedForTest({
+        sessionId: "session-quiet-tool-steer",
+        toolName: "exec",
+        toolCallId: "tool-quiet-steer",
+      });
+
+      vi.advanceTimersByTime(12 * 60_000);
+      expect(
+        queueEmbeddedAgentMessageWithOutcome("session-quiet-tool-steer", "status?").queued,
+      ).toBe(true);
+
+      vi.advanceTimersByTime(4 * 60_000);
+      expect(
+        queueEmbeddedAgentMessageWithOutcome("session-quiet-tool-steer", "status?"),
+      ).toMatchObject({ queued: false, reason: "stale_run" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drains stale reply ownership before returning the async outcome", async () => {
+    vi.useFakeTimers();
+    try {
+      setDiagnosticsEnabledForProcess(true);
+      const operation = createReplyOperation({
+        sessionKey: "agent:main:cli-stale-steer",
+        sessionId: "session-cli-stale-steer",
+        resetTriggered: false,
+      });
+      const cancel = vi.fn(() => {
+        operation.complete();
+      });
+      operation.attachBackend({
+        kind: "cli",
+        cancel,
+        isStreaming: () => true,
+        queueMessage: async () => {},
+      });
+      operation.setPhase("running");
+
+      vi.advanceTimersByTime(10 * 60_000 + 1);
+      await expect(
+        queueEmbeddedAgentMessageWithOutcomeAsync("session-cli-stale-steer", "hello"),
+      ).resolves.toEqual({
+        queued: false,
+        sessionId: "session-cli-stale-steer",
+        reason: "stale_run",
+        gatewayHealth: "live",
+      });
+      expect(cancel).toHaveBeenCalledWith("user_abort");
+      expect(isReplyRunActiveForSessionId("session-cli-stale-steer")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps steering enabled when diagnostics are disabled", () => {
+    vi.useFakeTimers();
+    try {
+      setDiagnosticsEnabledForProcess(false);
+      const queueMessage = vi.fn(async () => {});
+      setActiveEmbeddedRun("session-diagnostics-disabled", {
+        ...createRunHandle(),
+        queueMessage,
+      });
+      const replyQueueMessage = vi.fn(async () => {});
+      const replyOperation = createReplyOperation({
+        sessionKey: "agent:main:diagnostics-disabled",
+        sessionId: "session-reply-diagnostics-disabled",
+        resetTriggered: false,
+      });
+      replyOperation.attachBackend({
+        kind: "cli",
+        cancel: () => {},
+        isStreaming: () => true,
+        queueMessage: replyQueueMessage,
+      });
+      replyOperation.setPhase("running");
+
+      vi.advanceTimersByTime(20 * 60_000);
+
+      expect(
+        queueEmbeddedAgentMessageWithOutcome("session-diagnostics-disabled", "continue").queued,
+      ).toBe(true);
+      expect(queueMessage).toHaveBeenCalledWith("continue", { steeringMode: "all" });
+      expect(
+        queueEmbeddedAgentMessageWithOutcome("session-reply-diagnostics-disabled", "continue")
+          .queued,
+      ).toBe(true);
+      expect(replyQueueMessage).toHaveBeenCalledWith("continue");
+      replyOperation.complete();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("accepts embedded steering when diagnostic evidence is missing", () => {
+    const queueMessage = vi.fn(async () => {});
+    setActiveEmbeddedRun("session-no-diagnostic-snapshot", {
+      ...createRunHandle(),
+      queueMessage,
+    });
+    resetDiagnosticRunActivityForTest();
+
+    expect(
+      queueEmbeddedAgentMessageWithOutcome("session-no-diagnostic-snapshot", "continue").queued,
+    ).toBe(true);
     expect(queueMessage).toHaveBeenCalledWith("continue", { steeringMode: "all" });
   });
 
@@ -588,5 +777,4 @@ describe("embedded-agent runner run registry", () => {
     clearActiveEmbeddedRun("session-snapshot", handle);
     expect(getActiveEmbeddedRunSnapshot("session-snapshot")).toBeUndefined();
   });
-
 });

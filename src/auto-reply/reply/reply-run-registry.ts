@@ -1,7 +1,10 @@
 // Tracks active reply runs so stop, queue, and status commands can coordinate.
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { createAgentRunRestartAbortError } from "../../agents/run-termination.js";
+import { areDiagnosticsEnabledForProcess } from "../../infra/diagnostic-events.js";
 import {
+  BLOCKED_TOOL_CALL_ABORT_FLOOR_MS,
+  getDiagnosticSessionActivitySnapshot,
   markDiagnosticEmbeddedRunEnded,
   markDiagnosticEmbeddedRunStarted,
 } from "../../logging/diagnostic-run-activity.js";
@@ -58,6 +61,8 @@ export type ReplyOperation = {
   readonly resetTriggered: boolean;
   readonly phase: ReplyOperationPhase;
   readonly result: ReplyOperationResult | null;
+  readonly lastActivityAtMs: number;
+  recordActivity(): void;
   setPhase(next: "queued" | "preflight_compacting" | "memory_flushing" | "running"): void;
   updateSessionId(nextSessionId: string): void;
   attachBackend(handle: ReplyBackendHandle): void;
@@ -138,6 +143,7 @@ const replyRunState = resolveGlobalSingleton<ReplyRunState>(REPLY_RUN_STATE_KEY,
 replyRunState.followupAdmissionBarriersByKey ??= new Map();
 
 export const REPLY_RUN_IDLE_SETTLE_TIMEOUT_MS = 15_000;
+const REPLY_RUN_STALE_TAKEOVER_MS = 10 * 60_000;
 
 export class ReplyRunAlreadyActiveError extends Error {
   constructor(sessionKey: string) {
@@ -389,8 +395,13 @@ export function createReplyOperation(params: {
   let currentSessionId = sessionId;
   let phase: ReplyOperationPhase = "queued";
   let result: ReplyOperationResult | null = null;
+  let lastActivityAtMs = Date.now();
   let stateCleared = false;
   let retainFailureUntilComplete = false;
+
+  const recordActivity = () => {
+    lastActivityAtMs = Date.now();
+  };
 
   const clearState = (
     afterClearBarrier?: PromiseLike<unknown>,
@@ -478,10 +489,15 @@ export function createReplyOperation(params: {
     get result() {
       return result;
     },
+    get lastActivityAtMs() {
+      return lastActivityAtMs;
+    },
+    recordActivity,
     setPhase(next) {
       if (result) {
         return;
       }
+      recordActivity();
       phase = next;
     },
     updateSessionId(nextSessionId) {
@@ -492,6 +508,7 @@ export function createReplyOperation(params: {
       if (!normalizedNextSessionId || normalizedNextSessionId === currentSessionId) {
         return;
       }
+      recordActivity();
       if (
         replyRunState.activeKeysBySessionId.has(normalizedNextSessionId) &&
         replyRunState.activeKeysBySessionId.get(normalizedNextSessionId) !== sessionKey
@@ -520,6 +537,7 @@ export function createReplyOperation(params: {
         );
         return;
       }
+      recordActivity();
       attachedBackendByOperation.set(operation, handle);
       if (controller.signal.aborted) {
         handle.cancel("superseded");
@@ -704,10 +722,36 @@ export function isReplyRunStreamingForSessionId(sessionId: string): boolean {
   return getAttachedBackend(operation)?.isStreaming() ?? false;
 }
 
+export function isReplyRunEvidenceStaleBySessionId(sessionId: string): boolean {
+  const operation = resolveReplyRunForCurrentSessionId(sessionId);
+  if (!operation || operation.result || !areDiagnosticsEnabledForProcess()) {
+    return false;
+  }
+  const activity = getDiagnosticSessionActivitySnapshot({
+    sessionId: operation.sessionId,
+    sessionKey: operation.key,
+  });
+  const staleThresholdMs =
+    activity.activeWorkKind === "tool_call"
+      ? Math.max(REPLY_RUN_STALE_TAKEOVER_MS, BLOCKED_TOOL_CALL_ABORT_FLOOR_MS)
+      : REPLY_RUN_STALE_TAKEOVER_MS;
+  const replyActivityAgeMs = Date.now() - operation.lastActivityAtMs;
+  const evidenceAgeMs =
+    typeof activity.lastProgressAgeMs === "number"
+      ? Math.min(replyActivityAgeMs, activity.lastProgressAgeMs)
+      : replyActivityAgeMs;
+  return evidenceAgeMs > staleThresholdMs;
+}
+
 export function queueReplyRunMessage(sessionId: string, text: string): boolean {
   const operation = resolveReplyRunForCurrentSessionId(sessionId);
   const backend = operation ? getAttachedBackend(operation) : undefined;
   if (!operation || operation.phase !== "running" || !backend?.queueMessage) {
+    return false;
+  }
+  // Injection is not liveness evidence. Reject an evidence-dead backend so the
+  // caller can deliver directly instead of swallowing the message in a stale run.
+  if (isReplyRunEvidenceStaleBySessionId(sessionId)) {
     return false;
   }
   if (!backend.isStreaming()) {

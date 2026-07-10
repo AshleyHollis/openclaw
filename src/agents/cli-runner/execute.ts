@@ -902,6 +902,7 @@ export async function executePreparedCliRun(
           name: string;
           args: Record<string, unknown>;
         }) => {
+          params.replyOperation?.recordActivity();
           observedCliActivity = true;
           const toolName = normalizeCliMessagingToolName(event.name);
           if (
@@ -944,6 +945,7 @@ export async function executePreparedCliRun(
           isError: boolean;
           result?: unknown;
         }) => {
+          params.replyOperation?.recordActivity();
           observedCliActivity = true;
           const pending = pendingMessagingCalls.get(event.toolCallId);
           if (pending) {
@@ -973,6 +975,7 @@ export async function executePreparedCliRun(
         };
         let commentaryCounter = 0;
         const emitCliCommentaryText = (text: string) => {
+          params.replyOperation?.recordActivity();
           if (!emitLiveEvents) {
             return;
           }
@@ -996,6 +999,7 @@ export async function executePreparedCliRun(
         };
         const emitCliAssistantDelta = ({ text, delta }: CliStreamingDelta) => {
           if (text || delta) {
+            params.replyOperation?.recordActivity();
             observedCliActivity = true;
           }
           if (!emitLiveEvents) {
@@ -1123,6 +1127,7 @@ export async function executePreparedCliRun(
             onStdout: (chunk: string) => {
               stdoutBytes += Buffer.byteLength(chunk);
               stdoutHash.update(chunk);
+              params.replyOperation?.recordActivity();
               stdoutTail = appendCliOutputTail(stdoutTail, chunk);
               if (!stdoutParseExceeded) {
                 const nextStdoutParse = appendCliOutputParseBuffer(stdoutParseBuffer, chunk);
@@ -1134,6 +1139,7 @@ export async function executePreparedCliRun(
             onStderr: (chunk: string) => {
               stderrBytes += Buffer.byteLength(chunk);
               stderrHash.update(chunk);
+              params.replyOperation?.recordActivity();
               stderrTail = appendCliOutputTail(stderrTail, chunk);
               if (!stderrParseExceeded) {
                 const nextStderrParse = appendCliOutputParseBuffer(stderrParseBuffer, chunk);

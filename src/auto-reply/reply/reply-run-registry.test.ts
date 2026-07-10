@@ -1,7 +1,9 @@
 // Tests active reply run registry add, lookup, and cleanup behavior.
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { setDiagnosticsEnabledForProcess } from "../../infra/diagnostic-events.js";
 import {
   getDiagnosticSessionActivitySnapshot,
+  markDiagnosticRunProgressForTest,
   resetDiagnosticRunActivityForTest,
 } from "../../logging/diagnostic-run-activity.js";
 import { MAX_TIMER_TIMEOUT_MS } from "../../shared/number-coercion.js";
@@ -10,6 +12,7 @@ import {
   abortActiveReplyRuns,
   createReplyOperation,
   forceClearReplyRunBySessionId,
+  isReplyRunEvidenceStaleBySessionId,
   isReplyRunActiveForSessionId,
   isReplyRunAbortableForCompaction,
   queueReplyRunMessage,
@@ -473,6 +476,57 @@ describe("reply run registry", () => {
 
     expect(queueReplyRunMessage("session-running", "hello")).toBe(true);
     expect(queueMessage).toHaveBeenCalledWith("hello");
+  });
+
+  it("uses reply-operation activity as stale evidence", () => {
+    vi.useFakeTimers();
+    try {
+      setDiagnosticsEnabledForProcess(true);
+      const operation = createReplyOperation({
+        sessionKey: "agent:main:cli-activity",
+        sessionId: "session-cli-activity",
+        resetTriggered: false,
+      });
+      operation.setPhase("running");
+
+      vi.advanceTimersByTime(9 * 60_000);
+      operation.recordActivity();
+      vi.advanceTimersByTime(2 * 60_000);
+      expect(isReplyRunEvidenceStaleBySessionId("session-cli-activity")).toBe(false);
+
+      vi.advanceTimersByTime(8 * 60_000 + 1);
+      expect(isReplyRunEvidenceStaleBySessionId("session-cli-activity")).toBe(true);
+    } finally {
+      setDiagnosticsEnabledForProcess(false);
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses fresh diagnostic progress as reply-run liveness evidence", () => {
+    vi.useFakeTimers();
+    try {
+      setDiagnosticsEnabledForProcess(true);
+      const operation = createReplyOperation({
+        sessionKey: "agent:main:cli-diagnostics",
+        sessionId: "session-cli-diagnostics",
+        resetTriggered: false,
+      });
+      operation.setPhase("running");
+
+      vi.advanceTimersByTime(9 * 60_000);
+      markDiagnosticRunProgressForTest({
+        sessionId: "session-cli-diagnostics",
+        reason: "cli_live:stream_progress",
+      });
+      vi.advanceTimersByTime(2 * 60_000);
+      expect(isReplyRunEvidenceStaleBySessionId("session-cli-diagnostics")).toBe(false);
+
+      vi.advanceTimersByTime(8 * 60_000 + 1);
+      expect(isReplyRunEvidenceStaleBySessionId("session-cli-diagnostics")).toBe(true);
+    } finally {
+      setDiagnosticsEnabledForProcess(false);
+      vi.useRealTimers();
+    }
   });
 
   it("aborts compacting runs through the registry compatibility helper", () => {

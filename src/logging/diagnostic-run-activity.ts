@@ -55,6 +55,11 @@ type DiagnosticRunProgressActivityEvent = Pick<
   "runId" | "sessionId" | "sessionKey" | "reason"
 >;
 
+// Quiet-but-alive tools are normal agent behavior; the CLI byte watchdog kills
+// truly silent children within its own deadline. Staleness gates share this
+// floor so they do not reclaim a run while a long tool call is still healthy.
+export const BLOCKED_TOOL_CALL_ABORT_FLOOR_MS = 15 * 60_000;
+
 export type DiagnosticSessionActivitySnapshot = {
   activeWorkKind?: DiagnosticSessionActiveWorkKind;
   hasActiveEmbeddedRun?: boolean;
