@@ -363,10 +363,7 @@ function formatCliEnvKeyList(keys: readonly string[]): string {
 function buildCliEnvMcpLog(childEnv: Record<string, string>): string {
   return [
     `token=${childEnv.OPENCLAW_MCP_TOKEN ? "set" : "missing"}`,
-    `sessionKey=${childEnv.OPENCLAW_MCP_SESSION_KEY ? "set" : "<empty>"}`,
-    `agentId=${childEnv.OPENCLAW_MCP_AGENT_ID || "<empty>"}`,
-    `accountId=${childEnv.OPENCLAW_MCP_ACCOUNT_ID || "<empty>"}`,
-    `messageChannel=${childEnv.OPENCLAW_MCP_MESSAGE_CHANNEL || "<empty>"}`,
+    `capture=${childEnv.OPENCLAW_MCP_CLI_CAPTURE_KEY ? "set" : "missing"}`,
   ].join(" ");
 }
 
@@ -728,7 +725,7 @@ export async function executePreparedCliRun(
           });
           cliBackendLog.info(`cli argv: ${backend.command} ${logArgs.join(" ")}`);
           cliBackendLog.info(`cli env auth: ${buildCliEnvAuthLog(env)}`);
-          if (env.OPENCLAW_MCP_TOKEN || env.OPENCLAW_MCP_SESSION_KEY || env.OPENCLAW_MCP_AGENT_ID) {
+          if (env.OPENCLAW_MCP_TOKEN) {
             cliBackendLog.info(`cli env mcp: ${buildCliEnvMcpLog(env)}`);
           }
         }
@@ -827,6 +824,7 @@ export async function executePreparedCliRun(
           if (gatewayCaptureKey) {
             throw new Error("CLI MCP capture key changed during an active attempt");
           }
+          context.preparedBackend.mcpClientGrantCapture?.activate(captureKey);
           gatewayCaptureKey = captureKey;
           const isAdmittedPotentialMessagingDelivery = (toolName: string) => {
             return isMessagingTool(normalizeCliMessagingToolName(toolName));
@@ -1445,8 +1443,20 @@ export async function executePreparedCliRun(
           }
           recordRunError(error);
         } finally {
-          if (gatewayCaptureKey) {
-            clearMcpLoopbackToolCallCapture(gatewayCaptureKey);
+          // Captured MCP calls may settle after the CLI process exits. Drain
+          // first so finalization can use their trusted terminal outcomes.
+          try {
+            finalizeParsedTools();
+          } finally {
+            if (gatewayCaptureKey) {
+              // Drain accepted work, then fence this exact grant generation before
+              // clearing observers; otherwise a late request escapes accounting.
+              try {
+                context.preparedBackend.mcpClientGrantCapture?.deactivate(gatewayCaptureKey);
+              } finally {
+                clearMcpLoopbackToolCallCapture(gatewayCaptureKey);
+              }
+            }
           }
         }
         try {
