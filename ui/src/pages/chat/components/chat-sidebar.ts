@@ -445,6 +445,7 @@ type MarkdownSidebarProps = {
   content: SidebarContent | null;
   error: string | null;
   fileView?: FileViewControls;
+  onClick?: (event: Event) => void;
   onClose: () => void;
   onViewRawText: () => void;
   canvasPluginSurfaceUrl?: string | null;
@@ -481,7 +482,7 @@ export function renderMarkdownSidebar(props: MarkdownSidebarProps) {
             ? "Markdown Preview"
             : "Tool Details";
   return html`
-    <div class="sidebar-panel">
+    <div class="sidebar-panel" @click=${props.onClick}>
       <div class="sidebar-header">
         <div class="sidebar-title">${title}</div>
         <openclaw-tooltip content="Close sidebar">
@@ -859,38 +860,35 @@ class ChatDetailPanel extends OpenClawLightDomElement {
     const currentMatchIndex = matches.length
       ? Math.min(this.fileSearchMatchIndex, matches.length - 1)
       : 0;
-    return html`
-      <div @click=${this.handlePanelClick}>
-        ${renderMarkdownSidebar({
-          content: this.visibleContent,
-          error: this.error,
-          fileView: {
-            copied: this.fileContentsCopied,
-            currentMatchIndex,
-            editorMenuOpen: this.fileEditorMenuOpen,
-            matches,
-            query: this.fileSearchQuery,
-            searchOpen: this.fileSearchOpen,
-            onCopyContents: this.copyFileContents,
-            onNextMatch: () => this.moveFileSearch(1),
-            onOpenEditor: this.openInEditor,
-            onPreviousMatch: () => this.moveFileSearch(-1),
-            onReveal: this.onRevealInWorkspace ?? undefined,
-            onSearchInput: this.updateFileSearch,
-            onSearchKeydown: this.handleFileSearchKeydown,
-            onToggleEditorMenu: () => {
-              this.fileEditorMenuOpen = !this.fileEditorMenuOpen;
-            },
-            onToggleSearch: this.toggleFileSearch,
-          },
-          canvasPluginSurfaceUrl: this.canvasPluginSurfaceUrl,
-          embedSandboxMode: this.embedSandboxMode,
-          allowExternalEmbedUrls: this.allowExternalEmbedUrls,
-          onClose: this.close,
-          onViewRawText: this.showRawText,
-        })}
-      </div>
-    `;
+    return renderMarkdownSidebar({
+      content: this.visibleContent,
+      error: this.error,
+      fileView: {
+        copied: this.fileContentsCopied,
+        currentMatchIndex,
+        editorMenuOpen: this.fileEditorMenuOpen,
+        matches,
+        query: this.fileSearchQuery,
+        searchOpen: this.fileSearchOpen,
+        onCopyContents: this.copyFileContents,
+        onNextMatch: () => this.moveFileSearch(1),
+        onOpenEditor: this.openInEditor,
+        onPreviousMatch: () => this.moveFileSearch(-1),
+        onReveal: this.onRevealInWorkspace ?? undefined,
+        onSearchInput: this.updateFileSearch,
+        onSearchKeydown: this.handleFileSearchKeydown,
+        onToggleEditorMenu: () => {
+          this.fileEditorMenuOpen = !this.fileEditorMenuOpen;
+        },
+        onToggleSearch: this.toggleFileSearch,
+      },
+      canvasPluginSurfaceUrl: this.canvasPluginSurfaceUrl,
+      embedSandboxMode: this.embedSandboxMode,
+      allowExternalEmbedUrls: this.allowExternalEmbedUrls,
+      onClick: this.handlePanelClick,
+      onClose: this.close,
+      onViewRawText: this.showRawText,
+    });
   }
 }
 

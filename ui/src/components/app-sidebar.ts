@@ -1639,9 +1639,9 @@ class AppSidebar extends OpenClawLightDomContentsElement {
     if (this.variant === "panel") {
       return html`
         <aside class="sidebar sidebar--panel">
-          <div class="sidebar-panel">
+          <div class="app-sidebar-panel">
             ${this.renderSessions()}
-            <div class="sidebar-panel__footer">
+            <div class="app-sidebar-panel__footer">
               <openclaw-lobster-pet
                 .seed=${lobsterPetSeed(this.sessionKey)}
                 .mode=${resolveLobsterPetMode(this.connected, this.sessionsResult?.sessions)}

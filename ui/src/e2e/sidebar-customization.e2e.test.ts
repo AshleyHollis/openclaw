@@ -107,7 +107,31 @@ describeControlUiE2e("Control UI sidebar customization mocked Gateway E2E", () =
       await expect.poll(() => page.locator(".topbar").isVisible()).toBe(true);
       await expect.poll(() => trimmedTextContents(navItems)).toEqual(["Chat", "Overview", "More"]);
       await expect.poll(() => sidebar.locator(".sidebar-brand").count()).toBe(0);
-      await expect.poll(() => sidebar.locator(".sidebar-panel").count()).toBe(1);
+      const appSidebarPanel = sidebar.locator(".app-sidebar-panel");
+      await expect.poll(() => appSidebarPanel.count()).toBe(1);
+      await expect
+        .poll(() =>
+          appSidebarPanel.evaluate((panel) => {
+            const bounds = panel.getBoundingClientRect();
+            const sidebarBounds = panel.closest(".sidebar")?.getBoundingClientRect();
+            const style = getComputedStyle(panel);
+            return {
+              background: style.backgroundColor,
+              fillsSidebar: Math.abs(bounds.height - (sidebarBounds?.height ?? 0)) <= 1,
+              padding: [
+                style.paddingTop,
+                style.paddingRight,
+                style.paddingBottom,
+                style.paddingLeft,
+              ],
+            };
+          }),
+        )
+        .toEqual({
+          background: "rgba(0, 0, 0, 0)",
+          fillsSidebar: true,
+          padding: ["12px", "10px", "10px", "10px"],
+        });
       const shellNav = page.locator(".shell-nav");
       const sidebarResizer = page.getByRole("separator", { name: "Resize sidebar" });
       await expect.poll(() => roundedWidth(shellNav)).toBe(258);
@@ -369,6 +393,68 @@ describeControlUiE2e("Control UI sidebar customization mocked Gateway E2E", () =
       if (video) {
         await video.saveAs(path.join(uiProofArtifactDir, "settings-search-flow.webm"));
       }
+    }
+  });
+
+  it("keeps Chat detail panel geometry independent from the app sessions panel", async () => {
+    const context = await browser.newContext({
+      locale: "en-US",
+      serviceWorkers: "block",
+      viewport: { height: 900, width: 1440 },
+    });
+    const page = await context.newPage();
+    await installMockGateway(page, {
+      historyMessages: [
+        {
+          content: [{ type: "text", text: "Panel ownership proof." }],
+          role: "assistant",
+          timestamp: Date.now(),
+        },
+      ],
+    });
+
+    try {
+      await page.goto(`${server.baseUrl}chat`);
+      await page.getByText("Panel ownership proof.").waitFor({ timeout: 10_000 });
+      const openInCanvas = page.getByRole("button", { name: "Open in canvas" }).first();
+      await openInCanvas.focus();
+      await page.keyboard.press("Enter");
+
+      const detailHost = page.locator("openclaw-chat-detail-panel");
+      const detailPanel = detailHost.locator(":scope > .sidebar-panel");
+      await expect.poll(() => detailPanel.count()).toBe(1);
+      await expect
+        .poll(() =>
+          detailPanel.evaluate((panel) => {
+            const bounds = panel.getBoundingClientRect();
+            const hostBounds = panel.parentElement?.getBoundingClientRect();
+            const headerBounds = panel.querySelector(".sidebar-header")?.getBoundingClientRect();
+            const style = getComputedStyle(panel);
+            return {
+              backgroundOpaque: style.backgroundColor !== "rgba(0, 0, 0, 0)",
+              fillsHost: Math.abs(bounds.height - (hostBounds?.height ?? 0)) <= 1,
+              headerOffset: {
+                x: (headerBounds?.left ?? 0) - bounds.left,
+                y: (headerBounds?.top ?? 0) - bounds.top,
+              },
+              padding: [
+                style.paddingTop,
+                style.paddingRight,
+                style.paddingBottom,
+                style.paddingLeft,
+              ],
+            };
+          }),
+        )
+        .toEqual({
+          backgroundOpaque: true,
+          fillsHost: true,
+          headerOffset: { x: 0, y: 0 },
+          padding: ["0px", "0px", "0px", "0px"],
+        });
+      await captureUiProof(page, "07-chat-detail-panel.png");
+    } finally {
+      await context.close();
     }
   });
 
