@@ -60,7 +60,9 @@ Unlike `recreate --session`, this accepts short session names (for example `main
 
 ## Why recreate is needed
 
-Updating sandbox config does not affect running containers: existing runtimes keep their old settings, and idle runtimes are only pruned after `prune.idleHours` (default 24h). Regularly used agents can keep stale runtimes alive indefinitely. `openclaw sandbox recreate` removes the old runtime so the next use rebuilds it from current config.
+Docker sandboxes whose config hash changes are replaced automatically on the next use. OpenClaw first blocks new sandbox operations, waits for active exec, filesystem, and browser requests to finish, then rechecks and replaces the idle container. Active work is never interrupted by this automatic rollout.
+
+Use `openclaw sandbox recreate` when you want to remove selected runtimes immediately, or when a remote backend needs to be reseeded. After confirmation, this explicit operator action stops and removes the selected runtimes; the next use rebuilds them from current config.
 
 <Tip>
 Prefer `openclaw sandbox recreate` over manual backend-specific cleanup. It uses the Gateway's runtime registry and avoids mismatches when scope or session keys change.

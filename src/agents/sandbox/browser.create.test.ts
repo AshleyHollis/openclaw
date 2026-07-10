@@ -44,6 +44,10 @@ const runtimeMocks = vi.hoisted(() => ({
   log: vi.fn(),
 }));
 
+const activityMocks = vi.hoisted(() => ({
+  onMutationQueued: undefined as (() => void) | undefined,
+}));
+
 const tmpDirs: string[] = [];
 
 function makeTempDir(): string {
@@ -110,6 +114,23 @@ vi.mock("../../plugin-sdk/browser-profiles.js", () => ({
 
 async function loadFreshBrowserModulesForTest() {
   vi.resetModules();
+  vi.doMock("./activity.js", async () => {
+    const actual = await vi.importActual<typeof import("./activity.js")>("./activity.js");
+    return {
+      ...actual,
+      async acquireSandboxActivity(runtimeId: string, signal?: AbortSignal) {
+        const lease = await actual.acquireSandboxActivity(runtimeId, signal);
+        return {
+          release: () => lease.release(),
+          upgradeToMutation() {
+            const result = lease.upgradeToMutation();
+            activityMocks.onMutationQueued?.();
+            return result;
+          },
+        };
+      },
+    };
+  });
   ({ BROWSER_BRIDGES } = await import("./browser-bridges.js"));
   ({ ensureSandboxBrowser } = await import("./browser.js"));
   ({ resetNoVncObserverTokensForTests } = await import("./novnc-auth.js"));
@@ -259,6 +280,7 @@ describe("ensureSandboxBrowser create args", () => {
     bridgeMocks.startBrowserBridgeServer.mockClear();
     bridgeMocks.stopBrowserBridgeServer.mockClear();
     runtimeMocks.log.mockClear();
+    activityMocks.onMutationQueued = undefined;
 
     dockerMocks.dockerContainerState.mockResolvedValue({ exists: false, running: false });
     dockerMocks.execDocker.mockImplementation(async (args: string[]) => {
@@ -362,6 +384,11 @@ describe("ensureSandboxBrowser create args", () => {
     const createArgs = requireDockerCreateArgs();
     expect(createArgs.filter((arg) => arg === "--init")).toHaveLength(1);
     expect(createArgs).toContain(`openclaw.createArgsEpoch=${SANDBOX_DOCKER_CREATE_ARGS_EPOCH}`);
+    const activity = bridgeMocks.startBrowserBridgeServer.mock.calls
+      .at(-1)?.[0]
+      ?.tryAcquireActivityLease?.();
+    expect(activity).toBeDefined();
+    activity?.release();
   });
 
   it("recreates a cold browser container when the shared args epoch changes", async () => {
@@ -401,11 +428,15 @@ describe("ensureSandboxBrowser create args", () => {
     expect(requireDockerCreateArgs()).toContain("--init");
   });
 
-  it("keeps a hot pre-init browser running and emits the recreate hint", async () => {
+  it("waits for active browser work before recreating a stale pre-init container", async () => {
     const cfg = buildConfig(false);
     const oldHash = computeTestBrowserHash({
       cfg,
       createArgsEpoch: "pre-init",
+    });
+    const newHash = computeTestBrowserHash({
+      cfg,
+      createArgsEpoch: SANDBOX_DOCKER_CREATE_ARGS_EPOCH,
     });
     dockerMocks.dockerContainerState.mockResolvedValue({ exists: true, running: true });
     dockerMocks.readDockerContainerEnvVar.mockResolvedValue("existing-cdp-token");
@@ -424,21 +455,28 @@ describe("ensureSandboxBrowser create args", () => {
       ],
     });
 
-    await ensureTestSandboxBrowser({
+    const { acquireSandboxActivity } = await import("./activity.js");
+    const active = await acquireSandboxActivity("openclaw-sbx-browser-session-test-0661d10a");
+    let notifyMutationQueued!: () => void;
+    const mutationQueued = new Promise<void>((resolve) => {
+      notifyMutationQueued = resolve;
+    });
+    activityMocks.onMutationQueued = notifyMutationQueued;
+    const ensuring = ensureTestSandboxBrowser({
       scopeKey: "session:test",
       workspaceDir: "/tmp/workspace",
       agentWorkspaceDir: "/tmp/workspace",
       cfg,
     });
 
+    await mutationQueued;
     expect(findDockerArgsCall(dockerMocks.execDocker.mock.calls, "rm")).toBeUndefined();
     expect(findDockerArgsCall(dockerMocks.execDocker.mock.calls, "create")).toBeUndefined();
-    expect(runtimeMocks.log).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "Recreate to apply: openclaw sandbox recreate --browser --session session:test",
-      ),
-    );
-    expect(registryMocks.updateBrowserRegistry.mock.calls.at(-1)?.[0]?.configHash).toBe(oldHash);
+    active.release();
+    await ensuring;
+    expect(findDockerArgsCall(dockerMocks.execDocker.mock.calls, "rm")).toBeDefined();
+    expect(findDockerArgsCall(dockerMocks.execDocker.mock.calls, "create")).toBeDefined();
+    expect(registryMocks.updateBrowserRegistry.mock.calls.at(-1)?.[0]?.configHash).toBe(newHash);
   });
 
   it("does not inject noVNC password env when noVNC is disabled", async () => {

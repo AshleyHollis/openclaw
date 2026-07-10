@@ -70,6 +70,7 @@ export async function startBrowserBridgeServer(params: {
   authPassword?: string;
   onEnsureAttachTarget?: (profile: ProfileContext["profile"]) => Promise<void>;
   resolveSandboxNoVncToken?: (token: string) => ResolvedNoVncObserver | null;
+  tryAcquireActivityLease?: () => { release(): void } | null;
   skipRouteRegistrationForTest?: boolean;
 }): Promise<BrowserBridge> {
   const host = params.host ?? "127.0.0.1";
@@ -87,6 +88,29 @@ export async function startBrowserBridgeServer(params: {
     throw new Error("bridge server requires auth (authToken/authPassword missing)");
   }
   installBrowserAuthMiddleware(app, { token: authToken, password: authPassword });
+
+  if (params.tryAcquireActivityLease) {
+    app.use((req, res, next) => {
+      const lease = params.tryAcquireActivityLease?.();
+      if (!lease) {
+        res.setHeader("Retry-After", "1");
+        res.status(503).send("Sandbox browser runtime is being refreshed");
+        return;
+      }
+      let released = false;
+      const release = () => {
+        if (!released) {
+          released = true;
+          lease.release();
+        }
+      };
+      req.once("aborted", release);
+      res.once("finish", release);
+      res.once("close", release);
+      res.once("error", release);
+      next();
+    });
+  }
 
   if (params.resolveSandboxNoVncToken) {
     app.get("/sandbox/novnc", (req, res) => {

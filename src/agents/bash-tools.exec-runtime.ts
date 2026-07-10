@@ -971,10 +971,17 @@ export async function runExecProcess(opts: {
       });
       return outcome;
     })
-    .catch((err: unknown): ExecProcessOutcome => {
+    .catch(async (err: unknown): Promise<ExecProcessOutcome> => {
       updatesDisabled = true;
       markExited(session, null, null, "failed");
       maybeNotifyOnExit(session, "failed");
+      await finalizeSandboxExec({
+        status: "failed",
+        exitCode: null,
+        timedOut: false,
+      }).catch((finalizeErr: unknown) => {
+        logWarn(`exec: sandbox finalize after wait failure failed (${String(finalizeErr)}).`);
+      });
       const outcome = buildExecRuntimeErrorOutcome({
         error: err,
         aggregated: session.aggregated.trim(),

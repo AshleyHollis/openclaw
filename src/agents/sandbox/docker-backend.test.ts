@@ -2,6 +2,8 @@
 // handling for sandbox and browser containers.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
+import { withSandboxIdleMutation } from "./activity.js";
+import { resolveSandboxConfigForAgent } from "./config.js";
 
 const dockerMocks = vi.hoisted(() => ({
   dockerContainerState: vi.fn(),
@@ -21,7 +23,8 @@ vi.mock("./docker.js", async () => {
   };
 });
 
-const { dockerSandboxBackendManager } = await import("./docker-backend.js");
+const { createDockerSandboxBackend, dockerSandboxBackendManager } =
+  await import("./docker-backend.js");
 
 function createConfig(): OpenClawConfig {
   return {
@@ -193,5 +196,33 @@ describe("docker sandbox backend manager", () => {
         config: createConfig(),
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it("holds sandbox activity until exec finalization", async () => {
+    dockerMocks.ensureSandboxContainer.mockResolvedValue("sandbox-active");
+    const cfg = resolveSandboxConfigForAgent(createConfig(), "coder");
+    const backend = await createDockerSandboxBackend({
+      sessionKey: "agent:coder:main",
+      scopeKey: "agent:coder:main",
+      workspaceDir: "/tmp/workspace",
+      agentWorkspaceDir: "/tmp/workspace",
+      cfg,
+    });
+    const spec = await backend.buildExecSpec({ command: "sleep 60", env: {}, usePty: false });
+    const mutated = vi.fn();
+    const mutation = withSandboxIdleMutation("sandbox-active", async () => {
+      mutated();
+    });
+
+    await Promise.resolve();
+    expect(mutated).not.toHaveBeenCalled();
+    await backend.finalizeExec?.({
+      status: "completed",
+      exitCode: 0,
+      timedOut: false,
+      token: spec.finalizeToken,
+    });
+    await mutation;
+    expect(mutated).toHaveBeenCalledOnce();
   });
 });
