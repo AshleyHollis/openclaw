@@ -2086,7 +2086,12 @@ describe("runMessageAction plugin dispatch", () => {
       const executeCall = readMockCallArg(mocks.executeSendAction, "execute send call");
       expectRecordFields(
         executeCall,
-        { message: "Deployment trend", replyToId: "reply-1", replyToMode: "first" },
+        {
+          message: "Deployment trend",
+          replyToId: "reply-1",
+          replyToIdSource: "implicit",
+          replyToMode: "first",
+        },
         "execute send call",
       );
       expectRecordFields(

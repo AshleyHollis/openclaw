@@ -100,18 +100,15 @@ export const signalMessageActions: ChannelMessageActionAdapter = {
     return { actions: Array.from(actions) };
   },
   supportsAction: ({ action }) => action !== "send",
-  prepareSendPayload: ({ ctx, payload }) => {
+  prepareSendPayload: ({ ctx, payload, replyToIdSource }) => {
     if (ctx.action !== "send") {
       return null;
     }
     if (normalizeOptionalString(payload.replyToId)) {
       return payload;
     }
-    if (normalizeOptionalString(ctx.params.replyTo)) {
-      return payload;
-    }
     const replyToIdAlias = normalizeOptionalString(ctx.params.replyToId);
-    if (replyToIdAlias) {
+    if (replyToIdAlias && replyToIdSource !== "explicit") {
       return {
         ...payload,
         replyToId: replyToIdAlias,

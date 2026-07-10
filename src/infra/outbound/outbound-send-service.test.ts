@@ -999,6 +999,7 @@ describe("executeSendAction", () => {
       message: "hello",
       payload: { text: "hello", presentation },
       replyToId: "reply-1",
+      replyToIdSource: "implicit",
       replyToMode: "first",
       threadId: "thread-1",
     });
@@ -1009,6 +1010,7 @@ describe("executeSendAction", () => {
           sessionKey: "discord-session",
           inboundEventKind: "room_event",
         }),
+        replyToIdSource: "implicit",
       }),
     );
     expect(mocks.dispatchChannelMessageAction).not.toHaveBeenCalled();

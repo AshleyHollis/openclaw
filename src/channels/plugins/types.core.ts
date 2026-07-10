@@ -745,6 +745,7 @@ export type ChannelMessagePreparedSendPayloadContext = {
   to: string;
   payload: ReplyPayload;
   replyToId?: string | null;
+  replyToIdSource?: "explicit" | "implicit";
   threadId?: string | number | null;
 };
 

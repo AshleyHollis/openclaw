@@ -235,6 +235,7 @@ async function preparePluginSendPayload(params: {
   to: string;
   payload: ReplyPayload;
   replyToId?: string;
+  replyToIdSource?: "explicit" | "implicit";
   threadId?: string | number;
 }): Promise<PluginSendPayloadPreparation> {
   const plugin = resolveOutboundChannelPlugin({
@@ -253,6 +254,7 @@ async function preparePluginSendPayload(params: {
     to: params.to,
     payload: params.payload,
     replyToId: params.replyToId,
+    replyToIdSource: params.replyToIdSource,
     threadId: params.threadId,
   });
   // A null result is an ownership decision: the provider-native payload cannot
@@ -276,6 +278,7 @@ export async function executeSendAction(params: {
   forceDocument?: boolean;
   bestEffort?: boolean;
   replyToId?: string;
+  replyToIdSource?: "explicit" | "implicit";
   replyToMode?: ChannelThreadingToolContext["replyToMode"];
   threadId?: string | number;
 }): Promise<{
@@ -297,6 +300,7 @@ export async function executeSendAction(params: {
     to: params.to,
     payload: defaultPayload,
     replyToId: params.replyToId,
+    replyToIdSource: params.replyToIdSource,
     threadId: params.threadId,
   });
   const channelPlugin = resolveOutboundChannelPlugin({

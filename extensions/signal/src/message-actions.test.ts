@@ -109,6 +109,7 @@ describe("signalMessageActions", () => {
       to: "+15551234567",
       payload,
       replyToId: "explicit-1",
+      replyToIdSource: "explicit",
     });
     expect(prepared).toBe(payload);
   });
@@ -128,32 +129,11 @@ describe("signalMessageActions", () => {
       to: "+15551234567",
       payload: { text: "threaded" },
       replyToId: "ambient-1",
+      replyToIdSource: "implicit",
     });
     expect(prepared).toMatchObject({
       text: "threaded",
       replyToId: "alias-1",
-    });
-  });
-
-  it("uses replyToId aliases when Signal send replyTo is blank", () => {
-    const prepared = signalMessageActions.prepareSendPayload?.({
-      ctx: {
-        channel: "signal",
-        action: "send",
-        cfg: {} as OpenClawConfig,
-        params: {
-          to: "+15551234567",
-          message: "threaded",
-          replyTo: "   ",
-          replyToId: "1700000000001",
-        },
-      },
-      to: "+15551234567",
-      payload: { text: "threaded" },
-    });
-    expect(prepared).toMatchObject({
-      text: "threaded",
-      replyToId: "1700000000001",
     });
   });
 
