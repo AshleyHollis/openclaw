@@ -3577,21 +3577,17 @@ describe("package artifact reuse", () => {
     expect(releaseWorkflow).toContain(
       "already has a public GitHub release page without complete postpublish evidence",
     );
-    expect(releaseWorkflow).toContain("resolve_openclaw_npm_publish_state");
+    expect(releaseWorkflow).not.toContain("resolve_openclaw_npm_publish_state");
+    expect(releaseWorkflow).not.toContain("openclaw_npm_already_published");
     expect(releaseWorkflow).toContain(
-      "already published on npm with this tag's preflight tarball; skipping the core npm dispatch and resuming the remaining publish stages",
+      "The child run publishes missing packages or verifies the exact",
     );
-    expect(releaseWorkflow).toContain("Cut a correction tag instead of resuming this publish.");
     expect(
       releaseWorkflow.match(/assets already promoted and verified; skipping dispatch/g),
     ).toHaveLength(2);
     expect(releaseWorkflow).toContain("registry tarball");
     expect(releaseWorkflow).toContain("openclawNpmTarball");
-    // The release proof must cite the verified evidence tarball; the only
-    // direct registry tarball query is the resume identity check.
-    expect(
-      releaseWorkflow.match(/npm view "openclaw@\$\{release_version\}" dist\.tarball/g),
-    ).toHaveLength(1);
+    expect(releaseWorkflow).not.toContain('npm view "openclaw@${release_version}" dist.tarball');
     expect(releaseWorkflow).toContain("release SHA");
     expect(clawHubReleasePlanScript).toContain("not awaited by this proof");
     expect(releaseWorkflow).toContain("wait_for_job_success");
