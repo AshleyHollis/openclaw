@@ -98,6 +98,7 @@ export type RouteFacts = {
 /** Reply target and source-delivery facts for a channel turn. */
 export type ReplyPlanFacts = {
   to: string;
+  currentMessageId?: string;
   originatingTo?: string;
   nativeChannelId?: string;
   replyTarget?: string;

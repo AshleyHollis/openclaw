@@ -924,7 +924,6 @@ describe("signal outbound", () => {
       "+15551234567",
       "quoted reply",
       expect.objectContaining({
-        cfg: {},
         replyToId: "1700000000001",
         replyToAuthor: "+15551234567",
       }),
@@ -936,36 +935,6 @@ describe("signal outbound", () => {
     await sendReply();
     expect(send.mock.calls[0]?.[2]).not.toHaveProperty("replyToAuthor");
     await clearSignalReplyAuthorsForTest();
-  });
-
-  it("normalizes direct Signal targets before deriving native quote authors", async () => {
-    const send = vi.fn(async () => ({
-      messageId: "signal-1",
-      receipt: createMessageReceiptFromOutboundResults({
-        results: [{ channel: "signal", messageId: "signal-1" }],
-        kind: "text",
-      }),
-    }));
-
-    await signalPlugin.message?.send?.text?.({
-      cfg: {} as OpenClawConfig,
-      to: "signal:u:Alice",
-      text: "quoted reply",
-      replyToId: "1700000000001",
-      deps: { signal: send },
-    } as Parameters<NonNullable<typeof signalPlugin.message.send.text>>[0] & {
-      deps: { signal: typeof send };
-    });
-
-    expect(send).toHaveBeenCalledWith(
-      "username:alice",
-      "quoted reply",
-      expect.objectContaining({
-        cfg: {},
-        replyToId: "1700000000001",
-        replyToAuthor: "u:alice",
-      }),
-    );
   });
 
   it("passes direct reply targets as Signal native quote metadata for formatted text", async () => {

@@ -136,6 +136,7 @@ export type MsgContext = {
   MessageSids?: string[];
   MessageSidFirst?: string;
   MessageSidLast?: string;
+  CurrentMessageId?: string;
   AmbientTranscriptWatermarkKey?: string;
   AmbientTranscriptBody?: string;
   AmbientTranscriptMessageId?: string;

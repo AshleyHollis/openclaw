@@ -334,7 +334,7 @@ export function createSignalEventHandler(deps: SignalEventHandlerDeps) {
             }
           : undefined,
       },
-      messageId: entry.replyToId ?? entry.messageId,
+      messageId: entry.messageId,
       timestamp: entry.timestamp ?? undefined,
       from: entry.isGroup
         ? `group:${entry.groupId ?? "unknown"}`
@@ -355,6 +355,7 @@ export function createSignalEventHandler(deps: SignalEventHandlerDeps) {
       },
       reply: {
         to: signalTo,
+        currentMessageId: entry.replyToId ?? entry.messageId,
         replyToId: entry.replyToId ?? entry.messageId,
       },
       message: {

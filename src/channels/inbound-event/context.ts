@@ -492,6 +492,7 @@ export function buildChannelInboundEventContext(
     ModelParentSessionKey: params.route.modelParentSessionKey,
     MessageSid: params.messageId,
     MessageSidFull: params.messageIdFull,
+    CurrentMessageId: params.reply.currentMessageId,
     ReplyToId: params.reply.replyToId,
     ReplyToIdFull: params.reply.replyToIdFull,
     ChatType: params.conversation.kind,

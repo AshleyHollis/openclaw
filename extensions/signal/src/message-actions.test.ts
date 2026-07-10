@@ -61,6 +61,11 @@ describe("signalMessageActions", () => {
     );
   });
 
+  it("skips send for plugin dispatch", () => {
+    expect(signalMessageActions.supportsAction?.({ action: "send" })).toBe(false);
+    expect(signalMessageActions.supportsAction?.({ action: "react" })).toBe(true);
+  });
+
   it.each([
     { name: "ordinary", params: {} },
     { name: "canonical reply", params: { replyTo: "explicit-1" } },
