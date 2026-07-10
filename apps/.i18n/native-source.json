@@ -163,7 +163,7 @@
     },
     {
       "kind": "ui-state-text",
-      "line": 285,
+      "line": 288,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/MainViewModel.kt",
       "source": "Mic off",
       "surface": "android",
@@ -171,7 +171,7 @@
     },
     {
       "kind": "ui-state-text",
-      "line": 299,
+      "line": 302,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/MainViewModel.kt",
       "source": "Off",
       "surface": "android",
@@ -219,7 +219,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 1511,
+      "line": 1519,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/NodeRuntime.kt",
       "source": "Cron job started.",
       "surface": "android",
@@ -227,7 +227,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 1511,
+      "line": 1519,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/NodeRuntime.kt",
       "source": "Cron run queued.",
       "surface": "android",
@@ -235,7 +235,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 1555,
+      "line": 1563,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/NodeRuntime.kt",
       "source": "Cron job disabled.",
       "surface": "android",
@@ -243,7 +243,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 1555,
+      "line": 1563,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/NodeRuntime.kt",
       "source": "Cron job enabled.",
       "surface": "android",
@@ -251,7 +251,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 3147,
+      "line": 3218,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/NodeRuntime.kt",
       "source": "Failed: no secure gateway endpoint was detected. Enable gateway TLS or Tailscale Serve, or use a trusted private LAN address with Unencrypted selected.",
       "surface": "android",
@@ -259,7 +259,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 3149,
+      "line": 3220,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/NodeRuntime.kt",
       "source": "Failed: secure endpoint reached, but TLS fingerprint verification timed out. Check Tailscale Serve or gateway TLS and retry.",
       "surface": "android",
@@ -267,11 +267,59 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 3151,
+      "line": 3222,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/NodeRuntime.kt",
       "source": "Failed: couldn't reach the secure gateway endpoint for this host.",
       "surface": "android",
       "id": "native.android.84ce52ae1375fded"
+    },
+    {
+      "kind": "conditional-branch",
+      "line": 4533,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/NodeRuntime.kt",
+      "source": "Could not disable skill.",
+      "surface": "android",
+      "id": "native.android.8df373885674ecb0"
+    },
+    {
+      "kind": "conditional-branch",
+      "line": 4533,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/NodeRuntime.kt",
+      "source": "Could not enable skill.",
+      "surface": "android",
+      "id": "native.android.64c99569d008d5ae"
+    },
+    {
+      "kind": "conditional-branch",
+      "line": 6223,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/NodeRuntime.kt",
+      "source": "$message\n\n$warning",
+      "surface": "android",
+      "id": "native.android.d98dadb13522d079"
+    },
+    {
+      "kind": "conditional-branch",
+      "line": 6307,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/NodeRuntime.kt",
+      "source": "Unavailable",
+      "surface": "android",
+      "id": "native.android.33e7914faa7272f7"
+    },
+    {
+      "kind": "conditional-branch",
+      "line": 6310,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/NodeRuntime.kt",
+      "source": "Clean",
+      "surface": "android",
+      "id": "native.android.1946a5f4f054a55b"
+    },
+    {
+      "kind": "conditional-branch",
+      "line": 6341,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/NodeRuntime.kt",
+      "source": "ClawHub returned a signed review verdict for this release.",
+      "surface": "android",
+      "id": "native.android.1396664a73b1c6d3"
     },
     {
       "kind": "ui-dialog",
@@ -435,7 +483,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 1303,
+      "line": 1309,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/gateway/GatewaySession.kt",
       "source": "Connecting…",
       "surface": "android",
@@ -443,7 +491,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 1303,
+      "line": 1309,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/gateway/GatewaySession.kt",
       "source": "Reconnecting…",
       "surface": "android",
@@ -5091,7 +5139,7 @@
     },
     {
       "kind": "ui-named-argument",
-      "line": 67,
+      "line": 94,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
       "source": "Skills",
       "surface": "android",
@@ -5099,15 +5147,15 @@
     },
     {
       "kind": "ui-named-argument",
-      "line": 68,
+      "line": 95,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
-      "source": "Installed capabilities available to OpenClaw.",
+      "source": "Manage installed skills and add new skills from ClawHub.",
       "surface": "android",
-      "id": "native.android.73a666b0a4a0e617"
+      "id": "native.android.59bcc90582d35cdc"
     },
     {
       "kind": "conditional-branch",
-      "line": 82,
+      "line": 110,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
       "source": "Refresh",
       "surface": "android",
@@ -5115,7 +5163,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 82,
+      "line": 110,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
       "source": "Refreshing",
       "surface": "android",
@@ -5123,15 +5171,23 @@
     },
     {
       "kind": "ui-named-argument",
-      "line": 96,
+      "line": 124,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
-      "source": "Connect the gateway to load skills.",
+      "source": "Skill toggles and ClawHub installs require operator.admin. Reconnect with an admin-capable gateway token.",
       "surface": "android",
-      "id": "native.android.73f15da5b2ffdf3c"
+      "id": "native.android.ac24d5a6fdef1ae8"
     },
     {
       "kind": "ui-named-argument",
-      "line": 101,
+      "line": 150,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Connect the gateway to load and manage skills.",
+      "surface": "android",
+      "id": "native.android.a1d2d835662cd1e5"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 155,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
       "source": "No skills installed.",
       "surface": "android",
@@ -5139,23 +5195,167 @@
     },
     {
       "kind": "ui-named-argument",
-      "line": 102,
+      "line": 156,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
-      "source": "Skills installed on the gateway will appear here.",
+      "source": "Search ClawHub below to install skills on the connected gateway.",
       "surface": "android",
-      "id": "native.android.ab93e3d2d6496eda"
+      "id": "native.android.36f2764781478024"
     },
     {
       "kind": "ui-named-argument",
-      "line": 121,
+      "line": 161,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
-      "source": "Inspect installed skill capability and setup state.",
+      "source": "No installed skills match this search.",
       "surface": "android",
-      "id": "native.android.81d900273232ce39"
+      "id": "native.android.19ae867fade93620"
     },
     {
       "kind": "ui-named-argument",
-      "line": 144,
+      "line": 216,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Review ClawHub audit",
+      "surface": "android",
+      "id": "native.android.5c5aef5637e1f51d"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 220,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "ClawHub returned this review before download. Install only if the result matches your risk tolerance.",
+      "surface": "android",
+      "id": "native.android.dbcb7661c37a0002"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 224,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Skill",
+      "surface": "android",
+      "id": "native.android.456f48bc174b99d7"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 225,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Version",
+      "surface": "android",
+      "id": "native.android.a9efb3c4aba6b611"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 226,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Author",
+      "surface": "android",
+      "id": "native.android.2a573d56f1958519"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 227,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Safety",
+      "surface": "android",
+      "id": "native.android.5d4b4b67d634adc4"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 230,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Security report: $url",
+      "surface": "android",
+      "id": "native.android.190790b2cb0cebed"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 234,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "This release is blocked by ClawHub and will not be downloaded.",
+      "surface": "android",
+      "id": "native.android.d98415fddbc18009"
+    },
+    {
+      "kind": "conditional-branch",
+      "line": 244,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Acknowledge and install",
+      "surface": "android",
+      "id": "native.android.8c4b0a1a20aebf9b"
+    },
+    {
+      "kind": "conditional-branch",
+      "line": 244,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Install",
+      "surface": "android",
+      "id": "native.android.44280ac25d1925a0"
+    },
+    {
+      "kind": "conditional-branch",
+      "line": 250,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Cancel",
+      "surface": "android",
+      "id": "native.android.18cae64bf4326d3e"
+    },
+    {
+      "kind": "conditional-branch",
+      "line": 250,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Close",
+      "surface": "android",
+      "id": "native.android.b5b5db8c35ab6908"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 275,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Status",
+      "surface": "android",
+      "id": "native.android.47325245faef10b0"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 316,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Inspect and manage installed skill state.",
+      "surface": "android",
+      "id": "native.android.ec22ef8a21ea40f9"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 355,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Installed skills",
+      "surface": "android",
+      "id": "native.android.57feb614339856c0"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 356,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "$visibleCount/$totalCount",
+      "surface": "android",
+      "id": "native.android.b2204d4c7caa806c"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 358,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Search installed skills",
+      "surface": "android",
+      "id": "native.android.097259811b08ef14"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 377,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Gateway switch",
+      "surface": "android",
+      "id": "native.android.ca4346ea0de1a486"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 393,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
       "source": "Setup",
       "surface": "android",
@@ -5163,7 +5363,7 @@
     },
     {
       "kind": "ui-named-argument",
-      "line": 157,
+      "line": 406,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
       "source": "Connect the gateway to load skill details.",
       "surface": "android",
@@ -5171,7 +5371,7 @@
     },
     {
       "kind": "ui-named-argument",
-      "line": 163,
+      "line": 412,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
       "source": "Skill detail is not available in the current skills status.",
       "surface": "android",
@@ -5179,15 +5379,79 @@
     },
     {
       "kind": "ui-named-argument",
-      "line": 179,
+      "line": 428,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
       "source": "Description",
       "surface": "android",
       "id": "native.android.3b697df990c29cb3"
     },
     {
+      "kind": "ui-named-argument",
+      "line": 499,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "ClawHub",
+      "surface": "android",
+      "id": "native.android.a7cc981d063e1e85"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 500,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Search the registry and install skills onto the connected gateway.",
+      "surface": "android",
+      "id": "native.android.ad9dad809c203bbc"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 501,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Search ClawHub skills",
+      "surface": "android",
+      "id": "native.android.9a47daee5351b76d"
+    },
+    {
       "kind": "conditional-branch",
-      "line": 260,
+      "line": 504,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Search ClawHub",
+      "surface": "android",
+      "id": "native.android.a726fc0e0ec1063b"
+    },
+    {
+      "kind": "conditional-branch",
+      "line": 504,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Searching",
+      "surface": "android",
+      "id": "native.android.dd847711f2fed34f"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 510,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Clear",
+      "surface": "android",
+      "id": "native.android.92f5671b2339d672"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 521,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "Acknowledge risk and install",
+      "surface": "android",
+      "id": "native.android.ffdb50d77ced7f93"
+    },
+    {
+      "kind": "ui-named-argument",
+      "line": 555,
+      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
+      "source": "CH",
+      "surface": "android",
+      "id": "native.android.1d704d007300fcd7"
+    },
+    {
+      "kind": "conditional-branch",
+      "line": 641,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
       "source": "Built-in",
       "surface": "android",
@@ -5195,7 +5459,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 260,
+      "line": 641,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
       "source": "Bundled",
       "surface": "android",
@@ -5203,7 +5467,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 261,
+      "line": 642,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
       "source": "Installed",
       "surface": "android",
@@ -5211,7 +5475,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 262,
+      "line": 643,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
       "source": "Workspace",
       "surface": "android",
@@ -5219,19 +5483,11 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 263,
+      "line": 644,
       "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
       "source": "Extra",
       "surface": "android",
       "id": "native.android.61a83abee9380b37"
-    },
-    {
-      "kind": "conditional-branch",
-      "line": 264,
-      "path": "apps/android/app/src/main/java/ai/openclaw/app/ui/SkillsSettingsScreen.kt",
-      "source": "Skill",
-      "surface": "android",
-      "id": "native.android.14d7845e9790eaab"
     },
     {
       "kind": "ui-named-argument",
