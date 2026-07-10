@@ -55,9 +55,9 @@ type DiagnosticRunProgressActivityEvent = Pick<
   "runId" | "sessionId" | "sessionKey" | "reason"
 >;
 
-// Quiet-but-alive tools are normal agent behavior; the CLI byte watchdog kills
-// truly silent children within its own deadline. Staleness gates share this
-// floor so they do not reclaim a run while a long tool call is still healthy.
+// Quiet-but-alive tools are normal agent behavior, so blocked-tool recovery
+// keeps this floor even when stuckSessionAbortMs is lower. CLI children also
+// retain their independent byte watchdog for truly silent subprocesses.
 export const BLOCKED_TOOL_CALL_ABORT_FLOOR_MS = 15 * 60_000;
 
 export type DiagnosticSessionActivitySnapshot = {
