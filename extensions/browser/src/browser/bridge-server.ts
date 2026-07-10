@@ -9,7 +9,13 @@ import type { AddressInfo } from "node:net";
 import express from "express";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { isLoopbackHost } from "../gateway/net.js";
-import { deleteBridgeAuthForPort, setBridgeAuthForPort } from "./bridge-auth-registry.js";
+import {
+  deleteBridgeAuthForPort,
+  SANDBOX_BROWSER_REFRESH_HEADER,
+  SANDBOX_BROWSER_REFRESH_RETRY_AFTER_SECONDS,
+  SANDBOX_BROWSER_REFRESH_VALUE,
+  setBridgeAuthForPort,
+} from "./bridge-auth-registry.js";
 import type { ResolvedBrowserConfig } from "./config.js";
 import type { BrowserRouteRegistrar } from "./routes/types.js";
 import type { BrowserServerState, ProfileContext } from "./server-context.js";
@@ -93,7 +99,8 @@ export async function startBrowserBridgeServer(params: {
     app.use((req, res, next) => {
       const lease = params.tryAcquireActivityLease?.();
       if (!lease) {
-        res.setHeader("Retry-After", "1");
+        res.setHeader(SANDBOX_BROWSER_REFRESH_HEADER, SANDBOX_BROWSER_REFRESH_VALUE);
+        res.setHeader("Retry-After", String(SANDBOX_BROWSER_REFRESH_RETRY_AFTER_SECONDS));
         res.status(503).send("Sandbox browser runtime is being refreshed");
         return;
       }
@@ -144,8 +151,8 @@ export async function startBrowserBridgeServer(params: {
   };
 
   if (params.skipRouteRegistrationForTest) {
-    app.get("/", (_req, res) => {
-      res.status(200).send("OK");
+    app.all("/", (_req, res) => {
+      res.status(200).json({ ok: true });
     });
   } else {
     const [{ createBrowserRouteContext }, { registerBrowserRoutes }] = await Promise.all([

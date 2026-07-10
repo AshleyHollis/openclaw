@@ -27,6 +27,7 @@ import {
   acquireSandboxActivity,
   type SandboxActivityLease,
   tryAcquireSandboxActivity,
+  withSandboxIdleMutation,
 } from "./activity.js";
 import { BROWSER_BRIDGES } from "./browser-bridges.js";
 import { computeSandboxBrowserConfigHash } from "./config-hash.js";
@@ -482,9 +483,37 @@ async function ensureSandboxBrowserWithActivity(
             timeoutMs: params.cfg.browser.autoStartTimeoutMs,
           });
           if (!ok) {
-            await execDocker(["rm", "-f", containerName], { allowFailure: true });
+            // This callback runs inside a browser request reader. Queue cleanup
+            // behind all readers; awaiting a reader-to-writer upgrade would deadlock.
+            void withSandboxIdleMutation(containerName, async () => {
+              const cleanupState = await dockerContainerState(containerName);
+              if (!cleanupState.exists) {
+                return;
+              }
+              const currentAuthToken = await readDockerContainerEnvVar(
+                containerName,
+                CDP_AUTH_TOKEN_ENV_KEY,
+              );
+              if (currentAuthToken !== cdpAuthToken) {
+                return;
+              }
+              const recovered =
+                cleanupState.running &&
+                (await waitForSandboxCdp({
+                  cdpPort: mappedCdp,
+                  authToken: cdpAuthToken,
+                  timeoutMs: Math.min(params.cfg.browser.autoStartTimeoutMs, 1_000),
+                }));
+              if (!recovered) {
+                await execDocker(["rm", "-f", containerName], { allowFailure: true });
+              }
+            }).catch((error: unknown) => {
+              defaultRuntime.log(
+                `Failed to remove hung sandbox browser container ${containerName}: ${String(error)}`,
+              );
+            });
             throw new Error(
-              `Sandbox browser CDP did not become reachable on 127.0.0.1:${mappedCdp} within ${params.cfg.browser.autoStartTimeoutMs}ms. The hung container has been forcefully removed.`,
+              `Sandbox browser CDP did not become reachable on 127.0.0.1:${mappedCdp} within ${params.cfg.browser.autoStartTimeoutMs}ms. The hung container will be removed after active browser requests finish; retry the browser tool. If it remains unavailable, run openclaw sandbox recreate --browser --session ${params.scopeKey}.`,
             );
           }
         }
@@ -499,6 +528,7 @@ async function ensureSandboxBrowserWithActivity(
         evaluateEnabled: desiredEvaluateEnabled,
         ssrfPolicy: params.ssrfPolicy,
       }),
+      port: existing?.bridge.port,
       authToken: desiredAuthToken,
       authPassword: desiredAuthPassword,
       onEnsureAttachTarget,

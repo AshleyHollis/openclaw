@@ -302,17 +302,22 @@ describe("ensureSandboxBrowser create args", () => {
     });
     registryMocks.readBrowserRegistry.mockResolvedValue({ entries: [] });
     registryMocks.updateBrowserRegistry.mockResolvedValue(undefined);
-    bridgeMocks.startBrowserBridgeServer.mockResolvedValue({
-      server: {} as never,
-      port: 19000,
-      baseUrl: "http://127.0.0.1:19000",
-      state: {
-        server: null,
-        port: 19000,
-        resolved: { profiles: {} },
-        profiles: new Map(),
+    bridgeMocks.startBrowserBridgeServer.mockImplementation(
+      async (params: { port?: number; resolved: Record<string, unknown> }) => {
+        const port = params.port ?? 19000;
+        return {
+          server: {} as never,
+          port,
+          baseUrl: `http://127.0.0.1:${port}`,
+          state: {
+            server: null,
+            port,
+            resolved: params.resolved,
+            profiles: new Map(),
+          },
+        };
       },
-    });
+    );
     bridgeMocks.stopBrowserBridgeServer.mockResolvedValue(undefined);
   });
 
@@ -426,6 +431,51 @@ describe("ensureSandboxBrowser create args", () => {
       { allowFailure: true },
     );
     expect(requireDockerCreateArgs()).toContain("--init");
+  });
+
+  it("keeps the bridge URL stable when replacement changes the mapped CDP port", async () => {
+    const cfg = buildConfig(false);
+    const first = await ensureTestSandboxBrowser({
+      scopeKey: "session:test",
+      workspaceDir: "/tmp/workspace",
+      agentWorkspaceDir: "/tmp/workspace",
+      cfg,
+    });
+    expect(first?.bridgeUrl).toBe("http://127.0.0.1:19000");
+
+    const oldHash = computeTestBrowserHash({ cfg, createArgsEpoch: "pre-init" });
+    dockerMocks.dockerContainerState.mockResolvedValue({ exists: true, running: true });
+    dockerMocks.readDockerContainerEnvVar.mockResolvedValue("existing-cdp-token");
+    dockerMocks.readDockerContainerLabel.mockResolvedValue(oldHash);
+    dockerMocks.readDockerPort.mockImplementation(async (_containerName: string, port: number) => {
+      if (port === 9222) {
+        return 49200;
+      }
+      if (port === 6080) {
+        return 49201;
+      }
+      return null;
+    });
+    bridgeMocks.startBrowserBridgeServer.mockClear();
+    bridgeMocks.stopBrowserBridgeServer.mockClear();
+
+    const replaced = await ensureTestSandboxBrowser({
+      scopeKey: "session:test",
+      workspaceDir: "/tmp/workspace",
+      agentWorkspaceDir: "/tmp/workspace",
+      cfg,
+    });
+
+    expect(bridgeMocks.stopBrowserBridgeServer).toHaveBeenCalledOnce();
+    expect(bridgeMocks.startBrowserBridgeServer.mock.calls.at(-1)?.[0]).toMatchObject({
+      port: 19000,
+      resolved: {
+        profiles: {
+          openclaw: { cdpPort: 49200 },
+        },
+      },
+    });
+    expect(replaced?.bridgeUrl).toBe(first?.bridgeUrl);
   });
 
   it("waits for active browser work before recreating a stale pre-init container", async () => {
@@ -768,9 +818,7 @@ describe("ensureSandboxBrowser create args", () => {
     expect(labels).toContain(`openclaw.mountFormatVersion=${SANDBOX_MOUNT_FORMAT_VERSION}`);
   });
 
-  it("force-removes the browser container when CDP never becomes reachable", async () => {
-    // A browser container that starts but never exposes CDP is unusable; remove
-    // it immediately so the next attempt recreates from a clean state.
+  it("waits for peer browser activity before removing an unreachable container", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("timeout"));
     bridgeMocks.startBrowserBridgeServer.mockImplementationOnce(async (params) => {
       await params.onEnsureAttachTarget?.({});
@@ -789,6 +837,15 @@ describe("ensureSandboxBrowser create args", () => {
 
     const cfg = buildConfig(false);
     cfg.browser.autoStartTimeoutMs = 1;
+    const currentHash = computeTestBrowserHash({
+      cfg,
+      createArgsEpoch: SANDBOX_DOCKER_CREATE_ARGS_EPOCH,
+    });
+    dockerMocks.dockerContainerState.mockResolvedValue({ exists: true, running: true });
+    dockerMocks.readDockerContainerEnvVar.mockResolvedValue("existing-cdp-token");
+    dockerMocks.readDockerContainerLabel.mockResolvedValue(currentHash);
+    const { acquireSandboxActivity } = await import("./activity.js");
+    const peer = await acquireSandboxActivity("openclaw-sbx-browser-session-test-0661d10a");
 
     await expect(
       ensureTestSandboxBrowser({
@@ -797,7 +854,23 @@ describe("ensureSandboxBrowser create args", () => {
         agentWorkspaceDir: "/tmp/workspace",
         cfg,
       }),
-    ).rejects.toThrow("hung container has been forcefully removed");
+    ).rejects.toThrow("will be removed after active browser requests finish");
+
+    expect(findDockerArgsCall(dockerMocks.execDocker.mock.calls, "rm")).toBeUndefined();
+    let notifyRemoved!: () => void;
+    const removed = new Promise<void>((resolve) => {
+      notifyRemoved = resolve;
+    });
+    const defaultExecDocker = dockerMocks.execDocker.getMockImplementation();
+    dockerMocks.execDocker.mockImplementation(async (args: string[]) => {
+      const result = await defaultExecDocker?.(args);
+      if (args[0] === "rm") {
+        notifyRemoved();
+      }
+      return result ?? { stdout: "", stderr: "", code: 0 };
+    });
+    peer.release();
+    await removed;
 
     expect(dockerMocks.execDocker).toHaveBeenCalledWith(
       ["rm", "-f", "openclaw-sbx-browser-session-test-0661d10a"],
