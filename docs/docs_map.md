@@ -3672,6 +3672,20 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H4: Troubleshooting
   - H2: Related
 
+## gateway/restart-recovery.md
+
+- Route: /gateway/restart-recovery
+- Headings:
+  - H2: What survives a restart
+  - H2: Graceful restarts drain first
+  - H2: How interrupted work is detected
+  - H2: Automatic resume
+  - H3: Subagents
+  - H3: Background tasks
+  - H3: Agent-requested restarts
+  - H2: Safety valves and observability
+  - H2: What is not resumed
+
 ## gateway/sandbox-vs-tool-policy-vs-elevated.md
 
 - Route: /gateway/sandbox-vs-tool-policy-vs-elevated
@@ -9937,6 +9951,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: MCP page
   - H2: Activity tab
   - H2: Operator terminal
+  - H2: Browser panel
   - H2: Chat behavior
   - H2: Connection loss and reconnect
   - H2: PWA install and web push
