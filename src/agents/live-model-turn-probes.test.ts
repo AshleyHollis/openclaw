@@ -203,7 +203,7 @@ describe("live model turn probes", () => {
     expect(fileProbeTextMatches("amber")).toBe(false);
     expect(imageProbeTextMatches("OK")).toBe(true);
     expect(imageProbeTextMatches("blue")).toBe(false);
-    expect(imageProbeTextMatches('\" or \"Reply with exactly')).toBe(false);
+    expect(imageProbeTextMatches('" or "Reply with exactly')).toBe(false);
   });
 
   it("retries one mismatched image reply and accepts only a matching retry", async () => {
@@ -253,7 +253,7 @@ describe("live model turn probes", () => {
   });
 
   it("fails when the image retry also does not match", async () => {
-    const { attempts, run } = createImageProbeRunner(["blue", '\" or \"Reply with exactly']);
+    const { attempts, run } = createImageProbeRunner(["blue", '" or "Reply with exactly']);
 
     await expect(runLiveModelImageProbeWithRetry({ run, onRetry: () => {} })).rejects.toThrow(
       "image probe did not return ok after retry",
