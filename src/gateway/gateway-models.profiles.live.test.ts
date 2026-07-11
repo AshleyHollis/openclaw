@@ -2912,7 +2912,11 @@ async function runGatewayModelSuite(params: GatewayModelSuiteParams) {
   await fs.rm(path.join(workspaceDir, "BOOTSTRAP.md"), { force: true });
   const nonceA = randomUUID();
   const nonceB = randomUUID();
-  const toolProbePath = path.join(workspaceDir, `.openclaw-live-tool-probe.${nonceA}.txt`);
+  // Keep expected values out of the path without sharing a probe file across runs.
+  const toolProbePath = path.join(
+    workspaceDir,
+    `.openclaw-live-tool-probe-${randomBytes(4).toString("hex")}.txt`,
+  );
   await fs.writeFile(toolProbePath, `nonceA=${nonceA}\nnonceB=${nonceB}\n`);
 
   const agentDir = resolveDefaultAgentDir(params.cfg);
@@ -3947,7 +3951,11 @@ describeLive("gateway live (dev agent, profile keys)", () => {
       await fs.mkdir(workspaceDir, { recursive: true });
       const nonceA = randomUUID();
       const nonceB = randomUUID();
-      toolProbePath = path.join(workspaceDir, `.openclaw-live-zai-fallback.${nonceA}.txt`);
+      // Avoid UUID-bearing probe paths without sharing a file across concurrent runs.
+      toolProbePath = path.join(
+        workspaceDir,
+        `.openclaw-live-zai-fallback-${randomBytes(4).toString("hex")}.txt`,
+      );
       await fs.writeFile(toolProbePath, `nonceA=${nonceA}\nnonceB=${nonceB}\n`);
 
       try {
