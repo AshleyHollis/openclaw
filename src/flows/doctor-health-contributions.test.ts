@@ -2871,19 +2871,8 @@ describe("doctor health contributions", () => {
     );
   });
 
-  it("reports local audio acceleration as information without failing doctor health", async () => {
+  it("keeps local audio acceleration quiet during normal doctor health", async () => {
     const contribution = requireDoctorContribution("doctor:local-audio-acceleration");
-    mocks.getHealthCheck.mockReturnValue({
-      id: "core/doctor/local-audio-acceleration",
-      detect: vi.fn(async () => [
-        {
-          checkId: "core/doctor/local-audio-acceleration",
-          severity: "info",
-          message: "Local STT auto-selection: mlx-whisper is available.",
-          path: "tools.media.audio.models",
-        },
-      ]),
-    });
     const ctx = {
       cfg: {},
       configResult: { cfg: {} },
@@ -2900,11 +2889,8 @@ describe("doctor health contributions", () => {
     await contribution.run(ctx);
 
     expect(ctx.healthOk).toBe(true);
-    expect(mocks.note).toHaveBeenCalledWith(
-      expect.stringContaining("Local STT auto-selection"),
-      "Doctor information",
-    );
-    expect(mocks.note).not.toHaveBeenCalledWith(expect.anything(), "Doctor warnings");
+    expect(mocks.note).not.toHaveBeenCalled();
+    expect(mocks.getHealthCheck).not.toHaveBeenCalled();
   });
 
   it.each([false, true])(
