@@ -321,5 +321,6 @@ describe("createReplyToModeFilter", () => {
     const filter = createReplyToModeFilter("first");
     expect(filter({ text: "hi", replyToId: "1" }).replyToId).toBe("1");
     expect(filter({ text: "next", replyToId: "1" }).replyToId).toBeUndefined();
+    expect(filter({ text: "explicit", replyToId: "2", replyToTag: true }).replyToId).toBe("2");
   });
 });

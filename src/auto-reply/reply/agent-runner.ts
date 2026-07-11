@@ -44,6 +44,7 @@ import {
   freezeDiagnosticTraceContext,
 } from "../../infra/diagnostic-trace-context.js";
 import { measureDiagnosticsTimelineSpan } from "../../infra/diagnostics-timeline.js";
+import { reserveSingleUseReply } from "../../infra/outbound/reply-policy.js";
 import { enqueueSystemEvent } from "../../infra/system-events.js";
 import { CommandLaneClearedError, GatewayDrainingError } from "../../process/command-queue.js";
 import { shouldPreserveUserFacingSessionStateForInputProvenance } from "../../sessions/input-provenance.js";
@@ -1394,6 +1395,15 @@ export async function runReplyAgent(params: {
   const onBlockReply = opts?.onBlockReply;
   const deliverBlockReply: GetReplyOptions["onBlockReply"] = onBlockReply
     ? async (payload, context) => {
+        const isImplicitSingleUseReply =
+          (replyToMode === "first" || replyToMode === "batched") &&
+          Boolean(payload.replyToId) &&
+          !payload.replyToTag &&
+          !payload.replyToCurrent &&
+          !isReplyPayloadStatusNotice(payload);
+        const finishReplyReservation = isImplicitSingleUseReply
+          ? await reserveSingleUseReply(replyState)
+          : undefined;
         const deliveryState = { value: replyState.value };
         const filter = createReplyToModeFilterForChannel(
           replyToMode,
@@ -1401,15 +1411,27 @@ export async function runReplyAgent(params: {
           deliveryState,
         );
         const deliveryContext = context ?? {};
-        const delivered = await onBlockReply(filter(payload), deliveryContext);
+        const onDeliveryAbort = () => finishReplyReservation?.(false);
+        deliveryContext.abortSignal?.addEventListener("abort", onDeliveryAbort, { once: true });
+        const settleReplyState = (delivered: boolean) => {
+          deliveryContext.abortSignal?.removeEventListener("abort", onDeliveryAbort);
+          finishReplyReservation?.(
+            delivered && !deliveryContext.abortSignal?.aborted && deliveryState.value,
+          );
+        };
+        let delivered: Awaited<ReturnType<NonNullable<GetReplyOptions["onBlockReply"]>>>;
+        try {
+          delivered = await onBlockReply(filter(payload), deliveryContext);
+        } catch (error) {
+          settleReplyState(false);
+          throw error;
+        }
         if (deliveryContext.deliverySettled) {
-          replyState.pending = deliveryContext.deliverySettled.then((settled) => {
-            if (settled && !deliveryContext.abortSignal?.aborted) {
-              replyState.value = deliveryState.value;
-            }
-          });
-        } else if (delivered !== false && !deliveryContext.abortSignal?.aborted) {
-          replyState.value = deliveryState.value;
+          void deliveryContext.deliverySettled.then(settleReplyState, () =>
+            settleReplyState(false),
+          );
+        } else {
+          settleReplyState(delivered !== false);
         }
         return delivered;
       }
@@ -2082,7 +2104,9 @@ export async function runReplyAgent(params: {
     }
     const currentMessageId =
       sessionCtx.CurrentMessageId ?? sessionCtx.MessageSidFull ?? sessionCtx.MessageSid;
-    await replyState.pending;
+    while (replyState.pending) {
+      await replyState.pending;
+    }
     // A terminal fallback is built separately after normal payload filtering.
     // Share this state across deliverable lanes so replyToMode=first still threads
     // at most one visible payload without hidden reasoning/commentary consuming it.

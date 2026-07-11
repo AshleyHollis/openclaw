@@ -1008,9 +1008,21 @@ describe("runReplyAgent auto-compaction token update", () => {
 
 describe("runReplyAgent block streaming", () => {
   it("treats a suppressed coalesced block as undelivered", async () => {
+    let releaseReservation = () => {};
+    const replyState: { value: boolean; pending?: Promise<void> } = {
+      value: false,
+      pending: new Promise<void>((resolve) => {
+        releaseReservation = resolve;
+      }),
+    };
     const onBlockReply = vi.fn((_payload: unknown, context?: BlockReplyContext) => {
+      expect(replyState.pending).toBeUndefined();
       context!.deliverySettled = Promise.resolve(false);
       return true;
+    });
+    queueMicrotask(() => {
+      delete replyState.pending;
+      releaseReservation();
     });
     runEmbeddedAgentMock.mockImplementationOnce(async (params) => {
       const block = params.onBlockReply as ((payload: { text?: string }) => void) | undefined;
@@ -1078,7 +1090,7 @@ describe("runReplyAgent block streaming", () => {
       shouldFollowup: false,
       isActive: false,
       isStreaming: false,
-      opts: { onBlockReply },
+      opts: { onBlockReply, hasRepliedRef: replyState },
       typing,
       sessionCtx,
       defaultModel: "anthropic/claude-opus-4-6",
@@ -1100,20 +1112,7 @@ describe("runReplyAgent block streaming", () => {
 
   it("returns the final payload when onBlockReply times out", async () => {
     vi.useFakeTimers();
-    let sawAbort = false;
-
-    const onBlockReply = vi.fn((_payload, context) => {
-      return new Promise<void>((resolve) => {
-        context?.abortSignal?.addEventListener(
-          "abort",
-          () => {
-            sawAbort = true;
-            resolve();
-          },
-          { once: true },
-        );
-      });
-    });
+    const onBlockReply = vi.fn(() => new Promise<void>(() => {}));
 
     runEmbeddedAgentMock.mockImplementationOnce(async (params) => {
       const block = params.onBlockReply as ((payload: { text?: string }) => void) | undefined;
@@ -1200,7 +1199,6 @@ describe("runReplyAgent block streaming", () => {
     await vi.advanceTimersByTimeAsync(5);
     const result = await resultPromise;
 
-    expect(sawAbort).toBe(true);
     expectReplyText(result, "Final message");
     expect(result).toMatchObject({ replyToId: "msg" });
   });

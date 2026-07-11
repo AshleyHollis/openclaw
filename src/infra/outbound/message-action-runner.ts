@@ -101,6 +101,7 @@ import {
   materializeMessagePresentationFallback,
 } from "./outbound-send-service.js";
 import { ensureOutboundSessionEntry, resolveOutboundSessionRoute } from "./outbound-session.js";
+import { reserveSingleUseReply } from "./reply-policy.js";
 import { normalizeTargetForProvider } from "./target-normalization.js";
 import { resolveChannelTarget, type ResolvedMessagingTarget } from "./target-resolver.js";
 
@@ -118,15 +119,6 @@ export type MessageActionRunnerGateway = {
 const loadMessageActionGatewayRuntime = createLazyRuntimeModule(
   () => import("./message.gateway.runtime.js"),
 );
-const implicitReplyReservations = new WeakSet<{ value: boolean }>();
-
-function finishImplicitReply(ref: { value: boolean } | undefined, delivered: boolean): void {
-  if (ref) {
-    implicitReplyReservations.delete(ref);
-    ref.value = delivered;
-  }
-}
-
 export type RunMessageActionParams = {
   cfg: OpenClawConfig;
   action: ChannelMessageActionName;
@@ -1208,15 +1200,14 @@ async function handleSendAction(ctx: ResolvedActionContext): Promise<MessageActi
     !dryRun && !replyToIsExplicit && resolvedReplyToId && input.toolContext?.replyToMode === "first"
       ? hasRepliedRef
       : undefined;
-  const replyReservation =
-    replyReservationCandidate &&
-    !replyReservationCandidate.value &&
-    !implicitReplyReservations.has(replyReservationCandidate)
-      ? replyReservationCandidate
-      : undefined;
-  if (replyReservation) {
-    implicitReplyReservations.add(replyReservation);
-  } else if (replyReservationCandidate) {
+  const finishImplicitReply = replyReservationCandidate
+    ? await reserveSingleUseReply(replyReservationCandidate)
+    : undefined;
+  if (abortSignal?.aborted) {
+    finishImplicitReply?.(false);
+    throwIfAborted(abortSignal);
+  }
+  if (replyReservationCandidate && !finishImplicitReply) {
     delete params.replyTo;
     resolvedReplyToId = undefined;
   }
@@ -1243,14 +1234,11 @@ async function handleSendAction(ctx: ResolvedActionContext): Promise<MessageActi
       dryRun,
     }),
   }).catch((error: unknown) => {
-    finishImplicitReply(
-      replyReservation,
-      (error as { sentBeforeError?: boolean }).sentBeforeError === true,
-    );
+    finishImplicitReply?.((error as { sentBeforeError?: boolean }).sentBeforeError === true);
     throw error;
   });
   if (gatewayPluginAction) {
-    finishImplicitReply(replyReservation, true);
+    finishImplicitReply?.(true);
     return gatewayPluginAction;
   }
 
@@ -1322,17 +1310,11 @@ async function handleSendAction(ctx: ResolvedActionContext): Promise<MessageActi
     replyToMode: replyToIsExplicit ? undefined : input.toolContext?.replyToMode,
     threadId: resolvedThreadId ?? undefined,
   }).catch((error: unknown) => {
-    finishImplicitReply(
-      replyReservation,
-      (error as { sentBeforeError?: boolean }).sentBeforeError === true,
-    );
+    finishImplicitReply?.((error as { sentBeforeError?: boolean }).sentBeforeError === true);
     throw error;
   });
   const deliveryStatus = send.sendResult?.deliveryStatus;
-  finishImplicitReply(
-    replyReservation,
-    deliveryStatus !== "suppressed" && deliveryStatus !== "failed",
-  );
+  finishImplicitReply?.(deliveryStatus !== "suppressed" && deliveryStatus !== "failed");
 
   return {
     kind: "send",

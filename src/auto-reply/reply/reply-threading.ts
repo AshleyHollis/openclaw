@@ -174,7 +174,7 @@ export function createReplyToModeFilter(
     if (mode === "all") {
       return payload;
     }
-    if (isSingleUseReplyToMode(mode) && (hasThreaded || opts.hasRepliedRef?.value)) {
+    if (isSingleUseReplyToMode(mode) && !isExplicit && (hasThreaded || opts.hasRepliedRef?.value)) {
       // Status notices are transient messages that should always
       // appear in-thread, even after the first assistant block has already
       // consumed the "first" slot.  Let them keep their replyToId.

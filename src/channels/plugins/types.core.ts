@@ -481,7 +481,7 @@ export type ChannelThreadingToolContext = {
   currentThreadTs?: string;
   currentMessageId?: string | number;
   replyToMode?: "off" | "first" | "all" | "batched";
-  hasRepliedRef?: { value: boolean };
+  hasRepliedRef?: { value: boolean; pending?: Promise<void> };
   /** True when posting at the parent conversation root would leak a thread-originated reply. */
   sameChannelThreadRequired?: boolean;
   /**

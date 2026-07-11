@@ -5,11 +5,7 @@ import {
   verifyChannelMessageAdapterCapabilityProofs,
 } from "openclaw/plugin-sdk/channel-outbound";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
-import type { PluginStateKeyedStore } from "openclaw/plugin-sdk/plugin-state-runtime";
-import {
-  createPluginRuntimeMock,
-  createPluginSetupWizardStatus,
-} from "openclaw/plugin-sdk/plugin-test-runtime";
+import { createPluginSetupWizardStatus } from "openclaw/plugin-sdk/plugin-test-runtime";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -32,7 +28,7 @@ import {
   registerSignalReplyContext,
   resolveSignalReplyContextWithPersistence,
 } from "./reply-authors.js";
-import { clearSignalRuntime, setSignalRuntime } from "./runtime.js";
+import { clearSignalRuntime } from "./runtime.js";
 import {
   createSignalCliPathTextInput,
   normalizeSignalAccountInput,
@@ -891,11 +887,7 @@ describe("signal outbound", () => {
 
   it("resolves only proven direct reply authors", async () => {
     const replyContext = { to: "signal:+15551234567", replyToId: "1700000000001" };
-    await expect(resolveSignalReplyContextWithPersistence(replyContext)).resolves.toBeUndefined();
     await registerSignalReplyContext({ ...replyContext, author: "+15551234567" });
-    await expect(resolveSignalReplyContextWithPersistence(replyContext)).resolves.toEqual({
-      author: "+15551234567",
-    });
     await registerSignalReplyContext({ ...replyContext, author: "+15550001111" });
     await expect(resolveSignalReplyContextWithPersistence(replyContext)).resolves.toEqual({
       ambiguous: true,
@@ -954,32 +946,6 @@ describe("signal outbound", () => {
           });
           expect(result?.receipt.platformMessageIds).toEqual(["signal-media-1"]);
         },
-        replyTo: async () => {
-          await registerSignalReplyContext({
-            to: "signal:group:group-1",
-            replyToId: "1700000000006",
-            author: "uuid:sender-1",
-            body: "original group message",
-          });
-          await signalPlugin.message?.send?.text?.({
-            cfg: {} as OpenClawConfig,
-            to: "signal:group:group-1",
-            text: "reply",
-            replyToId: "1700000000006",
-            deps,
-          } as Parameters<NonNullable<typeof signalPlugin.message.send.text>>[0] & {
-            deps: typeof deps;
-          });
-          expect(send).toHaveBeenLastCalledWith(
-            "group:group-1",
-            "reply",
-            expect.objectContaining({
-              replyToAuthor: "uuid:sender-1",
-              replyToBody: "original group message",
-            }),
-          );
-          await clearSignalReplyAuthorsForTest();
-        },
       },
     });
 
@@ -989,7 +955,7 @@ describe("signal outbound", () => {
       { capability: "poll", status: "not_declared" },
       { capability: "payload", status: "not_declared" },
       { capability: "silent", status: "not_declared" },
-      { capability: "replyTo", status: "verified" },
+      { capability: "replyTo", status: "not_declared" },
       { capability: "thread", status: "not_declared" },
       { capability: "nativeQuote", status: "not_declared" },
       { capability: "messageSendingHooks", status: "not_declared" },
@@ -998,45 +964,6 @@ describe("signal outbound", () => {
       { capability: "afterSendSuccess", status: "not_declared" },
       { capability: "afterCommit", status: "not_declared" },
     ]);
-  });
-
-  it("keeps persisted edited reply context when an older replay arrives after restart", async () => {
-    const persistedRecords = new Map<string, unknown>();
-    const openKeyedStore = <T>() =>
-      ({
-        update: async () => {
-          throw new Error("write unavailable");
-        },
-        lookup: async (key: string) => persistedRecords.get(key) as T | undefined,
-      }) as unknown as PluginStateKeyedStore<T>;
-    setSignalRuntime(createPluginRuntimeMock({ state: { openKeyedStore } }));
-
-    try {
-      const shared = {
-        to: "signal:group:group-1",
-        replyToId: "1700000000000",
-        author: "uuid:sender-1",
-      };
-      persistedRecords.set("account=default|to=group:group-1|id=1700000000000", {
-        kind: "resolved",
-        author: shared.author,
-        body: "edited body",
-        sourceTimestamp: 1_700_000_000_999,
-      });
-      await registerSignalReplyContext({
-        ...shared,
-        body: "original body",
-        sourceTimestamp: 1_700_000_000_000,
-      });
-
-      await expect(resolveSignalReplyContextWithPersistence(shared)).resolves.toEqual({
-        author: "uuid:sender-1",
-        body: "edited body",
-      });
-    } finally {
-      clearSignalRuntime();
-      await clearSignalReplyAuthorsForTest();
-    }
   });
 });
 

@@ -201,7 +201,6 @@ const signalMessageAdapter = defineChannelMessageAdapter({
     capabilities: {
       text: true,
       media: true,
-      replyTo: true,
     },
   },
   send: {

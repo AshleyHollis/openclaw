@@ -16,6 +16,38 @@ export type ReplyToResolution = {
   source?: "explicit" | "implicit";
 };
 
+export type SingleUseReplyState = { value: boolean; pending?: Promise<void> };
+export type SingleUseReplyReservation = (delivered: boolean) => void;
+
+/** Holds the shared reply slot until the owning delivery succeeds or releases it. */
+export async function reserveSingleUseReply(
+  state: SingleUseReplyState,
+): Promise<SingleUseReplyReservation | undefined> {
+  while (state.pending) {
+    await state.pending;
+  }
+  if (state.value) {
+    return undefined;
+  }
+  let release = () => {};
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  state.pending = pending;
+  let finished = false;
+  return (delivered: boolean) => {
+    if (finished) {
+      return;
+    }
+    finished = true;
+    state.value ||= delivered;
+    if (state.pending === pending) {
+      delete state.pending;
+    }
+    release();
+  };
+}
+
 /** Creates a reply-to supplier that consumes implicit single-use reply ids once. */
 export function createReplyToFanout(params: {
   replyToId?: string | null;

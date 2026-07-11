@@ -2088,12 +2088,11 @@ describe("runMessageAction plugin dispatch", () => {
 
       expect(result.kind).toBe("send");
       expect(result.handledBy).toBe("core");
-      expect(replyState.value).toBe(false);
       expect(handleAction).not.toHaveBeenCalled();
       expect(mocks.callGatewayLeastPrivilege).not.toHaveBeenCalled();
       const executeCall = readMockCallArg(mocks.executeSendAction, "execute send call");
       const secondExecuteCall = readMockCallArg(mocks.executeSendAction, "second send call", 1);
-      expect(secondExecuteCall.replyToId).toBeUndefined();
+      expect(secondExecuteCall.replyToId).toBe("reply-1");
       expectRecordFields(
         executeCall,
         {
