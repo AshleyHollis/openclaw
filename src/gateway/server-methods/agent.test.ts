@@ -21,6 +21,7 @@ import {
   testing as subagentRegistryTesting,
 } from "../../agents/subagent-registry.js";
 import type { SessionEntry } from "../../config/sessions.js";
+import type { SessionTranscriptStats } from "../../config/sessions/session-accessor.js";
 import { parseSqliteSessionFileMarker } from "../../config/sessions/sqlite-marker.js";
 import {
   onDiagnosticEvent,
@@ -71,7 +72,11 @@ const mocks = vi.hoisted(() => ({
   updateSessionStore: vi.fn(),
   applySessionEntryReplacements: vi.fn(),
   patchSessionEntryTarget: vi.fn(),
-  readTranscriptStatsSync: vi.fn(() => ({ eventCount: 0, maxSeq: 0, sizeBytes: 0 })),
+  readTranscriptStatsSync: vi.fn<() => SessionTranscriptStats>(() => ({
+    eventCount: 0,
+    maxSeq: 0,
+    sizeBytes: 0,
+  })),
   agentCommand: vi.fn(),
   clearAgentRunContext: vi.fn(),
   registerAgentRunContext: vi.fn(),
