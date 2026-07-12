@@ -40,7 +40,11 @@ export type SidebarNavRoute = (typeof SIDEBAR_NAV_ROUTES)[number];
 
 // Keep the highest-value operational pages visible on first use. Persisted
 // customization still wins, including an explicitly empty pinned set.
-export const DEFAULT_SIDEBAR_PINNED_ROUTES = ["usage", "cron", "plugins"] as const satisfies readonly SidebarNavRoute[];
+export const DEFAULT_SIDEBAR_PINNED_ROUTES = [
+  "usage",
+  "cron",
+  "plugins",
+] as const satisfies readonly SidebarNavRoute[];
 
 /**
  * Normalize a persisted pinned-route list. Returns null when the value is not a
