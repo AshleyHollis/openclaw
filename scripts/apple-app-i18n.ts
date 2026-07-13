@@ -182,7 +182,9 @@ const LOCALIZED_WRAPPER_CONTRACTS: Record<string, readonly string[]> = {
     "func gatewaySecureField(\n        _ placeholder: LocalizedStringKey",
     "func settingsToggle(\n        _ title: LocalizedStringKey",
     ".accessibilityLabel(Text(placeholder))",
-    ".accessibilityLabel(title)",
+    // Text(...) wrapping keeps this contract disjoint from the substring ban
+    // on .accessibilityLabel(title) in RAW_LOCALIZATION_BYPASSES below.
+    ".accessibilityLabel(Text(title))",
   ],
   "apps/ios/Sources/Gateway/GatewayConnectionController+Capabilities.swift": [
     'String(localized: "Secure connection is required for this host.")',
