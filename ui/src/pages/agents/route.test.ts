@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentsListResult } from "../../api/types.ts";
 import type { ApplicationContext } from "../../app/context.ts";
-import { loadAgentsRouteData } from "./route.ts";
+import type { AgentsRouteData } from "./agents-page.ts";
+import { page } from "./route.ts";
 
 describe("agents route", () => {
   it("keeps a requested agent when the roster loads on a cold deep link", async () => {
@@ -24,9 +25,14 @@ describe("agents route", () => {
       },
     } as unknown as ApplicationContext;
 
-    const result = await loadAgentsRouteData(context, {
-      search: "?agent=research",
-    } as Parameters<typeof loadAgentsRouteData>[1]);
+    const result = (await page.loader?.(context, {
+      cause: "navigation",
+      deps: "?agent=research",
+      location: { pathname: "/settings/agents", search: "?agent=research", hash: "" },
+      revalidating: false,
+      shouldRun: () => true,
+      signal: new AbortController().signal,
+    })) as AgentsRouteData;
 
     expect(ensureList).toHaveBeenCalledOnce();
     expect(result.agentsList).toBe(agentsList);
