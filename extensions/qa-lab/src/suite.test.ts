@@ -476,8 +476,18 @@ describe("qa suite", () => {
         },
       });
 
+      const summary = JSON.parse(await fs.readFile(artifacts.summaryPath, "utf8")) as {
+        run?: {
+          channelCapabilityMatrixPath?: string;
+          channelDriverSmokePath?: string;
+        };
+      };
+      const capabilityMatrixPath = summary.run?.channelCapabilityMatrixPath;
+      const smokeArtifactPath = summary.run?.channelDriverSmokePath;
+      expect(capabilityMatrixPath).toContain(path.join(".crabline-smoke-artifacts", "generation-"));
+      expect(smokeArtifactPath).toContain(path.join(".crabline-smoke-artifacts", "generation-"));
       const matrix = JSON.parse(
-        await fs.readFile(path.join(outputDir, "crabline-fake-provider-capabilities.json"), "utf8"),
+        await fs.readFile(path.resolve(outputDir, capabilityMatrixPath!), "utf8"),
       ) as {
         report?: { result?: { selectedChannel?: string; supportedChannels?: string[] } };
       };
@@ -486,8 +496,10 @@ describe("qa suite", () => {
         [...CRABLINE_SERVER_CHANNELS].toSorted(),
       );
       const smoke = JSON.parse(
-        await fs.readFile(path.join(outputDir, "crabline-fake-provider-smoke.json"), "utf8"),
-      ) as { smoke?: { result?: { ok?: boolean; provider?: string } } };
+        await fs.readFile(path.resolve(outputDir, smokeArtifactPath!), "utf8"),
+      ) as {
+        smoke?: { result?: { ok?: boolean; provider?: string } };
+      };
       expect(smoke.smoke?.result).toMatchObject({ ok: true, provider: "telegram" });
       const evidence = JSON.parse(await fs.readFile(artifacts.evidencePath, "utf8")) as {
         entries?: Array<{ execution?: { channel?: { driver?: string; id?: string } } }>;
@@ -550,9 +562,13 @@ describe("qa suite", () => {
         smokeArtifactPath: "crabline-fake-provider-smoke.json",
       },
       runCrablineChannelDriverSmoke: vi.fn(async () => ({
+        artifactPointerPath: path.join(outputDir, "crabline-generations", "current.json"),
         capabilityMatrixPath,
         capabilityReport: {},
+        generation: "generation-1",
         manifestPath: path.join(outputDir, "crabline-generations", "generation-1", "manifest.json"),
+        providerReadiness: {},
+        providerReadinessArtifactPath: smokeArtifactPath,
         smoke: {},
         smokeArtifactPath,
       })),
@@ -588,8 +604,13 @@ describe("qa suite", () => {
       channelCapabilityMatrixPath: capabilityMatrixPath,
       channelDriverSmokePath: smokeArtifactPath,
     });
-    expect(artifacts.report).toContain(`Channel capability report: ${capabilityMatrixPath}.`);
-    expect(artifacts.report).toContain(`Channel driver smoke: ${smokeArtifactPath}.`);
+    expect(artifacts.report).toContain(
+      "Channel artifact pointer: .crabline-smoke-artifacts/current.json.",
+    );
+    expect(artifacts.report).toContain(`Generation capability filename: ${capabilityMatrixPath}.`);
+    expect(artifacts.report).toContain(
+      `Generation provider-readiness filename: ${smokeArtifactPath}.`,
+    );
     expect(artifacts.report).not.toContain("crabline-fake-provider-capabilities.json");
     expect(artifacts.report).not.toContain("crabline-fake-provider-smoke.json");
   });
