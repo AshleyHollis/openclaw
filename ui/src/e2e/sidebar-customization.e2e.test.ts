@@ -63,6 +63,15 @@ async function holdUiProof(page: Page, durationMs = 600) {
   }
 }
 
+async function openSettingsFromAgentMenu(sidebar: Locator) {
+  const agentMenuButton = sidebar.getByRole("button", { name: /Agent menu$/ });
+  await expect.poll(() => agentMenuButton.getAttribute("aria-expanded")).toBe("false");
+  await agentMenuButton.click();
+  const agentMenu = sidebar.getByRole("menu", { name: "Agent menu" });
+  await expect.poll(() => agentMenu.isVisible()).toBe(true);
+  await agentMenu.getByRole("menuitem", { name: "Settings" }).click();
+}
+
 async function openSidebarTestPage() {
   const context = await browser.newContext({
     locale: "en-US",
@@ -188,9 +197,7 @@ describeControlUiE2e("Control UI sidebar customization mocked Gateway E2E", () =
       await expect.poll(() => roundedWidth(shellNav)).toBe(400);
       // Settings takes over the whole app: the regular sidebar yields to the
       // settings sidebar until "Back to app" (or Escape) exits.
-      const settingsLink = sidebar.getByRole("link", { name: "Settings" });
-      await expect.poll(() => settingsLink.isVisible()).toBe(true);
-      await settingsLink.click();
+      await openSettingsFromAgentMenu(sidebar);
       await expect.poll(() => new URL(page.url()).pathname).toBe("/settings/general");
       const settingsSidebar = page.locator(".settings-sidebar");
       await expect.poll(() => settingsSidebar.isVisible()).toBe(true);
@@ -319,7 +326,7 @@ describeControlUiE2e("Control UI sidebar customization mocked Gateway E2E", () =
       await page.keyboard.press("Escape");
       await expect.poll(() => new URL(page.url()).pathname).toBe("/sessions");
       await expect.poll(() => sidebar.isVisible()).toBe(true);
-      await settingsLink.click();
+      await openSettingsFromAgentMenu(sidebar);
       await expect.poll(() => settingsSidebar.isVisible()).toBe(true);
       await expect.poll(() => settingsSearch.inputValue()).toBe("");
       await captureSettingsSidebarProof(settingsSidebar, "01g-settings-search-reset.png");
