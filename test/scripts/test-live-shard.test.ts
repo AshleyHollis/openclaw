@@ -314,7 +314,7 @@ describe("scripts/test-live-shard", () => {
   it("allows explicitly opt-in live shard files to be skipped until their env is enabled", () => {
     const payload = {
       numPassedTests: 1,
-      numTotalTests: 2,
+      numTotalTests: 3,
       testResults: [
         {
           name: path.join(process.cwd(), "src/gateway/gateway-codex-harness.live.test.ts"),
@@ -324,11 +324,19 @@ describe("scripts/test-live-shard", () => {
           name: path.join(process.cwd(), "src/gateway/gateway-cli-backend.live.test.ts"),
           assertionResults: [{ status: "skipped" }],
         },
+        {
+          name: path.join(
+            process.cwd(),
+            "src/skills/workshop/experience-review.live.test.ts",
+          ),
+          assertionResults: [{ status: "skipped" }],
+        },
       ],
     };
     const expectedFiles = [
       "src/gateway/gateway-codex-harness.live.test.ts",
       "src/gateway/gateway-cli-backend.live.test.ts",
+      "src/skills/workshop/experience-review.live.test.ts",
     ];
 
     expect(validateLiveShardReportPayload(payload, expectedFiles, process.cwd(), {})).toEqual({
@@ -342,6 +350,15 @@ describe("scripts/test-live-shard", () => {
       ok: false,
       reason:
         "Vitest report selected live test files had no passing assertions: src/gateway/gateway-cli-backend.live.test.ts",
+    });
+    expect(
+      validateLiveShardReportPayload(payload, expectedFiles, process.cwd(), {
+        OPENCLAW_LIVE_SKILL_EXPERIENCE_REVIEW: "1",
+      }),
+    ).toEqual({
+      ok: false,
+      reason:
+        "Vitest report selected live test files had no passing assertions: src/skills/workshop/experience-review.live.test.ts",
     });
   });
 
