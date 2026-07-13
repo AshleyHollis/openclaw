@@ -678,6 +678,7 @@ export const KNIP_UNUSED_EXPORT_BASELINE = [
   "src/agents/embedded-agent-runner/resource-loader.ts: EMBEDDED_AGENT_RESOURCE_LOADER_DISCOVERY_OPTIONS",
   "src/agents/embedded-agent-runner/run.ts: testing",
   "src/agents/embedded-agent-runner/run/abortable.ts: OPENCLAW_ABORTABLE_WRAPPER",
+  "src/agents/embedded-agent-runner/run/attempt-session.ts: createEmbeddedAgentSessionWithResourceLoader",
   "src/agents/embedded-agent-runner/run/attempt-trajectory-status.ts: NON_DELIVERABLE_TERMINAL_TURN_REASON",
   "src/agents/embedded-agent-runner/run/attempt-trajectory-status.ts: ResolveAttemptTrajectoryTerminalParams",
   "src/agents/embedded-agent-runner/run/attempt.llm-boundary.ts: insertRuntimeContextMessageForPrompt",
