@@ -7,4 +7,9 @@ describe("Signal probe contract", () => {
   it("keeps public probe aligned with base contract", () => {
     expectTypeOf<SignalProbe>().toMatchTypeOf<BaseProbeResult>();
   });
+
+  it("accepts the shipped probe shape without readiness", () => {
+    const legacyProbe: SignalProbe = { ok: true, elapsedMs: 0 };
+    expectTypeOf(legacyProbe).toMatchTypeOf<SignalProbe>();
+  });
 });

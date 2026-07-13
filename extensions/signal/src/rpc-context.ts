@@ -4,7 +4,7 @@ import { requireRuntimeConfig } from "openclaw/plugin-sdk/plugin-config-runtime"
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { resolveSignalAccount } from "./accounts.js";
 
-export type SignalRpcAccountOpts = {
+type SignalRpcAccountOpts = {
   cfg: OpenClawConfig;
   baseUrl?: string;
   account?: string;
