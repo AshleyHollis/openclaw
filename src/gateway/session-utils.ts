@@ -2182,13 +2182,7 @@ export function buildGatewaySessionRow(params: {
     !lightweight && entry ? projectPluginSessionExtensionsSync({ sessionKey: key, entry }) : [];
   return {
     key,
-    presentation: sessionPresentationForRow(
-      cfg,
-      key,
-      sessionAgentId,
-      groupDisplayTitle,
-      entry,
-    ),
+    presentation: sessionPresentationForRow(cfg, key, sessionAgentId, groupDisplayTitle, entry),
     spawnedBy: subagentOwner || entry?.spawnedBy,
     spawnedWorkspaceDir: entry?.spawnedWorkspaceDir,
     spawnedCwd: entry?.spawnedCwd,
