@@ -1,8 +1,8 @@
 // Feishu plugin module implements reply dispatcher behavior.
 import { formatReasoningMessage } from "openclaw/plugin-sdk/agent-runtime";
 import { logTypingFailure } from "openclaw/plugin-sdk/channel-feedback";
-import { createChannelMessageReplyPipeline } from "openclaw/plugin-sdk/channel-outbound";
 import {
+  createChannelMessageReplyPipeline,
   formatChannelProgressDraftLineForEntry,
   isChannelProgressDraftWorkToolName,
   resolveChannelPreviewStreamMode,
@@ -20,6 +20,7 @@ import { createFeishuClient } from "./client.js";
 import { resolveFeishuIdentityEmoji } from "./identity-header.js";
 import { sendMediaFeishu, shouldSuppressFeishuTextForVoiceMedia } from "./media.js";
 import type { MentionTarget } from "./mention-target.types.js";
+import * as messageAudit from "./message-audit.js";
 import {
   createReplyPrefixContext,
   type ClawdbotConfig,
@@ -282,6 +283,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
   let streamingCloseErroredForReply = false;
   let visibleReplySent = false;
   let skippedFinalReason: string | null = null;
+  let messageAuditNoticeSent = false;
   let idleSideEffectsPromise: Promise<void> = Promise.resolve();
   let replyLifecycleStateInitialized = false;
   type StreamTextUpdateMode = "snapshot" | "delta";
@@ -847,12 +849,27 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
         }
       },
       onError: async (error, info) => {
+        const shouldSendAuditNotice =
+          !messageAuditNoticeSent && messageAudit.isFeishuMessageAuditRejection(error);
         streamingCloseErroredForReply = true;
         streamingClosedForReply = false;
         params.runtime.error?.(
           `feishu[${account.accountId}] ${info.kind} reply failed: ${String(error)}`,
         );
         await queueIdleSideEffects({ markClosedForReply: false });
+        if (shouldSendAuditNotice) {
+          messageAuditNoticeSent = true;
+          await sendMessageFeishu({
+            cfg,
+            to: sendTarget,
+            text: messageAudit.MESSAGE_AUDIT_REJECTION_NOTICE,
+            replyToMessageId: sendReplyToMessageId,
+            replyInThread: effectiveReplyInThread,
+            allowTopLevelReplyFallback,
+            accountId,
+          });
+          markVisibleReplySent();
+        }
       },
       onIdle: () => queueIdleSideEffects(),
       onCleanup: () => {

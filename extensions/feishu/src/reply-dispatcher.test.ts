@@ -1937,6 +1937,60 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
     });
   });
 
+  it("explains a Feishu content-policy rejection without changing the rejected reply", async () => {
+    useNonStreamingAutoAccount();
+    const runtime = createRuntimeLogger();
+    const { result, options } = createDispatcherHarness({ runtime });
+    const sdkError = Object.assign(new Error("Request failed with status code 400"), {
+      response: {
+        status: 400,
+        data: { code: 230028, msg: "The messages do NOT pass the audit" },
+      },
+    });
+    const wrappedError = new Error("Feishu send failed", { cause: sdkError });
+    sendMessageFeishuMock.mockRejectedValueOnce(wrappedError);
+
+    await expect(options.deliver({ text: "Original reply" }, { kind: "final" })).rejects.toBe(
+      wrappedError,
+    );
+    await options.onError?.(wrappedError, { kind: "final" });
+    await expect(result.ensureNoVisibleReplyFallback("failed-final")).resolves.toBe(false);
+
+    expect(sendMessageFeishuMock).toHaveBeenCalledTimes(2);
+    expect(sendMessageFeishuMock.mock.calls[0]?.[0]?.text).toBe("Original reply");
+    expect(sendMessageFeishuMock.mock.calls[1]?.[0]?.text).toBe(
+      "⚠️ Feishu couldn't deliver this reply because it didn't pass a content policy check.",
+    );
+  });
+
+  it("explains an audit rejection after an earlier reply chunk was delivered", async () => {
+    useNonStreamingAutoAccount();
+    const runtime = createRuntimeLogger();
+    const { result, options } = createDispatcherHarness({ runtime });
+    const core = getFeishuRuntimeMock();
+    core.channel.text.chunkTextWithMode.mockReturnValue(["First chunk", "Rejected chunk"]);
+    const sdkError = Object.assign(new Error("Request failed with status code 400"), {
+      response: { status: 400, data: { code: 230028 } },
+    });
+    const wrappedError = new Error("Feishu send failed", { cause: sdkError });
+    sendMessageFeishuMock
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(wrappedError)
+      .mockResolvedValueOnce(undefined);
+
+    await expect(options.deliver({ text: "Original reply" }, { kind: "final" })).rejects.toBe(
+      wrappedError,
+    );
+    await options.onError?.(wrappedError, { kind: "final" });
+    await expect(result.ensureNoVisibleReplyFallback("failed-final")).resolves.toBe(false);
+
+    expect(sendMessageFeishuMock.mock.calls.map((call) => call[0]?.text)).toEqual([
+      "First chunk",
+      "Rejected chunk",
+      "⚠️ Feishu couldn't deliver this reply because it didn't pass a content policy check.",
+    ]);
+  });
+
   it("does not send no-visible-reply fallback after an intentional silent final", async () => {
     const runtime = createRuntimeLogger();
     const { result, options } = createDispatcherHarness({ runtime, sessionKey: "main" });
