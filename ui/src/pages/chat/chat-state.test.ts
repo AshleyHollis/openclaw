@@ -16,7 +16,6 @@ import {
   ChatStateController,
   handlePageGatewayEvent,
   refreshChatMetadata,
-  requestChatPageUpdate,
   resetChatStateForRouteSession,
   retryChatComposerMemoryFallback,
   resolveChatAvatarUrl,
@@ -47,48 +46,14 @@ afterEach(() => {
 });
 
 describe("ChatStateController render lifecycle", () => {
-  it("coalesces stream invalidations into one animation frame", () => {
+  it("keeps every chat delta while batching and canceling renders", () => {
     let nextFrame = 1;
-    const frames = new Map<number, FrameRequestCallback>();
-    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
-      const id = nextFrame++;
-      frames.set(id, callback);
-      return id;
-    });
-    const cancelFrame = vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation((id) => {
-      frames.delete(id);
-    });
-    const requestUpdate = vi.fn();
-    const state = { chatStreamRenderFrame: null, requestUpdate };
-
-    requestChatPageUpdate(state, "animation-frame");
-    requestChatPageUpdate(state, "animation-frame");
-    requestChatPageUpdate(state, "animation-frame");
-
-    expect(frames.size).toBe(1);
-    expect(requestUpdate).not.toHaveBeenCalled();
-    const firstFrame = frames.get(1);
-    frames.delete(1);
-    firstFrame?.(0);
-    expect(requestUpdate).toHaveBeenCalledOnce();
-    expect(state.chatStreamRenderFrame).toBeNull();
-
-    requestChatPageUpdate(state, "animation-frame");
-    const staleFrame = frames.get(2);
-    requestChatPageUpdate(state);
-    staleFrame?.(0);
-
-    expect(cancelFrame).toHaveBeenCalledWith(2);
-    expect(requestUpdate).toHaveBeenCalledTimes(2);
-    expect(state.chatStreamRenderFrame).toBeNull();
-  });
-
-  it("keeps every chat delta while batching their render", () => {
     let scheduledFrame: FrameRequestCallback | undefined;
     vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
       scheduledFrame = callback;
-      return 1;
+      return nextFrame++;
     });
+    const cancelFrame = vi.spyOn(globalThis, "cancelAnimationFrame");
     const requestUpdate = vi.fn();
     const state = {
       chatMessages: [],
@@ -105,6 +70,7 @@ describe("ChatStateController render lifecycle", () => {
 
     for (const deltaText of ["A", "B", "C"]) {
       handlePageGatewayEvent(state, {
+        type: "event",
         event: "chat",
         payload: { state: "delta", runId: "run-1", sessionKey: "main", deltaText },
       });
@@ -112,8 +78,21 @@ describe("ChatStateController render lifecycle", () => {
 
     expect(state.chatStream).toBe("ABC");
     expect(requestUpdate).not.toHaveBeenCalled();
-    scheduledFrame?.(0);
+    const staleFrame = scheduledFrame;
+    handlePageGatewayEvent(state, { type: "event", event: "agent", payload: {} });
+    expect(cancelFrame).toHaveBeenCalledWith(1);
     expect(requestUpdate).toHaveBeenCalledOnce();
+    staleFrame?.(0);
+    expect(requestUpdate).toHaveBeenCalledOnce();
+
+    handlePageGatewayEvent(state, {
+      type: "event",
+      event: "chat",
+      payload: { state: "delta", runId: "run-1", sessionKey: "main", deltaText: "D" },
+    });
+    scheduledFrame?.(0);
+    expect(state.chatStream).toBe("ABCD");
+    expect(requestUpdate).toHaveBeenCalledTimes(2);
   });
 
   it("requests a render before selecting the commit promise", async () => {
