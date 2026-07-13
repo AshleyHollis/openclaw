@@ -105,6 +105,7 @@ import { estimateUsageCost, resolveModelCostConfig } from "../utils/usage-format
 import { listGatewayAgentIds } from "./agent-list.js";
 import { sessionHasAutomation } from "./session-automation-index.js";
 import { sortAndLimitSessionEntries, type SessionEntryPair } from "./session-list-order.js";
+import { sessionPresentationForRow } from "./session-presentation.js";
 import {
   resolveSessionStoreAgentId,
   resolveSessionStoreKey,
@@ -1920,9 +1921,12 @@ export function buildGatewaySessionRow(params: {
   // channel-derived display names or renames silently vanish on refresh.
   // Group sessions prefer the human chat title (subject/#channel) over the
   // stored compact token displayName (e.g. "slack:g-general").
+  const groupDisplayTitle = isGroupSession
+    ? buildGroupDisplayTitle({ subject, groupChannel, space })
+    : undefined;
   const displayName =
     entry?.label ??
-    (isGroupSession ? buildGroupDisplayTitle({ subject, groupChannel, space }) : undefined) ??
+    groupDisplayTitle ??
     entry?.displayName ??
     (isGroupSession && channel
       ? buildGroupDisplayName({
@@ -2150,7 +2154,6 @@ export function buildGatewaySessionRow(params: {
       lastMessagePreview = fields.lastMessagePreview;
     }
   }
-
   const thinkingProvider = rowModelProvider ?? DEFAULT_PROVIDER;
   const thinkingModel = rowModel ?? DEFAULT_MODEL;
   const thinkingProjection = resolveGatewaySessionThinkingProjectionInternal({
@@ -2177,9 +2180,15 @@ export function buildGatewaySessionRow(params: {
   });
   const pluginExtensions =
     !lightweight && entry ? projectPluginSessionExtensionsSync({ sessionKey: key, entry }) : [];
-
   return {
     key,
+    presentation: sessionPresentationForRow(
+      cfg,
+      key,
+      sessionAgentId,
+      groupDisplayTitle ?? originLabel,
+      entry,
+    ),
     spawnedBy: subagentOwner || entry?.spawnedBy,
     spawnedWorkspaceDir: entry?.spawnedWorkspaceDir,
     spawnedCwd: entry?.spawnedCwd,
