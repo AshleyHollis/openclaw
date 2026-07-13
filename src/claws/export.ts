@@ -3,6 +3,7 @@ import { closeSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 import { openLocalAgentAvatarFile } from "../agents/identity-avatar-file.js";
+import { stringify as stringifyYaml } from "yaml";
 import { normalizeConfiguredMcpServers } from "../config/mcp-config-normalize.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { readFileDescriptorBoundedSync } from "../infra/file-descriptor-read.js";
@@ -347,18 +348,21 @@ export async function exportClawAgent(
         ? record.install.claw.version
         : derivativePackageVersion(manifest, contents),
       type: "module",
-      openclaw: { claw: "openclaw.claw.json" },
+      openclaw: { claw: "CLAW.md" },
     };
     await output.write("package.json", Buffer.from(`${JSON.stringify(packageJson, null, 2)}\n`), {
       overwrite: false,
     });
     filesWritten.push("package.json");
     await output.write(
-      "openclaw.claw.json",
-      Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`),
+      "CLAW.md",
+      Buffer.from(
+        `---\n${stringifyYaml(manifest)}---\n\n# ${manifest.agent.name ?? manifest.agent.id}\n\n` +
+          "This Claw creates one configured OpenClaw agent and workspace.\n",
+      ),
       { overwrite: false },
     );
-    filesWritten.push("openclaw.claw.json");
+    filesWritten.push("CLAW.md");
   } catch (error) {
     await rm(target, { recursive: true, force: true }).catch(() => undefined);
     throw new ClawExportError(

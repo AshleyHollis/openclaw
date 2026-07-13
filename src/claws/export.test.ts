@@ -137,7 +137,7 @@ describe("exportClawAgent", () => {
     expect(JSON.parse(await readFile(join(out, "package.json"), "utf8"))).toMatchObject({
       name: "@acme/worker",
       version: "1.2.3",
-      openclaw: { claw: "openclaw.claw.json" },
+      openclaw: { claw: "CLAW.md" },
     });
     await expect(readFile(join(out, "workspace", "SOUL.md"), "utf8")).resolves.toBe(
       "managed soul\n",

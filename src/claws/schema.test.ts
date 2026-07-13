@@ -1,5 +1,5 @@
 // Tests for the grouped Claw manifest and read-only add plan.
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -292,6 +292,88 @@ describe("readClawManifestFile", () => {
     expect(result.source.integrity).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
 
+  it("reads a human-authored CLAW.md package through the same manifest schema", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openclaw-claw-markdown-"));
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({
+        name: "@acme/github-triage",
+        version: "3.2.1",
+        openclaw: { claw: "CLAW.md" },
+      }),
+      "utf8",
+    );
+    await writeFile(
+      join(root, "CLAW.md"),
+      [
+        "---",
+        "schemaVersion: 1",
+        "agent:",
+        "  id: triage",
+        "workspace: {}",
+        "packages: []",
+        "mcpServers: {}",
+        "cronJobs: []",
+        "---",
+        "",
+        "# GitHub Triage",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const result = await readClawManifestFile(root);
+
+    expect(result).toMatchObject({
+      ok: true,
+      manifest: { schemaVersion: 1, agent: { id: "triage" } },
+      source: { kind: "package", name: "@acme/github-triage", version: "3.2.1" },
+    });
+    if (!result.ok) {
+      throw new Error("expected package to parse");
+    }
+    expect(result.source).not.toHaveProperty("manifestFormatPath");
+  });
+
+  it("rejects CLAW.md without YAML frontmatter", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openclaw-claw-markdown-invalid-"));
+    const path = join(root, "CLAW.md");
+    await writeFile(path, "# Missing manifest\n", "utf8");
+
+    const result = await readClawManifestFile(path);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "missing_claw_frontmatter" }),
+    );
+  });
+
+  it("returns diagnostics when CLAW.md aliases cannot be resolved", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openclaw-claw-markdown-alias-"));
+    const path = join(root, "CLAW.md");
+    await writeFile(
+      path,
+      [
+        "---",
+        "schemaVersion: 1",
+        "agent: *agent",
+        "workspace: {}",
+        "packages: []",
+        "mcpServers: {}",
+        "cronJobs: []",
+        "anchor: &agent { id: triage }",
+        "---",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const result = await readClawManifestFile(path);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "invalid_claw_frontmatter" }),
+    );
+  });
+
   it("synthesizes explicit development identity for a standalone manifest", async () => {
     const root = await mkdtemp(join(tmpdir(), "openclaw-claw-development-"));
     const path = join(root, "demo.claw.json");
@@ -313,6 +395,46 @@ describe("readClawManifestFile", () => {
       version: "0.0.0-development",
     });
   });
+
+  it.runIf(process.platform !== "win32")(
+    "uses the declared CLAW.md path when it is an in-package symlink",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "openclaw-claw-markdown-link-"));
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({
+          name: "@acme/github-triage",
+          version: "3.2.1",
+          openclaw: { claw: "CLAW.md" },
+        }),
+        "utf8",
+      );
+      await writeFile(
+        join(root, "manifest.json"),
+        [
+          "---",
+          "schemaVersion: 1",
+          "agent:",
+          "  id: triage",
+          "workspace: {}",
+          "packages: []",
+          "mcpServers: {}",
+          "cronJobs: []",
+          "---",
+        ].join("\n"),
+        "utf8",
+      );
+      await symlink("manifest.json", join(root, "CLAW.md"));
+
+      const result = await readClawManifestFile(root);
+
+      expect(result).toMatchObject({
+        ok: true,
+        manifest: { agent: { id: "triage" } },
+        source: { manifestPath: join(root, "manifest.json") },
+      });
+    },
+  );
 
   it("rejects package manifests that escape the package root", async () => {
     const parent = await mkdtemp(join(tmpdir(), "openclaw-claw-escape-"));

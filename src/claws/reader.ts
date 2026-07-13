@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { parseDocument } from "yaml";
 import { parseClawManifest } from "./schema.js";
 import type { ClawDiagnostic, ClawReadResult, ClawSourceIdentity } from "./types.js";
 
@@ -11,7 +12,13 @@ type PackageJson = {
   openclaw: { claw: string };
 };
 
+type ResolvedClawSource = {
+  source: Omit<ClawSourceIdentity, "integrity">;
+  manifestFormatPath: string;
+};
+
 const EXACT_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const CLAW_MARKDOWN_FILENAME = "CLAW.md";
 
 function fileDiagnostic(code: string, message: string, path = "$"): ClawDiagnostic {
   return { level: "error", code, path, message };
@@ -72,11 +79,89 @@ async function readJson(
   }
 }
 
+function parseClawMarkdown(
+  raw: string,
+  path: string,
+): { ok: true; value: unknown } | { ok: false; diagnostics: ClawDiagnostic[] } {
+  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!match) {
+    return {
+      ok: false,
+      diagnostics: [
+        fileDiagnostic(
+          "missing_claw_frontmatter",
+          `${path} must start with a YAML frontmatter block delimited by --- lines.`,
+        ),
+      ],
+    };
+  }
+  const document = parseDocument(match[1], { prettyErrors: false, uniqueKeys: true });
+  if (document.errors.length > 0) {
+    return {
+      ok: false,
+      diagnostics: document.errors.map((error) =>
+        fileDiagnostic("invalid_claw_frontmatter", `Could not parse ${path}: ${error.message}`),
+      ),
+    };
+  }
+  try {
+    return { ok: true, value: document.toJSON() };
+  } catch (error) {
+    return {
+      ok: false,
+      diagnostics: [
+        fileDiagnostic(
+          "invalid_claw_frontmatter",
+          `Could not parse ${path}: ${(error as Error).message}`,
+        ),
+      ],
+    };
+  }
+}
+
+export function parseClawManifestDocument(
+  raw: string,
+  path: string,
+): { ok: true; value: unknown } | { ok: false; diagnostics: ClawDiagnostic[] } {
+  if (basename(path).toLowerCase() === CLAW_MARKDOWN_FILENAME.toLowerCase()) {
+    return parseClawMarkdown(raw, path);
+  }
+  try {
+    return { ok: true, value: JSON.parse(raw) };
+  } catch (error) {
+    return {
+      ok: false,
+      diagnostics: [
+        fileDiagnostic("invalid_json", `Could not parse ${path}: ${(error as Error).message}`),
+      ],
+    };
+  }
+}
+
+async function readClawDocument(
+  path: string,
+  code: string,
+  manifestFormatPath = path,
+): Promise<
+  { ok: true; raw: string; value: unknown } | { ok: false; diagnostics: ClawDiagnostic[] }
+> {
+  let raw: string;
+  try {
+    raw = await readFile(path, "utf8");
+  } catch (error) {
+    return {
+      ok: false,
+      diagnostics: [fileDiagnostic(code, `Could not read ${path}: ${(error as Error).message}`)],
+    };
+  }
+  const parsed = parseClawManifestDocument(raw, manifestFormatPath);
+  return parsed.ok ? { ...parsed, raw } : parsed;
+}
+
 async function resolvePackageSource(
   packageRoot: string,
 ): Promise<
-  | { ok: true; source: Omit<ClawSourceIdentity, "integrity"> }
-  | { ok: false; diagnostics: ClawDiagnostic[] }
+  { ok: true; source: ResolvedClawSource } | { ok: false; diagnostics: ClawDiagnostic[] }
 > {
   const packageRootReal = await realpath(packageRoot).catch(() => undefined);
   if (!packageRootReal) {
@@ -110,9 +195,8 @@ async function resolvePackageSource(
       ],
     };
   }
-  const manifestPath = await realpath(resolve(packageRootReal, packageJson.openclaw.claw)).catch(
-    () => undefined,
-  );
+  const declaredManifestPath = resolve(packageRootReal, packageJson.openclaw.claw);
+  const manifestPath = await realpath(declaredManifestPath).catch(() => undefined);
   if (!manifestPath || !isContained(packageRootReal, manifestPath)) {
     return {
       ok: false,
@@ -132,6 +216,7 @@ async function resolvePackageSource(
       version: packageJson.version,
       packageRoot: packageRootReal,
       manifestPath,
+      manifestFormatPath: declaredManifestPath,
     },
   };
 }
@@ -139,8 +224,7 @@ async function resolvePackageSource(
 async function resolveSource(
   path: string,
 ): Promise<
-  | { ok: true; source: Omit<ClawSourceIdentity, "integrity"> }
-  | { ok: false; diagnostics: ClawDiagnostic[] }
+  { ok: true; source: ResolvedClawSource } | { ok: false; diagnostics: ClawDiagnostic[] }
 > {
   const inputPath = resolve(path);
   const inputStat = await stat(inputPath).catch(() => undefined);
@@ -172,6 +256,7 @@ async function resolveSource(
       version: "0.0.0-development",
       packageRoot,
       manifestPath,
+      manifestFormatPath: inputPath,
     },
   };
 }
@@ -181,7 +266,11 @@ export async function readClawManifestFile(path: string): Promise<ClawReadResult
   if (!sourceResult.ok) {
     return sourceResult;
   }
-  const manifestResult = await readJson(sourceResult.source.manifestPath, "read_failed");
+  const manifestResult = await readClawDocument(
+    sourceResult.source.manifestPath,
+    "read_failed",
+    sourceResult.source.manifestFormatPath,
+  );
   if (!manifestResult.ok) {
     return manifestResult;
   }
@@ -190,7 +279,11 @@ export async function readClawManifestFile(path: string): Promise<ClawReadResult
     return parsed;
   }
   const source: ClawSourceIdentity = {
-    ...sourceResult.source,
+    kind: sourceResult.source.kind,
+    name: sourceResult.source.name,
+    version: sourceResult.source.version,
+    packageRoot: sourceResult.source.packageRoot,
+    manifestPath: sourceResult.source.manifestPath,
     integrity: `sha256:${createHash("sha256").update(manifestResult.raw).digest("hex")}`,
   };
   return { ok: true, manifest: parsed.manifest, source, diagnostics: parsed.diagnostics };
