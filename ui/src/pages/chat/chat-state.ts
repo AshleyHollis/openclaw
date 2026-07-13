@@ -119,7 +119,12 @@ import {
   type ChatInputHistoryKeyResult,
 } from "./input-history.ts";
 import { applyModelCatalogResult, loadModels } from "./models.ts";
-import type { AfterCommitEffect, RenderLifecycle } from "./render-lifecycle.ts";
+import {
+  cancelChatStreamRenderFrame,
+  requestChatPageUpdate,
+  type AfterCommitEffect,
+  type RenderLifecycle,
+} from "./render-lifecycle.ts";
 import {
   handleAbortChat,
   reconcileChatRunFromCurrentSessionRow,
@@ -1519,44 +1524,6 @@ function preserveDeliveredQueuedUserTurn(state: ChatPageHost, item: ChatQueueIte
   if (!containsUserTurn(cached)) {
     cacheChatMessages(state.chatMessagesBySession, state, target, [...cached, userMessage]);
   }
-}
-
-type ChatPageUpdateMode = "immediate" | "animation-frame";
-
-function cancelChatStreamRenderFrame(state: Pick<ChatPageHost, "chatStreamRenderFrame">): void {
-  const frame = state.chatStreamRenderFrame;
-  if (frame == null) {
-    return;
-  }
-  state.chatStreamRenderFrame = null;
-  if (typeof globalThis.cancelAnimationFrame === "function") {
-    globalThis.cancelAnimationFrame(frame);
-  }
-}
-
-export function requestChatPageUpdate(
-  state: Pick<ChatPageHost, "chatStreamRenderFrame" | "requestUpdate">,
-  mode: ChatPageUpdateMode = "immediate",
-): void {
-  if (mode === "immediate" || typeof globalThis.requestAnimationFrame !== "function") {
-    cancelChatStreamRenderFrame(state);
-    state.requestUpdate?.();
-    return;
-  }
-  if (state.chatStreamRenderFrame != null) {
-    return;
-  }
-  // Deltas still mutate the canonical stream immediately. One frame owns the
-  // paint; terminal/non-stream events cancel it so stale partial UI cannot win.
-  let frame = 0;
-  frame = globalThis.requestAnimationFrame(() => {
-    if (state.chatStreamRenderFrame !== frame) {
-      return;
-    }
-    state.chatStreamRenderFrame = null;
-    state.requestUpdate?.();
-  });
-  state.chatStreamRenderFrame = frame;
 }
 
 type ChatRenderLifecycleScope = {

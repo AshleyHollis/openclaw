@@ -16,7 +16,6 @@ import {
   ChatStateController,
   handlePageGatewayEvent,
   refreshChatMetadata,
-  requestChatPageUpdate,
   resetChatStateForRouteSession,
   retryChatComposerMemoryFallback,
   resolveChatAvatarUrl,
@@ -34,6 +33,7 @@ import {
   storedChatOutboxScopeKey,
 } from "./composer-persistence.ts";
 import { scheduleControlUiAfterPaint } from "./performance.ts";
+import { requestChatPageUpdate } from "./render-lifecycle.ts";
 
 vi.mock("../../app/assistant-identity.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../app/assistant-identity.ts")>()),
