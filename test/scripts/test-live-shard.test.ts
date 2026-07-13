@@ -325,10 +325,7 @@ describe("scripts/test-live-shard", () => {
           assertionResults: [{ status: "skipped" }],
         },
         {
-          name: path.join(
-            process.cwd(),
-            "src/skills/workshop/experience-review.live.test.ts",
-          ),
+          name: path.join(process.cwd(), "src/skills/workshop/experience-review.live.test.ts"),
           assertionResults: [{ status: "skipped" }],
         },
       ],
