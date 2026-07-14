@@ -11,6 +11,7 @@ import {
   defaultGithubSnapshotPath,
   githubApiWithSnapshot,
   highlightCountError,
+  mergeContributionRecords,
   persistGithubSnapshot,
   releaseNoteReferences,
   standardRevertedHash,
@@ -37,6 +38,52 @@ function git(cwd: string, args: string[]): string {
 }
 
 describe("release-note verification", () => {
+  it("preserves current contribution metadata while merging an optional historical seed", () => {
+    const current = {
+      legacyIssues: new Map([[20, { references: [], thanks: ["reporter"] }]]),
+      pullRequests: new Map([
+        [
+          10,
+          {
+            externalReferences: ["GHSA-current"],
+            references: [20],
+            thanks: ["current-author"],
+          },
+        ],
+      ]),
+    };
+    const seed = {
+      legacyIssues: new Map([[21, { references: [], thanks: ["seed-reporter"] }]]),
+      pullRequests: new Map([
+        [
+          10,
+          {
+            externalReferences: ["GHSA-seed"],
+            references: [21],
+            thanks: ["seed-author"],
+          },
+        ],
+      ]),
+    };
+
+    expect(mergeContributionRecords(current, seed)).toEqual({
+      legacyIssues: new Map([
+        [20, { externalReferences: [], references: [], thanks: ["reporter"] }],
+        [21, { externalReferences: [], references: [], thanks: ["seed-reporter"] }],
+      ]),
+      pullRequests: new Map([
+        [
+          10,
+          {
+            externalReferences: ["GHSA-current", "GHSA-seed"],
+            references: [20, 21],
+            thanks: ["current-author", "seed-author"],
+          },
+        ],
+      ]),
+    });
+  });
+
   it("stores default GitHub snapshots in the shared Git common directory", () => {
     const commonDir = resolve("/tmp/openclaw-shared-git");
     expect(defaultGithubSnapshotPath("a".repeat(40), "b".repeat(40), commonDir)).toBe(

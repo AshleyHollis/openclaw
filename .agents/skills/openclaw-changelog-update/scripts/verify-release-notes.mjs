@@ -613,6 +613,19 @@ export function contributionRecordFor(section) {
   return result;
 }
 
+export function mergeContributionRecords(...records) {
+  const merged = { legacyIssues: new Map(), pullRequests: new Map() };
+  for (const record of records) {
+    for (const [number, entry] of record.pullRequests) {
+      addContributionRecordEntry(merged.pullRequests, number, entry);
+    }
+    for (const [number, entry] of record.legacyIssues) {
+      addContributionRecordEntry(merged.legacyIssues, number, entry);
+    }
+  }
+  return merged;
+}
+
 function completeContributionRecord(section, label) {
   const recordStart = section.source.search(/\n### Complete contribution record\r?$/m);
   if (recordStart < 0) {
@@ -1940,11 +1953,11 @@ function main() {
     : renderedRecord;
   const effectiveRenderedRecordReferences =
     contributionRecordMetadataReferences(effectiveRenderedRecord);
-  let priorRecord = { legacyIssues: new Map(), pullRequests: new Map() };
+  let priorRecord = effectiveRenderedRecord;
   if (options.seedRef) {
     const seedChangelog = git(["show", `${options.seedRef}:CHANGELOG.md`]);
     const seedSection = sectionFor(seedChangelog, options.version);
-    priorRecord = contributionRecordFor(seedSection);
+    priorRecord = mergeContributionRecords(priorRecord, contributionRecordFor(seedSection));
   }
   priorRecord = withoutExcludedContributionRecords(priorRecord, excludedRecordedReferences);
   const recordedReferences = contributionRecordMetadataReferences(priorRecord);
