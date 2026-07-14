@@ -117,11 +117,11 @@ export async function runPackageRuntimeGuard(
         `${requirement}; detected Node ${runtimeVersion ?? "missing"}. Upgrade Node, then retry the OpenClaw update.`,
       );
     }
-    for (const [name, expected] of Object.entries(PACKAGE_LIFECYCLE_CONTRACT)) {
-      const actual = contract[name as keyof typeof PACKAGE_LIFECYCLE_CONTRACT];
+    for (const [lifecycleName, expected] of Object.entries(PACKAGE_LIFECYCLE_CONTRACT)) {
+      const actual = contract[lifecycleName as keyof typeof PACKAGE_LIFECYCLE_CONTRACT];
       if (actual !== expected) {
         throw new Error(
-          `staged package declares unsupported ${name} contract ${JSON.stringify(actual)}`,
+          `staged package declares unsupported ${lifecycleName} contract ${JSON.stringify(actual)}`,
         );
       }
     }
