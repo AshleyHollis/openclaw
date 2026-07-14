@@ -250,6 +250,7 @@ jobs:
       evidence_root_run_id: ${{ steps.find.outputs.evidence_root_run_id }}
       evidence_run_url: ${{ steps.find.outputs.evidence_run_url }}
       evidence_sha: ${{ steps.find.outputs.evidence_sha }}
+      evidence_policy: ${{ steps.find.outputs.evidence_policy }}
       evidence_manifest: ${{ steps.find.outputs.evidence_manifest }}
       changed_paths: ${{ steps.find.outputs.changed_paths }}
     steps:
@@ -1366,6 +1367,7 @@ jobs:
     needs:
       [
         resolve_target,
+        evidence_reuse,
         docker_runtime_assets_preflight,
         normal_ci,
         plugin_prerelease,
@@ -1391,6 +1393,12 @@ jobs:
           NPM_TELEGRAM_RESULT: ${{ needs.npm_telegram.result }}
           PERFORMANCE_RESULT: ${{ needs.performance.result }}
           DOCKER_RUNTIME_ASSETS_PREFLIGHT_RESULT: ${{ needs.docker_runtime_assets_preflight.result }}
+          EVIDENCE_REUSE: ${{ needs.evidence_reuse.outputs.reuse }}
+          EVIDENCE_ROOT_RUN_ID: ${{ needs.evidence_reuse.outputs.evidence_root_run_id }}
+          EVIDENCE_RUN_URL: ${{ needs.evidence_reuse.outputs.evidence_run_url }}
+          EVIDENCE_SHA: ${{ needs.evidence_reuse.outputs.evidence_sha }}
+          EVIDENCE_POLICY: ${{ needs.evidence_reuse.outputs.evidence_policy }}
+          EVIDENCE_MANIFEST: ${{ needs.evidence_reuse.outputs.evidence_manifest }}
           RERUN_GROUP: ${{ inputs.rerun_group }}
           TARGET_SHA: ${{ needs.resolve_target.outputs.sha }}
           CHILD_WORKFLOW_REF: ${{ github.ref_name }}

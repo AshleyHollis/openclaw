@@ -113,6 +113,20 @@ describe("release validation no-push transport", () => {
         (candidate) => candidate.name === "Require trusted main workflow ref",
       ),
     ).toBeUndefined();
+    expect(evidenceReuse.outputs?.evidence_policy).toBe(
+      "${{ steps.find.outputs.evidence_policy }}",
+    );
+
+    const summary = job(full, "summary");
+    expect(summary.needs).toContain("evidence_reuse");
+    expect(step(summary, "Verify child workflow results").env).toMatchObject({
+      EVIDENCE_REUSE: "${{ needs.evidence_reuse.outputs.reuse }}",
+      EVIDENCE_ROOT_RUN_ID: "${{ needs.evidence_reuse.outputs.evidence_root_run_id }}",
+      EVIDENCE_RUN_URL: "${{ needs.evidence_reuse.outputs.evidence_run_url }}",
+      EVIDENCE_SHA: "${{ needs.evidence_reuse.outputs.evidence_sha }}",
+      EVIDENCE_POLICY: "${{ needs.evidence_reuse.outputs.evidence_policy }}",
+      EVIDENCE_MANIFEST: "${{ needs.evidence_reuse.outputs.evidence_manifest }}",
+    });
 
     const releaseChecks = readWorkflow(RELEASE_CHECKS);
     const releaseHelper = step(
