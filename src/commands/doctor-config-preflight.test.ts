@@ -93,6 +93,42 @@ describe("runDoctorConfigPreflight", () => {
     });
   });
 
+  it("lets repair preflight load plugin-owned legacy config that current schemas reject", async () => {
+    await withTempHome(async (home) => {
+      await writeOpenClawConfig(home, {
+        channels: {
+          imessage: {
+            enabled: true,
+            coalesceSameSenderDms: true,
+          },
+        },
+      });
+
+      const inspectOnly = await runDoctorConfigPreflight({
+        migrateState: false,
+        migrateLegacyConfig: false,
+        invalidConfigNote: false,
+      });
+      expect(inspectOnly.snapshot.valid).toBe(false);
+
+      const repair = await runDoctorConfigPreflight({
+        migrateState: false,
+        migrateLegacyConfig: false,
+        repairPrefixedConfig: true,
+        invalidConfigNote: false,
+      });
+      expect(repair.snapshot.valid).toBe(true);
+      expect(repair.snapshot.legacyIssues.map((issue) => issue.path)).toContain(
+        "channels.imessage",
+      );
+      expect(
+        repair.snapshot.legacyIssues.some((issue) =>
+          issue.message.includes("channels.imessage.coalesceSameSenderDms is retired"),
+        ),
+      ).toBe(true);
+    });
+  });
+
   it("restores invalid config from last-known-good only during repair preflight", async () => {
     await withTempHome(async (home) => {
       const configPath = await writeOpenClawConfig(home, {

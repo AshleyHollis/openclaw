@@ -320,7 +320,9 @@ export async function runDoctorConfigPreflight(
 
     const readOptions = {
       ...(options.observe === false ? { observe: false } : {}),
-      skipPluginValidation: shouldSkipPluginValidationForDoctorConfigPreflight(),
+      skipPluginValidation:
+        options.repairPrefixedConfig === true ||
+        shouldSkipPluginValidationForDoctorConfigPreflight(),
     };
     let snapshot = addDoctorLegacyIssues(
       await measureStartupPreflightStep("config-snapshot", () =>

@@ -221,6 +221,7 @@ async function runStructuredDoctorHealthContribution(params: {
       configPath: params.ctx.configPath,
       dryRun: !params.ctx.prompter.shouldRepair,
       allowExecSecretRefs: params.ctx.options.allowExec === true,
+      skipConfigPluginValidation: params.ctx.configResult.skipPluginValidationOnWrite === true,
     },
     {
       checks: params.checks,
@@ -672,6 +673,7 @@ async function runSessionLocksHealth(ctx: DoctorHealthFlowContext): Promise<void
 async function runSessionTranscriptsHealth(ctx: DoctorHealthFlowContext): Promise<void> {
   const { noteSessionTranscriptHealth } = await import("../commands/doctor-session-transcripts.js");
   await noteSessionTranscriptHealth({
+    cfg: ctx.cfg,
     env: ctx.env ?? process.env,
     shouldRepair: ctx.prompter.shouldRepair,
   });
