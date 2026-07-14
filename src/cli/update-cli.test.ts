@@ -100,7 +100,6 @@ async function writeStagedPackageInstallGuard(packageRoot: string): Promise<void
   manifest.scripts = {
     preinstall: "node scripts/preinstall-package-manager-warning.mjs",
     postinstall: "node scripts/postinstall-bundled-plugins.mjs",
-    prepare: "node scripts/prepare-git-hooks.mjs",
   };
   await fs.writeFile(manifestPath, JSON.stringify(manifest), "utf8");
   const postinstallPath = path.join(packageRoot, "scripts", "postinstall-bundled-plugins.mjs");

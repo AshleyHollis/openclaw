@@ -40,9 +40,9 @@ async function writeCandidate(params: {
             : {
                 postinstall: params.postinstall ?? "node scripts/postinstall-bundled-plugins.mjs",
               }),
-          ...(params.prepare === null
+          ...(params.prepare === null || params.prepare === undefined
             ? {}
-            : { prepare: params.prepare ?? "node scripts/prepare-git-hooks.mjs" }),
+            : { prepare: params.prepare }),
         },
       }),
       "utf8",
@@ -147,10 +147,10 @@ describe("runStagedPackageLifecycle", () => {
       message: "unsupported postinstall contract",
     },
     {
-      title: "changed prepare contract",
+      title: "added prepare contract",
       guard: true,
       engine: ">=0.0.0",
-      prepare: "node scripts/other-prepare.mjs",
+      prepare: "node scripts/prepare-git-hooks.mjs",
       message: "unsupported prepare contract",
     },
     {

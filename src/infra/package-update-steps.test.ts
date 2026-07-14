@@ -59,7 +59,6 @@ async function writePackageRoot(packageRoot: string, version: string): Promise<v
         scripts: {
           preinstall: "node scripts/preinstall-package-manager-warning.mjs",
           postinstall: "node scripts/postinstall-bundled-plugins.mjs",
-          prepare: "node scripts/prepare-git-hooks.mjs",
         },
       }),
       "utf8",

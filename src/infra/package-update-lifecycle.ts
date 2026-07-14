@@ -14,15 +14,14 @@ import type { CommandRunner } from "./update-global.js";
 const PACKAGE_PREINSTALL_COMMAND = "node scripts/preinstall-package-manager-warning.mjs";
 const PACKAGE_POSTINSTALL_RELATIVE_PATH = "scripts/postinstall-bundled-plugins.mjs";
 const PACKAGE_POSTINSTALL_COMMAND = `node ${PACKAGE_POSTINSTALL_RELATIVE_PATH}`;
-const PACKAGE_PREPARE_COMMAND = "node scripts/prepare-git-hooks.mjs";
 
-// Staging replaces preinstall with the runtime guard below and skips the checkout-only prepare.
-// Reject any hook drift before swap instead of activating a partially initialized package.
+// Packed releases omit the checkout-only prepare hook. Staging replaces preinstall with the
+// runtime guard below and rejects any published-hook drift before activating the candidate.
 const PACKAGE_LIFECYCLE_CONTRACT = {
   preinstall: PACKAGE_PREINSTALL_COMMAND,
   install: null,
   postinstall: PACKAGE_POSTINSTALL_COMMAND,
-  prepare: PACKAGE_PREPARE_COMMAND,
+  prepare: null,
 } as const;
 
 /** Probes the Node selected for the updated install; managed services may not use process.execPath. */
