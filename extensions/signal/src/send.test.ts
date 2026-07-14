@@ -1,4 +1,5 @@
 // Signal tests cover send plugin behavior.
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const signalRpcRequestMock = vi.hoisted(() => vi.fn());
@@ -30,7 +31,7 @@ const {
 } = await import("./approval-reactions.js");
 const { sendMessageSignal, sendReadReceiptSignal, sendTypingSignal } = await import("./send.js");
 
-const SIGNAL_TEST_CFG = {
+const SIGNAL_TEST_CFG: OpenClawConfig = {
   channels: {
     signal: {
       accounts: {
@@ -368,7 +369,7 @@ describe("sendMessageSignal receipts", () => {
           signal: {
             accounts: {
               default: {
-                transport: { kind: "external-native", url: "http://signal.test" },
+                transport: { kind: "external-native" as const, url: "http://signal.test" },
                 account: "+15550001111",
               },
             },
@@ -404,7 +405,7 @@ describe("sendMessageSignal receipts", () => {
         signal: {
           accounts: {
             default: {
-              transport: { kind: "external-native", url: "http://signal.test" },
+              transport: { kind: "external-native" as const, url: "http://signal.test" },
               account: "+15550001111",
               allowFrom: ["+15551234567"],
             },
@@ -452,7 +453,7 @@ describe("sendMessageSignal receipts", () => {
         signal: {
           accounts: {
             default: {
-              transport: { kind: "external-native", url: "http://signal.test" },
+              transport: { kind: "external-native" as const, url: "http://signal.test" },
               account: "+15550001111",
               allowFrom: ["+15551234567"],
             },
@@ -513,7 +514,7 @@ describe("sendMessageSignal receipts", () => {
         signal: {
           accounts: {
             default: {
-              transport: { kind: "external-native", url: "http://signal.test" },
+              transport: { kind: "external-native" as const, url: "http://signal.test" },
               account: "+15550001111",
               allowFrom: ["+15551234567"],
             },
@@ -557,7 +558,7 @@ describe("sendMessageSignal receipts", () => {
         signal: {
           accounts: {
             default: {
-              transport: { kind: "external-native", url: "http://signal.test" },
+              transport: { kind: "external-native" as const, url: "http://signal.test" },
               account: "+15550001111",
               allowFrom: ["+15551234567"],
             },
@@ -608,7 +609,7 @@ describe("sendMessageSignal receipts", () => {
         signal: {
           accounts: {
             default: {
-              transport: { kind: "external-native", url: "http://signal.test" },
+              transport: { kind: "external-native" as const, url: "http://signal.test" },
               accountUuid: "123e4567-e89b-12d3-a456-426614174000",
               allowFrom: ["+15551234567"],
             },
