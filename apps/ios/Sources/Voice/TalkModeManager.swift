@@ -486,7 +486,11 @@ final class TalkModeManager: NSObject {
 
     func attachGateway(_ gateway: GatewayNodeSession) {
         if let current = self.gateway, current !== gateway {
-            if let captureId = activePTTCaptureId {
+            // Local dictation has no gateway owner, so a route replacement must
+            // not discard an in-progress draft capture.
+            if let captureId = activePTTCaptureId,
+               self.activePushToTalk?.transcriptionOnly != true
+            {
                 _ = self.cancelPushToTalk(captureId: captureId)
             }
             self.cancelFinishingPushToTalk()
@@ -504,20 +508,23 @@ final class TalkModeManager: NSObject {
             }
         } else {
             self.cancelPendingStart()
-            if let captureId = activePTTCaptureId {
+            let preservesLocalTranscription = self.activePushToTalk?.transcriptionOnly == true
+            if let captureId = activePTTCaptureId, !preservesLocalTranscription {
                 _ = self.cancelPushToTalk(captureId: captureId)
             }
             self.cancelFinishingPushToTalk()
             self.resetRealtimeRestartState()
             self.stopRealtimeSession()
-            self.stopNativeCaptureAndDiscardTranscript()
-            self.stopSpeaking(storeInterruption: false)
-            deactivateAudioSession()
+            if !preservesLocalTranscription {
+                self.stopNativeCaptureAndDiscardTranscript()
+                self.stopSpeaking(storeInterruption: false)
+                deactivateAudioSession()
+                if self.isEnabled, !self.isSpeaking {
+                    self.setStatus(String(localized: "Offline"), phase: .idle)
+                }
+            }
             self.gatewayTalkActiveModeTitle = String(localized: "Not active")
             self.gatewayTalkActiveModeSubtitle = nil
-            if self.isEnabled, !self.isSpeaking {
-                self.setStatus(String(localized: "Offline"), phase: .idle)
-            }
             self.realtimePrefetchGeneration &+= 1
             self.realtimePrefetchTask?.cancel()
             self.realtimePrefetchTask = nil

@@ -17,6 +17,15 @@ extension OpenClawChatViewModel {
         }
     }
 
+    func addAttachments(urls: [URL], for session: SessionSnapshot) {
+        guard self.isCurrentSession(session) else { return }
+        self.beginAttachmentStaging()
+        Task {
+            defer { self.endAttachmentStaging() }
+            await self.loadAttachments(urls: urls, expectedSession: session)
+        }
+    }
+
     public func addImageAttachment(data: Data, fileName: String, mimeType: String) {
         self.beginAttachmentStaging()
         Task {
@@ -25,13 +34,13 @@ extension OpenClawChatViewModel {
         }
     }
 
-    public func addImageAttachment(
+    func addImageAttachment(
         data: Data,
         fileName: String,
         mimeType: String,
-        forSessionKey sessionKey: String) async
+        for session: SessionSnapshot) async
     {
-        guard self.sessionKey == sessionKey else { return }
+        guard self.isCurrentSession(session) else { return }
         self.beginAttachmentStaging()
         defer { self.endAttachmentStaging() }
         await self.addImageAttachment(
@@ -39,7 +48,7 @@ extension OpenClawChatViewModel {
             data: data,
             fileName: fileName,
             mimeType: mimeType,
-            expectedSessionKey: sessionKey)
+            expectedSession: session)
     }
 
     public func removeAttachment(_ id: OpenClawPendingAttachment.ID) {
@@ -114,8 +123,9 @@ extension OpenClawChatViewModel {
                 durationSeconds: normalizedDuration))
     }
 
-    func loadAttachments(urls: [URL]) async {
+    func loadAttachments(urls: [URL], expectedSession: SessionSnapshot? = nil) async {
         for url in urls {
+            guard self.ownsAttachmentSession(expectedSession) else { return }
             let hasSecurityScope = url.startAccessingSecurityScopedResource()
             defer {
                 if hasSecurityScope {
@@ -128,9 +138,11 @@ extension OpenClawChatViewModel {
                     url: url,
                     data: data,
                     fileName: url.lastPathComponent,
-                    mimeType: Self.mimeType(for: url) ?? "application/octet-stream")
+                    mimeType: Self.mimeType(for: url) ?? "application/octet-stream",
+                    expectedSession: expectedSession)
             } catch {
-                await MainActor.run { self.errorText = error.localizedDescription }
+                guard self.ownsAttachmentSession(expectedSession) else { return }
+                self.errorText = error.localizedDescription
             }
         }
     }
@@ -146,9 +158,9 @@ extension OpenClawChatViewModel {
         data: Data,
         fileName: String,
         mimeType: String,
-        expectedSessionKey: String? = nil) async
+        expectedSession: SessionSnapshot? = nil) async
     {
-        guard self.ownsAttachmentSession(expectedSessionKey) else { return }
+        guard self.ownsAttachmentSession(expectedSession) else { return }
         let uti: UTType = {
             if let url {
                 return UTType(filenameExtension: url.pathExtension) ?? .data
@@ -166,7 +178,7 @@ extension OpenClawChatViewModel {
                 try ChatImageProcessor.processForUpload(data: data)
             }.value
         } catch {
-            guard self.ownsAttachmentSession(expectedSessionKey) else { return }
+            guard self.ownsAttachmentSession(expectedSession) else { return }
             errorText = String(
                 format: String(localized: "Could not process %1$@: %2$@"),
                 fileName,
@@ -176,7 +188,7 @@ extension OpenClawChatViewModel {
 
         // Image processing runs off actor. Revalidate the draft owner before
         // publishing either the attachment or any session-scoped error state.
-        guard self.ownsAttachmentSession(expectedSessionKey) else { return }
+        guard self.ownsAttachmentSession(expectedSession) else { return }
         if processed.count > Self.maxAttachmentBytes {
             errorText = String(
                 format: String(localized: "Attachment %@ exceeds 5 MB limit after resizing"),
@@ -199,8 +211,8 @@ extension OpenClawChatViewModel {
                 preview: preview))
     }
 
-    private func ownsAttachmentSession(_ expectedSessionKey: String?) -> Bool {
-        expectedSessionKey == nil || expectedSessionKey == sessionKey
+    private func ownsAttachmentSession(_ expectedSession: SessionSnapshot?) -> Bool {
+        expectedSession.map(self.isCurrentSession) ?? true
     }
 
     static func previewImage(data: Data) -> OpenClawPlatformImage? {

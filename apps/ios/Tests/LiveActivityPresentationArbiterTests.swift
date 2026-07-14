@@ -140,6 +140,21 @@ struct LiveActivityPresentationArbiterTests {
     }
 
     @Test
+    func `live voice permanently replaces a hydrated tool fallback`() {
+        let now = Date()
+        var arbiter = LiveActivityPresentationArbiter()
+        arbiter.adoptInitialHydratedToolFallback(
+            Self.request(status: .toolRunning, detail: "restored", startedAt: now))
+
+        arbiter.setVoice(Self.request(status: .voiceListening, detail: nil, startedAt: now))
+        #expect(arbiter.hydratedToolFallback == nil)
+        #expect(arbiter.current?.state.status == .voiceListening)
+
+        arbiter.setVoice(nil)
+        #expect(arbiter.current == nil)
+    }
+
+    @Test
     func `hydration trusts renewed voice and tool stale dates`() {
         let now = Date()
         let originalStart = now.addingTimeInterval(-600)

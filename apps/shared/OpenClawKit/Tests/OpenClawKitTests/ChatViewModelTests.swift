@@ -2398,12 +2398,26 @@ struct ChatViewModelTests {
         let (_, vm) = await makeViewModel(
             historyResponses: [historyPayload(sessionKey: "other", sessionId: "sess-other")])
         await MainActor.run {
-            let startingSessionKey = vm.sessionKey
+            let startingSession = vm.currentSessionSnapshot()
             vm.switchSession(to: "other")
-            vm.appendDictationTranscript("belongs to main", forSessionKey: startingSessionKey)
+            vm.appendDictationTranscript("belongs to main", for: startingSession)
             #expect(vm.input.isEmpty)
-            vm.appendDictationTranscript("belongs to other", forSessionKey: "other")
+            vm.appendDictationTranscript("belongs to other", for: vm.currentSessionSnapshot())
             #expect(vm.input == "belongs to other")
+        }
+    }
+
+    @Test func `dictation completion cannot cross a same-session agent change`() async {
+        let (_, vm) = await makeViewModel(
+            activeAgentId: "alpha",
+            historyResponses: [historyPayload(), historyPayload()])
+        await MainActor.run {
+            let alphaSession = vm.currentSessionSnapshot()
+            vm.syncActiveAgentId("beta")
+            vm.appendDictationTranscript("belongs to alpha", for: alphaSession)
+            #expect(vm.input.isEmpty)
+            vm.appendDictationTranscript("belongs to beta", for: vm.currentSessionSnapshot())
+            #expect(vm.input == "belongs to beta")
         }
     }
 
@@ -2422,19 +2436,96 @@ struct ChatViewModelTests {
         #expect(firstOwner != replacementOwner)
     }
 
+    @Test func `composer presentation owner changes with same-session agent routing`() async {
+        let (_, vm) = await makeViewModel(
+            activeAgentId: "alpha",
+            historyResponses: [historyPayload(), historyPayload()])
+
+        let alphaOwner = await MainActor.run {
+            OpenClawChatComposerPresentationOwner(viewModel: vm)
+        }
+        let betaOwner = await MainActor.run {
+            vm.syncActiveAgentId("beta")
+            return OpenClawChatComposerPresentationOwner(viewModel: vm)
+        }
+
+        #expect(alphaOwner.sessionKey == betaOwner.sessionKey)
+        #expect(alphaOwner != betaOwner)
+    }
+
     @Test func `camera attachment completion only updates its originating session`() async {
         let (_, vm) = await makeViewModel(
             historyResponses: [historyPayload(sessionKey: "other", sessionId: "sess-other")])
-        await MainActor.run { vm.switchSession(to: "other") }
+        let originalSession = await MainActor.run {
+            let session = vm.currentSessionSnapshot()
+            vm.switchSession(to: "other")
+            return session
+        }
 
         await vm.addImageAttachment(
             data: Data([0]),
             fileName: "stale-camera.jpg",
             mimeType: "image/jpeg",
-            forSessionKey: "main")
+            for: originalSession)
 
         #expect(await MainActor.run { vm.attachments.isEmpty })
         #expect(await MainActor.run { vm.errorText == nil })
+    }
+
+    @Test func `camera attachment completion cannot cross a same-session agent change`() async {
+        let (_, vm) = await makeViewModel(
+            activeAgentId: "alpha",
+            historyResponses: [historyPayload(), historyPayload()])
+        let alphaSession = await MainActor.run {
+            let session = vm.currentSessionSnapshot()
+            vm.syncActiveAgentId("beta")
+            return session
+        }
+
+        await vm.addImageAttachment(
+            data: Data([0]),
+            fileName: "stale-camera.jpg",
+            mimeType: "image/jpeg",
+            for: alphaSession)
+
+        #expect(await MainActor.run { vm.attachments.isEmpty })
+        #expect(await MainActor.run { vm.errorText == nil })
+    }
+
+    @Test func `file attachment completion cannot cross a same-session agent change`() async {
+        let (_, vm) = await makeViewModel(
+            activeAgentId: "alpha",
+            historyResponses: [historyPayload(), historyPayload()])
+        let alphaSession = await MainActor.run {
+            let session = vm.currentSessionSnapshot()
+            vm.syncActiveAgentId("beta")
+            return session
+        }
+
+        await vm.loadAttachments(
+            urls: [URL(fileURLWithPath: "/does-not-exist/stale-file.jpg")],
+            expectedSession: alphaSession)
+
+        #expect(await MainActor.run { vm.attachments.isEmpty })
+        #expect(await MainActor.run { vm.errorText == nil })
+    }
+
+    @Test func `attachment staging defers a same-session agent change`() async {
+        let (_, vm) = await makeViewModel(
+            activeAgentId: "alpha",
+            historyResponses: [historyPayload(), historyPayload()])
+
+        await MainActor.run {
+            let alphaSession = vm.currentSessionSnapshot()
+            vm.beginAttachmentStaging()
+            vm.syncActiveAgentId("beta")
+            #expect(vm.activeAgentId == "alpha")
+            #expect(vm.isCurrentSession(alphaSession))
+
+            vm.endAttachmentStaging()
+            #expect(vm.activeAgentId == "beta")
+            #expect(!vm.isCurrentSession(alphaSession))
+        }
     }
 
     @Test func `balances tool activity when a terminal event clears pending calls`() async throws {

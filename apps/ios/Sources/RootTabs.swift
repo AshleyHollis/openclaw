@@ -71,10 +71,9 @@ struct RootTabs: View {
         switch arguments[valueIndex].lowercased() {
         case "control", "overview":
             return .control
-        case "chat":
+        // These shipped launch aliases now target the unified conversational surface.
+        case "chat", "talk", "voice":
             return .chat
-        case "talk", "voice":
-            return .talk
         case "agent", "agents":
             return .agent
         case "settings":
@@ -379,12 +378,6 @@ struct RootTabs: View {
                 showsAgentBadge: false,
                 ownsNavigationStack: false,
                 openSettings: { self.selectSidebarDestination(.gateway) })
-        case .talk:
-            TalkProTab(
-                headerLeadingAction: self.sidebarHeaderLeadingAction,
-                ownsNavigationStack: false,
-                openSettings: { self.selectSidebarDestination(.gateway) },
-                openVoiceSettings: { self.selectSettingsRoute(.voice) })
         case .overview:
             CommandCenterTab(
                 ownsNavigationStack: false,
@@ -584,8 +577,7 @@ struct RootTabs: View {
     /// That distinction keeps only a user-selected Control tab responsible for resetting its child stack.
     private var phoneTabSelection: Binding<AppTab> {
         Binding(
-            // Keep legacy voice launch routes working after Talk leaves the phone tab bar.
-            get: { self.selectedTab == .talk ? .control : self.selectedTab },
+            get: { self.selectedTab },
             set: { self.handlePhoneTabSelection($0) })
     }
 

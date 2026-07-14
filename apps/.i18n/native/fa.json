@@ -6441,7 +6441,7 @@
     {
       "id": "native.android.58e92f6f7ee9a870",
       "source": "Loading",
-      "translated": "Loading"
+      "translated": "در حال بارگذاری"
     },
     {
       "id": "native.android.c27608d140fad1ba",
@@ -6451,7 +6451,7 @@
     {
       "id": "native.android.e63592576acd892e",
       "source": "Review",
-      "translated": "Review"
+      "translated": "بازبینی"
     },
     {
       "id": "native.android.559e047666ce63f8",
@@ -8154,9 +8154,19 @@
       "translated": "فعالیت OpenClaw"
     },
     {
+      "id": "native.apple.093081590556db7f",
+      "source": "OPENCLAW",
+      "translated": "OPENCLAW"
+    },
+    {
       "id": "native.apple.86d546e1f1247028",
       "source": "OpenClaw",
       "translated": "OpenClaw"
+    },
+    {
+      "id": "native.apple.9fd01bdb5a753f3e",
+      "source": "LIVE",
+      "translated": "LIVE"
     },
     {
       "id": "native.apple.417ac9273b5f63ca",
@@ -8177,6 +8187,36 @@
       "id": "native.apple.c619843217c15317",
       "source": "Action required",
       "translated": "اقدام لازم است"
+    },
+    {
+      "id": "native.apple.275026f681242715",
+      "source": "Using %@",
+      "translated": "Using %@"
+    },
+    {
+      "id": "native.apple.360d0d0fc0df9eb2",
+      "source": "Using a tool",
+      "translated": "Using a tool"
+    },
+    {
+      "id": "native.apple.0d0ee660962ea840",
+      "source": "Listening",
+      "translated": "در حال گوش‌دادن"
+    },
+    {
+      "id": "native.apple.095ebf1496feb2ad",
+      "source": "Speaking",
+      "translated": "در حال گفتار"
+    },
+    {
+      "id": "native.apple.63c98d2ca6a5b09c",
+      "source": "Voice active",
+      "translated": "Voice active"
+    },
+    {
+      "id": "native.apple.02470f4b5348f97c",
+      "source": "Paused",
+      "translated": "متوقف‌شده"
     },
     {
       "id": "native.apple.f2f3e6437fafcd1c",
@@ -9496,7 +9536,7 @@
     {
       "id": "native.apple.49160020f0318366",
       "source": "Default",
-      "translated": "Default"
+      "translated": "پیش‌فرض"
     },
     {
       "id": "native.apple.5fbed24f057edea8",
@@ -9941,7 +9981,7 @@
     {
       "id": "native.apple.29d82bdb73f5a551",
       "source": "Skill",
-      "translated": "Skill"
+      "translated": "مهارت"
     },
     {
       "id": "native.apple.8869a6b2fde070b8",
@@ -10209,9 +10249,34 @@
       "translated": "پس از آماده شدن Gateway، نشست متصل می‌شود."
     },
     {
+      "id": "native.apple.02611ddddef7295a",
+      "source": "Collapsed",
+      "translated": "Collapsed"
+    },
+    {
+      "id": "native.apple.1f4911f4a05230b5",
+      "source": "Expanded",
+      "translated": "Expanded"
+    },
+    {
       "id": "native.apple.d19c9577e0fdfea7",
       "source": "Opens Settings / Gateway",
       "translated": "Settings / Gateway را باز می‌کند"
+    },
+    {
+      "id": "native.apple.b59e690104ae3e24",
+      "source": "Hides the gateway status label",
+      "translated": "Hides the gateway status label"
+    },
+    {
+      "id": "native.apple.5fcf9d462463dd27",
+      "source": "Shows the full gateway status label",
+      "translated": "Shows the full gateway status label"
+    },
+    {
+      "id": "native.apple.592b1e673e42df50",
+      "source": "Voice off",
+      "translated": "Voice off"
     },
     {
       "id": "native.apple.7c87384c7d1370e1",
@@ -10227,6 +10292,11 @@
       "id": "native.apple.ced228bb4d20a726",
       "source": "Export Transcript",
       "translated": "خروجی گرفتن از رونوشت"
+    },
+    {
+      "id": "native.apple.d510e012c91b24ed",
+      "source": "Gateway Settings",
+      "translated": "Gateway Settings"
     },
     {
       "id": "native.apple.940e1f943750c94b",
@@ -10351,7 +10421,7 @@
     {
       "id": "native.apple.036b0faa4e17f39c",
       "source": "Fork",
-      "translated": "Fork"
+      "translated": "انشعاب"
     },
     {
       "id": "native.apple.35e23b306162f6ad",
@@ -10681,7 +10751,7 @@
     {
       "id": "native.apple.18b4b1d1291e8402",
       "source": "Loading",
-      "translated": "Loading"
+      "translated": "در حال بارگذاری"
     },
     {
       "id": "native.apple.f7b3242d69bc344b",
@@ -10741,7 +10811,7 @@
     {
       "id": "native.apple.9094f48f7ebd28c5",
       "source": "Chat",
-      "translated": "Chat"
+      "translated": "گفت‌وگو"
     },
     {
       "id": "native.apple.fb6493b448a3f62a",
@@ -10751,7 +10821,7 @@
     {
       "id": "native.apple.c61170392d1aa557",
       "source": "Offline",
-      "translated": "Offline"
+      "translated": "آفلاین"
     },
     {
       "id": "native.apple.225dcb2dfdcaa76f",
@@ -11402,11 +11472,6 @@
       "id": "native.apple.ed16c9793f468dcd",
       "source": "Agent chat and recent work.",
       "translated": "گفتگوی عامل و کارهای اخیر."
-    },
-    {
-      "id": "native.apple.a30d0a950d0a77aa",
-      "source": "Realtime voice and controls.",
-      "translated": "صدای بلادرنگ و کنترل‌ها."
     },
     {
       "id": "native.apple.a03e961ab14ba060",
@@ -12086,7 +12151,7 @@
     {
       "id": "native.apple.3ba1d988ea9c9a21",
       "source": "Connected",
-      "translated": "Connected"
+      "translated": "متصل"
     },
     {
       "id": "native.apple.053cca424822977a",
@@ -12641,7 +12706,7 @@
     {
       "id": "native.apple.b962116ff5bf1905",
       "source": "© 2026 OpenClaw Foundation — MIT License.",
-      "translated": "© 2026 OpenClaw Foundation — MIT License."
+      "translated": "© 2026 OpenClaw Foundation — مجوز MIT."
     },
     {
       "id": "native.apple.106434d1305d153b",
@@ -13489,151 +13554,6 @@
       "translated": "ClawHub نسخه‌ای قابل نصب برای این مهارت اعلام نکرد."
     },
     {
-      "id": "native.apple.798c3584ad95f8da",
-      "source": "Enable Talk",
-      "translated": "فعال‌سازی Talk"
-    },
-    {
-      "id": "native.apple.c6e171128190d131",
-      "source": "Not Now",
-      "translated": "فعلاً نه"
-    },
-    {
-      "id": "native.apple.e4b15aef3c2e3da7",
-      "source": "Talk",
-      "translated": "گفت‌وگو"
-    },
-    {
-      "id": "native.apple.ab3381742bdff650",
-      "source": "Conversation",
-      "translated": "مکالمه"
-    },
-    {
-      "id": "native.apple.7af100f6640c6a69",
-      "source": "Agent",
-      "translated": "عامل"
-    },
-    {
-      "id": "native.apple.49c4de60117b1a98",
-      "source": "Session",
-      "translated": "نشست"
-    },
-    {
-      "id": "native.apple.37c29d2506b955e9",
-      "source": "Runtime",
-      "translated": "زمان اجرا"
-    },
-    {
-      "id": "native.apple.13e0ad79b141576e",
-      "source": "Voice Mode",
-      "translated": "حالت صوتی"
-    },
-    {
-      "id": "native.apple.e8035b71bab833c7",
-      "source": "Configured",
-      "translated": "پیکربندی‌شده"
-    },
-    {
-      "id": "native.apple.1b2845ec89d20eef",
-      "source": "Active",
-      "translated": "فعال"
-    },
-    {
-      "id": "native.apple.a82c07df64d13b23",
-      "source": "Transport",
-      "translated": "انتقال"
-    },
-    {
-      "id": "native.apple.384e097278f76954",
-      "source": "Last issue",
-      "translated": "آخرین مشکل"
-    },
-    {
-      "id": "native.apple.a6d8fc7bfd98836f",
-      "source": "Permission",
-      "translated": "مجوز"
-    },
-    {
-      "id": "native.apple.983bdcd5e3f1baa8",
-      "source": "Speech language",
-      "translated": "زبان گفتار"
-    },
-    {
-      "id": "native.apple.32e7fa2b1798e9c3",
-      "source": "Controls",
-      "translated": "کنترل‌ها"
-    },
-    {
-      "id": "native.apple.0eb012a5d3d81b32",
-      "source": "Speakerphone",
-      "translated": "بلندگو"
-    },
-    {
-      "id": "native.apple.ef8699e2718346da",
-      "source": "Background listening",
-      "translated": "گوش‌دادن در پس‌زمینه"
-    },
-    {
-      "id": "native.apple.1e6938a09b4fbe77",
-      "source": "Voice & Talk Settings",
-      "translated": "تنظیمات صدا و گفت‌وگو"
-    },
-    {
-      "id": "native.apple.c7a591fd5bb6687e",
-      "source": "Gateway approval is required before this phone can capture voice.",
-      "translated": "پیش از اینکه این تلفن بتواند صدا را ضبط کند، تأیید Gateway لازم است."
-    },
-    {
-      "id": "native.apple.9d40e75e55ed39eb",
-      "source": "Voice is disabled in Apple Review demo mode.",
-      "translated": "صدا در حالت دموی Apple Review غیرفعال است."
-    },
-    {
-      "id": "native.apple.3ef69bf916177799",
-      "source": "Connect to your gateway to start a voice conversation.",
-      "translated": "برای شروع مکالمه صوتی به Gateway خود متصل شوید."
-    },
-    {
-      "id": "native.apple.ed03af7c68841a5d",
-      "source": "Open Voice settings after the gateway loads Talk configuration.",
-      "translated": "پس از اینکه Gateway پیکربندی Talk را بارگیری کرد، تنظیمات صدا را باز کنید."
-    },
-    {
-      "id": "native.apple.883a251978601b96",
-      "source": "Routes voice to %@.",
-      "translated": "صدا را به %@ هدایت می‌کند."
-    },
-    {
-      "id": "native.apple.877fb5c1abfaafa1",
-      "source": "Not loaded",
-      "translated": "Not loaded"
-    },
-    {
-      "id": "native.apple.d3ccb092936551fc",
-      "source": "Not active",
-      "translated": "غیرفعال"
-    },
-    {
-      "id": "native.apple.1620f7cb3deea133",
-      "source": "Open Gateway Settings",
-      "translated": "باز کردن تنظیمات Gateway"
-    },
-    {
-      "id": "native.apple.3fd2706ef0f14fd2",
-      "source": "Open Voice Settings",
-      "translated": "باز کردن تنظیمات صدا"
-    },
-    {
-      "id": "native.apple.3cc9cd23a67db077",
-      "source": "Demo Mode Only",
-      "translated": "فقط حالت دمو"
-    },
-    {
-      "id": "native.apple.12c9d8231777366c",
-      "source": "Waiting for Approval",
-      "translated": "در انتظار تأیید"
-    },
-    {
       "id": "native.apple.dc57861a3ac5a08e",
       "source": "Open Settings",
       "translated": "باز کردن تنظیمات"
@@ -14154,6 +14074,41 @@
       "translated": "اقدام لازم است"
     },
     {
+      "id": "native.apple.7205f0822706cb55",
+      "source": "Listening",
+      "translated": "در حال گوش‌دادن"
+    },
+    {
+      "id": "native.apple.8b10cb1dc21e42af",
+      "source": "Listening (PTT)",
+      "translated": "در حال شنیدن (PTT)"
+    },
+    {
+      "id": "native.apple.939c7ec55636c67f",
+      "source": "Listening (Realtime)",
+      "translated": "در حال شنیدن (بلادرنگ)"
+    },
+    {
+      "id": "native.apple.86f203ebb2453d15",
+      "source": "Speaking…",
+      "translated": "در حال صحبت…"
+    },
+    {
+      "id": "native.apple.1e3ff6b56ae3828d",
+      "source": "Speaking (System)…",
+      "translated": "در حال گفتار (سیستم)…"
+    },
+    {
+      "id": "native.apple.37a5fedaefb8ebf3",
+      "source": "Generating voice…",
+      "translated": "در حال تولید صدا…"
+    },
+    {
+      "id": "native.apple.47003f094346c660",
+      "source": "Ready",
+      "translated": "آماده"
+    },
+    {
       "id": "native.apple.cf0450b542893fb5",
       "source": "Off",
       "translated": "خاموش"
@@ -14481,7 +14436,7 @@
     {
       "id": "native.apple.7f671f0202cb1d9b",
       "source": "Retry",
-      "translated": "Retry"
+      "translated": "تلاش مجدد"
     },
     {
       "id": "native.apple.e71e20089bcc4cfb",
@@ -14974,26 +14929,6 @@
       "translated": "unknown relay error"
     },
     {
-      "id": "native.apple.f2ea327bfea8b8e3",
-      "source": "Talk",
-      "translated": "گفتگو"
-    },
-    {
-      "id": "native.apple.bda6cfa988e49a75",
-      "source": "Control",
-      "translated": "کنترل"
-    },
-    {
-      "id": "native.apple.3c80f5351055a5f3",
-      "source": "Agent",
-      "translated": "عامل"
-    },
-    {
-      "id": "native.apple.22d107db5b905ef4",
-      "source": "Settings",
-      "translated": "تنظیمات"
-    },
-    {
       "id": "native.apple.c23d35de8d70863f",
       "source": "OpenClaw",
       "translated": "OpenClaw"
@@ -15084,6 +15019,26 @@
       "translated": "بستن بوم"
     },
     {
+      "id": "native.apple.a1db6ce0aed1d18e",
+      "source": "Chat, voice active",
+      "translated": "Chat, voice active"
+    },
+    {
+      "id": "native.apple.bda6cfa988e49a75",
+      "source": "Control",
+      "translated": "کنترل"
+    },
+    {
+      "id": "native.apple.3c80f5351055a5f3",
+      "source": "Agent",
+      "translated": "عامل"
+    },
+    {
+      "id": "native.apple.22d107db5b905ef4",
+      "source": "Settings",
+      "translated": "تنظیمات"
+    },
+    {
       "id": "native.apple.8a4751c86aa6fe77",
       "source": "Gateway needs attention",
       "translated": "Gateway نیاز به توجه دارد"
@@ -15112,11 +15067,6 @@
       "id": "native.apple.a29418bbb3169404",
       "source": "Chat",
       "translated": "گفت‌وگو"
-    },
-    {
-      "id": "native.apple.febca7528af94342",
-      "source": "Talk",
-      "translated": "صحبت"
     },
     {
       "id": "native.apple.e26bbe303d8a9544",
@@ -15451,7 +15401,7 @@
     {
       "id": "native.apple.f2be0b00a9d003fe",
       "source": "Realtime Voice",
-      "translated": "Realtime Voice"
+      "translated": "صدای بلادرنگ"
     },
     {
       "id": "native.apple.571d17c55ce80675",
@@ -16076,7 +16026,7 @@
     {
       "id": "native.apple.07188ebdca3fbba5",
       "source": "No chat messages yet",
-      "translated": "No chat messages yet"
+      "translated": "هنوز هیچ پیام گفت‌وگویی وجود ندارد"
     },
     {
       "id": "native.apple.d0697a13b9cff264",
@@ -17066,7 +17016,7 @@
     {
       "id": "native.apple.533965afb8350ace",
       "source": "Degraded",
-      "translated": "Degraded"
+      "translated": "دچار افت کیفیت"
     },
     {
       "id": "native.apple.90dacdcac6e6bd80",
@@ -20341,7 +20291,7 @@
     {
       "id": "native.apple.6b29ec65de666dab",
       "source": "Operator",
-      "translated": "Operator"
+      "translated": "اپراتور"
     },
     {
       "id": "native.apple.7a62dc7bc8d3fab9",
@@ -21196,7 +21146,7 @@
     {
       "id": "native.apple.84c069138aa2c31d",
       "source": "Reading the Gateway skill catalog.",
-      "translated": "Reading the Gateway skill catalog."
+      "translated": "در حال خواندن فهرست Skills در Gateway."
     },
     {
       "id": "native.apple.ddac24dd3c4ad758",
@@ -21921,7 +21871,7 @@
     {
       "id": "native.apple.a8fb74eafee3d446",
       "source": "Unavailable",
-      "translated": "Unavailable"
+      "translated": "در دسترس نیست"
     },
     {
       "id": "native.apple.5135e9bec6346f0d",
@@ -22149,11 +22099,6 @@
       "translated": "پیوست‌ها"
     },
     {
-      "id": "native.apple.f8dda832ed76441d",
-      "source": "Voice note",
-      "translated": "یادداشت صوتی"
-    },
-    {
       "id": "native.apple.ee2c0d22f5861159",
       "source": "Talk",
       "translated": "گفتگو"
@@ -22291,7 +22236,7 @@
     {
       "id": "native.apple.769b7dcea4708c40",
       "source": "Image",
-      "translated": "Image"
+      "translated": "تصویر"
     },
     {
       "id": "native.apple.14da4c958ae30949",
@@ -22316,7 +22261,7 @@
     {
       "id": "native.apple.3c8c3679fd99c074",
       "source": "Voice note",
-      "translated": "Voice note"
+      "translated": "یادداشت صوتی"
     },
     {
       "id": "native.apple.aff6385b0a8dd0ac",
@@ -22461,12 +22406,12 @@
     {
       "id": "native.apple.9add620a81268972",
       "source": "Attachment",
-      "translated": "Attachment"
+      "translated": "پیوست"
     },
     {
       "id": "native.apple.0149100bb5c8b985",
       "source": "Message",
-      "translated": "Message"
+      "translated": "پیام"
     },
     {
       "id": "native.apple.5824df4efbf6c977",
@@ -22732,6 +22677,61 @@
       "id": "native.apple.8d0606ab1a2c0f44",
       "source": "Gateway connected",
       "translated": "Gateway متصل شد"
+    },
+    {
+      "id": "native.apple.fa10740f9e272e83",
+      "source": "Voice note",
+      "translated": "یادداشت صوتی"
+    },
+    {
+      "id": "native.apple.e4de5afc37981d6c",
+      "source": "Photo Library",
+      "translated": "Photo Library"
+    },
+    {
+      "id": "native.apple.37c19a66626b21fa",
+      "source": "Camera",
+      "translated": "دوربین"
+    },
+    {
+      "id": "native.apple.333682684163ba6b",
+      "source": "Choose Image File",
+      "translated": "Choose Image File"
+    },
+    {
+      "id": "native.apple.534246792690968d",
+      "source": "Add attachment",
+      "translated": "Add attachment"
+    },
+    {
+      "id": "native.apple.e33210feaa3da016",
+      "source": "Record Voice Note",
+      "translated": "ضبط یادداشت صوتی"
+    },
+    {
+      "id": "native.apple.00f0e15858e38d19",
+      "source": "Dictate message",
+      "translated": "Dictate message"
+    },
+    {
+      "id": "native.apple.96f20175f61a2b29",
+      "source": "Listening",
+      "translated": "در حال گوش‌دادن"
+    },
+    {
+      "id": "native.apple.eaa9047db6cfb67e",
+      "source": "Not listening",
+      "translated": "Not listening"
+    },
+    {
+      "id": "native.apple.4185df7a940f09ef",
+      "source": "Finish dictation",
+      "translated": "Finish dictation"
+    },
+    {
+      "id": "native.apple.5a0793d2827b9399",
+      "source": "Transcribe speech into the message",
+      "translated": "Transcribe speech into the message"
     },
     {
       "id": "native.apple.f74d150ce05205dd",

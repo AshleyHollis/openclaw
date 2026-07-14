@@ -49,6 +49,7 @@ struct LiveActivityPresentationArbiter {
     private(set) var connection: LiveActivityPresentationRequest?
     private(set) var attention: LiveActivityPresentationRequest?
     private(set) var voice: LiveActivityPresentationRequest?
+    private(set) var hydratedToolFallback: LiveActivityPresentationRequest?
     private var toolsByIdentity: [ToolIdentity: LiveActivityPresentationRequest] = [:]
     private var toolOrder: [ToolIdentity] = []
 
@@ -61,7 +62,7 @@ struct LiveActivityPresentationArbiter {
         {
             return tool
         }
-        return self.voice ?? self.connection
+        return self.voice ?? self.connection ?? self.hydratedToolFallback
     }
 
     var activeToolCount: Int {
@@ -82,6 +83,9 @@ struct LiveActivityPresentationArbiter {
     }
 
     mutating func setConnection(_ request: LiveActivityPresentationRequest?) {
+        if request != nil {
+            self.hydratedToolFallback = nil
+        }
         self.connection = request
     }
 
@@ -90,7 +94,16 @@ struct LiveActivityPresentationArbiter {
     }
 
     mutating func setVoice(_ request: LiveActivityPresentationRequest?) {
+        if request != nil {
+            self.hydratedToolFallback = nil
+        }
         self.voice = request
+    }
+
+    /// Called only by synchronous process-start hydration before the manager
+    /// escapes its initializer. Live producers consume this one-time fallback.
+    mutating func adoptInitialHydratedToolFallback(_ request: LiveActivityPresentationRequest?) {
+        self.hydratedToolFallback = request
     }
 
     mutating func refreshVoice(staleDate: Date) {
@@ -99,6 +112,7 @@ struct LiveActivityPresentationArbiter {
 
     mutating func startTool(id: String, request: LiveActivityPresentationRequest) {
         guard !id.isEmpty else { return }
+        self.hydratedToolFallback = nil
         let identity = ToolIdentity(sessionKey: request.sessionKey, id: id)
         if self.toolsByIdentity[identity] == nil {
             self.toolOrder.append(identity)
@@ -107,6 +121,7 @@ struct LiveActivityPresentationArbiter {
     }
 
     mutating func endTool(id: String, sessionKey: String) {
+        self.hydratedToolFallback = nil
         let identity = ToolIdentity(sessionKey: sessionKey, id: id)
         self.toolsByIdentity[identity] = nil
         self.toolOrder.removeAll { $0 == identity }
@@ -121,12 +136,14 @@ struct LiveActivityPresentationArbiter {
     mutating func clearConnectionState() {
         self.connection = nil
         self.attention = nil
+        self.hydratedToolFallback = nil
     }
 
     mutating func clearAll() {
         self.connection = nil
         self.attention = nil
         self.voice = nil
+        self.hydratedToolFallback = nil
         self.toolsByIdentity.removeAll(keepingCapacity: true)
         self.toolOrder.removeAll(keepingCapacity: true)
     }

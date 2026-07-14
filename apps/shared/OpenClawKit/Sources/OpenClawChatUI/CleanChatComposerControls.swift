@@ -106,15 +106,16 @@ struct OpenClawChatAttachmentsStrip: View {
 
 #if !os(macOS)
 struct OpenClawChatAttachmentMenu: View {
-    @Binding var pickerItems: [PhotosPickerItem]
+    @Binding var showsPhotoPicker: Bool
     @Binding var showsFileImporter: Bool
     @Binding var showsCameraPicker: Bool
     let isAttachmentInputEnabled: Bool
-    let onPickerItemsChanged: @MainActor ([PhotosPickerItem]) -> Void
 
     var body: some View {
         Menu {
-            PhotosPicker(selection: self.$pickerItems, maxSelectionCount: 8, matching: .images) {
+            Button {
+                self.showsPhotoPicker = true
+            } label: {
                 Label {
                     Text("Photo Library")
                         .font(OpenClawChatTypography.body)
@@ -156,9 +157,6 @@ struct OpenClawChatAttachmentMenu: View {
         .accessibilityIdentifier("chat-attachment-picker")
         .buttonStyle(.plain)
         .disabled(!self.isAttachmentInputEnabled)
-        .onChange(of: self.pickerItems) { _, items in
-            self.onPickerItemsChanged(items)
-        }
     }
 }
 
@@ -205,29 +203,131 @@ struct OpenClawChatCameraPicker: UIViewControllerRepresentable {
 #endif
 #endif
 
-struct OpenClawChatDictationButton: View {
-    let control: OpenClawChatDictationControl
-    let onStart: @MainActor () -> Void
+struct OpenClawChatMicButton: View {
+    let dictationControl: OpenClawChatDictationControl?
+    let voiceNoteControl: OpenClawChatVoiceNoteControl?
+    let isRealtimeTalkActive: Bool
+    let isComposerEnabled: Bool
+    let isAttachmentInputEnabled: Bool
+    let onStartDictation: @MainActor () -> Void
 
     var body: some View {
-        Button {
-            if self.control.isActive {
-                self.control.finish()
+        if let voiceNoteControl {
+            if self.isDictationActionEnabled, let dictationControl {
+                Menu {
+                    self.voiceNoteAction(voiceNoteControl)
+                } label: {
+                    self.label
+                } primaryAction: {
+                    self.performDictationAction()
+                }
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
+                .modifier(UnifiedChatMicMetadata(control: dictationControl))
             } else {
-                self.onStart()
+                Menu {
+                    self.voiceNoteAction(voiceNoteControl)
+                } label: {
+                    self.label
+                }
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
+                .disabled(!self.isVoiceNoteRecordingEnabled(voiceNoteControl))
+                .accessibilityLabel("Record Voice Note")
+                .accessibilityIdentifier("chat-dictation-control")
+                .help("Record Voice Note")
             }
-        } label: {
-            Image(systemName: self.control.isActive ? "stop.fill" : "mic")
-                .font(OpenClawChatTypography.display(size: 17, weight: .medium, relativeTo: .body))
-                .foregroundStyle(self.control.isActive ? OpenClawChatTheme.accent : .secondary)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+        } else if let dictationControl {
+            Button(action: self.performDictationAction) {
+                self.label
+            }
+            .buttonStyle(.plain)
+            .disabled(!self.isDictationActionEnabled)
+            .modifier(UnifiedChatMicMetadata(control: dictationControl))
         }
-        .buttonStyle(.plain)
-        .disabled(!self.control.isAvailable && !self.control.isActive)
-        .accessibilityLabel(self.control.isActive ? "Finish dictation" : "Dictate message")
-        .accessibilityValue(self.control.isActive ? "Listening" : "Not listening")
-        .accessibilityIdentifier("chat-dictation-control")
-        .help(self.control.isActive ? "Finish dictation" : "Transcribe speech into the message")
+    }
+
+    private var label: some View {
+        Image(systemName: self.dictationControl?.isActive == true ? "stop.fill" : "mic")
+            .font(OpenClawChatTypography.display(size: 17, weight: .medium, relativeTo: .body))
+            .foregroundStyle(self.dictationControl?.isActive == true ? OpenClawChatTheme.accent : .secondary)
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+    }
+
+    private func performDictationAction() {
+        guard let dictationControl else { return }
+        if dictationControl.isActive {
+            dictationControl.finish()
+        } else {
+            self.onStartDictation()
+        }
+    }
+
+    private var isDictationActionEnabled: Bool {
+        Self.dictationActionEnabled(
+            isComposerEnabled: self.isComposerEnabled,
+            isAvailable: self.dictationControl?.isAvailable == true,
+            isActive: self.dictationControl?.isActive == true,
+            isTalkActive: self.isRealtimeTalkActive || self.voiceNoteControl?.isTalkActive == true,
+            isVoiceNoteCaptureActive: self.voiceNoteControl?.recorder.isRecording == true ||
+                self.voiceNoteControl?.recorder.isRequestingPermission == true)
+    }
+
+    private func voiceNoteAction(_ voiceNoteControl: OpenClawChatVoiceNoteControl) -> some View {
+        Button {
+            Task { await voiceNoteControl.recorder.start() }
+        } label: {
+            Label("Record Voice Note", systemImage: "waveform")
+        }
+        .disabled(!self.isVoiceNoteRecordingEnabled(voiceNoteControl))
+    }
+
+    private func isVoiceNoteRecordingEnabled(_ voiceNoteControl: OpenClawChatVoiceNoteControl) -> Bool {
+        Self.voiceNoteRecordingEnabled(
+            isComposerEnabled: self.isComposerEnabled,
+            isAttachmentInputEnabled: self.isAttachmentInputEnabled,
+            isDictationActive: self.dictationControl?.isActive == true,
+            isTalkActive: self.isRealtimeTalkActive || voiceNoteControl.isTalkActive,
+            isRecording: voiceNoteControl.recorder.isRecording,
+            isRequestingPermission: voiceNoteControl.recorder.isRequestingPermission)
+    }
+
+    nonisolated static func dictationActionEnabled(
+        isComposerEnabled: Bool,
+        isAvailable: Bool,
+        isActive: Bool,
+        isTalkActive: Bool,
+        isVoiceNoteCaptureActive: Bool) -> Bool
+    {
+        isActive || (isComposerEnabled && isAvailable && !isTalkActive && !isVoiceNoteCaptureActive)
+    }
+
+    nonisolated static func voiceNoteRecordingEnabled(
+        isComposerEnabled: Bool,
+        isAttachmentInputEnabled: Bool,
+        isDictationActive: Bool,
+        isTalkActive: Bool,
+        isRecording: Bool,
+        isRequestingPermission: Bool) -> Bool
+    {
+        isComposerEnabled
+            && isAttachmentInputEnabled
+            && !isDictationActive
+            && !isTalkActive
+            && !isRecording
+            && !isRequestingPermission
+    }
+}
+
+private struct UnifiedChatMicMetadata: ViewModifier {
+    let control: OpenClawChatDictationControl
+
+    func body(content: Content) -> some View {
+        content
+            .accessibilityLabel(self.control.isActive ? "Finish dictation" : "Dictate message")
+            .accessibilityValue(self.control.isActive ? "Listening" : "Not listening")
+            .accessibilityIdentifier("chat-dictation-control")
+            .help(self.control.isActive ? "Finish dictation" : "Transcribe speech into the message")
     }
 }

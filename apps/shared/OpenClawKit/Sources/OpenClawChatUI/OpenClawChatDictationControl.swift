@@ -21,8 +21,8 @@ public struct OpenClawChatDictationControl {
 }
 
 extension OpenClawChatViewModel {
-    func appendDictationTranscript(_ transcript: String, forSessionKey sessionKey: String) {
-        guard self.sessionKey == sessionKey else { return }
+    func appendDictationTranscript(_ transcript: String, for session: SessionSnapshot) {
+        guard self.isCurrentSession(session) else { return }
         if self.input.isEmpty {
             self.input = transcript
         } else {

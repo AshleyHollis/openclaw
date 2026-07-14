@@ -3261,7 +3261,7 @@ describe("talk.client.create handler", () => {
     const createBrowserSession = vi.fn(async (_input: unknown) => ({
       provider: "openai",
       transport: "webrtc" as const,
-      clientSecret: "secret",
+      clientSecret: "test-token-placeholder",
     }));
     mocks.resolveConfiguredRealtimeVoiceProvider.mockReturnValue({
       provider: {
@@ -3271,7 +3271,7 @@ describe("talk.client.create handler", () => {
         createBrowserSession,
         createBridge: vi.fn(),
       },
-      providerConfig: { apiKey: "openai-key" },
+      providerConfig: { apiKey: "test-token-placeholder" },
     });
     const respond = vi.fn();
 

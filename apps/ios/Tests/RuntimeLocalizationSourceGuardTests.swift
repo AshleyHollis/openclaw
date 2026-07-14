@@ -51,7 +51,6 @@ struct RuntimeLocalizationSourceGuardTests {
         let proComponents = try Self.source("Sources/Design/OpenClawProComponents.swift")
         let skillWorkshop = try Self.source("Sources/Design/IPadSkillWorkshopScreen.swift")
         let workboard = try Self.source("Sources/Design/IPadWorkboardScreen.swift")
-        let talkPro = try Self.source("Sources/Design/TalkProTab.swift")
         let talkManager = try Self.source("Sources/Voice/TalkModeManager.swift")
         let rootTabs = try Self.source("Sources/RootTabs.swift")
         let rootTabsNavigation = try Self.source("Sources/RootTabsNavigation.swift")
@@ -87,7 +86,6 @@ struct RuntimeLocalizationSourceGuardTests {
         }
         let destinationTitles = [
             "Chat",
-            "Talk",
             "Overview",
             "Activity",
             "Agents",
@@ -118,7 +116,6 @@ struct RuntimeLocalizationSourceGuardTests {
             skillWorkshop.components(separatedBy: "String(localized: \"Default agent\")").count - 1 == 2)
         #expect(workboard.components(separatedBy: "String(localized: \"Default agent\")").count - 1 == 4)
         #expect(!workboard.contains("?? \"Default agent\""))
-        #expect(talkPro.contains("if title.isEmpty { return String(localized: \"Not active\") }"))
         #expect(talkManager.contains(
             "var gatewayTalkActiveModeTitle: String = .init(localized: \"Not active\")"))
         for title in [

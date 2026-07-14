@@ -223,6 +223,22 @@ enum OpenClawBrand {
     }
 }
 
+extension TalkWaveformPalette {
+    /// iOS app branding for shared voice contours. This lives with the palette
+    /// owner so removing a presentation surface cannot remove the app theme.
+    static let openClawBrand = TalkWaveformPalette(
+        active: [
+            OpenClawBrand.carapaceCoral,
+            OpenClawBrand.carapaceSea,
+            OpenClawBrand.accent,
+        ],
+        inactive: [
+            Color(uiColor: .systemGray2),
+            Color(uiColor: .systemGray3),
+            Color(uiColor: .systemGray4),
+        ])
+}
+
 struct OpenClawActivationGlyph: View {
     let size: CGFloat
     /// Opt-in tap Easter eggs; leave off when the glyph sits inside a control.

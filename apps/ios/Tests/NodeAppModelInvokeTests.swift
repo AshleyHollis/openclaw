@@ -2770,6 +2770,11 @@ private func overrideNotificationServingPreference(_ enabled: Bool) -> () -> Voi
             try await appModel.transcribeChatDraft()
         }
         await waitForTalkCondition { appModel.isChatDictationActive }
+        let captureId = try #require(talkMode._test_activePushToTalkCaptureId())
+        await talkMode._test_handlePushToTalkTranscript(
+            "discard this partial draft",
+            isFinal: false,
+            captureId: captureId)
 
         appModel.cancelChatDictation()
 
@@ -2777,6 +2782,71 @@ private func overrideNotificationServingPreference(_ enabled: Bool) -> () -> Voi
         #expect(transcript == nil)
         #expect(!appModel.isChatDictationActive)
         #expect(talkMode._test_activePushToTalkCaptureId() == nil)
+        #expect(appModel._test_pttVoiceWakeLeaseCaptureIds().isEmpty)
+    }
+
+    @Test @MainActor func `chat dictation refuses a capture it did not reserve`() async throws {
+        let talkMode = TalkModeManager(allowSimulatorCapture: true)
+        let appModel = NodeAppModel(talkMode: talkMode)
+        let existing = try await talkMode.beginPushToTalkOnce(
+            maxDurationSeconds: 30,
+            transcriptionOnly: true)
+        let captureId = try #require(talkMode._test_activePushToTalkCaptureId())
+
+        let transcript = try await appModel.transcribeChatDraft()
+
+        #expect(transcript == nil)
+        #expect(!appModel.isChatDictationActive)
+        #expect(talkMode._test_activePushToTalkCaptureId() == captureId)
+        _ = talkMode.cancelPushToTalk(captureId: captureId)
+        _ = await talkMode.awaitPushToTalkOnce(existing)
+    }
+
+    @Test @MainActor func `gateway disconnect preserves local chat dictation`() async throws {
+        let talkMode = TalkModeManager(allowSimulatorCapture: true)
+        let appModel = NodeAppModel(talkMode: talkMode)
+        talkMode.updateGatewayConnected(true)
+        let transcription = Task { @MainActor in
+            try await appModel.transcribeChatDraft()
+        }
+        await waitForTalkCondition { appModel.isChatDictationActive }
+        let captureId = try #require(talkMode._test_activePushToTalkCaptureId())
+        await talkMode._test_handlePushToTalkTranscript(
+            "draft survives disconnect",
+            isFinal: false,
+            captureId: captureId)
+
+        talkMode.updateGatewayConnected(false)
+
+        #expect(talkMode._test_activePushToTalkCaptureId() == captureId)
+        appModel.finishChatDictation()
+        #expect(try await transcription.value == "draft survives disconnect")
+        #expect(!appModel.isChatDictationActive)
+        #expect(appModel._test_pttVoiceWakeLeaseCaptureIds().isEmpty)
+    }
+
+    @Test @MainActor func `gateway replacement preserves local chat dictation`() async throws {
+        let talkMode = TalkModeManager(allowSimulatorCapture: true)
+        let appModel = NodeAppModel(talkMode: talkMode)
+        let initialGateway = GatewayNodeSession()
+        let replacementGateway = GatewayNodeSession()
+        talkMode.attachGateway(initialGateway)
+        let transcription = Task { @MainActor in
+            try await appModel.transcribeChatDraft()
+        }
+        await waitForTalkCondition { appModel.isChatDictationActive }
+        let captureId = try #require(talkMode._test_activePushToTalkCaptureId())
+        await talkMode._test_handlePushToTalkTranscript(
+            "draft survives replacement",
+            isFinal: false,
+            captureId: captureId)
+
+        talkMode.attachGateway(replacementGateway)
+
+        #expect(talkMode._test_activePushToTalkCaptureId() == captureId)
+        appModel.finishChatDictation()
+        #expect(try await transcription.value == "draft survives replacement")
+        #expect(!appModel.isChatDictationActive)
         #expect(appModel._test_pttVoiceWakeLeaseCaptureIds().isEmpty)
     }
 

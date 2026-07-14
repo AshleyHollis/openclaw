@@ -12,9 +12,8 @@ final class OpenClawSnapshotUITests: XCTestCase {
     private static let screenshotTargets = [
         ScreenshotTarget(initialTab: "control", initialDestination: "overview", name: "01-control-connected"),
         ScreenshotTarget(initialTab: "chat", initialDestination: "chat", name: "02-chat-connected"),
-        ScreenshotTarget(initialTab: "talk", initialDestination: "talk", name: "03-talk-connected"),
-        ScreenshotTarget(initialTab: "agent", initialDestination: "agents", name: "04-agent-connected"),
-        ScreenshotTarget(initialTab: "settings", initialDestination: "settings", name: "05-settings-connected"),
+        ScreenshotTarget(initialTab: "agent", initialDestination: "agents", name: "03-agent-connected"),
+        ScreenshotTarget(initialTab: "settings", initialDestination: "settings", name: "04-settings-connected"),
     ]
 
     private var app: XCUIApplication?
@@ -224,25 +223,6 @@ final class OpenClawSnapshotUITests: XCTestCase {
         XCTAssertTrue(self.app?.otherElements["chat-agent-identity"].waitForExistence(timeout: 5) == true)
         XCTAssertTrue(self.app?.tabBars.buttons["Chat"].isSelected == true)
         self.attachScreenshot(named: "chat-after-settings-back")
-
-        self.launchApp(for: ScreenshotTarget(
-            initialTab: "talk",
-            initialDestination: "talk",
-            name: "talk-settings-back"))
-
-        let voiceSettings = try XCTUnwrap(self.app?.buttons["talk-voice-settings-control"])
-        for _ in 0..<3 where !voiceSettings.exists {
-            self.app?.swipeUp()
-        }
-        XCTAssertTrue(voiceSettings.waitForExistence(timeout: 8))
-        voiceSettings.tap()
-        let voiceNavigationBar = try XCTUnwrap(self.app?.navigationBars["Voice & Talk"])
-        XCTAssertTrue(voiceNavigationBar.waitForExistence(timeout: 5))
-        XCTAssertTrue(self.app?.tabBars.buttons["Control"].isSelected == true)
-
-        voiceNavigationBar.buttons["BackButton"].tap()
-        XCTAssertTrue(voiceSettings.waitForExistence(timeout: 5))
-        XCTAssertTrue(self.app?.tabBars.buttons["Control"].isSelected == true)
     }
 
     func testVoiceWakeResumesAfterTalkModeToggle() throws {
@@ -484,40 +464,6 @@ final class OpenClawSnapshotUITests: XCTestCase {
         app.buttons["Go to Chat"].tap()
         XCTAssertTrue(app.tabBars.buttons["Chat"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.tabBars.buttons["Chat"].isSelected)
-    }
-
-    func testTalkUsesNativeControls() throws {
-        try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .phone, "Phone Talk controls only")
-        self.launchApp(for: ScreenshotTarget(
-            initialTab: "talk",
-            initialDestination: "talk",
-            name: "talk-native-controls"))
-
-        let speakerphone = try XCTUnwrap(app?.switches["talk-speakerphone-control"])
-        let backgroundListening = try XCTUnwrap(app?.switches["talk-background-listening-control"])
-        let voiceSettings = try XCTUnwrap(app?.buttons["talk-voice-settings-control"])
-        for _ in 0..<3 where !speakerphone.exists {
-            self.app?.swipeUp()
-        }
-        XCTAssertTrue(speakerphone.waitForExistence(timeout: 8))
-        XCTAssertTrue(backgroundListening.exists)
-        XCTAssertTrue(voiceSettings.exists)
-
-        let originalValue = speakerphone.value as? String
-        defer {
-            if speakerphone.value as? String != originalValue {
-                speakerphone.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
-            }
-        }
-        if originalValue == "0" {
-            speakerphone.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
-            self.waitForValue("1", of: speakerphone)
-        }
-        XCTAssertEqual(speakerphone.value as? String, "1")
-        self.attachScreenshot(named: "talk-native-controls")
-
-        speakerphone.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
-        self.waitForValue("0", of: speakerphone)
     }
 
     func testAppearanceUsesSettingsRow() throws {

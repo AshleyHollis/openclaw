@@ -37,7 +37,6 @@ final class LiveActivityManager {
     private var voiceSampleBuffer = LiveActivityVoiceSampleBuffer()
     private var pendingVoiceSample: UInt8?
     private var voiceSampleTask: Task<Void, Never>?
-    private var hydratedToolFallbackActive = false
     private var voiceStaleRefreshTask: Task<Void, Never>?
     private var voiceStaleRefreshGeneration: UInt64 = 0
     private var toolStaleRefreshTask: Task<Void, Never>?
@@ -55,7 +54,6 @@ final class LiveActivityManager {
         agentName: String,
         sessionKey: String)
     {
-        self.hydratedToolFallbackActive = false
         let presentation = Self.connectingPresentation(statusText: statusText)
         let startedAt = Self.lifecycleStartedAt(
             existing: self.arbiter.connection,
@@ -100,7 +98,6 @@ final class LiveActivityManager {
             startedAt: .now,
             agentBadge: agentBadge,
             toolName: toolName)
-        self.clearHydratedToolFallback()
         self.arbiter.startTool(
             id: id,
             request: self.request(
@@ -113,7 +110,6 @@ final class LiveActivityManager {
     }
 
     func endTool(id: String, sessionKey: String) {
-        self.clearHydratedToolFallback()
         self.arbiter.endTool(id: id, sessionKey: sessionKey)
         if self.arbiter.activeToolCount == 0 {
             self.stopToolStaleRefreshTask()
@@ -210,14 +206,12 @@ final class LiveActivityManager {
     #endif
 
     func handleReconnect() {
-        self.hydratedToolFallbackActive = false
         self.arbiter.clearConnectionState()
         self.reconcile(reason: "connected")
     }
 
     func endActivity(reason: String) {
         self.arbiter.clearAll()
-        self.hydratedToolFallbackActive = false
         self.stopToolStaleRefreshTask()
         self.stopVoiceStaleRefreshTask()
         self.resetVoiceSamples()
@@ -300,12 +294,6 @@ final class LiveActivityManager {
         self.voiceSampleTask = nil
         self.pendingVoiceSample = nil
         self.voiceSampleBuffer.reset()
-    }
-
-    private func clearHydratedToolFallback() {
-        guard self.hydratedToolFallbackActive else { return }
-        self.hydratedToolFallbackActive = false
-        self.arbiter.setConnection(nil)
     }
 
     /// Active tool calls refresh their bounded deadline while this process owns
@@ -489,8 +477,7 @@ final class LiveActivityManager {
             // A hydrated tool has no invocation ID to balance. Keep it as the
             // lowest-priority fallback until a live producer replaces it.
             request.staleDate = Date().addingTimeInterval(self.transientStaleSeconds)
-            self.arbiter.setConnection(request)
-            self.hydratedToolFallbackActive = true
+            self.arbiter.adoptInitialHydratedToolFallback(request)
         case .connecting, .reconnecting, .paused:
             self.arbiter.setConnection(request)
         case .idle, .disconnected:

@@ -807,6 +807,8 @@ final class NodeAppModel {
             self.voiceWake.setSuppressedForBackground(true)
             self.talkMode.suspendForBackground()
         }
+        // Every TalkMode terminal path reports the exact capture after audio
+        // teardown; this callback is the single owner of Voice Wake lease release.
         self.talkMode.setPushToTalkAudioOwnershipEndHandler { [weak self] captureId in
             self?.releasePttVoiceWakeLease(for: captureId)
         }
@@ -2759,25 +2761,43 @@ final class NodeAppModel {
                     })
             }
         } catch {
-            if let reservedCaptureId {
-                _ = self.talkMode.cancelPushToTalk(captureId: reservedCaptureId)
-                if self.chatDictationCaptureId == reservedCaptureId {
-                    self.chatDictationCaptureId = nil
-                }
-            }
+            self.cancelChatDictationReservation(reservedCaptureId)
             throw error
         }
 
-        let payload: OpenClawTalkPTTStopPayload = switch start {
-        case let .busy(busyPayload):
-            busyPayload
-        case .started:
-            await self.talkMode.awaitPushToTalkOnce(start)
+        guard case let .started(captureId) = start else {
+            self.cancelChatDictationReservation(reservedCaptureId)
+            return nil
         }
-        if self.chatDictationCaptureId == payload.captureId {
+        guard reservedCaptureId == captureId else {
+            self.cancelChatDictationReservation(reservedCaptureId)
+            if reservedCaptureId != captureId {
+                _ = self.talkMode.cancelPushToTalk(captureId: captureId)
+            }
+            return nil
+        }
+
+        let payload = await self.talkMode.awaitPushToTalkOnce(start)
+        // Dictation may be cancelled while recognition is suspended. Only the
+        // invocation that still owns this capture may publish its transcript.
+        guard payload.captureId == captureId,
+              self.chatDictationCaptureId == captureId
+        else {
+            if self.chatDictationCaptureId == captureId {
+                self.chatDictationCaptureId = nil
+            }
+            return nil
+        }
+        self.chatDictationCaptureId = nil
+        return payload.transcript?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func cancelChatDictationReservation(_ captureId: String?) {
+        guard let captureId else { return }
+        _ = self.talkMode.cancelPushToTalk(captureId: captureId)
+        if self.chatDictationCaptureId == captureId {
             self.chatDictationCaptureId = nil
         }
-        return payload.transcript?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func finishChatDictation() {

@@ -25,7 +25,7 @@ struct RootTabsPhoneControlHub: View {
                 }
 
                 Section {
-                    self.chatTalkRow
+                    self.chatShortcut
                         .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
@@ -91,17 +91,10 @@ struct RootTabsPhoneControlHub: View {
         .accessibilityHint("Opens Settings / Gateway")
     }
 
-    private var chatTalkRow: some View {
-        // Chat remains a root-tab shortcut; Talk now opens in this stack because
-        // realtime voice is no longer duplicated in the bottom tab bar.
-        HStack(alignment: .top, spacing: 12) {
-            self.prominentDestinationCard(
-                .chat,
-                subtitle: "Agent chat and recent work.")
-            self.prominentDestinationCard(
-                .talk,
-                subtitle: "Realtime voice and controls.")
-        }
+    private var chatShortcut: some View {
+        self.prominentDestinationCard(
+            .chat,
+            subtitle: "Agent chat and recent work.")
     }
 
     private func prominentDestinationCard(
@@ -164,11 +157,6 @@ struct RootTabsPhoneControlHub: View {
         switch destination {
         case .chat, .agents:
             EmptyView()
-        case .talk:
-            TalkProTab(
-                ownsNavigationStack: false,
-                openSettings: { self.openGatewayDetail() },
-                openVoiceSettings: { self.navigationPath.append(.settings) })
         case .gateway:
             SettingsProTab(directRoute: .gateway)
         case .overview:
@@ -349,7 +337,7 @@ struct RootTabsPhoneControlHub: View {
         switch destination {
         case .chat:
             OpenClawBrand.ok
-        case .talk, .skillWorkshop, .files:
+        case .skillWorkshop, .files:
             OpenClawBrand.info
         case .overview:
             OpenClawBrand.warn

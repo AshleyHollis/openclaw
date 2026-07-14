@@ -339,6 +339,7 @@ struct TalkModeGatewayConfigState {
     let normalizedPayload: Bool
     let missingResolvedPayload: Bool
     let executionMode: TalkModeExecutionMode
+    let realtimeBrain: String
     let requiresGatewayRealtimeTransport: Bool
     let openAIRequiresGatewayRealtimeTransport: Bool
     let defaultVoiceId: String?
@@ -349,7 +350,6 @@ struct TalkModeGatewayConfigState {
     let realtimeProvider: String?
     let realtimeModelId: String?
     let realtimeVoiceId: String?
-    let realtimeBrain: String
     let rawConfigApiKey: String?
     let interruptOnSpeech: Bool?
     let silenceTimeoutMs: Int
@@ -427,6 +427,7 @@ enum TalkModeGatewayConfigParser {
             normalizedPayload: selection?.normalizedPayload == true,
             missingResolvedPayload: talk != nil && selection == nil,
             executionMode: executionMode,
+            realtimeBrain: realtimeBrain,
             requiresGatewayRealtimeTransport: requiresGatewayRealtimeTransport,
             openAIRequiresGatewayRealtimeTransport: openAIRequiresGatewayRealtimeTransport,
             defaultVoiceId: defaultVoiceId,
@@ -437,7 +438,6 @@ enum TalkModeGatewayConfigParser {
             realtimeProvider: realtimeProvider,
             realtimeModelId: realtimeModelId,
             realtimeVoiceId: realtimeVoiceId,
-            realtimeBrain: realtimeBrain,
             rawConfigApiKey: rawConfigApiKey,
             interruptOnSpeech: interruptOnSpeech,
             silenceTimeoutMs: silenceTimeoutMs,
