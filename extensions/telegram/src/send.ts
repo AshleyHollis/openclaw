@@ -1219,7 +1219,7 @@ export async function sendMessageTelegram(
     if (needsSeparateText && followUpText) {
       try {
         const textResult = await sendTelegramTextChunks(
-          buildChunkedTextPlan(followUpText),
+          buildChunkedTextPlan(followUpText, "text follow-up send"),
           "text follow-up send",
           true,
         );

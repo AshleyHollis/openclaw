@@ -88,6 +88,7 @@ type TelegramDeliveryTextChunk = {
   text: string;
   plainText: string;
   textMode: "html" | "markdown";
+  standardMessage?: boolean;
 };
 
 type ChunkTextFn = (markdown: string) => TelegramDeliveryTextChunk[];
@@ -107,6 +108,7 @@ function buildChunkTextResolver(params: {
           {
             text: chunk.htmlText ?? chunk.plainText,
             plainText: chunk.plainText,
+            standardMessage: true,
           },
           { textMode: chunk.htmlText ? ("html" as const) : ("markdown" as const) },
         ),
@@ -164,14 +166,14 @@ function filterEmptyTelegramTextChunks<T extends { text: string }>(chunks: reado
 }
 
 function resolveTelegramTextChunkReplyToMode(
-  chunks: readonly TelegramTextChunk[],
+  chunks: readonly TelegramDeliveryTextChunk[],
   replyToMode: ReplyToMode,
 ): ReplyToMode {
-  return chunks.some((chunk) => chunk.plainText !== undefined) ? "all" : replyToMode;
+  return chunks.some((chunk) => chunk.standardMessage === true) ? "all" : replyToMode;
 }
 
-function isFramedStandardTextBatch(chunks: readonly TelegramTextChunk[]): boolean {
-  return chunks.length > 1 && chunks.every((chunk) => chunk.plainText !== undefined);
+function isFramedStandardTextBatch(chunks: readonly TelegramDeliveryTextChunk[]): boolean {
+  return chunks.length > 1 && chunks.every((chunk) => chunk.standardMessage === true);
 }
 
 function restoreIncompleteFramedBatchProgress(
@@ -196,7 +198,7 @@ async function retireIncompleteFramedBatch(params: {
   runtime: RuntimeEnv;
   thread?: TelegramThreadSpec | null;
   replyToMessageId?: number;
-  chunks: readonly TelegramTextChunk[];
+  chunks: readonly TelegramDeliveryTextChunk[];
   silent?: boolean;
 }): Promise<void> {
   const firstChunk = params.chunks[0];
@@ -302,9 +304,9 @@ async function deliverTextReply(params: {
             replyQuoteEntities: params.replyQuoteEntities,
             thread: params.thread,
             textMode: chunk.textMode ?? "markdown",
-            ...(chunk.plainText !== undefined
+            ...(chunk.standardMessage === true
               ? { standardMessage: { plainText: chunk.plainText } }
-              : {}),
+              : { plainText: chunk.plainText }),
             richMessages: params.richMessages,
             linkPreview: params.linkPreview,
             tableMode: params.tableMode,
@@ -373,9 +375,9 @@ async function sendPendingFollowUpText(params: {
           replyToMessageId,
           thread: params.thread,
           textMode: chunk.textMode ?? "markdown",
-          ...(chunk.plainText !== undefined
+          ...(chunk.standardMessage === true
             ? { standardMessage: { plainText: chunk.plainText } }
-            : {}),
+            : { plainText: chunk.plainText }),
           richMessages: params.richMessages,
           linkPreview: params.linkPreview,
           tableMode: params.tableMode,
@@ -476,9 +478,9 @@ async function sendTelegramVoiceFallbackText(opts: {
           replyQuoteEntities: isFirstChunk ? opts.replyQuoteEntities : undefined,
           thread: opts.thread,
           textMode: chunk.textMode ?? "markdown",
-          ...(chunk.plainText !== undefined
+          ...(chunk.standardMessage === true
             ? { standardMessage: { plainText: chunk.plainText } }
-            : {}),
+            : { plainText: chunk.plainText }),
           richMessages: opts.richMessages,
           linkPreview: opts.linkPreview,
           tableMode: opts.tableMode,
@@ -991,10 +993,6 @@ export async function deliverReplies(params: {
     const telegramData = reply.channelData?.telegram as TelegramReplyChannelData | undefined;
     const reactionEmoji =
       typeof telegramData?.reaction?.emoji === "string" ? telegramData.reaction.emoji : undefined;
-    if (reactionEmoji && typeof replyToId !== "number") {
-      params.runtime.error?.(danger("Telegram reaction requires a reply target"));
-      continue;
-    }
     if (!resolvedReplyText && !hasMedia && !reactionEmoji) {
       if (reply?.audioAsVoice) {
         logVerbose("telegram reply has audioAsVoice without media/text; skipping");
@@ -1014,7 +1012,7 @@ export async function deliverReplies(params: {
     // fields remain authoritative for direct native-command delivery.
     const hasExplicitReplyTarget =
       reply.replyToId != null &&
-      (reply.replyToIdSource !== "implicit" ||
+      (reply.replyToIdSource === "explicit" ||
         reply.replyToTag === true ||
         reply.replyToCurrent === true);
     const replyToId =
@@ -1022,6 +1020,10 @@ export async function deliverReplies(params: {
         ? resolveTelegramReplyId(reply.replyToId ?? params.defaultReplyToId)
         : undefined;
     const effectiveReplyToMode: ReplyToMode = hasExplicitReplyTarget ? "all" : params.replyToMode;
+    if (reactionEmoji && typeof replyToId !== "number") {
+      params.runtime.error?.(danger("Telegram reaction requires a reply target"));
+      continue;
+    }
     const replyQuote = resolveReplyQuoteForSend({
       replyToId,
       replyQuoteByMessageId: params.replyQuoteByMessageId,

@@ -68,6 +68,8 @@ export type GetReplyOptions = {
   imageOrder?: PromptImageOrderEntry[];
   /** Notifies when an agent run actually starts (useful for webchat command handling). */
   onAgentRunStart?: (runId: string) => void;
+  /** Called once restart-recovery delivery context has been persisted for the adopted turn. */
+  onTurnAdopted?: () => void | Promise<void>;
   /** Shared lifecycle owner for the current user-turn transcript append. */
   userTurnTranscriptRecorder?: UserTurnTranscriptRecorder;
   onReplyStart?: () => Promise<void> | void;
