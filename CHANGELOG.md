@@ -36,6 +36,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- **Paired-node session catalogs:** authorize bundled Anthropic and Codex catalog requests to invoke their read-only node commands from Control UI read flows, restoring remote Claude/Codex rows and terminal resume availability. Fixes #107406.
 - **Sandbox recreate confirmation:** treat Clack cancellation as a decline so Ctrl-C cannot proceed with container removal.
 - **Microsoft Teams HTML text:** decode HTML5 entities consistently in quoted and Graph-fetched messages while preserving literal escaped entity text.
 - **Updater Node compatibility:** stage npm candidates with dependency scripts disabled, validate the packaged Node engine and lifecycle contract before activation, and preserve the existing install when a release requires a newer Node runtime. Fixes #106870. (#106994)
