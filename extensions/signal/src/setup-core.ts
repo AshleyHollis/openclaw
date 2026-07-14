@@ -26,6 +26,10 @@ import {
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { normalizeE164 } from "openclaw/plugin-sdk/text-utility-runtime";
 import { resolveDefaultSignalAccountId, resolveSignalAccount } from "./accounts.js";
+import {
+  prepareSignalManagedNativeTransport,
+  writeSignalAccountTransport,
+} from "./setup-transport.js";
 
 const t = createSetupTranslator();
 
@@ -89,12 +93,19 @@ function buildSignalSetupPatch(input: {
   httpHost?: string;
   httpPort?: string;
 }) {
+  const transport = input.httpUrl
+    ? { kind: "external-native" as const, url: input.httpUrl }
+    : input.cliPath || input.httpHost || input.httpPort
+      ? {
+          kind: "managed-native" as const,
+          ...(input.cliPath ? { cliPath: input.cliPath } : {}),
+          ...(input.httpHost ? { httpHost: input.httpHost } : {}),
+          ...(input.httpPort ? { httpPort: Number(input.httpPort) } : {}),
+        }
+      : undefined;
   return {
     ...(input.signalNumber ? { account: input.signalNumber } : {}),
-    ...(input.cliPath ? { cliPath: input.cliPath } : {}),
-    ...(input.httpUrl ? { httpUrl: input.httpUrl } : {}),
-    ...(input.httpHost ? { httpHost: input.httpHost } : {}),
-    ...(input.httpPort ? { httpPort: Number(input.httpPort) } : {}),
+    ...(transport ? { transport } : {}),
   };
 }
 
@@ -181,11 +192,15 @@ function resolveSignalCliPath(params: {
   accountId: string;
   credentialValues: Record<string, unknown>;
 }) {
+  const transport = resolveSignalAccount({
+    cfg: params.cfg,
+    accountId: params.accountId,
+  }).transport;
   return (
     (typeof params.credentialValues.cliPath === "string"
       ? params.credentialValues.cliPath
       : undefined) ??
-    resolveSignalAccount({ cfg: params.cfg, accountId: params.accountId }).config.cliPath ??
+    (transport.kind === "managed-native" ? transport.cliPath : undefined) ??
     "signal-cli"
   );
 }
@@ -224,7 +239,7 @@ export const signalCompletionNote = {
   ],
 };
 
-export const signalSetupAdapter: ChannelSetupAdapter = createPatchedAccountSetupAdapter({
+const signalSetupAdapterBase = createPatchedAccountSetupAdapter({
   channelKey: channel,
   validateInput: createSetupInputPresenceValidator({
     validate: ({ input }) => {
@@ -242,6 +257,27 @@ export const signalSetupAdapter: ChannelSetupAdapter = createPatchedAccountSetup
   }),
   buildPatch: (input) => buildSignalSetupPatch(input),
 });
+
+export const signalSetupAdapter: ChannelSetupAdapter = {
+  ...signalSetupAdapterBase,
+  applyAccountConfig: (params) => {
+    const next = signalSetupAdapterBase.applyAccountConfig?.(params) ?? params.cfg;
+    const transport = resolveSignalAccount({ cfg: next, accountId: params.accountId }).config
+      .transport;
+    if (transport?.kind !== "managed-native") {
+      return next;
+    }
+    return writeSignalAccountTransport({
+      cfg: next,
+      accountId: params.accountId,
+      transport: prepareSignalManagedNativeTransport({
+        cfg: next,
+        accountId: params.accountId,
+        overrides: transport,
+      }),
+    });
+  },
+};
 
 export function createSignalSetupWizardProxy(loadWizard: () => Promise<ChannelSetupWizard>) {
   return createDelegatedSetupWizardProxy({

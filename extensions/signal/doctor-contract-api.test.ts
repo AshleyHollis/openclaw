@@ -1,8 +1,9 @@
 // Signal tests cover doctor contract api plugin behavior.
 import { expectDefined } from "@openclaw/normalization-core";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { legacyConfigRules, normalizeCompatibilityConfig } from "./doctor-contract-api.js";
+import { migrateLegacySignalTransportConfig } from "./src/config-compat.js";
 
 function signalConfig(entry: Record<string, unknown>): OpenClawConfig {
   return { channels: { signal: entry } } as never;
@@ -74,5 +75,98 @@ describe("signal normalizeCompatibilityConfig streaming aliases", () => {
     const second = normalizeCompatibilityConfig({ cfg: first.config });
     expect(second.changes).toEqual([]);
     expect(second.config).toBe(first.config);
+  });
+});
+
+describe("signal transport compatibility", () => {
+  it("migrates an explicit container mode and materializes named account ownership", () => {
+    const result = normalizeCompatibilityConfig({
+      cfg: signalConfig({
+        apiMode: "container",
+        httpUrl: "http://signal:8080",
+        accounts: { work: { account: "+15555550123" } },
+      }),
+    });
+    const signal = result.config.channels?.signal;
+
+    expect(signal?.transport).toBeUndefined();
+    expect(signal?.accounts?.work?.transport).toEqual({
+      kind: "container",
+      url: "http://signal:8080",
+    });
+    expect(signal).not.toHaveProperty("apiMode");
+    expect(signal).not.toHaveProperty("httpUrl");
+  });
+
+  it("migrates managed native process fields into transport", () => {
+    const result = normalizeCompatibilityConfig({
+      cfg: signalConfig({
+        cliPath: "/opt/signal-cli",
+        configPath: "/var/lib/signal",
+        httpPort: 8181,
+        ignoreAttachments: true,
+      }),
+    });
+
+    expect(result.config.channels?.signal?.transport).toEqual({
+      kind: "managed-native",
+      cliPath: "/opt/signal-cli",
+      configPath: "/var/lib/signal",
+      httpPort: 8181,
+      ignoreAttachments: true,
+    });
+    expect(result.config.channels?.signal).not.toHaveProperty("cliPath");
+  });
+
+  it("allocates distinct managed ports while materializing named account ownership", () => {
+    const result = normalizeCompatibilityConfig({
+      cfg: signalConfig({
+        account: "+15555550123",
+        httpPort: 8080,
+        accounts: { work: { account: "+15555550124" } },
+      }),
+    });
+
+    expect(result.config.channels?.signal?.transport).toMatchObject({
+      kind: "managed-native",
+      httpPort: 8080,
+    });
+    expect(result.config.channels?.signal?.accounts?.work?.transport).toMatchObject({
+      kind: "managed-native",
+      httpPort: 8081,
+    });
+  });
+
+  it("defers auto endpoint migration until doctor can detect it", () => {
+    const cfg = signalConfig({ apiMode: "auto", httpUrl: "http://signal:8080" });
+    const result = normalizeCompatibilityConfig({ cfg });
+
+    expect(result.config).toBe(cfg);
+    expect(result.changes).toEqual([]);
+  });
+
+  it("detects an auto endpoint once and persists the concrete result", async () => {
+    const detect = vi.fn().mockResolvedValue({
+      kind: "external-native",
+      url: "http://signal:8080",
+    });
+    const result = await migrateLegacySignalTransportConfig({
+      cfg: signalConfig({
+        apiMode: "auto",
+        httpUrl: "http://signal:8080/",
+        account: "+15555550123",
+      }),
+      detect,
+    });
+
+    expect(detect).toHaveBeenCalledWith({
+      url: "http://signal:8080/",
+      account: "+15555550123",
+    });
+    expect(result.config.channels?.signal?.transport).toEqual({
+      kind: "external-native",
+      url: "http://signal:8080",
+    });
+    expect(result.config.channels?.signal).not.toHaveProperty("apiMode");
   });
 });

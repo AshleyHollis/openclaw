@@ -18,6 +18,14 @@ vi.mock("./accounts.js", () => ({
     accountId: "default",
     enabled: true,
     baseUrl: "http://signal.local",
+    transport: {
+      kind: "managed-native",
+      baseUrl: "http://signal.local",
+      cliPath: "signal-cli",
+      httpHost: "127.0.0.1",
+      httpPort: 8080,
+      startupTimeoutMs: 30_000,
+    },
     configured: true,
     config: { account: "+15550001111" },
   }),
@@ -78,7 +86,7 @@ describe("sendReactionSignal", () => {
       {
         baseUrl: "http://signal.local",
         timeoutMs: undefined,
-        apiMode: undefined,
+        transportKind: "managed-native",
       },
     );
     const params = requireRpcParams();

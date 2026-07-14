@@ -36,17 +36,20 @@ export const signalSetupWizard: ChannelSetupWizard = {
             (resolvedAccountId) =>
               resolveSignalAccount({ cfg, accountId: resolvedAccountId }).configured,
           ),
-    resolveBinaryPath: ({ cfg, accountId }) =>
-      resolveSignalAccount({ cfg, accountId }).config.cliPath ?? "signal-cli",
+    resolveBinaryPath: ({ cfg, accountId }) => {
+      const transport = resolveSignalAccount({ cfg, accountId }).transport;
+      return transport.kind === "managed-native" ? transport.cliPath : "signal-cli";
+    },
     detectBinary,
   }),
   prepare: async ({ cfg, accountId, credentialValues, runtime, prompter, options }) => {
     if (!options?.allowSignalInstall) {
       return undefined;
     }
+    const transport = resolveSignalAccount({ cfg, accountId }).transport;
     const currentCliPath =
       (typeof credentialValues.cliPath === "string" ? credentialValues.cliPath : undefined) ??
-      resolveSignalAccount({ cfg, accountId }).config.cliPath ??
+      (transport.kind === "managed-native" ? transport.cliPath : undefined) ??
       "signal-cli";
     const cliDetected = await detectBinary(currentCliPath);
     const wantsInstall = await prompter.confirm({

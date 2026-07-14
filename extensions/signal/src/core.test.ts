@@ -11,7 +11,7 @@ import {
   type WizardPrompter,
 } from "openclaw/plugin-sdk/plugin-test-runtime";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   clearSignalApprovalReactionTargetsForTest,
   resolveSignalApprovalReactionTargetWithPersistence,
@@ -38,6 +38,10 @@ import {
 } from "./setup-core.js";
 
 const getSignalSetupStatus = createPluginSetupWizardStatus(signalPlugin);
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("looksLikeUuid", () => {
   it("accepts hyphenated UUIDs", () => {
@@ -153,6 +157,14 @@ describe("probeSignal", () => {
         enabled: true,
         configured: true,
         baseUrl: "http://127.0.0.1:8080",
+        transport: {
+          kind: "managed-native",
+          baseUrl: "http://127.0.0.1:8080",
+          cliPath: "signal-cli",
+          httpHost: "127.0.0.1",
+          httpPort: 8080,
+          startupTimeoutMs: 30_000,
+        },
       } as never,
       timeoutMs: 1000,
     };
@@ -201,10 +213,10 @@ describe("probeSignal", () => {
       cfg: {
         channels: {
           signal: {
-            cliPath: "/tmp/root-signal-cli",
+            transport: { kind: "managed-native", cliPath: "/tmp/root-signal-cli" },
             accounts: {
               work: {
-                cliPath: "/tmp/work-signal-cli",
+                transport: { kind: "managed-native", cliPath: "/tmp/work-signal-cli" },
               },
             },
           },
@@ -221,11 +233,11 @@ describe("probeSignal", () => {
       cfg: {
         channels: {
           signal: {
-            cliPath: "/tmp/root-signal-cli",
+            transport: { kind: "managed-native", cliPath: "/tmp/root-signal-cli" },
             defaultAccount: "work",
             accounts: {
               work: {
-                cliPath: "/tmp/work-signal-cli",
+                transport: { kind: "managed-native", cliPath: "/tmp/work-signal-cli" },
               },
             },
           },
@@ -243,16 +255,13 @@ describe("probeSignal", () => {
         channels: {
           signal: {
             defaultAccount: "work",
-            cliPath: "/tmp/root-signal-cli",
+            transport: { kind: "managed-native", cliPath: "/tmp/root-signal-cli" },
             accounts: {
               alerts: {
-                cliPath: "/tmp/alerts-signal-cli",
+                transport: { kind: "managed-native", cliPath: "/tmp/alerts-signal-cli" },
               },
               work: {
-                cliPath: "",
                 account: "",
-                httpHost: "",
-                httpUrl: "",
               },
             },
           },

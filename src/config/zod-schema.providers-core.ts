@@ -49,6 +49,7 @@ import {
   validateTelegramWebhookSecretRequirements,
 } from "./zod-schema.secret-input-validation.js";
 import { sensitive } from "./zod-schema.sensitive.js";
+import { SignalTransportSchema } from "./zod-schema.signal.js";
 
 const ToolPolicyBySenderSchema = z.record(z.string(), ToolPolicySchema).optional();
 
@@ -1164,16 +1165,7 @@ const SignalAccountSchemaBase = z
     configWrites: z.boolean().optional(),
     account: z.string().optional(),
     accountUuid: z.string().optional(),
-    configPath: z.string().optional(),
-    httpUrl: z.string().optional(),
-    httpHost: z.string().optional(),
-    httpPort: z.number().int().positive().optional(),
-    cliPath: ExecutableTokenSchema.optional(),
-    autoStart: z.boolean().optional(),
-    startupTimeoutMs: z.number().int().min(1000).max(120000).optional(),
-    receiveMode: z.union([z.literal("on-start"), z.literal("manual")]).optional(),
-    ignoreAttachments: z.boolean().optional(),
-    ignoreStories: z.boolean().optional(),
+    transport: SignalTransportSchema.optional(),
     sendReadReceipts: z.boolean().optional(),
     aliases: z.record(z.string(), z.string()).optional(),
     dmPolicy: DmPolicySchema.optional().default("pairing"),
@@ -1207,7 +1199,6 @@ const SignalAccountSchemaBase = z
   .strict();
 
 export const SignalConfigSchema = SignalAccountSchemaBase.extend({
-  apiMode: z.enum(["auto", "native", "container"]).optional(),
   // Account-level schemas skip allowFrom validation because accounts inherit
   // allowFrom from the parent channel config at runtime.
   accounts: z.record(z.string(), SignalAccountSchemaBase.optional()).optional(),

@@ -115,7 +115,7 @@ describe("monitorSignalProvider autostart", () => {
     expectWaitForTransportReadyTimeout(90_000);
   });
 
-  it("passes channels.signal.configPath to signal-cli daemon startup", async () => {
+  it("passes managed transport configPath to signal-cli daemon startup", async () => {
     const runtime = createMonitorRuntime();
     setSignalAutoStartConfig({ configPath: "~/.openclaw/signal-cli" });
     const abortController = createAutoAbortController();
@@ -134,7 +134,7 @@ describe("monitorSignalProvider autostart", () => {
     );
   });
 
-  it("omits configPath when channels.signal.configPath is blank", async () => {
+  it("omits configPath when managed transport configPath is blank", async () => {
     const runtime = createMonitorRuntime();
     setSignalAutoStartConfig({ configPath: " " });
     const abortController = createAutoAbortController();

@@ -1,6 +1,7 @@
 // Signal plugin module implements accounts behavior.
 import {
   createAccountListHelpers,
+  DEFAULT_ACCOUNT_ID,
   normalizeAccountId,
   resolveAccountEntry,
   resolveMergedAccountConfig,
@@ -8,34 +9,93 @@ import {
 } from "openclaw/plugin-sdk/account-resolution";
 import type { ReplyToMode } from "openclaw/plugin-sdk/config-contracts";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
-import type { SignalAccountConfig } from "./account-types.js";
+import type { SignalAccountConfig, SignalTransportConfig } from "./account-types.js";
+
+export type ResolvedSignalTransport =
+  | {
+      kind: "managed-native";
+      baseUrl: string;
+      cliPath: string;
+      configPath?: string;
+      httpHost: string;
+      httpPort: number;
+      startupTimeoutMs: number;
+      receiveMode?: "on-start" | "manual";
+      ignoreAttachments?: boolean;
+      ignoreStories?: boolean;
+    }
+  | {
+      kind: "external-native" | "container";
+      baseUrl: string;
+    };
 
 export type ResolvedSignalAccount = {
   accountId: string;
   enabled: boolean;
   name?: string;
   baseUrl: string;
+  transport: ResolvedSignalTransport;
   configured: boolean;
   config: SignalAccountConfig;
 };
 
 const { listAccountIds, resolveDefaultAccountId } = createAccountListHelpers("signal", {
   implicitDefaultAccount: {
-    channelKeys: ["account"],
+    channelKeys: ["account", "transport"],
   },
 });
 export const listSignalAccountIds = listAccountIds;
 export const resolveDefaultSignalAccountId = resolveDefaultAccountId;
 
 function mergeSignalAccountConfig(cfg: OpenClawConfig, accountId: string): SignalAccountConfig {
+  const channelConfig = cfg.channels?.signal;
+  const {
+    transport: _transport,
+    accounts: _accounts,
+    defaultAccount: _defaultAccount,
+    ...shared
+  } = channelConfig ?? {};
   return resolveMergedAccountConfig<SignalAccountConfig>({
-    channelConfig: cfg.channels?.signal as SignalAccountConfig | undefined,
+    channelConfig: (accountId === DEFAULT_ACCOUNT_ID ? channelConfig : shared) as
+      | SignalAccountConfig
+      | undefined,
     accounts: cfg.channels?.signal?.accounts as
       | Record<string, Partial<SignalAccountConfig>>
       | undefined,
     accountId,
     nestedObjectKeys: ["aliases"],
   });
+}
+
+export function resolveSignalTransport(
+  transport: SignalTransportConfig | undefined,
+): ResolvedSignalTransport {
+  if (transport?.kind === "external-native" || transport?.kind === "container") {
+    return {
+      kind: transport.kind,
+      baseUrl: transport.url.trim(),
+    };
+  }
+
+  const httpHost = normalizeOptionalString(transport?.httpHost) ?? "127.0.0.1";
+  const httpPort = transport?.httpPort ?? 8080;
+  const configPath = normalizeOptionalString(transport?.configPath);
+  return {
+    kind: "managed-native",
+    baseUrl: `http://${httpHost}:${httpPort}`,
+    cliPath: normalizeOptionalString(transport?.cliPath) ?? "signal-cli",
+    ...(configPath ? { configPath } : {}),
+    httpHost,
+    httpPort,
+    startupTimeoutMs: transport?.startupTimeoutMs ?? 30_000,
+    ...(transport?.receiveMode ? { receiveMode: transport.receiveMode } : {}),
+    ...(typeof transport?.ignoreAttachments === "boolean"
+      ? { ignoreAttachments: transport.ignoreAttachments }
+      : {}),
+    ...(typeof transport?.ignoreStories === "boolean"
+      ? { ignoreStories: transport.ignoreStories }
+      : {}),
+  };
 }
 
 export function resolveSignalAccount(params: {
@@ -49,23 +109,19 @@ export function resolveSignalAccount(params: {
   const merged = mergeSignalAccountConfig(params.cfg, accountId);
   const accountEnabled = merged.enabled !== false;
   const enabled = baseEnabled && accountEnabled;
-  const host = normalizeOptionalString(merged.httpHost) ?? "127.0.0.1";
-  const port = merged.httpPort ?? 8080;
-  const baseUrl = normalizeOptionalString(merged.httpUrl) ?? `http://${host}:${port}`;
+  const transport = resolveSignalTransport(merged.transport);
+  const baseUrl = transport.baseUrl;
   const configured = Boolean(
     normalizeOptionalString(merged.account) ||
-    normalizeOptionalString(merged.configPath) ||
-    normalizeOptionalString(merged.httpUrl) ||
-    normalizeOptionalString(merged.cliPath) ||
-    normalizeOptionalString(merged.httpHost) ||
-    typeof merged.httpPort === "number" ||
-    typeof merged.autoStart === "boolean",
+    normalizeOptionalString(merged.accountUuid) ||
+    merged.transport,
   );
   return {
     accountId,
     enabled,
     name: normalizeOptionalString(merged.name),
     baseUrl,
+    transport,
     configured,
     config: merged,
   };

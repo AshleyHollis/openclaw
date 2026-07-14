@@ -79,7 +79,6 @@ async function sendReactionSignalCore(params: {
   errors: SignalReactionErrorMessages;
 }): Promise<SignalReactionResult> {
   const cfg = requireRuntimeConfig(params.opts.cfg, "Signal reactions");
-  const apiMode = cfg.channels?.signal?.apiMode;
   const accountInfo = resolveSignalAccount({
     cfg,
     accountId: params.opts.accountId,
@@ -127,7 +126,7 @@ async function sendReactionSignalCore(params: {
   const result = await signalRpcRequest<{ timestamp?: number }>("sendReaction", requestParams, {
     baseUrl,
     timeoutMs: params.opts.timeoutMs,
-    apiMode,
+    transportKind: accountInfo.transport.kind,
   });
 
   return {

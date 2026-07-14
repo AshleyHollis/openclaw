@@ -88,22 +88,63 @@ describe("signal groups schema", () => {
     });
   });
 
-  it("accepts channel apiMode", () => {
-    for (const apiMode of ["auto", "native", "container"]) {
-      expectValidSignalConfig({ apiMode });
-    }
-  });
-
-  it("rejects per-account apiMode", () => {
-    const issues = expectInvalidSignalConfig({
+  it("accepts account-owned transport configurations", () => {
+    expectValidSignalConfig({
+      transport: {
+        kind: "managed-native",
+        cliPath: "/opt/signal-cli",
+        httpHost: "127.0.0.1",
+        httpPort: 8181,
+      },
       accounts: {
-        primary: {
-          apiMode: "container",
+        native: {
+          transport: {
+            kind: "external-native",
+            url: "http://signal-native:8080",
+          },
+        },
+        container: {
+          transport: {
+            kind: "container",
+            url: "http://signal-container:8080",
+          },
         },
       },
     });
+  });
 
-    expect(issues.map((issue) => issue.path.join("."))).toContain("accounts.primary");
+  it("rejects the retired apiMode shape", () => {
+    const issues = expectInvalidSignalConfig({ apiMode: "container" });
+
+    expect(issues.map((issue) => issue.path.join("."))).toContain("");
+  });
+
+  it("rejects transport fields that belong to another kind", () => {
+    expectInvalidSignalConfig({
+      transport: {
+        kind: "container",
+        url: "http://signal-container:8080",
+        cliPath: "/opt/signal-cli",
+      },
+    });
+  });
+
+  it("rejects non-HTTP transport URLs", () => {
+    expectInvalidSignalConfig({
+      transport: {
+        kind: "external-native",
+        url: "ftp://signal-native:8080",
+      },
+    });
+  });
+
+  it("rejects transport URLs containing credentials", () => {
+    expectInvalidSignalConfig({
+      transport: {
+        kind: "container",
+        url: "http://user:password@signal-container:8080",
+      },
+    });
   });
 
   it("accepts top-level group overrides", () => {

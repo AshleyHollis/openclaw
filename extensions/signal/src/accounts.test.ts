@@ -7,6 +7,46 @@ import {
 } from "./accounts.js";
 
 describe("resolveSignalAccount", () => {
+  it("resolves an omitted transport to managed native defaults", () => {
+    const resolved = resolveSignalAccount({ cfg: { channels: { signal: {} } } as never });
+
+    expect(resolved.transport).toEqual({
+      kind: "managed-native",
+      baseUrl: "http://127.0.0.1:8080",
+      cliPath: "signal-cli",
+      httpHost: "127.0.0.1",
+      httpPort: 8080,
+      startupTimeoutMs: 30_000,
+    });
+  });
+
+  it("does not inherit the default account transport into named accounts", () => {
+    const cfg = {
+      channels: {
+        signal: {
+          transport: {
+            kind: "container",
+            url: "http://default-container:8080",
+          },
+          accounts: {
+            work: {
+              account: "+15555550123",
+            },
+          },
+        },
+      },
+    } as never;
+
+    expect(resolveSignalAccount({ cfg }).transport).toEqual({
+      kind: "container",
+      baseUrl: "http://default-container:8080",
+    });
+    expect(resolveSignalAccount({ cfg, accountId: "work" }).transport).toMatchObject({
+      kind: "managed-native",
+      baseUrl: "http://127.0.0.1:8080",
+    });
+  });
+
   it("preserves top-level default account when named accounts are configured", () => {
     const cfg = {
       channels: {
@@ -34,7 +74,10 @@ describe("resolveSignalAccount", () => {
               work: {
                 name: "Work",
                 account: "+15555550123",
-                httpUrl: "http://127.0.0.1:9999",
+                transport: {
+                  kind: "external-native",
+                  url: "http://127.0.0.1:9999",
+                },
               },
             },
           },
@@ -45,6 +88,10 @@ describe("resolveSignalAccount", () => {
     expect(resolved.accountId).toBe("work");
     expect(resolved.name).toBe("Work");
     expect(resolved.baseUrl).toBe("http://127.0.0.1:9999");
+    expect(resolved.transport).toEqual({
+      kind: "external-native",
+      baseUrl: "http://127.0.0.1:9999",
+    });
     expect(resolved.config.account).toBe("+15555550123");
     expect(resolved.configured).toBe(true);
   });
