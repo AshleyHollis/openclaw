@@ -924,6 +924,7 @@ jobs:
           PACKAGE_INTEGRITY_RESULT: ${{ needs.package_integrity.result }}
           PACKAGE_TELEGRAM_RESULT: ${{ needs.package_telegram.result }}
           RESOLVE_RESULT: ${{ needs.resolve_package.result }}
+          TELEGRAM_ENABLED: ${{ needs.resolve_package.outputs.telegram_enabled }}
         shell: bash
         run: |
           set -euo pipefail
@@ -939,7 +940,6 @@ jobs:
             echo "::error::No Docker acceptance transport ran; expected exactly one."
             exit 1
           fi
-          advisory="$ADVISORY"
           failed=0
           for item in \
             "resolve_package=${RESOLVE_RESULT}" \
@@ -949,8 +949,17 @@ jobs:
           do
             name="${item%%=*}"
             result="${item#*=}"
+            result_failed=false
             if [[ "$result" != "success" && "$result" != "skipped" ]]; then
-              if [[ "$advisory" == "true" && "$name" != "resolve_package" ]]; then
+              result_failed=true
+            fi
+            if [[ "$name" == "package_telegram" &&
+                  "$TELEGRAM_ENABLED" == "true" &&
+                  "$result" != "success" ]]; then
+              result_failed=true
+            fi
+            if [[ "$result_failed" == "true" ]]; then
+              if [[ "$ADVISORY" == "true" && "$name" != "resolve_package" ]]; then
                 echo "::warning::${name} ended with ${result}; package acceptance is advisory for this caller."
                 continue
               fi
