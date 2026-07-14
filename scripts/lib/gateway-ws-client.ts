@@ -128,7 +128,8 @@ export function createGatewayWsClient(params: {
     });
 
   ws.on("message", (data) => {
-    const text = data.toString();
+    // `ws` emits Buffer here under nodebuffer mode, though its listener type remains RawData.
+    const text = (data as Buffer).toString("utf8");
     let frame: GatewayFrame | null;
     try {
       frame = JSON.parse(text) as GatewayFrame;
