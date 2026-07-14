@@ -72,6 +72,35 @@ describe("signalSetupAdapter", () => {
     });
   });
 
+  it("makes a new default transport update authoritative over accounts.default", () => {
+    const cfg: OpenClawConfig = {
+      channels: {
+        signal: {
+          accounts: {
+            default: {
+              account: "+15555550124",
+              transport: { kind: "external-native", url: "http://old-signal:8080" },
+            },
+          },
+        },
+      },
+    };
+
+    const next = signalSetupAdapter.applyAccountConfig?.({
+      cfg,
+      accountId: "default",
+      input: { cliPath: "/opt/new-signal-cli" },
+    });
+
+    expect(next?.channels?.signal?.transport).toEqual({
+      kind: "managed-native",
+      cliPath: "/opt/new-signal-cli",
+      httpHost: "127.0.0.1",
+      httpPort: 8080,
+    });
+    expect(next?.channels?.signal?.accounts?.default).not.toHaveProperty("transport");
+  });
+
   it("stores an explicitly selected container endpoint", () => {
     const next = signalSetupAdapter.applyAccountConfig?.({
       cfg: {},
@@ -240,5 +269,29 @@ describe("signalSetupAdapter", () => {
         credentialValues: {},
       }),
     ).toBe(false);
+  });
+
+  it("reports an external transport as configured without checking signal-cli", async () => {
+    const cfg: OpenClawConfig = {
+      channels: {
+        signal: {
+          account: "+15555550124",
+          transport: { kind: "external-native", url: "http://signal:8080" },
+        },
+      },
+    };
+    const configured = await signalSetupWizard.status.resolveConfigured({
+      cfg,
+      accountId: "default",
+    });
+    const params = { cfg, accountId: "default", configured };
+
+    await expect(signalSetupWizard.status.resolveStatusLines?.(params)).resolves.toEqual([
+      "Signal: configured",
+    ]);
+    await expect(signalSetupWizard.status.resolveSelectionHint?.(params)).resolves.toBe(
+      "configured",
+    );
+    await expect(signalSetupWizard.status.resolveQuickstartScore?.(params)).resolves.toBe(1);
   });
 });

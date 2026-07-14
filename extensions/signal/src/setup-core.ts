@@ -349,28 +349,40 @@ export const signalSetupAdapter: ChannelSetupAdapter = {
   prepareAccountConfigInput: async ({ cfg, accountId, input }) =>
     await prepareSignalSetupInput({ cfg, accountId, input }),
   applyAccountConfig: (params) => {
+    const accountId = normalizeAccountId(params.accountId);
+    const nestedDefaultTransport =
+      accountId === DEFAULT_ACCOUNT_ID
+        ? resolveAccountEntry(params.cfg.channels?.signal?.accounts, DEFAULT_ACCOUNT_ID)?.transport
+        : undefined;
+    const cfg = nestedDefaultTransport
+      ? writeSignalAccountTransport({
+          cfg: params.cfg,
+          accountId,
+          transport: nestedDefaultTransport,
+        })
+      : params.cfg;
     const previousTransport = resolveSignalAccount({
-      cfg: params.cfg,
-      accountId: params.accountId,
+      cfg,
+      accountId,
     }).config.transport;
-    const next = signalSetupAdapterBase.applyAccountConfig?.(params) ?? params.cfg;
-    const account = resolveSignalAccount({ cfg: next, accountId: params.accountId });
+    const next = signalSetupAdapterBase.applyAccountConfig?.({ ...params, cfg, accountId }) ?? cfg;
+    const account = resolveSignalAccount({ cfg: next, accountId });
     const configuredTransport = account.config.transport;
     if (account.transport.kind !== "managed-native") {
       return configuredTransport
         ? writeSignalAccountTransport({
             cfg: next,
-            accountId: params.accountId,
+            accountId,
             transport: configuredTransport,
           })
         : next;
     }
     return writeSignalAccountTransport({
       cfg: next,
-      accountId: params.accountId,
+      accountId,
       transport: prepareSignalManagedNativeTransport({
         cfg: next,
-        accountId: params.accountId,
+        accountId,
         overrides: {
           ...managedTransportOptions(previousTransport),
           ...managedTransportOptions(configuredTransport),
