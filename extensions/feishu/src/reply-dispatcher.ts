@@ -283,7 +283,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
   let streamingCloseErroredForReply = false;
   let visibleReplySent = false;
   let skippedFinalReason: string | null = null;
-  let messageAuditNoticeSent = false;
+  let messageAuditNoticeQueued = false;
   let idleSideEffectsPromise: Promise<void> = Promise.resolve();
   let replyLifecycleStateInitialized = false;
   type StreamTextUpdateMode = "snapshot" | "delta";
@@ -629,6 +629,30 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     return nextIdleSideEffects;
   };
 
+  const queueMessageAuditNotice = (): Promise<void> => {
+    // Keep the notice in the idle chain so fallback evaluation cannot race it.
+    const nextIdleSideEffects = idleSideEffectsPromise.then(async () => {
+      try {
+        await sendMessageFeishu({
+          cfg,
+          to: sendTarget,
+          text: messageAudit.MESSAGE_AUDIT_REJECTION_NOTICE,
+          replyToMessageId: sendReplyToMessageId,
+          replyInThread: effectiveReplyInThread,
+          allowTopLevelReplyFallback,
+          accountId,
+        });
+        markVisibleReplySent();
+      } catch (noticeError) {
+        params.runtime.error?.(
+          `feishu[${account.accountId}]: failed to send message audit rejection notice: ${String(noticeError)}`,
+        );
+      }
+    });
+    idleSideEffectsPromise = nextIdleSideEffects;
+    return nextIdleSideEffects;
+  };
+
   const { dispatcher, replyOptions, markDispatchIdle } =
     core.channel.reply.createReplyDispatcherWithTyping({
       responsePrefix: prefixContext.responsePrefix,
@@ -849,27 +873,22 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
         }
       },
       onError: async (error, info) => {
-        const shouldSendAuditNotice =
-          !messageAuditNoticeSent && messageAudit.isFeishuMessageAuditRejection(error);
+        const shouldQueueAuditNotice =
+          !messageAuditNoticeQueued && messageAudit.isFeishuMessageAuditRejection(error);
+        if (shouldQueueAuditNotice) {
+          messageAuditNoticeQueued = true;
+        }
         streamingCloseErroredForReply = true;
         streamingClosedForReply = false;
         params.runtime.error?.(
           `feishu[${account.accountId}] ${info.kind} reply failed: ${String(error)}`,
         );
-        await queueIdleSideEffects({ markClosedForReply: false });
-        if (shouldSendAuditNotice) {
-          messageAuditNoticeSent = true;
-          await sendMessageFeishu({
-            cfg,
-            to: sendTarget,
-            text: messageAudit.MESSAGE_AUDIT_REJECTION_NOTICE,
-            replyToMessageId: sendReplyToMessageId,
-            replyInThread: effectiveReplyInThread,
-            allowTopLevelReplyFallback,
-            accountId,
-          });
-          markVisibleReplySent();
+        const idleTask = queueIdleSideEffects({ markClosedForReply: false });
+        if (shouldQueueAuditNotice) {
+          await queueMessageAuditNotice();
+          return;
         }
+        await idleTask;
       },
       onIdle: () => queueIdleSideEffects(),
       onCleanup: () => {

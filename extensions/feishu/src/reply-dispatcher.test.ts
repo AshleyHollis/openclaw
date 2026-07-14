@@ -1963,6 +1963,35 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
     );
   });
 
+  it("keeps the original error path alive when the audit rejection notice also fails", async () => {
+    useNonStreamingAutoAccount();
+    const runtime = createRuntimeLogger();
+    const { result, options } = createDispatcherHarness({ runtime });
+    const sdkError = Object.assign(new Error("Request failed with status code 400"), {
+      response: { status: 400, data: { code: 230028 } },
+    });
+    const wrappedError = new Error("Feishu send failed", { cause: sdkError });
+    sendMessageFeishuMock
+      .mockRejectedValueOnce(wrappedError)
+      .mockRejectedValueOnce(new Error("notice send failed"))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(options.deliver({ text: "Original reply" }, { kind: "final" })).rejects.toBe(
+      wrappedError,
+    );
+    await expect(options.onError?.(wrappedError, { kind: "final" })).resolves.toBeUndefined();
+    await expect(result.ensureNoVisibleReplyFallback("failed-final")).resolves.toBe(true);
+
+    expect(sendMessageFeishuMock.mock.calls.map((call) => call[0]?.text)).toEqual([
+      "Original reply",
+      "⚠️ Feishu couldn't deliver this reply because it didn't pass a content policy check.",
+      expect.stringContaining("without visible content"),
+    ]);
+    expect(runtime.error).toHaveBeenCalledWith(
+      "feishu[main]: failed to send message audit rejection notice: Error: notice send failed",
+    );
+  });
+
   it("explains an audit rejection after an earlier reply chunk was delivered", async () => {
     useNonStreamingAutoAccount();
     const runtime = createRuntimeLogger();
