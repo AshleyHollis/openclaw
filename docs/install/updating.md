@@ -162,6 +162,8 @@ When `openclaw update` manages a global npm install, it installs the
 candidate with dependency lifecycle scripts disabled and validates the
 candidate's packaged Node engine guard before activation. An update that needs
 a newer Node runtime therefore fails without replacing the working install.
+Exact npm version targets through `2026.7.1`, which predate that guard, remain
+installable after their Node requirement and package lifecycle contract pass.
 For Git and local-directory npm targets, OpenClaw first reads source metadata
 without lifecycle scripts and checks its Node requirement; only compatible
 sources run their normal pack lifecycle. Git sources are pinned to the exact

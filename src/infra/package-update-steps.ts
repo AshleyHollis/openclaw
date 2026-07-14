@@ -478,6 +478,10 @@ export async function runGlobalPackageUpdateSteps(params: {
       forcePack: requiresPackedGuard,
       packCommand,
     });
+    const expectedInstalledVersion = resolveExpectedInstalledVersionFromSpec(
+      params.packageName,
+      params.installSpec,
+    );
     packedInstallDir = preparedSpec.packDir;
     steps.push(...preparedSpec.steps);
     if (preparedSpec.failedStep) {
@@ -493,6 +497,8 @@ export async function runGlobalPackageUpdateSteps(params: {
       const runtimeGuardStep = await runPackedPackageRuntimeGuard(
         preparedSpec.installSpec,
         selectedRuntime.version,
+        "global install runtime guard",
+        expectedInstalledVersion,
       );
       steps.push(runtimeGuardStep);
       if (runtimeGuardStep.exitCode !== 0) {
@@ -598,6 +604,7 @@ export async function runGlobalPackageUpdateSteps(params: {
         ...(updateEnv === undefined ? {} : { env: updateEnv }),
         runtimeVersion: selectedRuntime.version,
         ...(selectedRuntime.nodePath === null ? {} : { nodePath: selectedRuntime.nodePath }),
+        allowMissingGuardForVersion: expectedInstalledVersion,
       });
       steps.push(...lifecycle.steps);
       finalInstallStep = lifecycle.failedStep ?? finalInstallStep;
@@ -615,13 +622,9 @@ export async function runGlobalPackageUpdateSteps(params: {
       if (!stagedInstall) {
         afterVersion = candidateVersion;
       }
-      const expectedVersion = resolveExpectedInstalledVersionFromSpec(
-        params.packageName,
-        params.installSpec,
-      );
       const verificationErrors = await collectInstalledGlobalPackageErrors({
         packageRoot: verificationPackageRoot,
-        expectedVersion,
+        expectedVersion: expectedInstalledVersion,
       });
       if (verificationErrors.length > 0) {
         steps.push({

@@ -13,6 +13,7 @@ import {
 
 async function writeCandidate(params: {
   packageRoot: string;
+  version?: string;
   engine?: string;
   guard?: boolean;
   preinstall?: string | null;
@@ -39,7 +40,7 @@ async function writeCandidate(params: {
       path.join(params.packageRoot, "package.json"),
       JSON.stringify({
         name: "openclaw",
-        version: "2.0.0",
+        version: params.version ?? "2.0.0",
         engines: { node: params.engine ?? ">=0.0.0" },
         scripts: {
           ...(params.preinstall === null
@@ -210,6 +211,56 @@ describe("runPackageInstallLifecycle", () => {
     });
   });
 
+  it.each(["2026.7.1", "2026.4.10"])(
+    "allows exact legacy registry target %s without the newer install guard",
+    async (version) => {
+      await withTempDir({ prefix: "openclaw-staged-lifecycle-legacy-" }, async (packageRoot) => {
+        await writeCandidate({ packageRoot, version });
+        const runStep = vi.fn(async ({ name, argv, cwd }) => ({
+          name,
+          command: argv.join(" "),
+          cwd: cwd ?? process.cwd(),
+          durationMs: 1,
+          exitCode: 0,
+        }));
+
+        const result = await runPackageInstallLifecycle({
+          packageRoot,
+          runStep,
+          timeoutMs: 1_000,
+          allowMissingGuardForVersion: version,
+        });
+
+        expect(result.failedStep).toBeNull();
+        expect(runStep).toHaveBeenCalledOnce();
+      });
+    },
+  );
+
+  it.each([
+    { candidateVersion: "2026.7.0", requestedVersion: "2026.7.1" },
+    { candidateVersion: "2026.7.2", requestedVersion: "2026.7.2" },
+  ])(
+    "does not bypass the guard for candidate $candidateVersion requested as $requestedVersion",
+    async ({ candidateVersion, requestedVersion }) => {
+      await withTempDir(
+        { prefix: "openclaw-staged-lifecycle-legacy-reject-" },
+        async (packageRoot) => {
+          await writeCandidate({ packageRoot, version: candidateVersion });
+
+          const result = await runPackageInstallLifecycle({
+            packageRoot,
+            runStep: vi.fn(),
+            timeoutMs: 1_000,
+            allowMissingGuardForVersion: requestedVersion,
+          });
+
+          expect(result.failedStep?.stderrTail).toContain("missing its package install guard");
+        },
+      );
+    },
+  );
+
   it("rejects a packed candidate whose declared preinstall file is absent", async () => {
     await withTempDir({ prefix: "openclaw-packed-lifecycle-reject-" }, async (base) => {
       const packageRoot = path.join(base, "package");
@@ -221,6 +272,24 @@ describe("runPackageInstallLifecycle", () => {
 
       expect(result.exitCode).toBe(1);
       expect(result.stderrTail).toContain("missing scripts/preinstall-package-manager-warning.mjs");
+    });
+  });
+
+  it("allows a packed exact legacy registry target without the newer install guard", async () => {
+    await withTempDir({ prefix: "openclaw-packed-lifecycle-legacy-" }, async (base) => {
+      const packageRoot = path.join(base, "package");
+      await writeCandidate({ packageRoot, version: "2026.7.1" });
+      const tarballPath = path.join(base, "openclaw.tgz");
+      await tar.c({ cwd: base, file: tarballPath, gzip: true }, ["package"]);
+
+      const result = await runPackedPackageRuntimeGuard(
+        tarballPath,
+        process.versions.node,
+        "global install runtime guard",
+        "2026.7.1",
+      );
+
+      expect(result.exitCode).toBe(0);
     });
   });
 });

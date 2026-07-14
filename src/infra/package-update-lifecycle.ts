@@ -10,6 +10,7 @@ import { pathExists } from "./fs-safe.js";
 import { PACKAGE_INSTALL_GUARD_RELATIVE_PATH } from "./package-dist-inventory.js";
 import type { PackageUpdateStepResult, PackageUpdateStepRunner } from "./package-update-types.js";
 import { nodeVersionSatisfiesEngine } from "./runtime-guard.js";
+import { compareValidSemver } from "./semver.js";
 import type { CommandRunner } from "./update-global.js";
 
 const PACKAGE_PREINSTALL_RELATIVE_PATH = "scripts/preinstall-package-manager-warning.mjs";
@@ -21,6 +22,7 @@ const PACKED_PACKAGE_GUARD_PATH = `package/${PACKAGE_INSTALL_GUARD_RELATIVE_PATH
 const PACKED_PACKAGE_PREINSTALL_PATH = `package/${PACKAGE_PREINSTALL_RELATIVE_PATH}`;
 const PACKED_PACKAGE_POSTINSTALL_PATH = `package/${PACKAGE_POSTINSTALL_RELATIVE_PATH}`;
 const MAX_PACKED_PACKAGE_MANIFEST_BYTES = 1024 * 1024;
+const LEGACY_INSTALL_GUARD_COMPAT_MAX_VERSION = "2026.7.1";
 const { probePackageCliNodeRuntime } = packagePreinstallRuntime;
 
 // Packed releases omit the checkout-only prepare hook. The updater owns guard/postinstall
@@ -76,6 +78,7 @@ function normalizePackageCliNodeRuntime(runtime: PackageCliNodeRuntime | null): 
 }
 
 type CandidatePackageContract = {
+  version: string | null;
   nodeEngine: string | null;
   preinstall: string | null;
   install: string | null;
@@ -85,6 +88,7 @@ type CandidatePackageContract = {
 
 function parseCandidatePackageContract(value: string): CandidatePackageContract {
   const manifest = JSON.parse(value) as {
+    version?: unknown;
     engines?: { node?: unknown };
     scripts?: Record<string, unknown>;
   };
@@ -93,6 +97,7 @@ function parseCandidatePackageContract(value: string): CandidatePackageContract 
     return typeof value === "string" ? value.trim() || null : null;
   };
   return {
+    version: typeof manifest.version === "string" ? manifest.version.trim() || null : null,
     nodeEngine:
       typeof manifest.engines?.node === "string" ? manifest.engines.node.trim() || null : null,
     preinstall: lifecycleCommand("preinstall"),
@@ -233,11 +238,21 @@ export function validatePackageNodeEngine(
 function validateCandidatePackageContract(params: {
   contract: CandidatePackageContract;
   runtimeVersion: string | null;
+  allowMissingGuardForVersion: string | null;
   hasGuard: boolean;
   hasPreinstall: boolean;
   hasPostinstall: boolean;
 }): void {
-  if (!params.hasGuard) {
+  const legacyGuardComparison = params.contract.version
+    ? compareValidSemver(params.contract.version, LEGACY_INSTALL_GUARD_COMPAT_MAX_VERSION)
+    : null;
+  const acceptsLegacyMissingGuard =
+    !params.hasGuard &&
+    params.allowMissingGuardForVersion !== null &&
+    params.contract.version === params.allowMissingGuardForVersion &&
+    legacyGuardComparison !== null &&
+    legacyGuardComparison <= 0;
+  if (!params.hasGuard && !acceptsLegacyMissingGuard) {
     throw new Error("candidate package is missing its package install guard");
   }
   validatePackageNodeEngine(params.contract.nodeEngine, params.runtimeVersion);
@@ -262,6 +277,7 @@ async function runPackageRuntimeGuard(
   packageRoot: string,
   runtimeVersion: string | null = process.versions.node ?? null,
   name = "global install runtime guard",
+  allowMissingGuardForVersion: string | null = null,
 ): Promise<PackageUpdateStepResult> {
   const markerPath = path.join(packageRoot, PACKAGE_INSTALL_GUARD_RELATIVE_PATH);
   const startedAt = Date.now();
@@ -270,6 +286,7 @@ async function runPackageRuntimeGuard(
     validateCandidatePackageContract({
       contract,
       runtimeVersion,
+      allowMissingGuardForVersion,
       hasGuard: await pathExists(markerPath),
       hasPreinstall: await pathExists(path.join(packageRoot, PACKAGE_PREINSTALL_RELATIVE_PATH)),
       hasPostinstall: await pathExists(path.join(packageRoot, PACKAGE_POSTINSTALL_RELATIVE_PATH)),
@@ -302,6 +319,7 @@ export async function runPackedPackageRuntimeGuard(
   tarballPath: string,
   runtimeVersion: string | null,
   name = "global install runtime guard",
+  allowMissingGuardForVersion: string | null = null,
 ): Promise<PackageUpdateStepResult> {
   return runPackedPackageContractGuard({
     tarballPath,
@@ -311,6 +329,7 @@ export async function runPackedPackageRuntimeGuard(
       validateCandidatePackageContract({
         contract: packed.contract,
         runtimeVersion,
+        allowMissingGuardForVersion,
         hasGuard: packed.hasGuard,
         hasPreinstall: packed.hasPreinstall,
         hasPostinstall: packed.hasPostinstall,
@@ -399,6 +418,7 @@ export async function runPackageInstallLifecycle(params: {
   env?: NodeJS.ProcessEnv;
   runtimeVersion?: string | null;
   nodePath?: string;
+  allowMissingGuardForVersion?: string | null;
 }): Promise<{
   steps: PackageUpdateStepResult[];
   failedStep: PackageUpdateStepResult | null;
@@ -406,6 +426,8 @@ export async function runPackageInstallLifecycle(params: {
   const guardStep = await runPackageRuntimeGuard(
     params.packageRoot,
     params.runtimeVersion === undefined ? (process.versions.node ?? null) : params.runtimeVersion,
+    "global install runtime guard",
+    params.allowMissingGuardForVersion ?? null,
   );
   if (guardStep.exitCode !== 0) {
     return { steps: [guardStep], failedStep: guardStep };

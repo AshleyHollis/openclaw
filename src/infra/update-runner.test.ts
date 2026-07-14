@@ -468,6 +468,9 @@ describe("runGatewayUpdate", () => {
       "utf8",
     );
     await addPackageInstallGuard(packageRoot);
+    if (version === "2026.7.1") {
+      await fs.rm(path.join(packageRoot, PACKAGE_INSTALL_GUARD_RELATIVE_PATH));
+    }
     const tarballPath = path.join(packDir, `openclaw-${version}.tgz`);
     await tar.c({ cwd: packDir, file: tarballPath, gzip: true }, ["package"]);
     return tarballPath;
@@ -2692,6 +2695,8 @@ describe("runGatewayUpdate", () => {
     expectedInstallCommand: InstallCommandExpectation;
     channel?: "stable" | "beta";
     tag?: string;
+    installedVersion?: string;
+    allowMissingInstallGuard?: boolean;
   }): Promise<{ calls: string[]; result: Awaited<ReturnType<typeof runGatewayUpdate>> }> {
     const nodeModules = path.join(tempDir, "node_modules");
     const pkgRoot = path.join(nodeModules, "openclaw");
@@ -2702,8 +2707,14 @@ describe("runGatewayUpdate", () => {
       npmRootOutput: nodeModules,
       installCommand: params.expectedInstallCommand,
       onInstall: async (options) => {
-        await writeGlobalPackageVersion(options?.packageRoot ?? pkgRoot);
+        const packageRoot = options?.packageRoot ?? pkgRoot;
+        await writeGlobalPackageVersion(packageRoot, params.installedVersion);
+        if (params.allowMissingInstallGuard) {
+          await addPackageInstallGuard(packageRoot);
+          await fs.rm(path.join(packageRoot, PACKAGE_INSTALL_GUARD_RELATIVE_PATH));
+        }
       },
+      allowMissingInstallGuard: params.allowMissingInstallGuard,
     });
 
     const result = await runWithCommand(runCommand, {
@@ -2721,6 +2732,7 @@ describe("runGatewayUpdate", () => {
     pnpmRootOutput?: string;
     installCommand: InstallCommandExpectation;
     gitRootMode?: "not-git" | "missing";
+    allowMissingInstallGuard?: boolean;
     onInstall?: (options?: {
       env?: NodeJS.ProcessEnv;
       installPrefix?: string;
@@ -2793,6 +2805,7 @@ describe("runGatewayUpdate", () => {
         await params.onInstall?.(options);
         if (
           isNpmCommand(argv[0]) &&
+          !params.allowMissingInstallGuard &&
           !(await pathExists(path.join(params.pkgRoot, PACKAGE_INSTALL_GUARD_RELATIVE_PATH)))
         ) {
           await addPackageInstallGuard(params.pkgRoot);
@@ -2813,7 +2826,9 @@ describe("runGatewayUpdate", () => {
             installPrefix,
             packageRoot,
           });
-          await addPackageInstallGuard(packageRoot);
+          if (!params.allowMissingInstallGuard) {
+            await addPackageInstallGuard(packageRoot);
+          }
           return { stdout: "ok", stderr: "", code: 0 };
         }
       }
@@ -2853,6 +2868,19 @@ describe("runGatewayUpdate", () => {
     expect(result.after?.version).toBe("2.0.0");
     expect(calls.some((call) => recordedPackCallMatches(call, sourceSpec))).toBe(true);
     expect(calls.some(isRecordedPackedNpmInstall)).toBe(true);
+  });
+
+  it("keeps exact legacy npm targets that predate the install guard", async () => {
+    const { result } = await runNpmGlobalUpdateCase({
+      expectedInstallCommand: npmGlobalInstallCommand("openclaw@2026.7.1"),
+      tag: "2026.7.1",
+      installedVersion: "2026.7.1",
+      allowMissingInstallGuard: true,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(result.after?.version).toBe("2026.7.1");
+    expect(result.steps.map((step) => step.name)).toContain("global install runtime guard");
   });
 
   it("updates global npm installs from the GitHub main package spec", async () => {

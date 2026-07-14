@@ -296,7 +296,9 @@ version before invoking the package manager. npm global updates install the
 candidate with dependency lifecycle scripts disabled, then validate its
 packaged Node engine guard and `dist` inventory before activation. A candidate
 that requires a newer Node runtime therefore leaves the existing install in
-place. For Git and local-directory npm targets, the updater first reads source
+place. Exact npm version targets through `2026.7.1`, which predate that guard,
+remain installable after their Node requirement and package lifecycle contract
+pass. For Git and local-directory npm targets, the updater first reads source
 metadata without lifecycle scripts and checks its Node requirement; only
 compatible sources run their normal pack lifecycle. Git sources are pinned to
 the exact commit resolved during that metadata check. OpenClaw runs its own
