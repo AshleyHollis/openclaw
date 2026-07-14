@@ -119,6 +119,46 @@ describe("signal transport compatibility", () => {
     expect(result.config.channels?.signal).not.toHaveProperty("cliPath");
   });
 
+  it("moves a sync-migrated accounts.default transport to the canonical root", () => {
+    const result = normalizeCompatibilityConfig({
+      cfg: signalConfig({
+        apiMode: "native",
+        accounts: {
+          default: {
+            account: "+15555550123",
+            httpPort: 8181,
+          },
+        },
+      }),
+    });
+
+    expect(result.config.channels?.signal?.transport).toEqual({
+      kind: "managed-native",
+      httpPort: 8181,
+    });
+    expect(result.config.channels?.signal?.accounts?.default).not.toHaveProperty("transport");
+  });
+
+  it("moves an async-migrated accounts.default transport to the canonical root", async () => {
+    const result = await migrateLegacySignalTransportConfig({
+      cfg: signalConfig({
+        apiMode: "native",
+        accounts: {
+          default: {
+            account: "+15555550123",
+            httpPort: 8282,
+          },
+        },
+      }),
+    });
+
+    expect(result.config.channels?.signal?.transport).toEqual({
+      kind: "managed-native",
+      httpPort: 8282,
+    });
+    expect(result.config.channels?.signal?.accounts?.default).not.toHaveProperty("transport");
+  });
+
   it("keeps attachment suppression account-owned for external transports", () => {
     const result = normalizeCompatibilityConfig({
       cfg: signalConfig({

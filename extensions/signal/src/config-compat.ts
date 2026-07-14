@@ -210,6 +210,14 @@ export function clearLegacySignalTransportFieldsForAccount(params: {
   if (params.accountId === DEFAULT_ACCOUNT_ID) {
     clearLegacyTransportFields(signal);
     delete signal.apiMode;
+    const accounts = isRecord(signal.accounts) ? signal.accounts : undefined;
+    const nestedDefault = accounts?.[DEFAULT_ACCOUNT_ID];
+    if (isRecord(nestedDefault)) {
+      // Setup writes the implicit default transport at the channel root.
+      // Remove a nested copy so it cannot shadow the canonical write.
+      clearLegacyTransportFields(nestedDefault);
+      delete nestedDefault.transport;
+    }
     return next;
   }
   const accounts = isRecord(signal.accounts) ? signal.accounts : undefined;
@@ -264,6 +272,39 @@ function allocateMigratedManagedPorts(params: {
   });
 }
 
+function applyMigratedSignalTransports(params: {
+  cfg: OpenClawConfig;
+  entries: Record<string, unknown>[];
+  transports: Array<SignalTransportConfig | undefined>;
+}): OpenClawConfig | undefined {
+  const next = structuredClone(params.cfg);
+  const nextSignal = next.channels?.signal as unknown;
+  if (!isRecord(nextSignal)) {
+    return undefined;
+  }
+  const sourceAccounts = isRecord(params.entries[0]?.accounts) ? params.entries[0].accounts : {};
+  const accountIds = Object.entries(sourceAccounts)
+    .filter(([, entry]) => isRecord(entry))
+    .map(([accountId]) => accountId);
+  const nextAccounts = isRecord(nextSignal.accounts) ? nextSignal.accounts : {};
+  const nextEntries = [nextSignal, ...Object.values(nextAccounts).filter(isRecord)];
+  const rootIsAccount = hasRootSignalAccount(params.entries);
+  for (const [index, entry] of nextEntries.entries()) {
+    const accountId = index === 0 ? undefined : accountIds[index - 1];
+    if (accountId === DEFAULT_ACCOUNT_ID) {
+      nextSignal.transport = params.transports[index];
+      delete entry.transport;
+    } else if (index === 0 && !rootIsAccount) {
+      delete entry.transport;
+    } else {
+      entry.transport = params.transports[index];
+    }
+    clearLegacyTransportFields(entry);
+  }
+  delete nextSignal.apiMode;
+  return next;
+}
+
 export async function migrateLegacySignalTransportConfig(params: {
   cfg: OpenClawConfig;
   detect?: DetectTransport;
@@ -298,23 +339,10 @@ export async function migrateLegacySignalTransportConfig(params: {
     return { config: params.cfg, changes: [] };
   }
 
-  const next = structuredClone(params.cfg);
-  const nextSignal = next.channels?.signal as unknown;
-  if (!isRecord(nextSignal)) {
+  const next = applyMigratedSignalTransports({ cfg: params.cfg, entries, transports });
+  if (!next) {
     return { config: params.cfg, changes: [] };
   }
-  const nextAccounts = isRecord(nextSignal.accounts) ? nextSignal.accounts : {};
-  const nextEntries = [nextSignal, ...Object.values(nextAccounts).filter(isRecord)];
-  const rootIsAccount = hasRootSignalAccount(entries);
-  for (const [index, entry] of nextEntries.entries()) {
-    if (index === 0 && !rootIsAccount) {
-      delete entry.transport;
-    } else {
-      entry.transport = transports[index];
-    }
-    clearLegacyTransportFields(entry);
-  }
-  delete nextSignal.apiMode;
   return {
     config: next,
     changes: [
@@ -348,23 +376,10 @@ export function migrateLegacySignalTransportConfigSync(
   if (transports.some((transport) => !transport)) {
     return { config: cfg, changes: [] };
   }
-  const next = structuredClone(cfg);
-  const nextSignal = next.channels?.signal as unknown;
-  if (!isRecord(nextSignal)) {
+  const next = applyMigratedSignalTransports({ cfg, entries, transports });
+  if (!next) {
     return { config: cfg, changes: [] };
   }
-  const nextAccounts = isRecord(nextSignal.accounts) ? nextSignal.accounts : {};
-  const nextEntries = [nextSignal, ...Object.values(nextAccounts).filter(isRecord)];
-  const rootIsAccount = hasRootSignalAccount(entries);
-  for (const [index, entry] of nextEntries.entries()) {
-    if (index === 0 && !rootIsAccount) {
-      delete entry.transport;
-    } else {
-      entry.transport = transports[index];
-    }
-    clearLegacyTransportFields(entry);
-  }
-  delete nextSignal.apiMode;
   return {
     config: next,
     changes: [

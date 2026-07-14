@@ -64,6 +64,22 @@ describe("resolveSignalAccount", () => {
     expect(resolveSignalAccount({ cfg }).config.account).toBe("+15555550123");
   });
 
+  it("discovers an accountUuid-only default account alongside named accounts", () => {
+    const cfg = {
+      channels: {
+        signal: {
+          accountUuid: "123e4567-e89b-12d3-a456-426614174000",
+          accounts: {
+            work: { account: "+15555550123" },
+          },
+        },
+      },
+    } as never;
+
+    expect(listSignalAccountIds(cfg)).toEqual(["default", "work"]);
+    expect(resolveSignalAccount({ cfg }).configured).toBe(true);
+  });
+
   it("uses configured defaultAccount when accountId is omitted", () => {
     const resolved = resolveSignalAccount({
       cfg: {

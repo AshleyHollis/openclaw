@@ -40,7 +40,7 @@ export type ResolvedSignalAccount = {
 
 const { listAccountIds, resolveDefaultAccountId } = createAccountListHelpers("signal", {
   implicitDefaultAccount: {
-    channelKeys: ["account", "transport"],
+    channelKeys: ["account", "accountUuid", "transport"],
   },
 });
 export const listSignalAccountIds = listAccountIds;

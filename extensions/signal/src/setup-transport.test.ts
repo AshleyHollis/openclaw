@@ -196,6 +196,31 @@ describe("writeSignalAccountTransport", () => {
     expect(next.channels?.signal).not.toHaveProperty("autoStart");
   });
 
+  it("makes the canonical root authoritative over a nested default transport", () => {
+    const next = writeSignalAccountTransport({
+      cfg: {
+        channels: {
+          signal: {
+            accounts: {
+              default: {
+                account: "+15555550123",
+                transport: { kind: "managed-native", httpPort: 8181 },
+              },
+            },
+          },
+        },
+      } as never,
+      accountId: "default",
+      transport: { kind: "external-native", url: "http://native:8080" },
+    });
+
+    expect(next.channels?.signal?.transport).toEqual({
+      kind: "external-native",
+      url: "http://native:8080",
+    });
+    expect(next.channels?.signal?.accounts?.default).not.toHaveProperty("transport");
+  });
+
   it("writes only the selected named account", () => {
     const next = writeSignalAccountTransport({
       cfg: { channels: { signal: { transport: { kind: "managed-native" } } } },
