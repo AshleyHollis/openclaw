@@ -25,7 +25,6 @@ import {
   RequestClient,
 } from "./internal/discord.js";
 import { parseAndResolveRecipient } from "./recipient-resolution.js";
-import { resolveDiscordReplyMessageId, type DiscordReplyReference } from "./reply-reference.js";
 import type { DiscordRetryRunner } from "./retry.js";
 import { fetchChannelPermissionsDiscord, isThreadChannelType } from "./send.permissions.js";
 import { DiscordSendError } from "./send.types.js";
@@ -416,35 +415,11 @@ async function sendDiscordMedia(
       },
     ],
   });
-  let res: { id: string; channel_id: string };
-  try {
-    res = (await request(
-      () => createChannelMessage<{ id: string; channel_id: string }>(rest, channelId, { body }),
-      "media",
-      { safety: "nonce-protected-create" },
-    )) as { id: string; channel_id: string };
-  } catch (err) {
-    if (!isDiscordUploadTooLargeError(err)) {
-      throw err;
-    }
-    // The multipart request is all-or-nothing. Retry the portable text only;
-    // attachment-coupled embeds/components may be invalid or misleading without it.
-    return sendDiscordText({
-      rest,
-      channelId,
-      text: buildDiscordUploadTooLargeFallbackText(text),
-      reply,
-      request,
-      maxLinesPerMessage,
-      chunkMode,
-      silent,
-      suppressEmbeds,
-      allowedMentions,
-      maxChars,
-      onResult,
-    });
-  }
-  await onResult?.(res, "media", reply?.messageId);
+  const res = (await request(
+    () => createChannelMessage<{ id: string; channel_id: string }>(rest, channelId, { body }),
+    "media",
+    { safety: "nonce-protected-create" },
+  )) as { id: string; channel_id: string };
   const platformMessageIds = res.id ? [res.id] : [];
   for (const chunk of chunks.slice(1)) {
     if (!chunk.trim()) {

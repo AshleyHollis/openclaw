@@ -196,20 +196,11 @@ export const discordOutbound: ChannelOutboundAdapter = {
         (await loadDiscordSendRuntime()).sendMessageDiscord;
       return await send(resolveDiscordOutboundTarget({ to, threadId }), text, {
         verbose: false,
-        reply: resolveDiscordReplyReference({
-          replyToId,
-          replyToIdSource,
-          replyToMode,
-        }),
+        replyTo: replyToId ?? undefined,
         accountId: accountId ?? undefined,
         silent: silent ?? undefined,
         cfg,
         ...resolveDiscordFormattingOptions({ formatting }),
-        onDeliveryResult: onDeliveryResult
-          ? async (result) => {
-              await onDeliveryResult(attachChannelToResult("discord", result));
-            }
-          : undefined,
       });
     },
     sendMedia: async ({
@@ -239,7 +230,7 @@ export const discordOutbound: ChannelOutboundAdapter = {
           (await loadDiscordSendRuntime()).sendVoiceMessageDiscord;
         return await sendVoice(target, mediaUrl, {
           cfg,
-          reply,
+          replyTo: replyToId ?? undefined,
           accountId: accountId ?? undefined,
           silent: silent ?? undefined,
         });
@@ -247,21 +238,15 @@ export const discordOutbound: ChannelOutboundAdapter = {
       if (text.trim() && mediaUrl && isLikelyDiscordVideoMedia(mediaUrl)) {
         await send(target, text, {
           verbose: false,
-          reply,
+          replyTo: replyToId ?? undefined,
           accountId: accountId ?? undefined,
           silent: silent ?? undefined,
           cfg,
           ...formattingOptions,
-          onDeliveryResult: onDeliveryResult
-            ? async (result) => {
-                await onDeliveryResult(attachChannelToResult("discord", result));
-              }
-            : undefined,
         });
         return await send(target, "", {
           verbose: false,
           mediaUrl,
-          reply: reply?.scope === "all" ? reply : undefined,
           mediaAccess,
           mediaLocalRoots,
           mediaReadFile,
@@ -269,11 +254,6 @@ export const discordOutbound: ChannelOutboundAdapter = {
           silent: silent ?? undefined,
           cfg,
           ...formattingOptions,
-          onDeliveryResult: onDeliveryResult
-            ? async (result) => {
-                await onDeliveryResult(attachChannelToResult("discord", result));
-              }
-            : undefined,
         });
       }
       return await send(target, text, {
@@ -282,16 +262,11 @@ export const discordOutbound: ChannelOutboundAdapter = {
         mediaAccess,
         mediaLocalRoots,
         mediaReadFile,
-        reply,
+        replyTo: replyToId ?? undefined,
         accountId: accountId ?? undefined,
         silent: silent ?? undefined,
         cfg,
         ...formattingOptions,
-        onDeliveryResult: onDeliveryResult
-          ? async (result) => {
-              await onDeliveryResult(attachChannelToResult("discord", result));
-            }
-          : undefined,
       });
     },
     sendPoll: async ({ cfg, to, poll, accountId, threadId, silent }) =>

@@ -84,52 +84,21 @@ export async function sendDiscordOutboundPayload(params: {
   const sendContext = await createDiscordPayloadSendContext(ctx);
 
   if (payload.audioAsVoice && mediaUrls.length > 0) {
-    // audioAsVoice emits one logical Discord reply across voice/text/media sends.
-    // Capture before helper calls consume implicit single-use reply targets.
-    const voiceReply = sendContext.resolveReply();
-    let deliveredVoice = false;
-    let lastResult: Awaited<ReturnType<DiscordPayloadSendContext["send"]>>;
-    try {
-      lastResult = await sendContext.sendVoice(sendContext.target, mediaUrls[0], {
-        ...resolveDiscordDeliveryOptions(ctx, sendContext, voiceReply),
-      });
-      deliveredVoice = true;
-    } catch (err) {
-      const supplement = getReplyPayloadTtsSupplement(payload);
-      const visibleFallbackText = payload.text?.trim() ? payload.text : undefined;
-      const hiddenFallbackText = supplement?.visibleTextAlreadyDelivered
-        ? undefined
-        : supplement?.spokenText;
-      const fallbackText = visibleFallbackText ?? hiddenFallbackText;
-      if (!fallbackText) {
-        if (supplement?.visibleTextAlreadyDelivered) {
-          lastResult = createDiscordUnknownPayloadResult(sendContext.target);
-        } else {
-          throw err;
-        }
-      } else {
-        lastResult = await sendContext.send(sendContext.target, fallbackText, {
-          verbose: false,
-          ...resolveDiscordFormattedDeliveryOptions(ctx, sendContext, voiceReply),
-          onDeliveryResult: resolveDiscordDeliveryProgress(ctx),
-        });
-      }
-    }
-    if (deliveredVoice) {
-      await ctx.onDeliveryResult?.(attachChannelToResult("discord", lastResult));
-    }
-    if (deliveredVoice && payload.text?.trim()) {
+    let lastResult = await sendContext.sendVoice(
+      sendContext.target,
+      mediaUrls[0],
+      resolveDiscordDeliveryOptions(ctx, sendContext),
+    );
+    if (payload.text?.trim()) {
       lastResult = await sendContext.send(sendContext.target, payload.text, {
         verbose: false,
         ...resolveDiscordFormattedDeliveryOptions(ctx, sendContext),
-        onDeliveryResult: resolveDiscordDeliveryProgress(ctx),
       });
     }
     for (const mediaUrl of mediaUrls.slice(1)) {
       lastResult = await sendContext.send(sendContext.target, "", {
         verbose: false,
         ...resolveDiscordMediaDeliveryOptions(ctx, sendContext, mediaUrl),
-        onDeliveryResult: resolveDiscordDeliveryProgress(ctx),
       });
     }
     return attachChannelToResult("discord", lastResult);
@@ -162,7 +131,6 @@ export async function sendDiscordOutboundPayload(params: {
             embeds,
             filename,
             ...resolveDiscordFormattedDeliveryOptions(ctx, sendContext),
-            onDeliveryResult: resolveDiscordDeliveryProgress(ctx),
           }),
         send: async ({ text, mediaUrl, isFirst }) =>
           await sendContext.send(sendContext.target, text, {
@@ -171,7 +139,6 @@ export async function sendDiscordOutboundPayload(params: {
             components: isFirst ? nativeComponents : undefined,
             embeds: isFirst ? embeds : undefined,
             filename: isFirst ? filename : undefined,
-            onDeliveryResult: resolveDiscordDeliveryProgress(ctx),
           }),
       });
       return attachChannelToResult("discord", result);
@@ -190,23 +157,19 @@ export async function sendDiscordOutboundPayload(params: {
     text: payload.text ?? "",
     mediaUrls,
     fallbackResult: createDiscordUnknownPayloadResult(sendContext.target),
-    sendNoMedia: async () => {
-      return await sendDiscordComponentMessageLazy(sendContext.target, componentSpec, {
+    sendNoMedia: async () =>
+      await sendDiscordComponentMessageLazy(sendContext.target, componentSpec, {
         ...resolveDiscordFormattedDeliveryOptions(ctx, sendContext),
-        onDeliveryResult: resolveDiscordDeliveryProgress(ctx),
-      });
-    },
+      }),
     send: async ({ text, mediaUrl, isFirst }) => {
       if (isFirst) {
         return await sendDiscordComponentMessageLazy(sendContext.target, componentSpec, {
           ...resolveDiscordMediaDeliveryOptions(ctx, sendContext, mediaUrl),
-          onDeliveryResult: resolveDiscordDeliveryProgress(ctx),
         });
       }
       return await sendContext.send(sendContext.target, text, {
         verbose: false,
         ...resolveDiscordMediaDeliveryOptions(ctx, sendContext, mediaUrl),
-        onDeliveryResult: resolveDiscordDeliveryProgress(ctx),
       });
     },
   });

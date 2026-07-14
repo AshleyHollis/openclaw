@@ -6,7 +6,6 @@ import {
 } from "openclaw/plugin-sdk/channel-outbound";
 import type { OpenClawConfig, ReplyToMode } from "openclaw/plugin-sdk/config-contracts";
 import { normalizeOptionalStringifiedId } from "openclaw/plugin-sdk/string-coerce-runtime";
-import { resolveDiscordReplyReference } from "./reply-reference.js";
 
 type DiscordSendRuntime = typeof import("./send.js");
 

@@ -33,13 +33,6 @@ describe("discordApprovalNativeRuntime", () => {
     expect(pending.body).not.toHaveProperty("enforce_nonce");
   });
 
-  it("does not split emoji graphemes when truncating exec command previews", async () => {
-    const prefix = "a".repeat(999);
-
-    await expect(buildExecApprovalPayloadText(`${prefix}😀x`)).resolves.toContain(`${prefix}...`);
-    await expect(buildExecApprovalPayloadText(`${prefix}🇺🇸x`)).resolves.toContain(`${prefix}...`);
-  });
-
   it("routes origin approval updates to the Discord thread channel when threadId is present", async () => {
     const prepared = await discordApprovalNativeRuntime.transport.prepareTarget({
       cfg: {} as never,

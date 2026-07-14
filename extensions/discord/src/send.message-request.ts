@@ -1,6 +1,6 @@
 // Discord plugin module implements send.message request behavior.
 import { randomBytes } from "node:crypto";
-import { MessageFlags, type APIAllowedMentions, type APIEmbed } from "discord-api-types/v10";
+import { MessageFlags, type APIEmbed } from "discord-api-types/v10";
 import {
   Embed,
   serializePayload,

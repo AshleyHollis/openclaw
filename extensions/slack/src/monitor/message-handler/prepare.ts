@@ -1047,20 +1047,6 @@ export async function prepareSlackMessage(params: {
     return null;
   }
 
-  // Thread participation is broad on Slack; only an explicit bot mention escapes this gate.
-  // Native bot identity distinguishes bot pings from other Slack mentions.
-  const ignoreOtherMentions = channelConfig?.ignoreOtherMentions ?? false;
-  if (isRoom && ignoreOtherMentions && Boolean(ctx.botUserId) && hasAnyMention && !wasMentioned) {
-    logInboundDrop({
-      log: logVerbose,
-      channel: "slack",
-      reason: "other-mention",
-      target: senderId,
-    });
-    await recordDroppedHistory("slack-other-mention");
-    return null;
-  }
-
   if (isRoom && shouldRequireMention && messageIngress.activationAccess.shouldSkip) {
     ctx.logger.info({ channel: message.channel, reason: "no-mention" }, "skipping channel message");
     await recordDroppedHistory("slack-no-mention");
