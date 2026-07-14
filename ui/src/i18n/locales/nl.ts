@@ -1172,13 +1172,6 @@ export const nl: TranslationMap = {
         cannotRender: "Kan avatar niet weergeven",
       },
     },
-    pending: {
-      title: "Niet-opgeslagen wijzigingen",
-      hint: "Opslaan bewaart je wijzigingen. Nu toepassen herlaadt ook de huidige sessie.",
-      discard: "Verwerpen",
-      applying: "Toepassen…",
-      applyNow: "Nu toepassen",
-    },
   },
   configPage: {
     settingsView: "Instellingenweergave",
@@ -1331,25 +1324,26 @@ export const nl: TranslationMap = {
     formUnsafeTitle: "Formulierweergave kan sommige velden niet veilig bewerken",
     rawTitle: "Onbewerkte JSON/JSON5-configuratie bewerken",
     rawUnavailableTitle: "Onbewerkte modus niet beschikbaar voor deze momentopname",
-    unsavedChange: "{count} niet-opgeslagen wijziging",
-    unsavedChanges: "{count} niet-opgeslagen wijzigingen",
-    noChanges: "Geen wijzigingen",
-    rawDisabled:
-      "Onbewerkte modus uitgeschakeld (momentopname kan onbewerkte tekst niet veilig converteren).",
     open: "Open",
-    clear: "Wissen",
-    apply: "Toepassen",
     applying: "Toepassen…",
-    update: "Bijwerken",
-    updating: "Bijwerken…",
-    searchPlaceholder: "Instellingen zoeken...",
-    search: "Instellingen zoeken",
-    clearSearch: "Zoekopdracht wissen",
+    autoSaveSaving: "Opslaan…",
+    autoSaveSaved: "Opgeslagen",
+    autoSaveFailed: "Opslaan mislukt",
+    autoSaveConflict: "Instellingen zijn elders gewijzigd",
+    retry: "Opnieuw proberen",
+    applyBannerText:
+      "Opgeslagen in openclaw.json — start de Gateway opnieuw om de wijzigingen toe te passen.",
+    applyBannerAction: "Opnieuw starten en toepassen",
+    rawDiscard: "Verwerpen",
+    rawDraftBlocksApply:
+      "Niet-opgeslagen bewerkingen in de onbewerkte configuratie — sla ze op of verwijder ze in de Raw-editor voordat u opnieuw opstart.",
+    rawDraftPendingFormTitle:
+      "Niet-opgeslagen bewerkingen in de onbewerkte configuratie — sla ze op of verwijder ze voordat u overschakelt naar Form.",
+    rawDraftBlocksFormEdit:
+      "Niet-opgeslagen bewerkingen in de onbewerkte configuratie konden niet worden verwerkt; los ze op in de Raw-editor voordat u instellingen wijzigt.",
     invalidConfig:
       "Je configuratie is ongeldig. Sommige instellingen werken mogelijk niet zoals verwacht.",
     dismissWarning: "Niet opnieuw herinneren",
-    viewPendingChange: "{count} openstaande wijziging bekijken",
-    viewPendingChanges: "{count} openstaande wijzigingen bekijken",
     viewPendingChangesRaw: "Openstaande wijzigingen bekijken",
     rawDiffUnavailable: "Wijzigingen gedetecteerd (JSON-diff niet beschikbaar)",
     hideEnvValues: "Env-waarden verbergen",
@@ -1783,7 +1777,6 @@ export const nl: TranslationMap = {
     missingTransport: "transport ontbreekt",
     tlsVerifyOff: "TLS-verificatie uit",
     mtls: "mTLS",
-    publishing: "Publiceren...",
   },
   pluginsPage: {
     searchLabel: "Plugins zoeken",
