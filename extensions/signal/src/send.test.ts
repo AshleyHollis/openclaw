@@ -31,7 +31,7 @@ const {
 } = await import("./approval-reactions.js");
 const { sendMessageSignal, sendReadReceiptSignal, sendTypingSignal } = await import("./send.js");
 
-const SIGNAL_TEST_CFG: OpenClawConfig = {
+const SIGNAL_TEST_CFG = {
   channels: {
     signal: {
       accounts: {
@@ -42,7 +42,7 @@ const SIGNAL_TEST_CFG: OpenClawConfig = {
       },
     },
   },
-};
+} satisfies OpenClawConfig;
 
 describe("sendMessageSignal receipts", () => {
   beforeEach(() => {
