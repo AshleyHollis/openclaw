@@ -34,6 +34,10 @@ Use this with `$release-openclaw-maintainer` and `$openclaw-testing` when a rele
   fails, the parent cancels the remaining child matrix and prints the failed
   job summary. Inspect that first red job instead of waiting for unrelated
   matrix tails.
+- A fresh `rerun_group=all` parent runs deterministic source checks against the
+  exact Code SHA before dispatching the expensive child workflows. Treat a
+  source-preflight failure as a Code SHA failure; focused reruns and
+  changelog-only evidence reuse skip this gate.
 - Treat the product-complete pre-changelog commit as the Code SHA. Full product
   validation and performance evidence bind to that SHA. The later Release SHA
   may reuse those results only when it is a descendant whose complete changed
@@ -160,6 +164,11 @@ against the Release SHA. The parent must report
 `changedPaths=["CHANGELOG.md"]`; it should reuse the product matrix instead of
 dispatching child lanes. Npm preflight and package/install acceptance still run
 against the exact Release SHA and its new tarball bytes.
+
+If a later Code SHA fix does not change release-note content, references, or
+attribution, reapply the already reviewed changelog bytes after the replacement
+Code SHA is green. Do not repeat the changelog discovery pass merely because a
+non-user-visible release fix changed the commit identity.
 
 The SHA-pinned helper infers `beta` for alpha/beta package versions and `stable`
 for stable/correction versions. Pass `release_profile=full` only when the

@@ -189,8 +189,10 @@ release_gate=true`.
 prepare-run <PR>`.
 - Generate the changelog once after the final Code SHA is fully green. Do not
   regenerate it for same-candidate tooling reruns, resumed publication, or
-  promotion. If code changes, validate the replacement Code SHA first and then
-  regenerate the release section once for that new history. Use
+  promotion. If code changes, validate the replacement Code SHA first. Reuse
+  the already reviewed changelog bytes when the replacement changes no
+  release-note content, references, or attribution; regenerate only when those
+  inputs changed. Use
   `$openclaw-changelog-update` for the rewrite. Do not continue release prep if
   the target `CHANGELOG.md` section does not have `### Highlights`,
   `### Changes`, and `### Fixes`, grouped by user-facing surface while

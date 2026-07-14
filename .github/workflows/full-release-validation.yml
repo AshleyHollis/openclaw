@@ -349,10 +349,47 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  docker_runtime_assets_preflight:
-    name: Verify Docker runtime image assets
+  source_preflight:
+    name: Verify release source checks
     needs: [resolve_target, evidence_reuse]
     if: ${{ always() && needs.resolve_target.result == 'success' && inputs.rerun_group == 'all' && needs.evidence_reuse.outputs.reuse != 'true' }}
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout target SHA
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ needs.resolve_target.outputs.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          install-bun: "true"
+
+      - name: Check
+        env:
+          OPENCLAW_LOCAL_CHECK: "0"
+        run: pnpm check
+
+      - name: Check test types
+        env:
+          OPENCLAW_LOCAL_CHECK: "0"
+        run: pnpm check:test-types
+
+      - name: Check architecture
+        env:
+          OPENCLAW_LOCAL_CHECK: "0"
+        run: pnpm check:architecture
+
+  docker_runtime_assets_preflight:
+    name: Verify Docker runtime image assets
+    needs: [resolve_target, evidence_reuse, source_preflight]
+    if: ${{ always() && needs.resolve_target.result == 'success' && inputs.rerun_group == 'all' && needs.evidence_reuse.outputs.reuse != 'true' && needs.source_preflight.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -377,8 +414,8 @@ jobs:
 
   normal_ci:
     name: Run normal full CI
-    needs: [resolve_target, evidence_reuse]
-    if: ${{ always() && needs.resolve_target.result == 'success' && contains(fromJSON('["all","ci"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
+    needs: [resolve_target, evidence_reuse, source_preflight]
+    if: ${{ always() && needs.resolve_target.result == 'success' && contains(fromJSON('["all","ci"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' && (inputs.rerun_group != 'all' || needs.source_preflight.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ inputs.release_profile != 'beta' && 240 || 60 }}
     outputs:
@@ -568,8 +605,8 @@ jobs:
 
   plugin_prerelease:
     name: Run plugin prerelease validation
-    needs: [resolve_target, evidence_reuse]
-    if: ${{ always() && needs.resolve_target.result == 'success' && contains(fromJSON('["all","plugin-prerelease"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
+    needs: [resolve_target, evidence_reuse, source_preflight]
+    if: ${{ always() && needs.resolve_target.result == 'success' && contains(fromJSON('["all","plugin-prerelease"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' && (inputs.rerun_group != 'all' || needs.source_preflight.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ inputs.release_profile == 'full' && 300 || inputs.release_profile == 'stable' && 240 || 60 }}
     outputs:
@@ -750,8 +787,8 @@ jobs:
 
   release_checks:
     name: Run release/live/Docker/QA validation
-    needs: [resolve_target, evidence_reuse]
-    if: ${{ always() && needs.resolve_target.result == 'success' && contains(fromJSON('["all","release-checks","install-smoke","cross-os","live-e2e","package","qa","qa-parity","qa-live"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
+    needs: [resolve_target, evidence_reuse, source_preflight]
+    if: ${{ always() && needs.resolve_target.result == 'success' && contains(fromJSON('["all","release-checks","install-smoke","cross-os","live-e2e","package","qa","qa-parity","qa-live"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' && (inputs.rerun_group != 'all' || needs.source_preflight.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ inputs.release_profile != 'beta' && 240 || 60 }}
     outputs:
@@ -1237,8 +1274,8 @@ jobs:
 
   performance:
     name: Run product performance evidence
-    needs: [resolve_target, evidence_reuse]
-    if: ${{ always() && needs.resolve_target.result == 'success' && contains(fromJSON('["all","performance"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
+    needs: [resolve_target, evidence_reuse, source_preflight]
+    if: ${{ always() && needs.resolve_target.result == 'success' && contains(fromJSON('["all","performance"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' && (inputs.rerun_group != 'all' || needs.source_preflight.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ inputs.release_profile == 'full' && 360 || 120 }}
     outputs:
@@ -1405,6 +1442,7 @@ jobs:
       [
         resolve_target,
         evidence_reuse,
+        source_preflight,
         docker_runtime_assets_preflight,
         normal_ci,
         plugin_prerelease,
@@ -1429,6 +1467,7 @@ jobs:
           RELEASE_CHECKS_RESULT: ${{ needs.release_checks.result }}
           NPM_TELEGRAM_RESULT: ${{ needs.npm_telegram.result }}
           PERFORMANCE_RESULT: ${{ needs.performance.result }}
+          SOURCE_PREFLIGHT_RESULT: ${{ needs.source_preflight.result }}
           DOCKER_RUNTIME_ASSETS_PREFLIGHT_RESULT: ${{ needs.docker_runtime_assets_preflight.result }}
           EVIDENCE_REUSE: ${{ needs.evidence_reuse.outputs.reuse }}
           EVIDENCE_ROOT_RUN_ID: ${{ needs.evidence_reuse.outputs.evidence_root_run_id }}
@@ -1555,6 +1594,7 @@ jobs:
               echo
               echo "| Child | Result | Minutes | Head SHA | Run |"
               echo "| --- | --- | ---: | --- | --- |"
+              echo "| \`source_preflight\` | \`${SOURCE_PREFLIGHT_RESULT}\` |  | current workflow |  |"
               echo "| \`docker_runtime_assets_preflight\` | \`${DOCKER_RUNTIME_ASSETS_PREFLIGHT_RESULT}\` |  | current workflow |  |"
             } >> "$GITHUB_STEP_SUMMARY"
 
@@ -1735,6 +1775,9 @@ jobs:
                 echo "- Reuse policy: \`${EVIDENCE_POLICY}\`"
               } >> "$GITHUB_STEP_SUMMARY"
             fi
+          elif [[ "$RERUN_GROUP" == "all" && "$SOURCE_PREFLIGHT_RESULT" != "success" ]]; then
+            echo "::error::Release source preflight ended with ${SOURCE_PREFLIGHT_RESULT}."
+            failed=1
           elif [[ "$RERUN_GROUP" == "all" && "$DOCKER_RUNTIME_ASSETS_PREFLIGHT_RESULT" != "success" ]]; then
             echo "::error::Docker runtime-assets preflight ended with ${DOCKER_RUNTIME_ASSETS_PREFLIGHT_RESULT}."
             failed=1

@@ -50,7 +50,9 @@ type WorkflowJob = {
   needs?: string | string[];
   outputs?: Record<string, string>;
   permissions?: PermissionMap;
+  "runs-on"?: string;
   steps?: WorkflowStep[];
+  "timeout-minutes"?: number | string;
   uses?: string;
   with?: Record<string, boolean | number | string>;
 };
@@ -284,6 +286,8 @@ describe("release validation no-push transport", () => {
 
     const evidenceReuse = job(full, "evidence_reuse");
     expect(step(evidenceReuse, "Checkout target SHA").with?.["persist-credentials"]).toBe(false);
+    const sourcePreflight = job(full, "source_preflight");
+    expect(step(sourcePreflight, "Checkout target SHA").with?.["persist-credentials"]).toBe(false);
     const dockerAssets = job(full, "docker_runtime_assets_preflight");
     expect(step(dockerAssets, "Checkout target SHA").with?.["persist-credentials"]).toBe(false);
     expect(evidenceReuse.if).toContain("github.ref == 'refs/heads/main'");
@@ -302,6 +306,47 @@ describe("release validation no-push transport", () => {
     expect(releaseHelper.with?.ref).toBe("${{ github.sha }}");
     expect(releaseHelper.with?.ref).not.toBe("${{ github.ref_name }}");
     expect(releaseHelper.with?.["persist-credentials"]).toBe(false);
+  });
+
+  it("rejects the exact Code SHA before broad release validation fans out", () => {
+    const full = readWorkflow(FULL_RELEASE);
+    const sourcePreflight = job(full, "source_preflight");
+
+    expect(sourcePreflight.needs).toEqual(["resolve_target", "evidence_reuse"]);
+    expect(sourcePreflight.if).toBe(
+      "${{ always() && needs.resolve_target.result == 'success' && inputs.rerun_group == 'all' && needs.evidence_reuse.outputs.reuse != 'true' }}",
+    );
+    expect(sourcePreflight["runs-on"]).toBe("blacksmith-16vcpu-ubuntu-2404");
+    expect(sourcePreflight["timeout-minutes"]).toBe(60);
+    expect(step(sourcePreflight, "Checkout target SHA").with?.ref).toBe(
+      "${{ needs.resolve_target.outputs.sha }}",
+    );
+    expect(step(sourcePreflight, "Setup Node environment").uses).toBe(
+      "./.github/actions/setup-node-env",
+    );
+    expect(step(sourcePreflight, "Check").run).toBe("pnpm check");
+    expect(step(sourcePreflight, "Check test types").run).toBe("pnpm check:test-types");
+    expect(step(sourcePreflight, "Check architecture").run).toBe("pnpm check:architecture");
+
+    for (const jobName of [
+      "docker_runtime_assets_preflight",
+      "normal_ci",
+      "plugin_prerelease",
+      "release_checks",
+      "performance",
+    ]) {
+      const fanoutJob = job(full, jobName);
+      expect(fanoutJob.needs, jobName).toContain("source_preflight");
+      expect(fanoutJob.if, jobName).toContain("needs.source_preflight.result == 'success'");
+    }
+
+    const summary = job(full, "summary");
+    expect(summary.needs).toContain("source_preflight");
+    const verify = step(summary, "Verify child workflow results");
+    expect(verify.env?.SOURCE_PREFLIGHT_RESULT).toBe("${{ needs.source_preflight.result }}");
+    expect(verify.run).toContain(
+      'echo "::error::Release source preflight ended with ${SOURCE_PREFLIGHT_RESULT}."',
+    );
   });
 
   it("rejects every child whose workflow SHA differs from the parent workflow SHA", () => {
