@@ -23,6 +23,16 @@ on:
         required: false
         default: ""
         type: string
+      historical_target_tag:
+        description: Semver release tag authorizing validation for its exact commit
+        required: false
+        default: ""
+        type: string
+      release_candidate_ref:
+        description: Canonical release branch authorizing validation for its exact head
+        required: false
+        default: ""
+        type: string
   push:
     branches: [main]
     paths-ignore:
@@ -175,6 +185,46 @@ jobs:
       - name: Resolve checkout SHA
         id: checkout_ref
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Validate historical release target
+        if: inputs.historical_target_tag != ''
+        env:
+          EXPECTED_SHA: ${{ steps.checkout_ref.outputs.sha }}
+          HISTORICAL_TARGET_TAG: ${{ inputs.historical_target_tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$HISTORICAL_TARGET_TAG" =~ ^v[0-9]{4}\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9]+)?$ ]]; then
+            echo "historical_target_tag must be a canonical OpenClaw release tag." >&2
+            exit 1
+          fi
+          tag_ref="refs/tags/${HISTORICAL_TARGET_TAG}"
+          remote="$(git remote get-url origin)"
+          tag_sha="$(git ls-remote --tags "$remote" "${tag_ref}^{}" | awk 'NR == 1 { print $1 }')"
+          if [[ -z "$tag_sha" ]]; then
+            tag_sha="$(git ls-remote --tags "$remote" "$tag_ref" | awk 'NR == 1 { print $1 }')"
+          fi
+          if [[ "$tag_sha" != "$EXPECTED_SHA" ]]; then
+            echo "Historical release tag ${HISTORICAL_TARGET_TAG} does not resolve to ${EXPECTED_SHA}." >&2
+            exit 1
+          fi
+
+      - name: Validate release candidate target
+        if: inputs.release_candidate_ref != ''
+        env:
+          EXPECTED_SHA: ${{ steps.checkout_ref.outputs.sha }}
+          RELEASE_CANDIDATE_REF: ${{ inputs.release_candidate_ref }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_CANDIDATE_REF" =~ ^(release/[0-9]{4}\.[0-9]+\.[0-9]+|extended-stable/[0-9]{4}\.[0-9]+\.33)$ ]]; then
+            echo "release_candidate_ref must be a canonical OpenClaw release branch." >&2
+            exit 1
+          fi
+          remote="$(git remote get-url origin)"
+          branch_sha="$(git ls-remote --heads "$remote" "refs/heads/${RELEASE_CANDIDATE_REF}" | awk 'NR == 1 { print $1 }')"
+          if [[ "$branch_sha" != "$EXPECTED_SHA" ]]; then
+            echo "Release candidate branch ${RELEASE_CANDIDATE_REF} does not resolve to ${EXPECTED_SHA}." >&2
+            exit 1
+          fi
 
       - name: Ensure preflight base commit
         if: github.event_name != 'workflow_dispatch'

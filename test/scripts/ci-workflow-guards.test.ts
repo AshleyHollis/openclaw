@@ -101,6 +101,14 @@ describe("ci workflow guards", () => {
       default: "",
       type: "string",
     });
+    expect(workflow.on.workflow_dispatch.inputs.historical_target_tag).toMatchObject({
+      default: "",
+      type: "string",
+    });
+    expect(workflow.on.workflow_dispatch.inputs.release_candidate_ref).toMatchObject({
+      default: "",
+      type: "string",
+    });
     expect(readFileSync(".github/workflows/ci.yml", "utf8")).toContain(
       "run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.dispatch_id != '' && format('CI {0}', inputs.dispatch_id) || (github.event_name == 'workflow_dispatch' && inputs.release_gate && format('CI release gate {0}', inputs.target_ref) || 'CI') }}",
     );
@@ -115,6 +123,18 @@ describe("ci workflow guards", () => {
       "release_gate requires target_ref to be a full commit SHA",
     );
     expect(validationStep.run).toContain("release_gate must run from the branch at target_ref");
+    const historicalTargetStep = preflightSteps.find(
+      (step) => step.name === "Validate historical release target",
+    );
+    expect(historicalTargetStep.run).toContain(
+      "Historical release tag ${HISTORICAL_TARGET_TAG} does not resolve to ${EXPECTED_SHA}.",
+    );
+    const releaseCandidateStep = preflightSteps.find(
+      (step) => step.name === "Validate release candidate target",
+    );
+    expect(releaseCandidateStep.run).toContain(
+      "Release candidate branch ${RELEASE_CANDIDATE_REF} does not resolve to ${EXPECTED_SHA}.",
+    );
     expect(readFileSync(".github/workflows/ci.yml", "utf8")).toContain(
       "OPENCLAW_CI_RUN_ANDROID: ${{ github.event_name == 'workflow_dispatch' && (inputs.release_gate || inputs.include_android) && 'true' || steps.changed_scope.outputs.run_android || 'false' }}",
     );

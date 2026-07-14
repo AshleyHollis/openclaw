@@ -8,6 +8,11 @@ on:
         required: true
         default: main
         type: string
+      target_context_ref:
+        description: Optional canonical release branch or tag context for an exact-SHA target
+        required: false
+        default: ""
+        type: string
       provider:
         description: Provider lane for cross-OS onboarding and the end-to-end agent turn
         required: false
@@ -154,6 +159,7 @@ jobs:
         id: resolve
         env:
           TARGET_REF: ${{ inputs.ref }}
+          TARGET_CONTEXT_REF: ${{ inputs.target_context_ref }}
         run: |
           bash workflow/scripts/github/resolve-openclaw-ref.sh \
             --ref "$TARGET_REF" \
@@ -282,6 +288,7 @@ jobs:
           RUN_RELEASE_SOAK: ${{ inputs.run_release_soak || inputs.release_profile == 'stable' || inputs.release_profile == 'full' }}
           PROVIDER: ${{ inputs.provider }}
           MODE: ${{ inputs.mode }}
+          TARGET_CONTEXT_REF: ${{ inputs.target_context_ref }}
           LIVE_SUITE_FILTER: ${{ inputs.live_suite_filter }}
           CROSS_OS_SUITE_FILTER: ${{ inputs.cross_os_suite_filter }}
           RELEASE_PACKAGE_SPEC: ${{ inputs.release_package_spec }}
@@ -294,6 +301,7 @@ jobs:
           inputs_json="$(jq -nc \
             --arg provider "$PROVIDER" \
             --arg mode "$MODE" \
+            --arg targetContextRef "$TARGET_CONTEXT_REF" \
             --arg liveSuiteFilter "$LIVE_SUITE_FILTER" \
             --arg crossOsSuiteFilter "$CROSS_OS_SUITE_FILTER" \
             --arg releasePackageSpec "$RELEASE_PACKAGE_SPEC" \
@@ -302,6 +310,7 @@ jobs:
             '{
               provider: $provider,
               mode: $mode,
+              targetContextRef: $targetContextRef,
               liveSuiteFilter: $liveSuiteFilter,
               crossOsSuiteFilter: $crossOsSuiteFilter,
               releasePackageSpec: $releasePackageSpec,
@@ -342,8 +351,8 @@ jobs:
 
   docker_runtime_assets_preflight:
     name: Verify Docker runtime image assets
-    needs: [resolve_target]
-    if: inputs.rerun_group == 'all'
+    needs: [resolve_target, evidence_reuse]
+    if: ${{ always() && needs.resolve_target.result == 'success' && inputs.rerun_group == 'all' && needs.evidence_reuse.outputs.reuse != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -368,8 +377,8 @@ jobs:
 
   normal_ci:
     name: Run normal full CI
-    needs: [resolve_target, docker_runtime_assets_preflight]
-    if: ${{ always() && needs.resolve_target.result == 'success' && contains(fromJSON('["all","ci"]'), inputs.rerun_group) && (inputs.rerun_group != 'all' || needs.docker_runtime_assets_preflight.result == 'success') }}
+    needs: [resolve_target, evidence_reuse]
+    if: ${{ always() && needs.resolve_target.result == 'success' && contains(fromJSON('["all","ci"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ inputs.release_profile != 'minimum' && 240 || 60 }}
     outputs:
@@ -382,6 +391,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_REF: ${{ inputs.ref }}
+          TARGET_CONTEXT_REF: ${{ inputs.target_context_ref }}
           TARGET_SHA: ${{ needs.resolve_target.outputs.sha }}
           CHILD_WORKFLOW_REF: ${{ github.ref_name }}
           PARENT_WORKFLOW_SHA: ${{ github.sha }}
@@ -546,12 +556,20 @@ jobs:
 
           dispatch_id="full-release-validation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-ci"
           dispatch_run_name="CI ${dispatch_id}"
-          dispatch_and_wait ci.yml "$dispatch_run_name" -f target_ref="$TARGET_SHA" -f include_android=true -f dispatch_id="$dispatch_id"
+          args=(-f target_ref="$TARGET_SHA" -f include_android=true -f dispatch_id="$dispatch_id")
+          if [[ "$TARGET_REF" =~ ^v[0-9]{4}\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9]+)?$ ]]; then
+            args+=(-f historical_target_tag="$TARGET_REF")
+          elif [[ "$TARGET_CONTEXT_REF" =~ ^v[0-9]{4}\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9]+)?$ ]]; then
+            args+=(-f historical_target_tag="$TARGET_CONTEXT_REF")
+          elif [[ "$TARGET_CONTEXT_REF" =~ ^(release/[0-9]{4}\.[0-9]+\.[0-9]+|extended-stable/[0-9]{4}\.[0-9]+\.33)$ ]]; then
+            args+=(-f release_candidate_ref="$TARGET_CONTEXT_REF")
+          fi
+          dispatch_and_wait ci.yml "$dispatch_run_name" "${args[@]}"
 
   plugin_prerelease:
     name: Run plugin prerelease validation
-    needs: [resolve_target, docker_runtime_assets_preflight]
-    if: ${{ always() && needs.resolve_target.result == 'success' && contains(fromJSON('["all","plugin-prerelease"]'), inputs.rerun_group) && (inputs.rerun_group != 'all' || needs.docker_runtime_assets_preflight.result == 'success') }}
+    needs: [resolve_target, evidence_reuse]
+    if: ${{ always() && needs.resolve_target.result == 'success' && contains(fromJSON('["all","plugin-prerelease"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ inputs.release_profile == 'full' && 300 || inputs.release_profile == 'stable' && 240 || 60 }}
     outputs:
@@ -732,8 +750,8 @@ jobs:
 
   release_checks:
     name: Run release/live/Docker/QA validation
-    needs: [resolve_target, docker_runtime_assets_preflight]
-    if: ${{ always() && needs.resolve_target.result == 'success' && contains(fromJSON('["all","release-checks","install-smoke","cross-os","live-e2e","package","qa","qa-parity","qa-live"]'), inputs.rerun_group) && (inputs.rerun_group != 'all' || needs.docker_runtime_assets_preflight.result == 'success') }}
+    needs: [resolve_target, evidence_reuse]
+    if: ${{ always() && needs.resolve_target.result == 'success' && contains(fromJSON('["all","release-checks","install-smoke","cross-os","live-e2e","package","qa","qa-parity","qa-live"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ inputs.release_profile != 'minimum' && 240 || 60 }}
     outputs:
@@ -746,6 +764,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_REF: ${{ inputs.ref }}
+          TARGET_CONTEXT_REF: ${{ inputs.target_context_ref }}
           TARGET_SHA: ${{ needs.resolve_target.outputs.sha }}
           CHILD_WORKFLOW_REF: ${{ github.ref_name }}
           PARENT_WORKFLOW_SHA: ${{ github.sha }}
@@ -998,8 +1017,10 @@ jobs:
             child_rerun_group=all
           fi
 
+          release_checks_target_ref="${TARGET_CONTEXT_REF:-$TARGET_REF}"
+
           args=(
-            -f ref="$TARGET_REF"
+            -f ref="$release_checks_target_ref"
             -f expected_sha="$TARGET_SHA"
             -f provider="$PROVIDER"
             -f mode="$MODE"
@@ -1200,8 +1221,8 @@ jobs:
 
   performance:
     name: Run product performance evidence
-    needs: [resolve_target, docker_runtime_assets_preflight]
-    if: ${{ always() && needs.resolve_target.result == 'success' && contains(fromJSON('["all","performance"]'), inputs.rerun_group) && (inputs.rerun_group != 'all' || needs.docker_runtime_assets_preflight.result == 'success') }}
+    needs: [resolve_target, evidence_reuse]
+    if: ${{ always() && needs.resolve_target.result == 'success' && contains(fromJSON('["all","performance"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ inputs.release_profile == 'full' && 360 || 120 }}
     outputs:
@@ -1770,19 +1791,18 @@ jobs:
           PACKAGE_SPEC: ${{ inputs.evidence_package_spec || inputs.npm_telegram_package_spec }}
           GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
           RELEASE_CHECKS_RESULT: ${{ needs.release_checks.result }}
+          EVIDENCE_REUSE: ${{ needs.evidence_reuse.outputs.reuse }}
+          EVIDENCE_ROOT_RUN_ID: ${{ needs.evidence_reuse.outputs.evidence_root_run_id }}
+          EVIDENCE_POLICY: ${{ needs.evidence_reuse.outputs.evidence_policy }}
         run: |
           set -euo pipefail
-          if [[ "$RELEASE_CHECKS_RESULT" == "skipped" ]]; then
+          if [[ "$RELEASE_CHECKS_RESULT" == "skipped" && "$EVIDENCE_REUSE" != "true" ]]; then
             echo "Release checks were skipped by rerun group; skipping automatic release evidence update."
             exit 0
           fi
-          # In reuse mode the child runs live on the chain-root validation run
-          # (the evidence consumer scrapes dispatch logs from the given run),
-          # so durable evidence must reference that run id, not this wrapper.
           notes="Automatically requested by Full Release Validation ${GITHUB_RUN_ID_VALUE} after child workflows completed; the parent summary re-checks current child run conclusions."
           if [[ "$EVIDENCE_REUSE" == "true" && -n "${EVIDENCE_ROOT_RUN_ID// }" ]]; then
-            notes="Automatically requested by Full Release Validation ${GITHUB_RUN_ID_VALUE}, which reused green evidence from chain-root run ${EVIDENCE_ROOT_RUN_ID} for the exact same target SHA and inputs."
-            GITHUB_RUN_ID_VALUE="$EVIDENCE_ROOT_RUN_ID"
+            notes="Automatically requested by Full Release Validation ${GITHUB_RUN_ID_VALUE}, which reused green product evidence from chain-root run ${EVIDENCE_ROOT_RUN_ID} under policy ${EVIDENCE_POLICY}."
           fi
           if [[ -z "${RELEASES_DISPATCH_TOKEN// }" ]]; then
             echo "OPENCLAW_RELEASES_DISPATCH_TOKEN is not configured; skipping automatic release evidence update."
@@ -1864,10 +1884,12 @@ jobs:
           EVIDENCE_RUN_ID: ${{ needs.evidence_reuse.outputs.evidence_run_id }}
           EVIDENCE_ROOT_RUN_ID: ${{ needs.evidence_reuse.outputs.evidence_root_run_id }}
           EVIDENCE_SHA: ${{ needs.evidence_reuse.outputs.evidence_sha }}
+          EVIDENCE_POLICY: ${{ needs.evidence_reuse.outputs.evidence_policy }}
           EVIDENCE_CHANGED_PATHS: ${{ needs.evidence_reuse.outputs.changed_paths }}
           EVIDENCE_MANIFEST: ${{ needs.evidence_reuse.outputs.evidence_manifest }}
           PROVIDER: ${{ inputs.provider }}
           MODE: ${{ inputs.mode }}
+          TARGET_CONTEXT_REF: ${{ inputs.target_context_ref }}
           LIVE_SUITE_FILTER: ${{ inputs.live_suite_filter }}
           CROSS_OS_SUITE_FILTER: ${{ inputs.cross_os_suite_filter }}
           RELEASE_PACKAGE_SPEC: ${{ inputs.release_package_spec }}
@@ -1892,6 +1914,7 @@ jobs:
               --arg evidenceRunId "$EVIDENCE_RUN_ID" \
               --arg evidenceRootRunId "$EVIDENCE_ROOT_RUN_ID" \
               --arg evidenceSha "$EVIDENCE_SHA" \
+              --arg evidencePolicy "$EVIDENCE_POLICY" \
               --argjson evidenceChangedPaths "$EVIDENCE_CHANGED_PATHS" \
               '. + {
                 version: 3,
@@ -1904,7 +1927,7 @@ jobs:
                 targetRef: $targetRef,
                 targetSha: $targetSha,
                 evidenceReuse: {
-                  policy: "exact-target-full-validation-v1",
+                  policy: $evidencePolicy,
                   runId: $evidenceRootRunId,
                   selectedRunId: $evidenceRunId,
                   evidenceSha: $evidenceSha,
@@ -1935,6 +1958,14 @@ jobs:
             --arg npmTelegramRunId "$NPM_TELEGRAM_RUN_ID" \
             --arg performanceRunId "$PERFORMANCE_RUN_ID" \
             --arg performanceConclusion "$PERFORMANCE_CONCLUSION" \
+            --arg provider "$PROVIDER" \
+            --arg mode "$MODE" \
+            --arg targetContextRef "$TARGET_CONTEXT_REF" \
+            --arg liveSuiteFilter "$LIVE_SUITE_FILTER" \
+            --arg crossOsSuiteFilter "$CROSS_OS_SUITE_FILTER" \
+            --arg releasePackageSpec "$RELEASE_PACKAGE_SPEC" \
+            --arg packageAcceptancePackageSpec "$PACKAGE_ACCEPTANCE_PACKAGE_SPEC" \
+            --arg codexPluginSpec "$CODEX_PLUGIN_SPEC" \
             '{
               version: 3,
               workflowName: $workflowName,
@@ -1949,6 +1980,16 @@ jobs:
               releaseProfile: $releaseProfile,
               rerunGroup: $rerunGroup,
               runReleaseSoak: $runReleaseSoak,
+              validationInputs: {
+                provider: $provider,
+                mode: $mode,
+                targetContextRef: $targetContextRef,
+                liveSuiteFilter: $liveSuiteFilter,
+                crossOsSuiteFilter: $crossOsSuiteFilter,
+                releasePackageSpec: $releasePackageSpec,
+                packageAcceptancePackageSpec: $packageAcceptancePackageSpec,
+                codexPluginSpec: $codexPluginSpec
+              },
               controls: {
                 stableSoakRequired: ($releaseProfile == "stable" or $releaseProfile == "full"),
                 performanceBlocking: true,

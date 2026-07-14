@@ -95,6 +95,10 @@ describe("release validation no-push transport", () => {
 
   it("runs evidence reuse from an immutable trusted-main workflow checkout", () => {
     const full = readWorkflow(FULL_RELEASE);
+    expect(full.on?.workflow_dispatch?.inputs?.target_context_ref).toMatchObject({
+      default: "",
+      type: "string",
+    });
     for (const jobName of ["resolve_target", "evidence_reuse"]) {
       const checkout = step(job(full, jobName), "Checkout trusted workflow helper");
       expect(checkout.with?.ref, jobName).toBe("${{ github.sha }}");
@@ -117,6 +121,30 @@ describe("release validation no-push transport", () => {
       "${{ steps.find.outputs.evidence_policy }}",
     );
 
+    for (const jobName of [
+      "docker_runtime_assets_preflight",
+      "normal_ci",
+      "plugin_prerelease",
+      "release_checks",
+      "performance",
+    ]) {
+      const lane = job(full, jobName);
+      expect(lane.needs, jobName).toContain("evidence_reuse");
+      expect(lane.if, jobName).toContain("needs.evidence_reuse.outputs.reuse != 'true'");
+    }
+
+    const normalCiDispatch = step(job(full, "normal_ci"), "Dispatch and monitor CI");
+    expect(normalCiDispatch.env?.TARGET_CONTEXT_REF).toBe("${{ inputs.target_context_ref }}");
+    expect(normalCiDispatch.run).toContain('release_candidate_ref="$TARGET_CONTEXT_REF"');
+    const releaseChecksDispatch = step(
+      job(full, "release_checks"),
+      "Dispatch and monitor release checks",
+    );
+    expect(releaseChecksDispatch.env?.TARGET_CONTEXT_REF).toBe("${{ inputs.target_context_ref }}");
+    expect(releaseChecksDispatch.run).toContain(
+      'release_checks_target_ref="${TARGET_CONTEXT_REF:-$TARGET_REF}"',
+    );
+
     const summary = job(full, "summary");
     expect(summary.needs).toContain("evidence_reuse");
     expect(step(summary, "Verify child workflow results").env).toMatchObject({
@@ -127,6 +155,24 @@ describe("release validation no-push transport", () => {
       EVIDENCE_POLICY: "${{ needs.evidence_reuse.outputs.evidence_policy }}",
       EVIDENCE_MANIFEST: "${{ needs.evidence_reuse.outputs.evidence_manifest }}",
     });
+    const evidenceUpdate = step(summary, "Request release evidence update");
+    expect(evidenceUpdate.env).toMatchObject({
+      EVIDENCE_REUSE: "${{ needs.evidence_reuse.outputs.reuse }}",
+      EVIDENCE_ROOT_RUN_ID: "${{ needs.evidence_reuse.outputs.evidence_root_run_id }}",
+      EVIDENCE_POLICY: "${{ needs.evidence_reuse.outputs.evidence_policy }}",
+    });
+    expect(evidenceUpdate.run).toContain(
+      '"$RELEASE_CHECKS_RESULT" == "skipped" && "$EVIDENCE_REUSE" != "true"',
+    );
+    expect(evidenceUpdate.run).not.toContain('GITHUB_RUN_ID_VALUE="$EVIDENCE_ROOT_RUN_ID"');
+
+    const manifest = step(summary, "Write release validation manifest");
+    expect(manifest.env).toMatchObject({
+      EVIDENCE_POLICY: "${{ needs.evidence_reuse.outputs.evidence_policy }}",
+      TARGET_CONTEXT_REF: "${{ inputs.target_context_ref }}",
+    });
+    expect(manifest.run).toContain("policy: $evidencePolicy");
+    expect(manifest.run).toContain("targetContextRef: $targetContextRef");
 
     const releaseChecks = readWorkflow(RELEASE_CHECKS);
     const releaseHelper = step(
