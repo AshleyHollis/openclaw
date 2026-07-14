@@ -351,20 +351,20 @@ export function setActiveMcpLoopbackRuntime(runtime: McpLoopbackRuntime): void {
   activeRuntime = { ...runtime };
 }
 
-/** Choose the bearer token matching owner/non-owner caller identity. */
-export function resolveMcpLoopbackBearerToken(
-  runtime: McpLoopbackRuntime,
-  senderIsOwner: boolean,
-): string {
-  return senderIsOwner ? runtime.ownerToken : runtime.nonOwnerToken;
-}
-
 /** Clear loopback runtime only when the owning token matches the active runtime. */
 export function clearActiveMcpLoopbackRuntimeByOwnerToken(ownerToken: string): void {
   if (activeRuntime?.ownerToken === ownerToken) {
     activeRuntime = undefined;
   }
 }
+
+const MCP_AUTH_HEADERS = {
+  Authorization: "Bearer ${OPENCLAW_MCP_TOKEN}",
+} as const;
+
+const MCP_CAPTURE_HEADERS = {
+  "x-openclaw-cli-capture-key": "${OPENCLAW_MCP_CLI_CAPTURE_KEY}",
+} as const;
 
 /** Build the MCP server config injected into agents for loopback tool access. */
 export function createMcpLoopbackServerConfig(port: number) {
@@ -374,23 +374,7 @@ export function createMcpLoopbackServerConfig(port: number) {
         type: "http",
         url: `http://127.0.0.1:${port}/mcp`,
         alwaysLoad: true,
-        headers: {
-          Authorization: "Bearer ${OPENCLAW_MCP_TOKEN}",
-          "x-session-key": "${OPENCLAW_MCP_SESSION_KEY}",
-          "x-openclaw-session-id": "${OPENCLAW_MCP_SESSION_ID}",
-          "x-openclaw-agent-id": "${OPENCLAW_MCP_AGENT_ID}",
-          "x-openclaw-account-id": "${OPENCLAW_MCP_ACCOUNT_ID}",
-          "x-openclaw-message-channel": "${OPENCLAW_MCP_MESSAGE_CHANNEL}",
-          "x-openclaw-current-channel-id": "${OPENCLAW_MCP_CURRENT_CHANNEL_ID}",
-          "x-openclaw-current-thread-ts": "${OPENCLAW_MCP_CURRENT_THREAD_TS}",
-          "x-openclaw-current-message-id": "${OPENCLAW_MCP_CURRENT_MESSAGE_ID}",
-          "x-openclaw-current-inbound-audio": "${OPENCLAW_MCP_CURRENT_INBOUND_AUDIO}",
-          "x-openclaw-inbound-event-kind": "${OPENCLAW_MCP_INBOUND_EVENT_KIND}",
-          "x-openclaw-source-reply-delivery-mode": "${OPENCLAW_MCP_SOURCE_REPLY_DELIVERY_MODE}",
-          "x-openclaw-require-explicit-message-target":
-            "${OPENCLAW_MCP_REQUIRE_EXPLICIT_MESSAGE_TARGET}",
-          "x-openclaw-cli-capture-key": "${OPENCLAW_MCP_CLI_CAPTURE_KEY}",
-        },
+        headers: { ...MCP_AUTH_HEADERS, ...MCP_CAPTURE_HEADERS },
       },
     },
   };
