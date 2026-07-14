@@ -222,7 +222,7 @@ function gitIsAncestor(base, target) {
 function fetchGithubApi(args) {
   try {
     return JSON.parse(
-      run("ghx", ["api", ...args], { env: { GHX_NO_CACHE: "1" } }).replace(
+      run(process.env.OPENCLAW_RELEASE_GITHUB_CLI || "gh", ["api", ...args]).replace(
         /\u001B\[[0-?]*[ -/]*[@-~]/g,
         "",
       ),
