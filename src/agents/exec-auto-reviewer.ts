@@ -6,7 +6,6 @@
  */
 import { resolveTimerTimeoutMs } from "@openclaw/normalization-core/number-coercion";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
-import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { z } from "zod";
 import { sanitizeTerminalText } from "../../packages/terminal-core/src/safe-text.js";
 import type { AgentModelConfig } from "../config/types.agents-shared.js";
@@ -18,6 +17,7 @@ import {
   type ExecAutoReviewInput,
   type ExecAutoReviewer,
 } from "../infra/exec-auto-review.js";
+import { truncateUtf16Safe } from "../utils.js";
 import { DEFAULT_EXEC_REVIEWER_SYSTEM_PROMPT } from "./exec-auto-reviewer.prompt.js";
 import {
   completeWithPreparedSimpleCompletionModel,
