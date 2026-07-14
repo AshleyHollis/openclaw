@@ -6,6 +6,7 @@
  */
 import { resolveTimerTimeoutMs } from "@openclaw/normalization-core/number-coercion";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { z } from "zod";
 import { sanitizeTerminalText } from "../../packages/terminal-core/src/safe-text.js";
 import type { AgentModelConfig } from "../config/types.agents-shared.js";
@@ -79,7 +80,11 @@ function buildReviewerUserPrompt(input: ExecAutoReviewInput): string {
 
 function normalizeRationale(value: unknown, fallback: string): string {
   const text = normalizeOptionalString(typeof value === "string" ? value : undefined);
-  return (text ?? fallback).slice(0, 500);
+  const sanitized = sanitizeTerminalText(text ?? fallback)
+    .replace(/[\p{Cf}\u2028\u2029]/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return truncateUtf16Safe(sanitized || fallback, 500);
 }
 
 function textLooksLikeReviewerDirective(value: string): boolean {

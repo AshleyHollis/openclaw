@@ -1402,6 +1402,7 @@ export function createExecTool(
         return markResolveExecEnvPrepared(execParams, state);
       })(),
     execute: async (_toolCallId, args, signal, onUpdate) => {
+      signal?.throwIfAborted();
       const params = isResolveExecEnvPrepared(args as ExecToolArgs)
         ? stripMalformedXmlArgValueSuffixFromKeys(
             args as ExecToolArgs,
@@ -1699,6 +1700,7 @@ export function createExecTool(
           ask,
           autoReview,
           autoReviewer,
+          signal,
           strictInlineEval: defaults?.strictInlineEval,
           commandHighlighting: defaults?.commandHighlighting,
           trigger: defaults?.trigger,
@@ -1730,6 +1732,7 @@ export function createExecTool(
           ask,
           autoReview,
           autoReviewer,
+          signal,
           safeBins,
           safeBinProfiles,
           strictInlineEval: defaults?.strictInlineEval,
@@ -1762,6 +1765,7 @@ export function createExecTool(
         if (gatewayResult.deniedResult) {
           return gatewayResult.deniedResult;
         }
+        signal?.throwIfAborted();
         execCommandOverride = gatewayResult.execCommandOverride;
         if (gatewayResult.allowWithoutEnforcedCommand) {
           execCommandOverride = undefined;
@@ -1779,6 +1783,7 @@ export function createExecTool(
         await validateScriptFileForShellBleed({ command: params.command, workdir });
       }
 
+      signal?.throwIfAborted();
       const run = await runExecProcess({
         command: params.command,
         execCommand: execCommandOverride,
