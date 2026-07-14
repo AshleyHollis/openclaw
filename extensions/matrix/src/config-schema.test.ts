@@ -153,8 +153,8 @@ describe("MatrixConfigSchema SecretInput", () => {
     });
     expect(result.success).toBe(false);
     if (!result.success) {
-      // The channel-config wrapper reshapes errors; assert on the serialized form.
-      expect(JSON.stringify(result.error)).toContain("doctor --fix");
+      // The channel-config wrapper reshapes failures into { issues }.
+      expect(JSON.stringify(result.issues)).toContain("doctor --fix");
     }
   });
 
