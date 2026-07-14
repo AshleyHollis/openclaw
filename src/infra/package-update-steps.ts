@@ -506,6 +506,13 @@ export async function runGlobalPackageUpdateSteps(params: {
       }
     }
 
+    // Keep npm's global destination stable when the packed source is an aliased fork.
+    // npm-package-arg owns file-path encoding; pre-encoding makes spaces resolve as literal %20.
+    const activationInstallSpec =
+      preparedSpec.packDir && installCommandTarget.manager === "npm"
+        ? `${params.packageName}@file:${preparedSpec.installSpec}`
+        : preparedSpec.installSpec;
+
     const installLocation =
       stagedInstall?.prefix ??
       (installCommandTarget.manager === "pnpm"
@@ -515,7 +522,7 @@ export async function runGlobalPackageUpdateSteps(params: {
       name: "global update",
       argv: globalInstallArgs(
         installCommandTarget,
-        preparedSpec.installSpec,
+        activationInstallSpec,
         undefined,
         installLocation,
       ),
@@ -546,7 +553,7 @@ export async function runGlobalPackageUpdateSteps(params: {
 
       const fallbackArgv = globalInstallFallbackArgs(
         stagedInstall?.installTarget ?? params.installTarget,
-        preparedSpec.installSpec,
+        activationInstallSpec,
         undefined,
         stagedInstall?.prefix,
       );

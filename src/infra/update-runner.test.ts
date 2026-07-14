@@ -582,8 +582,11 @@ describe("runGatewayUpdate", () => {
           code: 0,
         };
       }
+      const packedActivationSpec = packedInstallSpec ? `openclaw@file:${packedInstallSpec}` : null;
       const installArgv = withoutInstallPrefix(argv).map((arg) =>
-        packedInstallSpec && packedSourceSpec && arg === packedInstallSpec ? packedSourceSpec : arg,
+        packedActivationSpec && packedSourceSpec && arg === packedActivationSpec
+          ? packedSourceSpec
+          : arg,
       );
       const installKey = normalizeNpmFreshnessArgs(installArgv).join(" ");
       let result: CommandResult | null = null;
@@ -2735,9 +2738,10 @@ describe("runGatewayUpdate", () => {
       if (!packedSpec || !sourceSpec) {
         return false;
       }
+      const packedActivationSpec = `openclaw@file:${packedSpec}`;
       return installCommandMatches(
         params.installCommand,
-        argv.map((arg) => (arg === packedSpec ? sourceSpec : arg)),
+        argv.map((arg) => (arg === packedActivationSpec ? sourceSpec : arg)),
       );
     };
     const runCommand = async (argv: string[], options?: { env?: NodeJS.ProcessEnv }) => {
@@ -2848,7 +2852,8 @@ describe("runGatewayUpdate", () => {
         argv[1] === "i" &&
         argv[2] === "-g" &&
         argv[3] === "--ignore-scripts" &&
-        path.basename(argv[4] ?? "") === "openclaw-2.0.0.tgz" &&
+        (argv[4] ?? "").startsWith("openclaw@file:") &&
+        path.basename((argv[4] ?? "").slice("openclaw@file:".length)) === "openclaw-2.0.0.tgz" &&
         argv.slice(5).join(" ") === "--no-fund --no-audit --loglevel=error --min-release-age=0",
       tag: "main",
     });

@@ -780,7 +780,7 @@ describe("update-cli", () => {
     if (!packDir) {
       throw new Error("Expected package pack directory");
     }
-    const installSpec = path.join(packDir, "openclaw-9999.0.0.tgz");
+    const installSpec = `openclaw@file:${path.join(packDir, "openclaw-9999.0.0.tgz")}`;
     const call = packageInstallCommandCall();
     expect(call?.[0]).toEqual([
       expect.stringMatching(/npm(?:\.cmd)?$/iu),
@@ -4690,7 +4690,9 @@ describe("update-cli", () => {
       .filter((argv) => isNpmCommand(argv) && argv[1] === "i" && argv[2] === "-g");
     const packArgv = packagePackCommandCall()?.[0];
     const packDir = packArgv?.[packArgv.indexOf("--pack-destination") + 1];
-    const installSpec = packDir ? path.join(packDir, "openclaw-9999.0.0.tgz") : undefined;
+    const installSpec = packDir
+      ? `openclaw@file:${path.join(packDir, "openclaw-9999.0.0.tgz")}`
+      : undefined;
     expect(installArgvs).toEqual([
       [
         expect.stringMatching(/npm(?:\.cmd)?$/iu),
