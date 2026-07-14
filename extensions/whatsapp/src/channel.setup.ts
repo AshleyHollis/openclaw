@@ -1,5 +1,6 @@
 // Whatsapp plugin module implements channel.setup behavior.
 import type { ChannelPlugin } from "openclaw/plugin-sdk/core";
+import { normalizeStringEntries } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type { ResolvedWhatsAppAccount } from "./accounts.js";
 import {
   resolveWhatsAppGroupRequireMention,
@@ -22,6 +23,8 @@ export const whatsappSetupPlugin: ChannelPlugin<ResolvedWhatsAppAccount> = {
     },
     setupWizard: whatsappSetupWizardProxy,
     setup: whatsappSetupAdapter,
+    // Setup metadata stays dependency-light; runtime owns protocol-aware JID normalization.
+    formatAllowFrom: normalizeStringEntries,
     isConfigured: isWhatsAppAuthConfigured,
   }),
   lifecycle: {
