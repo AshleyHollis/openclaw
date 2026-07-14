@@ -27,6 +27,27 @@ describe("signal streaming legacy config rules", () => {
       accountRule?.match?.({ personal: { streaming: { block: { enabled: true } } } }, {}),
     ).toBe(false);
   });
+
+  it("matches retired transport fields at root and account level", () => {
+    const transportRootRule = legacyConfigRules.find(
+      (rule) => rule.path.join(".") === "channels.signal" && rule.message.includes("account-owned"),
+    );
+    const transportAccountRule = legacyConfigRules.find(
+      (rule) =>
+        rule.path.join(".") === "channels.signal.accounts" &&
+        rule.message.includes("account-owned"),
+    );
+
+    expect(transportRootRule?.match?.({ apiMode: "auto", httpUrl: "signal:8080" }, {})).toBe(true);
+    expect(transportRootRule?.match?.({ transport: { kind: "managed-native" } }, {})).toBe(false);
+    expect(transportAccountRule?.match?.({ work: { httpPort: 8181 } }, {})).toBe(true);
+    expect(
+      transportAccountRule?.match?.(
+        { work: { transport: { kind: "managed-native", httpPort: 8181 } } },
+        {},
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("signal normalizeCompatibilityConfig streaming aliases", () => {

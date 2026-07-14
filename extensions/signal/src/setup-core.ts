@@ -1,5 +1,6 @@
-import type { ChannelSetupInput } from "openclaw/plugin-sdk/setup";
 // Signal plugin module implements setup core behavior.
+import { normalizeAccountId, resolveAccountEntry } from "openclaw/plugin-sdk/account-resolution";
+import type { ChannelSetupInput } from "openclaw/plugin-sdk/setup";
 import {
   createCliPathTextInput,
   createDelegatedSetupWizardProxy,
@@ -133,6 +134,19 @@ type DetectSignalSetupTransport = (params: {
   account?: string;
 }) => Promise<SignalTransportConfig>;
 
+function resolveSignalSetupAccount(params: {
+  cfg: OpenClawConfig;
+  accountId?: string;
+}): string | undefined {
+  const accountId = normalizeAccountId(
+    params.accountId ?? resolveDefaultSignalAccountId(params.cfg),
+  );
+  if (accountId === DEFAULT_ACCOUNT_ID) {
+    return resolveSignalAccount({ cfg: params.cfg, accountId }).config.account;
+  }
+  return resolveAccountEntry(params.cfg.channels?.signal?.accounts, accountId)?.account;
+}
+
 export async function prepareSignalSetupInput(params: {
   cfg?: OpenClawConfig;
   accountId?: string;
@@ -146,7 +160,7 @@ export async function prepareSignalSetupInput(params: {
   const detect =
     params.detect ?? (await import("./transport-detection.runtime.js")).detectSignalTransport;
   const configuredAccount = params.cfg
-    ? resolveSignalAccount({ cfg: params.cfg, accountId: params.accountId }).config.account
+    ? resolveSignalSetupAccount({ cfg: params.cfg, accountId: params.accountId })
     : undefined;
   const account =
     normalizeSignalAccountInput(params.input.signalNumber) ??
@@ -311,7 +325,7 @@ const signalSetupAdapterBase = createPatchedAccountSetupAdapter({
       if (
         input.signalTransport === "container" &&
         !normalizeSignalAccountInput(input.signalNumber) &&
-        !normalizeSignalAccountInput(resolveSignalAccount({ cfg, accountId }).config.account)
+        !normalizeSignalAccountInput(resolveSignalSetupAccount({ cfg, accountId }))
       ) {
         return "Signal container transport requires --signal-number or an existing account.";
       }
