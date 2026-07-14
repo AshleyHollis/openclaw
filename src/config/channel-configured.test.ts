@@ -35,7 +35,7 @@ describe("isChannelConfigured", () => {
         {
           channels: {
             signal: {
-              httpPort: 8080,
+              transport: { kind: "managed-native", httpPort: 8080 },
             },
           },
         },
