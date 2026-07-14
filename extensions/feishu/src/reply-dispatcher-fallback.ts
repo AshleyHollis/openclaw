@@ -29,6 +29,8 @@ export function createFeishuReplyFallbackController(params: ReplyFallbackControl
       await params.closeStreaming(options);
       params.onIdle();
     });
+    // Observe failures immediately so later queue work can continue; callers still
+    // receive the original rejection through the returned task.
     idleSideEffectsPromise = nextIdleSideEffects.catch(() => {});
     return nextIdleSideEffects;
   };
@@ -58,6 +60,7 @@ export function createFeishuReplyFallbackController(params: ReplyFallbackControl
     const idleTask = queueIdleSideEffects({ markClosedForReply: false });
     if (shouldQueueAuditNotice) {
       await queueMessageAuditNotice();
+      await idleTask;
       return;
     }
     await idleTask;
