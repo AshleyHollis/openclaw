@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path, { join } from "node:path";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import { createTempDirTracker } from "../helpers/temp-dir.js";
 
 const SCRIPT_PATH = "scripts/test-install-sh-docker.sh";
@@ -382,9 +383,10 @@ describe("test-install-sh-docker", () => {
     const script = readFileSync(SCRIPT_PATH, "utf8");
     const dockerfile = readFileSync("Dockerfile", "utf8");
 
+    expect(script).toContain('ROOT_DIR="${OPENCLAW_INSTALL_SMOKE_SOURCE_DIR:-$HARNESS_ROOT}"');
     expect(script).toContain('UPDATE_DIST_IMAGE="${OPENCLAW_INSTALL_SMOKE_UPDATE_DIST_IMAGE:-}"');
     expect(script).toContain("restore_local_dist_from_image");
-    expect(script).toContain('source "$ROOT_DIR/scripts/lib/docker-e2e-container.sh"');
+    expect(script).toContain('source "$HARNESS_ROOT/scripts/lib/docker-e2e-container.sh"');
     expect(script).toContain(
       'DOCKER_COMMAND_TIMEOUT="${DOCKER_COMMAND_TIMEOUT:-${OPENCLAW_INSTALL_SMOKE_DOCKER_COMMAND_TIMEOUT:-600s}}"',
     );
@@ -397,10 +399,14 @@ describe("test-install-sh-docker", () => {
     expect(script).not.toContain('docker cp "${container_id}:/app/dist" "$ROOT_DIR/dist"');
     expect(script).toContain('echo "==> Reuse local dist/ from Docker image: $image"');
     expect(script).toContain("ensure_local_update_dist_import_closure");
-    expect(script).toContain('node scripts/check-package-dist-imports.mjs "$ROOT_DIR"');
+    expect(script).toContain(
+      'node "$HARNESS_ROOT/scripts/check-package-dist-imports.mjs" "$ROOT_DIR"',
+    );
     expect(script).toContain("WARN: reused Docker image dist failed import-closure check");
     expect(script).toContain("pnpm build");
     expect(script).not.toContain("pnpm ui:build");
+    expect(script).toContain('-f "$HARNESS_ROOT/scripts/docker/install-sh-smoke/Dockerfile"');
+    expect(script).toContain('-f "$HARNESS_ROOT/scripts/docker/install-sh-nonroot/Dockerfile"');
     expect(dockerfile).toContain("node scripts/check-package-dist-imports.mjs /app");
   });
 
@@ -643,9 +649,11 @@ describe("test-install-sh-docker", () => {
     const script = readFileSync(SCRIPT_PATH, "utf8");
 
     expect(script).toContain("node --import tsx scripts/write-package-dist-inventory.ts");
-    expect(script).toContain('node scripts/check-package-dist-imports.mjs "$ROOT_DIR"');
+    expect(script).toContain(
+      'node "$HARNESS_ROOT/scripts/check-package-dist-imports.mjs" "$ROOT_DIR"',
+    );
     expect(script).toContain("quiet_npm pack --ignore-scripts");
-    expect(script).toContain("node scripts/check-openclaw-package-tarball.mjs");
+    expect(script).toContain('node "$HARNESS_ROOT/scripts/check-openclaw-package-tarball.mjs"');
   });
 
   it("runs candidate tarballs through the installer script instead of direct npm", () => {

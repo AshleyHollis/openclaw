@@ -554,6 +554,7 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
       changed_path_count: "0",
       evidence_root_run_id: "111",
       evidence_run_id: "111",
+      evidence_policy: "exact-target-full-validation-v1",
       evidence_sha: priorSha,
       reuse: "true",
     });
@@ -584,6 +585,7 @@ describe("scripts/github/find-reusable-release-validation.sh", () => {
     expect(parseOutput(result.stdout)).toMatchObject({
       changed_path_count: "0",
       changed_paths: "[]",
+      evidence_policy: "exact-target-full-validation-v1",
       reuse: "true",
     });
   });

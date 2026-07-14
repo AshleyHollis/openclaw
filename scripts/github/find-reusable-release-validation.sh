@@ -299,6 +299,7 @@ for ((index = 0; index < run_count; index += 1)); do
   write_output evidence_root_run_id "$run_id"
   write_output evidence_run_url "$run_url"
   write_output evidence_sha "$prior_sha"
+  write_output evidence_policy "exact-target-full-validation-v1"
   write_output changed_path_count "0"
   write_output changed_paths "[]"
   write_output evidence_manifest "$(jq -c '.manifest' <<< "$validation_record")"

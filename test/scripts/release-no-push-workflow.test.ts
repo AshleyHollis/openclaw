@@ -164,6 +164,7 @@ describe("release validation no-push transport", () => {
     expect(evidenceUpdate.run).toContain(
       '"$RELEASE_CHECKS_RESULT" == "skipped" && "$EVIDENCE_REUSE" != "true"',
     );
+    expect(evidenceUpdate.run).toContain('--arg notes "$notes"');
     expect(evidenceUpdate.run).not.toContain('GITHUB_RUN_ID_VALUE="$EVIDENCE_ROOT_RUN_ID"');
 
     const manifest = step(summary, "Write release validation manifest");

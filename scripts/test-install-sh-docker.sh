@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+HARNESS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="${OPENCLAW_INSTALL_SMOKE_SOURCE_DIR:-$HARNESS_ROOT}"
+ROOT_DIR="$(cd "$ROOT_DIR" && pwd)"
 # shellcheck source=./docker/install-sh-common/version-parse.sh
-source "$ROOT_DIR/scripts/docker/install-sh-common/version-parse.sh"
-source "$ROOT_DIR/scripts/lib/docker-build.sh"
-source "$ROOT_DIR/scripts/lib/docker-e2e-container.sh"
+source "$HARNESS_ROOT/scripts/docker/install-sh-common/version-parse.sh"
+source "$HARNESS_ROOT/scripts/lib/docker-build.sh"
+source "$HARNESS_ROOT/scripts/lib/docker-e2e-container.sh"
 DOCKER_COMMAND_TIMEOUT="${DOCKER_COMMAND_TIMEOUT:-${OPENCLAW_INSTALL_SMOKE_DOCKER_COMMAND_TIMEOUT:-600s}}"
 INSTALL_SMOKE_DOCKER_RUN_TIMEOUT="${OPENCLAW_INSTALL_SMOKE_DOCKER_RUN_TIMEOUT:-2700s}"
 
@@ -287,11 +289,14 @@ restore_local_dist_from_image() {
 }
 
 ensure_local_update_dist_import_closure() {
-  if node scripts/check-package-dist-imports.mjs "$ROOT_DIR"; then
+  if node "$HARNESS_ROOT/scripts/check-package-dist-imports.mjs" "$ROOT_DIR"; then
     return 0
   fi
   echo "WARN: reused Docker image dist failed import-closure check; rebuilding local release artifacts" >&2
-  pnpm build
+  (
+    cd "$ROOT_DIR"
+    pnpm build
+  )
 }
 
 prepare_update_tarball() {
@@ -311,18 +316,24 @@ prepare_update_tarball() {
       restore_local_dist_from_image "$UPDATE_DIST_IMAGE"
       ensure_local_update_dist_import_closure
     elif [[ "$UPDATE_SKIP_LOCAL_BUILD" != "1" ]]; then
-      pnpm build
+      (
+        cd "$ROOT_DIR"
+        pnpm build
+      )
     fi
     UPDATE_EXPECT_VERSION="$(
-      node -p 'JSON.parse(require("node:fs").readFileSync("package.json", "utf8")).version'
+      node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).version' "$ROOT_DIR/package.json"
     )"
-    node --import tsx scripts/write-package-dist-inventory.ts
-    node scripts/check-package-dist-imports.mjs "$ROOT_DIR"
-    quiet_npm pack --ignore-scripts --json --pack-destination "$UPDATE_DIR" >"$pack_json_file"
+    (
+      cd "$ROOT_DIR"
+      node --import tsx scripts/write-package-dist-inventory.ts
+      node "$HARNESS_ROOT/scripts/check-package-dist-imports.mjs" "$ROOT_DIR"
+      quiet_npm pack --ignore-scripts --json --pack-destination "$UPDATE_DIR" >"$pack_json_file"
+    )
   fi
   UPDATE_TGZ_FILE="$(read_pack_tarball_filename "$pack_json_file")"
   if [[ -z "$UPDATE_PACKAGE_SPEC" ]]; then
-    node scripts/check-openclaw-package-tarball.mjs "${UPDATE_DIR}/${UPDATE_TGZ_FILE}"
+    node "$HARNESS_ROOT/scripts/check-openclaw-package-tarball.mjs" "${UPDATE_DIR}/${UPDATE_TGZ_FILE}"
   fi
   print_pack_audit "update" "$pack_json_file"
   assert_pack_unpacked_size_budget "update" "$pack_json_file"
@@ -418,8 +429,8 @@ else
   docker_build_run install-smoke-build \
     --platform "$SMOKE_PLATFORM" \
     -t "$SMOKE_IMAGE" \
-    -f "$ROOT_DIR/scripts/docker/install-sh-smoke/Dockerfile" \
-    "$ROOT_DIR/scripts/docker"
+    -f "$HARNESS_ROOT/scripts/docker/install-sh-smoke/Dockerfile" \
+    "$HARNESS_ROOT/scripts/docker"
 fi
 
 if [[ "$SKIP_UPDATE" == "1" ]]; then
@@ -531,8 +542,8 @@ else
     docker_build_run install-nonroot-build \
       --platform "$NONROOT_PLATFORM" \
       -t "$NONROOT_IMAGE" \
-      -f "$ROOT_DIR/scripts/docker/install-sh-nonroot/Dockerfile" \
-      "$ROOT_DIR/scripts/docker"
+      -f "$HARNESS_ROOT/scripts/docker/install-sh-nonroot/Dockerfile" \
+      "$HARNESS_ROOT/scripts/docker"
   fi
 
   echo "==> Run installer non-root test: $INSTALL_URL"

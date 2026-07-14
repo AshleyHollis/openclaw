@@ -1834,7 +1834,7 @@ jobs:
               --arg release_id "$release_id" \
               --arg release_ref "$TARGET_REF" \
               --arg package_spec "$evidence_package_spec" \
-              --arg notes "Automatically requested by Full Release Validation ${GITHUB_RUN_ID_VALUE} after child workflows completed; the parent summary re-checks current child run conclusions." \
+              --arg notes "$notes" \
               '{
                 event_type: "openclaw_full_release_validation_completed",
                 client_payload: {
