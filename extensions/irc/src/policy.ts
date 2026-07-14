@@ -39,7 +39,7 @@ export function resolveIrcGroupMatch(params: {
   groups?: Record<string, IrcChannelConfig>;
   target: string;
 }): IrcGroupMatch {
-  const { tree, path } = resolveIrcGroupScope(params);
+  const { path } = resolveIrcGroupScope(params);
   const key = path[0];
   const groupConfig = key ? params.groups?.[key] : undefined;
   const wildcardConfig = params.groups?.["*"];
