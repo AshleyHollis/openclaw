@@ -876,11 +876,16 @@ export async function sendMessageTelegram(
 
   const buildChunkedTextPlan = (rawText: string, context: string): TelegramTextChunk[] => {
     if (opts.standardMessage === true) {
-      return buildTelegramStandardTextChunks(rawText, { tableMode }).map((chunk) => ({
-        text: chunk.plainText,
-        plainText: chunk.plainText,
-        ...(chunk.htmlText ? { htmlText: chunk.htmlText } : {}),
-      }));
+      return buildTelegramStandardTextChunks(rawText, { tableMode }).map((chunk) => {
+        const textChunk: TelegramTextChunk = {
+          text: chunk.plainText,
+          plainText: chunk.plainText,
+        };
+        if (chunk.htmlText) {
+          textChunk.htmlText = chunk.htmlText;
+        }
+        return textChunk;
+      });
     }
     const htmlText = renderHtmlText(rawText);
     const fallbackText = textMode === "html" ? telegramHtmlToPlainTextFallback(htmlText) : rawText;

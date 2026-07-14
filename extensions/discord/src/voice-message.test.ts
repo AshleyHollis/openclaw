@@ -3,7 +3,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RequestClient } from "./internal/discord.js";
-import { DISCORD_ATTACHMENT_TOTAL_TIMEOUT_MS } from "./monitor/timeouts.js";
 import type { DiscordRetryRunner } from "./retry.js";
 import type { VoiceMessageMetadata } from "./voice-message.js";
 
