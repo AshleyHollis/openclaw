@@ -31,7 +31,8 @@ const signalCheckMock = vi.hoisted(() => vi.fn()) as unknown as MockFn;
 const signalRpcRequestMock = vi.hoisted(() => vi.fn()) as unknown as MockFn;
 const spawnSignalDaemonMock = vi.hoisted(() => vi.fn()) as unknown as MockFn;
 const signalToolResultSessionStorePath = vi.hoisted(
-  () => `/tmp/openclaw-signal-tool-result-sessions-${process.pid}.json`,
+  () =>
+    `/tmp/openclaw-signal-tool-result-sessions-${process.pid}-${process.env.VITEST_WORKER_ID ?? process.env.VITEST_POOL_ID ?? "0"}.json`,
 );
 
 export function getSignalToolResultTestMocks(): SignalToolResultTestMocks {
