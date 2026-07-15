@@ -1611,6 +1611,9 @@ export const de: TranslationMap = {
     addFiles: "Dateien zum Terminal hinzufügen",
     dropFiles: "Dateien hier ablegen, um sie hinzuzufügen",
     uploading: "Dateien werden hochgeladen…",
+    uploadProgress: "{current} von {total} werden hochgeladen",
+    uploadFailed: "Upload fehlgeschlagen",
+    retryUpload: "Erneut versuchen",
     closeSession: "Close terminal session",
     sessions: "Terminalsitzungen",
     refreshSessions: "Aktualisieren",
@@ -1621,6 +1624,9 @@ export const de: TranslationMap = {
     attachSession: "Sitzung verbinden",
     attachFailed: "Terminalsitzung konnte nicht verbunden werden",
     starting: "Starting terminal…",
+    connecting: "Verbindung zur Sitzung wird hergestellt…",
+    connectionTimedOut:
+      "Die Verbindung zur Sitzung wurde nicht innerhalb von 30 Sekunden hergestellt.",
     tabLabel: "Shell {n}",
     tabHint: "{agent} · {cwd}",
     exited: "exited",
@@ -3498,6 +3504,8 @@ export const de: TranslationMap = {
     },
     sidebar: {
       updateAvailable: "Update verfügbar",
+      updateMacAndGateway: "Mac-App + Gateway aktualisieren",
+      updateGateway: "Gateway aktualisieren",
       allSessions: "Alle Sitzungen",
       chats: "Chats",
       openSessionMenu: "Open session menu",
