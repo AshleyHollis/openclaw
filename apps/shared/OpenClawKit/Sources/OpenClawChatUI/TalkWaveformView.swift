@@ -265,15 +265,17 @@ public struct TalkAvatarWaveformView<Avatar: View>: View {
 /// A compact, center-origin voice envelope for constrained surfaces such as
 /// Dynamic Island. Its geometry comes only from recent audio-level samples;
 /// there is no time-based carrier, GIF-like loop, or layout-changing width.
-public struct TalkVoiceTraceView: View {
-    public var phase: TalkWaveformPhase
-    public var palette: TalkWaveformPalette
-    public var samples: [Double]
-    public var sampleRange: ClosedRange<Double>
+/// The widget and watch targets compile this source directly; keep the trace
+/// module-internal instead of expanding OpenClawChatUI's public API.
+struct TalkVoiceTraceView: View {
+    var phase: TalkWaveformPhase
+    var palette: TalkWaveformPalette
+    var samples: [Double]
+    var sampleRange: ClosedRange<Double>
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    public init(
+    init(
         phase: TalkWaveformPhase,
         palette: TalkWaveformPalette = .standard,
         samples: [Double] = [],
@@ -285,7 +287,7 @@ public struct TalkVoiceTraceView: View {
         self.sampleRange = sampleRange
     }
 
-    public var body: some View {
+    var body: some View {
         let isActive = self.phase != .idle
         let colors = self.traceColors
         let renderedSamples = self.reduceMotion ? [0.16] : (self.samples.isEmpty ? [0.03] : self.samples)

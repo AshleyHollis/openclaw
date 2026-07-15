@@ -39,10 +39,6 @@ struct OpenClawChatComposerPresentationOwner: Equatable {
     let viewModelID: ObjectIdentifier
     let session: OpenClawChatViewModel.SessionSnapshot
 
-    var sessionKey: String {
-        self.session.key
-    }
-
     @MainActor
     init(viewModel: OpenClawChatViewModel) {
         self.viewModelID = ObjectIdentifier(viewModel)
@@ -1248,10 +1244,6 @@ extension OpenClawChatComposer {
             self.composerChrome == .clean ? 48 : 64
         }
         return max(base, self.scaledBodyLineHeight * 4)
-    }
-
-    private var cleanEditorMinHeight: CGFloat {
-        max(44, self.textMinHeight + 20)
     }
 
     private var sendButtonSize: CGFloat {
