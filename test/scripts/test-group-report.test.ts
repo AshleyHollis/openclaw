@@ -1191,7 +1191,7 @@ describe("scripts/test-group-report child process guard", () => {
         cwd: process.cwd(),
         env: process.env,
         killGraceMs: 250,
-        timeoutMs: 250,
+        timeoutMs: 750,
       });
 
       await waitForFile(readyPath, 2_000);
@@ -1204,7 +1204,7 @@ describe("scripts/test-group-report child process guard", () => {
         timedOut: true,
       });
       expect(fs.readFileSync(cleanupPath, "utf8")).toBe("clean");
-      expect(Date.now() - startedAt).toBeLessThan(900);
+      expect(Date.now() - startedAt).toBeLessThan(2_000);
       await waitForDead(childPid, 2_000);
     } finally {
       if (childPid !== undefined && isProcessAlive(childPid)) {

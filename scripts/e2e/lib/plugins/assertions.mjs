@@ -1044,4 +1044,9 @@ const fn = commands[command];
 if (!fn) {
   throw new Error(`unknown plugins assertion command: ${command}`);
 }
-await fn();
+try {
+  await fn();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+}
