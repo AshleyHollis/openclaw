@@ -1068,7 +1068,6 @@ src/plugins/setup-registry.test.ts
 src/plugins/setup-registry.ts
 src/plugins/tools.optional.test.ts
 src/plugins/tools.ts
-src/plugins/types.ts
 src/plugins/uninstall.test.ts
 src/plugins/update.test.ts
 src/plugins/update.ts
