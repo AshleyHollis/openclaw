@@ -105,7 +105,7 @@ async function readResolvedRegistryPackageManifest(packageRoot: string): Promise
   };
 }
 
-async function archiveResolvedRegistryPackage(
+export async function archivePackageRootToTarball(
   packageRoot: string,
   tarballPath: string,
 ): Promise<void> {
@@ -115,8 +115,8 @@ async function archiveResolvedRegistryPackage(
   if (!entries.includes("package.json")) {
     throw new Error("resolved registry package has no package.json artifact");
   }
-  // The isolated manager already selected and verified these package bytes.
-  // Archive them directly so a second manager cannot re-resolve the version.
+  // Preserve the exact on-disk package bytes. Activation and rollback must not
+  // re-resolve a registry version after runtime validation.
   await tar.c(
     {
       cwd: packageRoot,
@@ -299,7 +299,7 @@ export async function prepareRegistryPackageInstallSpec(params: {
     const artifactStartedAt = Date.now();
     const tarballPath = path.join(resolutionRoot, "selected-package.tgz");
     try {
-      await archiveResolvedRegistryPackage(packageRoot, tarballPath);
+      await archivePackageRootToTarball(packageRoot, tarballPath);
       await Promise.all([
         fs.rm(resolutionGlobalDir, { recursive: true, force: true }),
         fs.rm(resolutionBinDir, { recursive: true, force: true }),

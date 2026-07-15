@@ -8,6 +8,7 @@ import {
   PACKAGE_INSTALL_GUARD_RELATIVE_PATH,
   writePackageDistInventory,
 } from "../../scripts/lib/package-dist-inventory.ts";
+import { successfulNodeRuntimeProbeResult } from "../../test/helpers/package-update-steps.js";
 import { BUNDLED_RUNTIME_SIDECAR_PATHS } from "../plugins/runtime-sidecar-paths.js";
 import { createSuiteTempRootTracker } from "../test-helpers/temp-dir.js";
 import { withEnvAsync } from "../test-utils/env.js";
@@ -2798,6 +2799,9 @@ describe("runGatewayUpdate", () => {
         }
         return { stdout: "", stderr: "", code: 1 };
       }
+      if (normalizedArgv[0] === process.execPath && normalizedArgv[1] === "-e") {
+        return successfulNodeRuntimeProbeResult(process.execPath);
+      }
       const isPnpmRegistryResolution =
         normalizedArgv[0] === "pnpm" &&
         normalizedArgv[1] === "add" &&
@@ -3309,7 +3313,13 @@ describe("runGatewayUpdate", () => {
     const { calls, runCommand } = createGlobalInstallHarness({
       pkgRoot,
       pnpmRootOutput: nodeModules,
-      installCommand: npmGlobalInstallCommand("openclaw@latest"),
+      installCommand: (argv) =>
+        isNpmCommand(argv[0]) &&
+        argv[1] === "i" &&
+        argv[2] === "-g" &&
+        !argv.includes("--prefix") &&
+        argv.includes("--ignore-scripts") &&
+        argv.some((arg) => arg.startsWith("openclaw@file:")),
       onInstall: async (options) => {
         await writeGlobalPackageVersion(options?.packageRoot ?? pkgRoot);
       },
@@ -3325,8 +3335,15 @@ describe("runGatewayUpdate", () => {
     );
     const pnpmAddGlobalCalls = calls.filter((call) => call.startsWith("pnpm add -g"));
     expect(npmPrefixedGlobalInstallCalls.length).toBeGreaterThan(0);
-    expect(pnpmAddGlobalCalls).toStrictEqual([]);
+    expect(pnpmAddGlobalCalls).toHaveLength(1);
+    expect(pnpmAddGlobalCalls[0]).toContain("--global-bin-dir");
+    expect(pnpmAddGlobalCalls.some((call) => call.includes("openclaw@file:"))).toBe(false);
     expect(result.steps.map((step) => step.name)).toEqual([
+      "global update registry resolve",
+      "global update registry version guard",
+      "global update registry runtime guard",
+      "global update registry artifact",
+      "global update pack runtime guard",
       "global update",
       "global install runtime guard",
       "global install postinstall",
@@ -3368,7 +3385,11 @@ describe("runGatewayUpdate", () => {
 
       const { calls, runCommand } = createGlobalInstallHarness({
         pkgRoot,
-        installCommand: "bun add -g --ignore-scripts openclaw@2.0.0",
+        installCommand: (argv) =>
+          argv[0] === "bun" &&
+          argv[1] === "add" &&
+          argv.includes("--force") &&
+          (argv.at(-1) ?? "").startsWith("openclaw@file:"),
         onInstall: async () => {
           await writeGlobalPackageVersion(pkgRoot);
           await addPackageInstallGuard(pkgRoot);
@@ -3382,7 +3403,13 @@ describe("runGatewayUpdate", () => {
       expect(result.before?.version).toBe("1.0.0");
       expect(result.after?.version).toBe("2.0.0");
       expect(calls).toContain("bun add -g --ignore-scripts openclaw@latest");
-      expect(calls).toContain("bun add -g --ignore-scripts openclaw@2.0.0");
+      expect(
+        calls.some(
+          (call) =>
+            call.startsWith("bun add -g --force --ignore-scripts openclaw@file:") &&
+            call.includes("/.openclaw-update-artifacts/candidate-"),
+        ),
+      ).toBe(true);
       expect(calls.some((call) => call.startsWith("npm i "))).toBe(false);
     });
   });

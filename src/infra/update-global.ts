@@ -901,7 +901,9 @@ export function globalInstallArgs(
     ];
   }
   if (resolved.manager === "bun") {
-    return [resolved.command, "add", "-g", "--ignore-scripts", spec];
+    // Bun can skip materializing an already-selected version. Activation and
+    // rollback both require the exact artifact to replace the live package.
+    return [resolved.command, "add", "-g", "--force", "--ignore-scripts", spec];
   }
   return [
     resolved.command,

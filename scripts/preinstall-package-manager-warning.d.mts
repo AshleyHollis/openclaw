@@ -20,12 +20,15 @@ export const packagePreinstallRuntime: {
     },
     reportError?: (...data: unknown[]) => void,
   ) => boolean;
+  NODE_RUNTIME_PROBE_SOURCE: string;
   nodeVersionSatisfiesPackageEngine: (version: string | null, engine: string | null) => boolean;
   PACKAGE_INSTALL_GUARD_RELATIVE_PATH: string;
+  parseNodeRuntimeProbeOutput: (value: unknown) => PackageCliNodeRuntime | null;
   probePackageCliNodeRuntime: (options?: {
     pathEnv?: string;
     platform?: NodeJS.Platform;
     cwd?: string;
+    allowBunLifecycleShim?: boolean;
     run?: (
       command: string,
       args: string[],

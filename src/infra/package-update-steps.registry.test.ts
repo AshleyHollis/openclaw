@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   TEST_GIT_COMMIT,
   expectPathMissing,
+  successfulNodeRuntimeProbeResult,
   successfulPackagePostinstallStep,
   successfulSourceMetadataStep,
   type PackageUpdateStepResult,
@@ -54,8 +55,8 @@ describe("registry package update steps", () => {
         };
       });
       const runCommand = vi.fn<CommandRunner>(async (argv) => {
-        if (argv.join(" ") === "/service/node --version") {
-          return { stdout: "v24.14.0\n", stderr: "", code: 0 };
+        if (argv[0] === "/service/node" && argv[1] === "-e") {
+          return successfulNodeRuntimeProbeResult("/service/node", "24.14.0");
         }
         throw new Error(`unexpected command: ${argv.join(" ")}`);
       });
@@ -119,8 +120,8 @@ describe("registry package update steps", () => {
         };
       });
       const runCommand = vi.fn<CommandRunner>(async (argv) => {
-        if (argv.join(" ") === "/service/node --version") {
-          return { stdout: "v24.15.0\n", stderr: "", code: 0 };
+        if (argv[0] === "/service/node" && argv[1] === "-e") {
+          return successfulNodeRuntimeProbeResult("/service/node", "24.15.0");
         }
         throw new Error(`unexpected command: ${argv.join(" ")}`);
       });
@@ -156,7 +157,12 @@ describe("registry package update steps", () => {
       const globalRoot = path.join(base, "bun", "install", "global", "node_modules");
       const packageRoot = path.join(globalRoot, "openclaw");
       const binDir = path.join(base, "bun", "bin");
+      const artifactDir = path.join(path.dirname(globalRoot), ".openclaw-update-artifacts");
+      const existingArtifact = path.join(artifactDir, "existing.tgz");
+      let persistentArtifact: string | null = null;
       await writePackageRoot(packageRoot, "1.0.0");
+      await fs.mkdir(artifactDir, { recursive: true });
+      await fs.writeFile(existingArtifact, "other update\n", "utf8");
       const runStep = vi.fn(async ({ name, argv, cwd, env }): Promise<PackageUpdateStepResult> => {
         const pathEntries = (env?.PATH ?? "").split(path.delimiter);
         if (name === "global update registry resolve") {
@@ -182,13 +188,15 @@ describe("registry package update steps", () => {
         } else if (name === "global update") {
           expect(pathEntries[0]).toBe("/service");
           expect(env?.BUN_INSTALL_GLOBAL_DIR).toBe(path.dirname(globalRoot));
-          expect(argv.slice(0, -1)).toEqual(["bun", "add", "-g", "--ignore-scripts"]);
+          expect(argv.slice(0, -1)).toEqual(["bun", "add", "-g", "--force", "--ignore-scripts"]);
           const artifactSpec = argv.at(-1) ?? "";
           expect(artifactSpec).toMatch(/^openclaw@file:/u);
           const artifactPath = artifactSpec.slice("openclaw@file:".length);
+          expect(path.dirname(artifactPath)).toBe(artifactDir);
+          persistentArtifact = artifactPath;
           const extractDir = path.join(base, "selected-bun-artifact");
           await fs.mkdir(extractDir);
-          await tar.x({ file: artifactPath, cwd: extractDir });
+          tar.x({ file: artifactPath, cwd: extractDir, sync: true });
           await expect(
             fs.readFile(path.join(extractDir, "package", "registry-marker.txt"), "utf8"),
           ).resolves.toBe("bun registry artifact\n");
@@ -214,8 +222,8 @@ describe("registry package update steps", () => {
         };
       });
       const runCommand = vi.fn<CommandRunner>(async (argv) => {
-        if (argv.join(" ") === "/service/node --version") {
-          return { stdout: "v24.15.0\n", stderr: "", code: 0 };
+        if (argv[0] === "/service/node" && argv[1] === "-e") {
+          return successfulNodeRuntimeProbeResult("/service/node", "24.15.0");
         }
         if (argv.join(" ") === "bun pm bin -g") {
           return { stdout: `${binDir}\n`, stderr: "", code: 0 };
@@ -253,6 +261,9 @@ describe("registry package update steps", () => {
         "global install postinstall",
       ]);
       await expectPathMissing(path.join(packageRoot, PACKAGE_INSTALL_GUARD_RELATIVE_PATH));
+      expect(persistentArtifact).not.toBeNull();
+      await expect(fs.access(persistentArtifact!)).resolves.toBeUndefined();
+      await expect(fs.readFile(existingArtifact, "utf8")).resolves.toBe("other update\n");
     });
   });
 
@@ -261,8 +272,11 @@ describe("registry package update steps", () => {
       const globalRoot = path.join(base, "pnpm", "11", "node_modules");
       const packageRoot = path.join(globalRoot, "openclaw");
       const binDir = path.join(base, "pnpm", "bin");
+      const artifactDir = path.join(base, "pnpm", ".openclaw-update-artifacts");
       const oldStoreRoot = path.join(base, "pnpm", ".pnpm", "openclaw@1", "openclaw");
       const newStoreRoot = path.join(base, "pnpm", ".pnpm", "openclaw@2", "openclaw");
+      let persistentArtifact: string | null = null;
+      let rollbackArtifact: string | null = null;
       await writePackageRoot(oldStoreRoot, "1.0.0");
       await fs.mkdir(globalRoot, { recursive: true });
       await fs.mkdir(binDir, { recursive: true });
@@ -277,7 +291,11 @@ describe("registry package update steps", () => {
             "2.0.0",
           );
         } else if (name === "global update") {
-          expect(argv.at(-1)).toMatch(/^openclaw@file:.*selected-package\.tgz$/u);
+          const artifactSpec = argv.at(-1) ?? "";
+          expect(artifactSpec).toMatch(/^openclaw@file:/u);
+          const artifactPath = artifactSpec.slice("openclaw@file:".length);
+          persistentArtifact = artifactPath;
+          expect(path.dirname(artifactPath)).toBe(artifactDir);
           await fs.rm(packageRoot, { force: true });
           await fs.rm(oldStoreRoot, { recursive: true, force: true });
           await writePackageRoot(newStoreRoot, "2.0.0", { installGuard: true });
@@ -292,6 +310,21 @@ describe("registry package update steps", () => {
             exitCode: 1,
             stderrTail: "postinstall failed",
           };
+        } else if (name === "global update rollback") {
+          const artifactSpec = argv.at(-1) ?? "";
+          expect(artifactSpec).toMatch(/^openclaw@file:/u);
+          const rollbackPath = artifactSpec.slice("openclaw@file:".length);
+          rollbackArtifact = rollbackPath;
+          const extractDir = path.join(base, "rollback-package");
+          await fs.mkdir(extractDir);
+          tar.x({ file: rollbackPath, cwd: extractDir, sync: true });
+          await fs.rm(packageRoot, { force: true });
+          await fs.rm(newStoreRoot, { recursive: true, force: true });
+          await fs.cp(path.join(extractDir, "package"), oldStoreRoot, { recursive: true });
+          await fs.symlink(oldLinkTarget, packageRoot, "junction");
+          await fs.writeFile(path.join(binDir, "openclaw"), "old shim\n", "utf8");
+        } else if (name === "global update rollback postinstall") {
+          expect(cwd).toBe(packageRoot);
         } else {
           throw new Error(`unexpected step ${name}`);
         }
@@ -304,8 +337,8 @@ describe("registry package update steps", () => {
         };
       });
       const runCommand = vi.fn<CommandRunner>(async (argv) => {
-        if (argv.join(" ") === `${process.execPath} --version`) {
-          return { stdout: `${process.version}\n`, stderr: "", code: 0 };
+        if (argv[0] === process.execPath && argv[1] === "-e") {
+          return successfulNodeRuntimeProbeResult(process.execPath);
         }
         if (argv.join(" ") === "pnpm bin -g") {
           return { stdout: `${binDir}\n`, stderr: "", code: 0 };
@@ -346,6 +379,10 @@ describe("registry package update steps", () => {
         '"version":"1.0.0"',
       );
       await expect(fs.readFile(path.join(binDir, "openclaw"), "utf8")).resolves.toBe("old shim\n");
+      expect(persistentArtifact).not.toBeNull();
+      await expectPathMissing(persistentArtifact!);
+      expect(rollbackArtifact).not.toBeNull();
+      await expect(fs.access(rollbackArtifact!)).resolves.toBeUndefined();
     });
   });
 
@@ -376,8 +413,8 @@ describe("registry package update steps", () => {
         };
       });
       const runCommand = vi.fn<CommandRunner>(async (argv) => {
-        if (argv.join(" ") === `${process.execPath} --version`) {
-          return { stdout: `${process.version}\n`, stderr: "", code: 0 };
+        if (argv[0] === process.execPath && argv[1] === "-e") {
+          return successfulNodeRuntimeProbeResult(process.execPath);
         }
         throw new Error(`unexpected command: ${argv.join(" ")}`);
       });
@@ -420,6 +457,7 @@ describe("registry package update steps", () => {
       await writePackageRoot(packageRoot, "1.0.0");
       let packDir: string | undefined;
       let packedTarball: string | undefined;
+      let persistentArtifact: string | null = null;
       const runStep = vi.fn(async ({ name, argv, cwd, env }): Promise<PackageUpdateStepResult> => {
         const metadataStep = successfulSourceMetadataStep({
           name,
@@ -441,13 +479,16 @@ describe("registry package update steps", () => {
           }
           packedTarball = await writePackageTarball(packDir, "2.0.0");
         } else if (name === "global update") {
-          expect(argv).toEqual([
-            "bun",
-            "add",
-            "-g",
-            "--ignore-scripts",
-            `openclaw@file:${packedTarball}`,
-          ]);
+          expect(argv.slice(0, -1)).toEqual(["bun", "add", "-g", "--force", "--ignore-scripts"]);
+          const artifactSpec = argv.at(-1) ?? "";
+          expect(artifactSpec).toMatch(/^openclaw@file:/u);
+          const artifactPath = artifactSpec.slice("openclaw@file:".length);
+          persistentArtifact = artifactPath;
+          expect(path.dirname(artifactPath)).toBe(
+            path.join(path.dirname(globalRoot), ".openclaw-update-artifacts"),
+          );
+          await expect(fs.access(artifactPath)).resolves.toBeUndefined();
+          expect(artifactPath).not.toBe(packedTarball);
           expect(env?.BUN_INSTALL_GLOBAL_DIR).toBe(path.dirname(globalRoot));
           await writePackageRoot(packageRoot, "2.0.0", { installGuard: true });
         } else {
@@ -466,8 +507,8 @@ describe("registry package update steps", () => {
         };
       });
       const runCommand = vi.fn<CommandRunner>(async (argv) => {
-        if (argv.join(" ") === `${process.execPath} --version`) {
-          return { stdout: `${process.version}\n`, stderr: "", code: 0 };
+        if (argv[0] === process.execPath && argv[1] === "-e") {
+          return successfulNodeRuntimeProbeResult(process.execPath);
         }
         if (argv.join(" ") === "bun pm bin -g") {
           return { stdout: `${binDir}\n`, stderr: "", code: 0 };
@@ -506,6 +547,8 @@ describe("registry package update steps", () => {
         throw new Error("expected pack directory");
       }
       await expectPathMissing(packDir);
+      expect(persistentArtifact).not.toBeNull();
+      await expect(fs.access(persistentArtifact!)).resolves.toBeUndefined();
     });
   });
 });

@@ -122,7 +122,7 @@ import {
   maybeRestartServiceAfterFailedMutableUpdate,
   maybeResumeWindowsTaskAutoStartAfterPackageUpdate,
   maybeStopManagedServiceBeforeMutableUpdate,
-  resolveManagedServiceNodeRunnerOverride,
+  resolveManagedServiceNodeRunnerContext,
   resolveManagedServicePackageUpdateRoot,
   resolvePackageRuntimePreflightError,
   resolvePostInstallDoctorEnv,
@@ -753,8 +753,9 @@ async function updateCommandInternal(
   if (!managedServiceRootRedirect && (updateInstallKind === "package" || switchToGit)) {
     // Roots match or the update is switching to a source checkout, but the
     // managed service can still use a different Node than the current shell.
-    managedServiceNodeRunner = await resolveManagedServiceNodeRunnerOverride();
-    if (managedServiceNodeRunner && !opts.json) {
+    const managedServiceNodeContext = await resolveManagedServiceNodeRunnerContext();
+    managedServiceNodeRunner = managedServiceNodeContext?.nodeRunner;
+    if (managedServiceNodeContext?.differsFromCurrent && !opts.json) {
       defaultRuntime.log(
         theme.warn(
           `Current Node (${resolveNodeRunner()}) differs from the managed gateway service Node (${managedServiceNodeRunner}).`,

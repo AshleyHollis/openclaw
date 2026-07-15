@@ -31,7 +31,7 @@ export function parsePackageBinNames(manifest: Pick<PackageJson, "bin" | "name">
     }
     return name;
   });
-  return [...new Set(names)].sort();
+  return [...new Set(names)].toSorted();
 }
 
 /** Reads package.json as a loose object, returning null for missing or invalid manifests. */

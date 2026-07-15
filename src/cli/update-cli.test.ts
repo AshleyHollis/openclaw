@@ -5309,6 +5309,59 @@ describe("update-cli", () => {
     );
   });
 
+  it("resolves a bare managed service Node from its service PATH", async () => {
+    const root = createCaseDir("openclaw-bare-service-node");
+    const entrypoint = path.join(root, "dist", "index.js");
+    const serviceBin = await createTrackedTempDir("openclaw-service-node-bin-");
+    const serviceNode = path.join(serviceBin, process.platform === "win32" ? "node.exe" : "node");
+    await fs.writeFile(serviceNode, "service node\n", "utf8");
+    await fs.chmod(serviceNode, 0o755);
+    mockPackageInstallStatus(root);
+    serviceReadCommand.mockResolvedValue({
+      programArguments: ["node", entrypoint, "gateway"],
+      environment: { PATH: serviceBin },
+    });
+
+    await updateCommand({ dryRun: true });
+
+    const logs = vi
+      .mocked(defaultRuntime.log)
+      .mock.calls.map((call) => String(call[0]))
+      .join("\n");
+    expect(logs).toContain(`managed gateway service Node (${serviceNode})`);
+  });
+
+  it("keeps the managed service Node when it matches the process but PATH points elsewhere", async () => {
+    const root = createCaseDir("openclaw-same-node-foreign-path");
+    const entrypoint = path.join(root, "dist", "index.js");
+    const foreignBin = path.join(root, "foreign-node-bin");
+    const foreignNode = path.join(foreignBin, process.platform === "win32" ? "node.exe" : "node");
+    await fs.mkdir(foreignBin, { recursive: true });
+    await fs.writeFile(foreignNode, "foreign node\n", "utf8");
+    await fs.chmod(foreignNode, 0o755);
+    mockPackageInstallStatus(root);
+    serviceReadCommand.mockResolvedValue({
+      programArguments: [process.execPath, entrypoint, "gateway"],
+    });
+
+    await withEnvAsync({ PATH: foreignBin }, async () => {
+      await updateCommand({ dryRun: true });
+    });
+
+    const targetCall = vi
+      .mocked(updateGlobal.resolveGlobalInstallTarget)
+      .mock.calls.find(([params]) => params.pkgRoot === root);
+    expect(targetCall?.[0]).toMatchObject({
+      honorPackageRoot: true,
+      pkgRoot: root,
+    });
+    const logs = vi
+      .mocked(defaultRuntime.log)
+      .mock.calls.map((call) => String(call[0]))
+      .join("\n");
+    expect(logs).not.toContain("differs from the managed gateway service Node");
+  });
+
   it("uses the managed service Node for follow-up commands when roots match but nodes differ", async () => {
     const servicePrefix = await createTrackedTempDir("openclaw-service-prefix-");
     const nodeModules = path.join(servicePrefix, "lib", "node_modules");

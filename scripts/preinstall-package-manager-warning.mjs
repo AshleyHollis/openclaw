@@ -121,6 +121,7 @@ function probePackageCliNodeRuntime({
   platform = process.platform,
   cwd = process.cwd(),
   run = spawnSync,
+  allowBunLifecycleShim = detectLifecyclePackageManager() === "bun",
 } = {}) {
   const pathApi = platform === "win32" ? win32 : posix;
   const delimiter = platform === "win32" ? ";" : ":";
@@ -164,9 +165,9 @@ function probePackageCliNodeRuntime({
     if (!runtime) {
       return null;
     }
-    // Bun prepends a temporary executable named `node` while it runs package
-    // scripts. That shim disappears before the installed CLI is launched.
-    if (runtime.bunVersion) {
+    // Only Bun's own lifecycle may prepend a temporary `node` shim. Outside
+    // that lifecycle the first Bun-backed PATH entry persists for the CLI.
+    if (runtime.bunVersion && allowBunLifecycleShim) {
       continue;
     }
     return runtime;
@@ -183,7 +184,10 @@ function enforceSupportedNodeRuntime(
   reportError = console.error,
 ) {
   const detectedRuntime = probeNodeRuntime();
-  if (nodeVersionSatisfiesPackageEngine(detectedRuntime?.version ?? null, engine)) {
+  if (
+    !detectedRuntime?.bunVersion &&
+    nodeVersionSatisfiesPackageEngine(detectedRuntime?.version ?? null, engine)
+  ) {
     return true;
   }
 
@@ -303,8 +307,10 @@ export const packagePreinstallRuntime = {
   createPackageManagerWarningMessage,
   detectLifecyclePackageManager,
   enforceSupportedNodeRuntime,
+  NODE_RUNTIME_PROBE_SOURCE,
   nodeVersionSatisfiesPackageEngine,
   PACKAGE_INSTALL_GUARD_RELATIVE_PATH,
+  parseNodeRuntimeProbeOutput,
   probePackageCliNodeRuntime,
   readPackageNodeEngine,
   warnIfNonPnpmLifecycle,

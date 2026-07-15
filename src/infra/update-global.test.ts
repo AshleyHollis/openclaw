@@ -798,6 +798,7 @@ describe("update global helpers", () => {
       "bun",
       "add",
       "-g",
+      "--force",
       "--ignore-scripts",
       "openclaw@latest",
     ]);
@@ -812,6 +813,7 @@ describe("update global helpers", () => {
       "bun",
       "add",
       "-g",
+      "--force",
       "--ignore-scripts",
       "/tmp/openclaw-candidate.tgz",
     ]);

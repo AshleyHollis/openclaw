@@ -275,23 +275,27 @@ async function replaceNpmBinShims(params: {
 
   const backup: NpmBinShimBackup = {
     backupDir: await fs.mkdtemp(
-      path.join(params.targetLayout.globalRoot, ".openclaw-shim-backup-"),
+      path.join(params.targetLayout.globalRoot, ".openclaw-shim-recovery."),
     ),
     targetBinDir: params.targetLayout.binDir,
     entries: [],
   };
+  let shimsMutated = false;
+  let preserveBackup = false;
 
   try {
     await fs.mkdir(params.targetLayout.binDir, { recursive: true });
     for (const entry of shimEntries) {
       const destination = path.join(params.targetLayout.binDir, entry);
       const hadExisting = await pathExists(destination);
-      backup.entries.push({ name: entry, hadExisting });
       if (hadExisting) {
         await copyPathEntry(destination, path.join(backup.backupDir, entry));
       }
+      // Only a complete backup may authorize later removal of this shim.
+      backup.entries.push({ name: entry, hadExisting });
     }
 
+    shimsMutated = true;
     for (const entry of shimEntries) {
       await copyPathEntry(
         path.join(params.stageLayout.binDir, entry),
@@ -299,10 +303,24 @@ async function replaceNpmBinShims(params: {
       );
     }
   } catch (err) {
-    await restoreNpmBinShimBackup(backup);
+    if (shimsMutated) {
+      try {
+        await restoreNpmBinShimBackup(backup);
+      } catch (restoreError) {
+        preserveBackup = true;
+        const failure = new AggregateError(
+          [err, restoreError],
+          `failed to restore npm bin shims; recovery backup preserved at ${backup.backupDir}`,
+          { cause: err },
+        );
+        throw failure;
+      }
+    }
     throw err;
   } finally {
-    await removePackageUpdatePathBestEffort(backup.backupDir);
+    if (!preserveBackup) {
+      await removePackageUpdatePathBestEffort(backup.backupDir);
+    }
   }
 }
 

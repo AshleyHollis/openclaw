@@ -33,6 +33,17 @@ export function successfulPackagePostinstallStep(params: {
   };
 }
 
+export function successfulNodeRuntimeProbeResult(
+  execPath: string,
+  version = process.versions.node,
+): Awaited<ReturnType<CommandRunner>> {
+  return {
+    stdout: JSON.stringify({ version, bunVersion: null, execPath }),
+    stderr: "",
+    code: 0,
+  };
+}
+
 export function successfulSourceMetadataStep(params: {
   name: string;
   argv: string[];

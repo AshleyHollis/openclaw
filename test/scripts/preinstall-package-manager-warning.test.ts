@@ -141,6 +141,7 @@ describe("install runtime enforcement", () => {
     const runtime = probePackageCliNodeRuntime({
       pathEnv: "/tmp/bun-node:/opt/node/bin",
       platform: "linux",
+      allowBunLifecycleShim: true,
       run: (command) => {
         candidates.push(command);
         return command.startsWith("/tmp/bun-node")
@@ -183,6 +184,7 @@ describe("install runtime enforcement", () => {
         "/opt/node/bin",
       ].join(":"),
       platform: "linux",
+      allowBunLifecycleShim: true,
       run: (command) => {
         candidates.push(command);
         return command.startsWith("/tmp/bun-node")
@@ -207,6 +209,40 @@ describe("install runtime enforcement", () => {
 
     expect(candidates).toEqual(["/tmp/bun-node/node", "/opt/node/bin/node"]);
     expect(runtime?.version).toBe("24.15.0");
+  });
+
+  it("does not skip a persistent Bun-backed node before the real Node", () => {
+    const candidates: string[] = [];
+    const reportError = vi.fn();
+    const runtime = probePackageCliNodeRuntime({
+      pathEnv: "/opt/bun/bin:/opt/node/bin",
+      platform: "linux",
+      allowBunLifecycleShim: false,
+      run: (command) => {
+        candidates.push(command);
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            version: "24.15.0",
+            bunVersion: "1.3.0",
+            execPath: "/opt/bun/bin/bun",
+          }),
+        };
+      },
+    });
+
+    expect(candidates).toEqual(["/opt/bun/bin/node"]);
+    expect(runtime?.bunVersion).toBe("1.3.0");
+    expect(
+      enforceSupportedNodeRuntime(
+        {
+          engine: EXPECTED_NODE_ENGINE_RANGE,
+          probeNodeRuntime: () => runtime,
+        },
+        reportError,
+      ),
+    ).toBe(false);
+    expect(reportError).toHaveBeenCalledWith(expect.stringContaining("detected Node 24.15.0"));
   });
 
   it("bounds PATH Node probes and fails closed when a wrapper stalls", () => {

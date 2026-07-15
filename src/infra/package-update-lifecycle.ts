@@ -24,7 +24,8 @@ const PACKED_PACKAGE_PREINSTALL_PATH = `package/${PACKAGE_PREINSTALL_RELATIVE_PA
 const PACKED_PACKAGE_POSTINSTALL_PATH = `package/${PACKAGE_POSTINSTALL_RELATIVE_PATH}`;
 const MAX_PACKED_PACKAGE_MANIFEST_BYTES = 1024 * 1024;
 const LEGACY_INSTALL_GUARD_COMPAT_MAX_VERSION = "2026.7.1";
-const { probePackageCliNodeRuntime } = packagePreinstallRuntime;
+const { NODE_RUNTIME_PROBE_SOURCE, parseNodeRuntimeProbeOutput, probePackageCliNodeRuntime } =
+  packagePreinstallRuntime;
 
 // Packed releases omit the checkout-only prepare hook. Validate the published lifecycle
 // contract before the package manager executes it and before any live activation.
@@ -52,17 +53,18 @@ export async function resolvePackageRuntime(params: {
     });
     return normalizePackageCliNodeRuntime(runtime);
   }
+  const probeEnv = { ...(params.env ?? process.env) };
+  delete probeEnv.NODE_OPTIONS;
   const result = await params
-    .runCommand([params.nodePath, "--version"], {
+    .runCommand([params.nodePath, "-e", NODE_RUNTIME_PROBE_SOURCE], {
       timeoutMs: Math.min(params.timeoutMs, 10_000),
       ...(params.cwd === undefined ? {} : { cwd: params.cwd }),
-      ...(params.env === undefined ? {} : { env: params.env }),
+      env: probeEnv,
     })
     .catch(() => null);
-  return {
-    nodePath: params.nodePath,
-    version: result?.code === 0 ? result.stdout.trim().replace(/^v/u, "") || null : null,
-  };
+  return normalizePackageCliNodeRuntime(
+    result?.code === 0 ? parseNodeRuntimeProbeOutput(result.stdout) : null,
+  );
 }
 
 function normalizePackageCliNodeRuntime(runtime: PackageCliNodeRuntime | null): {
@@ -359,6 +361,9 @@ export async function runPackageSourceRuntimeGuard(
   try {
     const contract = await readCandidatePackageContract(packageRoot);
     validatePackageNodeEngine(contract.nodeEngine, runtimeVersion);
+    // A prepared checkout can carry the same out-of-inventory guard as a packed release.
+    // Consume it before an in-place pnpm/Bun activation exposes the checkout as installed.
+    await fs.rm(path.join(packageRoot, PACKAGE_INSTALL_GUARD_RELATIVE_PATH), { force: true });
     return {
       name,
       command: `validate ${path.join(packageRoot, "package.json")} engines.node`,

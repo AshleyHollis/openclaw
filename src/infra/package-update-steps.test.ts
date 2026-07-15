@@ -9,6 +9,7 @@ import {
   createNpmTarget,
   createRootRunner,
   expectPathMissing,
+  successfulNodeRuntimeProbeResult,
   successfulPackagePostinstallStep,
   successfulSourceMetadataStep,
   type PackageUpdateStepResult,
@@ -858,8 +859,8 @@ describe("runGlobalPackageUpdateSteps", () => {
       });
       const rootRunner = createRootRunner(globalRoot);
       const runCommand = vi.fn<CommandRunner>(async (argv, options) =>
-        argv[0] === "/service/node" && argv[1] === "--version"
-          ? { stdout: "v24.14.0\n", stderr: "", code: 0 }
+        argv[0] === "/service/node" && argv[1] === "-e"
+          ? successfulNodeRuntimeProbeResult("/service/node", "24.14.0")
           : await rootRunner(argv, options),
       );
 

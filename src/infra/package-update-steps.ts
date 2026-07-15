@@ -1,12 +1,11 @@
 // Runs package update move, inventory, and cleanup steps.
-import { readPackageBinNames, readPackageVersion } from "./package-json.js";
+import { readPackageVersion } from "./package-json.js";
 import {
   createPackageRuntimeEnv,
   resolvePackageRuntimeNpmInvocation,
 } from "./package-runtime-env.js";
 import {
   resolvePackageRuntime,
-  readPackedPackageBinNames,
   runPackedPackageRuntimeGuard,
   runPackageInstallLifecycle,
 } from "./package-update-lifecycle.js";
@@ -328,20 +327,17 @@ export async function runGlobalPackageUpdateSteps(params: {
 
     // Keep the canonical package root when a packed source is an aliased fork.
     // Manager parsers own file-path encoding; pre-encoding makes spaces literal %20.
-    const activationInstallSpec = preparedSpec.packDir
+    let activationInstallSpec = preparedSpec.packDir
       ? `${params.packageName}@file:${preparedSpec.installSpec}`
       : preparedSpec.installSpec;
 
     if (nonNpmManager) {
-      const currentBinNames = originalPackageRoot
-        ? await readPackageBinNames(originalPackageRoot)
-        : [];
-      const candidateBinNames = await readPackedPackageBinNames(preparedSpec.installSpec);
       const preparedRollback = await liveActivation.prepareLivePackageRollback({
         installTarget: effectiveInstallTarget,
-        binNames: [...new Set([...currentBinNames, ...candidateBinNames])],
-        runCommand: params.runCommand,
+        packageName: params.packageName,
+        runStep: params.runStep,
         timeoutMs: params.timeoutMs,
+        nodePath: selectedRuntime.nodePath,
         ...(packageManagerEnv === undefined ? {} : { env: packageManagerEnv }),
         ...(params.installCwd === undefined ? {} : { cwd: params.installCwd }),
       });
@@ -355,6 +351,13 @@ export async function runGlobalPackageUpdateSteps(params: {
         };
       }
       liveRollback = preparedRollback.rollback;
+      if (preparedSpec.packDir !== null) {
+        const persistentArtifactPath = await liveActivation.stageLivePackageArtifact(
+          liveRollback,
+          preparedSpec.installSpec,
+        );
+        activationInstallSpec = `${params.packageName}@file:${persistentArtifactPath}`;
+      }
     }
 
     const installLocation =
@@ -521,7 +524,6 @@ export async function runGlobalPackageUpdateSteps(params: {
       verifiedPackageRoot = livePackageRoot ?? verifiedPackageRoot;
       afterVersion = await readPackageVersionIfPresent(livePackageRoot);
     }
-
     return {
       steps,
       verifiedPackageRoot,
@@ -529,7 +531,7 @@ export async function runGlobalPackageUpdateSteps(params: {
       failedStep,
     };
   } catch (error) {
-    await liveActivation.throwAfterLivePackageRollback(liveRollback, error);
+    return await liveActivation.throwAfterLivePackageRollback(liveRollback, error);
   } finally {
     await cleanupStagedNpmInstall(stagedInstall ?? null);
     if (packedInstallDir) {

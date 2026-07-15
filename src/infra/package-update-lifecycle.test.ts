@@ -387,7 +387,15 @@ describe("resolvePackageRuntime", () => {
   });
 
   it("probes the selected managed-service Node with a bounded timeout", async () => {
-    const runCommand = vi.fn(async () => ({ stdout: "v24.15.3\n", stderr: "", code: 0 }));
+    const runCommand = vi.fn(async () => ({
+      stdout: JSON.stringify({
+        version: "24.15.3",
+        bunVersion: null,
+        execPath: "/opt/openclaw/bin/node",
+      }),
+      stderr: "",
+      code: 0,
+    }));
 
     await expect(
       resolvePackageRuntime({
@@ -396,9 +404,33 @@ describe("resolvePackageRuntime", () => {
         timeoutMs: 30_000,
       }),
     ).resolves.toEqual({ nodePath: "/opt/openclaw/bin/node", version: "24.15.3" });
-    expect(runCommand).toHaveBeenCalledWith(["/opt/openclaw/bin/node", "--version"], {
-      timeoutMs: 10_000,
-    });
+    expect(runCommand).toHaveBeenCalledWith(
+      ["/opt/openclaw/bin/node", "-e", expect.any(String)],
+      expect.objectContaining({
+        env: expect.not.objectContaining({ NODE_OPTIONS: expect.anything() }),
+        timeoutMs: 10_000,
+      }),
+    );
+  });
+
+  it("rejects a selected managed-service executable backed by Bun", async () => {
+    const runCommand = vi.fn(async () => ({
+      stdout: JSON.stringify({
+        version: "24.15.3",
+        bunVersion: "1.3.14",
+        execPath: "/opt/bun/bin/bun",
+      }),
+      stderr: "",
+      code: 0,
+    }));
+
+    await expect(
+      resolvePackageRuntime({
+        nodePath: "/opt/openclaw/bin/node",
+        runCommand,
+        timeoutMs: 30_000,
+      }),
+    ).resolves.toEqual({ nodePath: null, version: null });
   });
 
   it("reuses the hardened PATH probe instead of Bun's temporary node alias", async () => {

@@ -1,4 +1,3 @@
-import { readPackageBinNames } from "../../infra/package-json.js";
 import { createPackageRuntimeEnv } from "../../infra/package-runtime-env.js";
 import {
   resolvePackageRuntime,
@@ -56,18 +55,19 @@ export async function runSourceCheckoutGlobalInstall(params: {
     // pnpm and Bun activate the source checkout in place. Guard first, keep all
     // manager hooks disabled, then run only OpenClaw's known postinstall.
     const installEnv = createPackageRuntimeEnv(params.env, runtime.nodePath) ?? params.env;
-    const binNames = [
-      ...new Set([
-        ...(await readPackageBinNames(params.currentPackageRoot)),
-        ...(await readPackageBinNames(params.sourceRoot)),
-      ]),
-    ];
+    const managerEnv =
+      liveActivation.createPackageManagerInstallEnv(installTarget, installEnv) ?? installEnv;
     const preparedRollback = await liveActivation.prepareLivePackageRollback({
       installTarget,
-      binNames,
-      runCommand,
+      packageName: "openclaw",
+      runStep: (step) =>
+        runUpdateStep({
+          ...step,
+          ...(params.progress === undefined ? {} : { progress: params.progress }),
+        }),
       timeoutMs: params.timeoutMs,
-      env: installEnv,
+      nodePath: runtime.nodePath,
+      env: managerEnv,
       cwd: params.sourceRoot,
     });
     if (preparedRollback.failedStep) {
@@ -89,12 +89,13 @@ export async function runSourceCheckoutGlobalInstall(params: {
             : null,
         ),
         cwd: params.sourceRoot,
-        env: installEnv,
+        env: managerEnv,
         timeoutMs: params.timeoutMs,
         progress: params.progress,
       });
       const steps = [runtimeGuard, installStep];
-      let failedStep: PackageUpdateStepResult | null = installStep.exitCode ? installStep : null;
+      let failedStep: PackageUpdateStepResult | null =
+        installStep.exitCode !== 0 ? installStep : null;
       if (!failedStep) {
         const postinstallStep = await runPackageSourcePostinstall({
           packageRoot: params.sourceRoot,
@@ -108,7 +109,7 @@ export async function runSourceCheckoutGlobalInstall(params: {
           ...(runtime.nodePath === null ? {} : { nodePath: runtime.nodePath }),
         });
         steps.push(postinstallStep);
-        failedStep = postinstallStep.exitCode ? postinstallStep : null;
+        failedStep = postinstallStep.exitCode !== 0 ? postinstallStep : null;
       }
       const finalized = await liveActivation.finalizeLivePackageRollback(rollback, failedStep);
       if (finalized.rollbackStep) {
@@ -116,7 +117,7 @@ export async function runSourceCheckoutGlobalInstall(params: {
       }
       return { steps, failedStep: finalized.failedStep };
     } catch (error) {
-      await liveActivation.throwAfterLivePackageRollback(rollback, error);
+      return await liveActivation.throwAfterLivePackageRollback(rollback, error);
     }
   }
   const result = await runGlobalPackageUpdateSteps({

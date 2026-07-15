@@ -1,30 +1,49 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
+import { acquireFileLock } from "../plugin-sdk/file-lock.js";
 import { formatErrorMessage } from "./errors.js";
-import type { PackageUpdateStepResult } from "./package-update-types.js";
-import { applyPathPrepend } from "./path-prepend.js";
+import { archivePackageRootToTarball } from "./package-update-source.js";
+import type { PackageUpdateStepResult, PackageUpdateStepRunner } from "./package-update-types.js";
 import {
+  globalInstallArgs,
   resolvePnpmGlobalDirFromGlobalRoot,
-  type CommandRunner,
   type ResolvedGlobalInstallTarget,
 } from "./update-global.js";
 
-type LivePathSnapshot = {
-  backupRoot: string | null;
-  entryPath: string;
-  existed: boolean;
-  isDirectory: boolean;
-  kind: "state-root" | "bin-entry";
-  linkType: "file" | "junction" | null;
-  linkTarget: string | null;
-  targetPath: string;
-};
+const LIVE_PACKAGE_ARTIFACT_DIR = ".openclaw-update-artifacts";
+const LIVE_PACKAGE_LOCK_TARGET = ".openclaw-update-activation";
+const PACKAGE_POSTINSTALL_COMMAND = "node scripts/postinstall-bundled-plugins.mjs";
+const PACKAGE_POSTINSTALL_RELATIVE_PATH = "scripts/postinstall-bundled-plugins.mjs";
+const ACTIVE_LIVE_PACKAGE_LOCKS = new Set<string>();
+const LIVE_PACKAGE_LOCK_OPTIONS = {
+  retries: {
+    retries: 8,
+    factor: 1.5,
+    minTimeout: 100,
+    maxTimeout: 1_000,
+    randomize: true,
+  },
+  stale: 15 * 60_000,
+  staleRecovery: "fail-closed",
+} as const;
 
 export type LivePackageRollback = {
   active: boolean;
-  backupDir: string;
-  snapshots: LivePathSnapshot[];
+  artifactDir: string;
+  candidateArtifactPaths: string[];
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  installTarget: ResolvedGlobalInstallTarget;
+  nodePath: string | null;
+  packageName: string;
+  packageRoot: string;
+  previousArtifactPath: string;
+  previousPostinstall: boolean;
+  previousVersion: string;
+  releaseLock: (() => Promise<void>) | null;
+  runStep: PackageUpdateStepRunner;
+  timeoutMs: number;
 };
 
 export function createPackageManagerInstallEnv(
@@ -63,44 +82,6 @@ function rollbackStep(params: {
   };
 }
 
-function cleanEnv(env: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
-  return Object.fromEntries(
-    Object.entries(env ?? process.env).filter(
-      (entry): entry is [string, string] => entry[1] !== undefined,
-    ),
-  );
-}
-
-async function resolveManagerBinDir(params: {
-  installTarget: ResolvedGlobalInstallTarget;
-  runCommand: CommandRunner;
-  timeoutMs: number;
-  env?: NodeJS.ProcessEnv;
-  cwd?: string;
-}): Promise<string> {
-  const env = cleanEnv(params.env);
-  if (params.installTarget.manager === "pnpm" && env.PNPM_HOME) {
-    // pnpm 10 used PNPM_HOME directly; pnpm 11 uses its bin child.
-    applyPathPrepend(env, [path.join(env.PNPM_HOME, "bin"), env.PNPM_HOME]);
-  }
-  const argv =
-    params.installTarget.manager === "bun"
-      ? [params.installTarget.command, "pm", "bin", "-g"]
-      : [params.installTarget.command, "bin", "-g"];
-  const result = await params.runCommand(argv, {
-    timeoutMs: Math.min(params.timeoutMs, 10_000),
-    ...(params.cwd === undefined ? {} : { cwd: params.cwd }),
-    env,
-  });
-  const binDir = result.code === 0 ? result.stdout.trim() : "";
-  if (!binDir || !path.isAbsolute(binDir)) {
-    throw new Error(
-      `could not resolve ${params.installTarget.manager} global bin directory: ${result.stderr.trim() || "empty output"}`,
-    );
-  }
-  return path.resolve(binDir);
-}
-
 function resolveManagerStateRoot(target: ResolvedGlobalInstallTarget): string {
   if (target.manager === "pnpm") {
     const globalDir = resolvePnpmGlobalDirFromGlobalRoot(target.globalRoot);
@@ -121,105 +102,90 @@ function isPathInside(parent: string, child: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-async function resolveSnapshot(
-  entryPath: string,
-  kind: LivePathSnapshot["kind"],
-): Promise<LivePathSnapshot> {
+async function resolveSafeManagerStateRoot(target: ResolvedGlobalInstallTarget): Promise<string> {
+  const stateRoot = path.resolve(resolveManagerStateRoot(target));
+  const canonicalStateRoot = await fs.realpath(stateRoot);
+  if (
+    stateRoot === path.parse(stateRoot).root ||
+    canonicalStateRoot === path.parse(canonicalStateRoot).root
+  ) {
+    throw new Error(`refusing to use filesystem root for ${target.manager} package state`);
+  }
+  if (!(await fs.stat(canonicalStateRoot)).isDirectory()) {
+    throw new Error(`package-manager state root is not a directory: ${stateRoot}`);
+  }
+  const packageRoot = target.packageRoot ? path.resolve(target.packageRoot) : null;
+  const canonicalPackageRoot = packageRoot ? await fs.realpath(packageRoot) : null;
+  if (
+    !packageRoot ||
+    !canonicalPackageRoot ||
+    (!isPathInside(stateRoot, packageRoot) &&
+      !isPathInside(canonicalStateRoot, canonicalPackageRoot))
+  ) {
+    throw new Error(
+      `package root is outside ${target.manager} global state: ${packageRoot ?? "missing"}`,
+    );
+  }
+  return canonicalStateRoot;
+}
+
+async function acquireLivePackageLock(stateRoot: string): Promise<() => Promise<void>> {
+  const lockTarget = path.join(stateRoot, LIVE_PACKAGE_LOCK_TARGET);
+  // The filesystem lock covers other processes. This set blocks re-entrant
+  // acquisitions in this process so two updater requests cannot share it.
+  if (ACTIVE_LIVE_PACKAGE_LOCKS.has(lockTarget)) {
+    throw new Error(`another OpenClaw package activation is already using ${stateRoot}`);
+  }
+  ACTIVE_LIVE_PACKAGE_LOCKS.add(lockTarget);
   try {
-    const entryStat = await fs.lstat(entryPath);
-    const linkTarget = entryStat.isSymbolicLink() ? await fs.readlink(entryPath) : null;
-    let targetPath = entryPath;
-    let targetStat = entryStat;
-    if (linkTarget) {
-      try {
-        targetPath = await fs.realpath(entryPath);
-        targetStat = await fs.stat(targetPath);
-      } catch (error) {
-        if (
-          kind === "bin-entry" &&
-          error instanceof Error &&
-          "code" in error &&
-          error.code === "ENOENT"
-        ) {
-          return {
-            backupRoot: null,
-            entryPath,
-            existed: true,
-            isDirectory: false,
-            kind,
-            linkType: "file",
-            linkTarget,
-            targetPath: path.resolve(path.dirname(entryPath), linkTarget),
-          };
-        }
-        throw error;
+    const lock = await acquireFileLock(lockTarget, LIVE_PACKAGE_LOCK_OPTIONS);
+    let released = false;
+    return async () => {
+      if (released) {
+        return;
       }
-    }
-    if (kind === "state-root" && !targetStat.isDirectory()) {
-      throw new Error(`package-manager state root is not a directory: ${entryPath}`);
-    }
-    return {
-      backupRoot: null,
-      entryPath,
-      existed: true,
-      isDirectory: targetStat.isDirectory(),
-      kind,
-      linkType: linkTarget ? (targetStat.isDirectory() ? "junction" : "file") : null,
-      linkTarget,
-      targetPath,
+      released = true;
+      try {
+        await lock.release();
+      } finally {
+        ACTIVE_LIVE_PACKAGE_LOCKS.delete(lockTarget);
+      }
     };
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return {
-        backupRoot: null,
-        entryPath,
-        existed: false,
-        isDirectory: false,
-        kind,
-        linkType: null,
-        linkTarget: null,
-        targetPath: entryPath,
-      };
-    }
+    ACTIVE_LIVE_PACKAGE_LOCKS.delete(lockTarget);
     throw error;
   }
 }
 
-function resolveBinEntryPaths(binDir: string, binNames: string[]): string[] {
-  const entryPaths = new Map<string, string>();
-  for (const binName of binNames) {
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(binName)) {
-      throw new Error(`cannot snapshot unsafe package bin name ${JSON.stringify(binName)}`);
-    }
-    for (const suffix of ["", ".cmd", ".ps1", ".exe"]) {
-      const entryPath = path.join(binDir, `${binName}${suffix}`);
-      const key = process.platform === "win32" ? entryPath.toLowerCase() : entryPath;
-      entryPaths.set(key, entryPath);
-    }
-  }
-  return [...entryPaths.values()];
+async function releaseLivePackageLock(rollback: LivePackageRollback): Promise<void> {
+  const releaseLock = rollback.releaseLock;
+  rollback.releaseLock = null;
+  await releaseLock?.();
 }
 
-async function backupSnapshot(snapshot: LivePathSnapshot, backupDir: string, index: number) {
-  if (!snapshot.existed || (snapshot.kind === "bin-entry" && snapshot.linkTarget)) {
-    return;
+async function readRollbackContract(packageRoot: string): Promise<{
+  previousPostinstall: boolean;
+  previousVersion: string;
+}> {
+  const parsed = JSON.parse(await fs.readFile(path.join(packageRoot, "package.json"), "utf8")) as {
+    scripts?: { postinstall?: unknown };
+    version?: unknown;
+  };
+  if (typeof parsed.version !== "string" || !parsed.version.trim()) {
+    throw new Error(`installed package has no version: ${packageRoot}`);
   }
-  snapshot.backupRoot = path.join(backupDir, `state-${index}`);
-  const sourcePath = snapshot.kind === "state-root" ? snapshot.targetPath : snapshot.entryPath;
-  await fs.cp(sourcePath, snapshot.backupRoot, {
-    recursive: snapshot.isDirectory,
-    errorOnExist: true,
-    force: false,
-    preserveTimestamps: true,
-    verbatimSymlinks: true,
-  });
+  return {
+    previousPostinstall: parsed.scripts?.postinstall === PACKAGE_POSTINSTALL_COMMAND,
+    previousVersion: parsed.version.trim(),
+  };
 }
 
 export async function prepareLivePackageRollback(params: {
   installTarget: ResolvedGlobalInstallTarget;
-  binNames: string[];
-  runCommand: CommandRunner;
+  packageName: string;
+  runStep: PackageUpdateStepRunner;
   timeoutMs: number;
+  nodePath?: string | null;
   env?: NodeJS.ProcessEnv;
   cwd?: string;
 }): Promise<{
@@ -227,44 +193,129 @@ export async function prepareLivePackageRollback(params: {
   failedStep: PackageUpdateStepResult | null;
 }> {
   const startedAt = Date.now();
-  const backupDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-update-rollback-"));
+  let previousArtifactPath: string | null = null;
+  let releaseLock: (() => Promise<void>) | null = null;
   try {
-    const stateRoot = resolveManagerStateRoot(params.installTarget);
-    if (stateRoot === path.parse(stateRoot).root) {
-      throw new Error(`refusing to snapshot filesystem root for ${params.installTarget.manager}`);
+    const packageRoot = params.installTarget.packageRoot;
+    if (!packageRoot) {
+      throw new Error(`cannot resolve installed ${params.packageName} package root`);
     }
-    const binDir = await resolveManagerBinDir(params);
-    const stateSnapshot = await resolveSnapshot(stateRoot, "state-root");
-    const binEntryPaths = resolveBinEntryPaths(binDir, params.binNames);
-    const binSnapshots = await Promise.all(
-      binEntryPaths.map((entryPath) => resolveSnapshot(entryPath, "bin-entry")),
-    );
-    // The manager state captures nested shims. External shims stay separate,
-    // including symlinks whose targets point back into the manager state.
-    const snapshots = [
-      stateSnapshot,
-      ...binSnapshots.filter(
-        (snapshot) => !isPathInside(stateSnapshot.entryPath, snapshot.entryPath),
-      ),
-    ];
-    for (const [index, snapshot] of snapshots.entries()) {
-      await backupSnapshot(snapshot, backupDir, index);
+    const stateRoot = await resolveSafeManagerStateRoot(params.installTarget);
+    releaseLock = await acquireLivePackageLock(stateRoot);
+    const artifactDir = path.join(stateRoot, LIVE_PACKAGE_ARTIFACT_DIR);
+    await fs.mkdir(artifactDir, { recursive: true });
+    previousArtifactPath = path.join(artifactDir, `rollback-${randomUUID()}.tgz`);
+    const contract = await readRollbackContract(packageRoot);
+    const nodePath =
+      params.nodePath?.trim() || (process.versions.bun ? null : process.execPath || null);
+    if (contract.previousPostinstall && !nodePath) {
+      throw new Error("cannot resolve Node for rollback package postinstall");
     }
-    if (!stateSnapshot.backupRoot) {
-      throw new Error(`missing ${params.installTarget.manager} global state root ${stateRoot}`);
-    }
-    return { rollback: { active: true, backupDir, snapshots }, failedStep: null };
+    await archivePackageRootToTarball(packageRoot, previousArtifactPath);
+    return {
+      rollback: {
+        active: true,
+        artifactDir,
+        candidateArtifactPaths: [],
+        ...(params.cwd === undefined ? {} : { cwd: params.cwd }),
+        ...(params.env === undefined ? {} : { env: { ...params.env } }),
+        installTarget: params.installTarget,
+        nodePath,
+        packageName: params.packageName,
+        packageRoot,
+        previousArtifactPath,
+        previousPostinstall: contract.previousPostinstall,
+        previousVersion: contract.previousVersion,
+        releaseLock,
+        runStep: params.runStep,
+        timeoutMs: params.timeoutMs,
+      },
+      failedStep: null,
+    };
   } catch (error) {
-    await fs.rm(backupDir, { recursive: true, force: true });
-    const failedStep = rollbackStep({
-      name: "global update rollback prepare",
-      command: `backup ${params.installTarget.manager} global state`,
-      cwd: params.cwd ?? process.cwd(),
-      startedAt,
-      error,
-    });
-    return { rollback: null, failedStep };
+    let failure = error;
+    if (previousArtifactPath) {
+      await fs.rm(previousArtifactPath, { force: true }).catch(() => undefined);
+    }
+    if (releaseLock) {
+      try {
+        await releaseLock();
+      } catch (releaseError) {
+        failure = new AggregateError(
+          [error, releaseError],
+          "package activation lock release failed",
+        );
+      }
+    }
+    return {
+      rollback: null,
+      failedStep: rollbackStep({
+        name: "global update rollback prepare",
+        command: `archive current ${params.packageName} package`,
+        cwd: params.cwd ?? params.installTarget.packageRoot ?? process.cwd(),
+        startedAt,
+        error: failure,
+      }),
+    };
   }
+}
+
+/** Keeps a packed candidate at the stable path pnpm and Bun persist in manager state. */
+export async function stageLivePackageArtifact(
+  rollback: LivePackageRollback | null,
+  sourceTarball: string,
+): Promise<string> {
+  if (!rollback?.active) {
+    throw new Error("cannot stage a live package artifact without an active rollback artifact");
+  }
+  const artifactPath = path.join(rollback.artifactDir, `candidate-${randomUUID()}.tgz`);
+  await fs.copyFile(sourceTarball, artifactPath);
+  rollback.candidateArtifactPaths.push(artifactPath);
+  return artifactPath;
+}
+
+async function discardCandidateArtifactsBestEffort(rollback: LivePackageRollback): Promise<void> {
+  const artifactPaths = rollback.candidateArtifactPaths.splice(0);
+  await Promise.all(
+    artifactPaths.map((artifactPath) => fs.rm(artifactPath, { force: true })),
+  ).catch(() => undefined);
+}
+
+function preserveArtifactFailure(
+  rollback: LivePackageRollback,
+  step: PackageUpdateStepResult,
+): PackageUpdateStepResult {
+  const detail = `rollback artifact preserved at ${rollback.previousArtifactPath}`;
+  return {
+    ...step,
+    stderrTail: [step.stderrTail, detail].filter(Boolean).join("\n"),
+  };
+}
+
+async function completeSuccessfulRollback(params: {
+  rollback: LivePackageRollback;
+  installStep: PackageUpdateStepResult;
+  startedAt: number;
+}): Promise<PackageUpdateStepResult> {
+  const restoredContract = await readRollbackContract(params.rollback.packageRoot);
+  if (restoredContract.previousVersion !== params.rollback.previousVersion) {
+    throw new Error(
+      `rollback restored ${restoredContract.previousVersion}, expected ${params.rollback.previousVersion}`,
+    );
+  }
+  // Only this attempt's candidate is safe to remove. Unknown files may
+  // predate this transaction and must remain untouched.
+  await discardCandidateArtifactsBestEffort(params.rollback);
+  return {
+    ...params.installStep,
+    durationMs: Date.now() - params.startedAt,
+    stdoutTail: [
+      params.installStep.stdoutTail,
+      `restored ${params.rollback.packageName} ${params.rollback.previousVersion}`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  };
 }
 
 export async function restoreLivePackageRollback(
@@ -273,70 +324,77 @@ export async function restoreLivePackageRollback(
   if (!rollback?.active) {
     return null;
   }
+  rollback.active = false;
   const startedAt = Date.now();
-  const restoredPaths = rollback.snapshots.map((snapshot) => snapshot.entryPath);
+  const installLocation =
+    rollback.installTarget.manager === "pnpm"
+      ? resolvePnpmGlobalDirFromGlobalRoot(rollback.installTarget.globalRoot)
+      : null;
+  const argv = globalInstallArgs(
+    rollback.installTarget,
+    `${rollback.packageName}@file:${rollback.previousArtifactPath}`,
+    undefined,
+    installLocation,
+  );
+  let outcome: PackageUpdateStepResult;
   try {
-    for (const snapshot of rollback.snapshots.toSorted((left, right) =>
-      left.kind === right.kind ? 0 : left.kind === "state-root" ? -1 : 1,
-    )) {
-      await fs.rm(snapshot.entryPath, { recursive: true, force: true });
-      if (snapshot.kind === "state-root" && snapshot.targetPath !== snapshot.entryPath) {
-        await fs.rm(snapshot.targetPath, { recursive: true, force: true });
-      }
-      if (!snapshot.existed) {
-        continue;
-      }
-      if (snapshot.linkTarget) {
-        await fs.mkdir(path.dirname(snapshot.entryPath), { recursive: true });
-        if (snapshot.kind === "state-root") {
-          if (!snapshot.backupRoot) {
-            throw new Error(`missing rollback backup for ${snapshot.entryPath}`);
-          }
-          await fs.mkdir(path.dirname(snapshot.targetPath), { recursive: true });
-          await fs.cp(snapshot.backupRoot, snapshot.targetPath, {
-            recursive: true,
-            errorOnExist: true,
-            force: false,
-            preserveTimestamps: true,
-            verbatimSymlinks: true,
-          });
-        }
-        await fs.symlink(snapshot.linkTarget, snapshot.entryPath, snapshot.linkType ?? "file");
-        continue;
-      }
-      if (!snapshot.backupRoot) {
-        throw new Error(`missing rollback backup for ${snapshot.entryPath}`);
-      }
-      const restorePath = snapshot.kind === "state-root" ? snapshot.targetPath : snapshot.entryPath;
-      await fs.mkdir(path.dirname(restorePath), { recursive: true });
-      await fs.cp(snapshot.backupRoot, restorePath, {
-        recursive: snapshot.isDirectory,
-        errorOnExist: true,
-        force: false,
-        preserveTimestamps: true,
-        verbatimSymlinks: true,
-      });
-    }
-    rollback.active = false;
-    await fs.rm(rollback.backupDir, { recursive: true, force: true }).catch(() => undefined);
-    return rollbackStep({
+    const installStep = await rollback.runStep({
       name: "global update rollback",
-      command: `restore ${restoredPaths.join(", ")}`,
-      cwd: path.dirname(restoredPaths[0] ?? process.cwd()),
-      startedAt,
-      stdoutTail: "restored previous package-manager state after rejected live activation",
+      argv,
+      ...(rollback.cwd === undefined ? {} : { cwd: rollback.cwd }),
+      ...(rollback.env === undefined ? {} : { env: rollback.env }),
+      timeoutMs: rollback.timeoutMs,
     });
+    if (installStep.exitCode !== 0) {
+      outcome = preserveArtifactFailure(rollback, installStep);
+    } else if (rollback.previousPostinstall) {
+      const postinstallStep = await rollback.runStep({
+        name: "global update rollback postinstall",
+        argv: [
+          rollback.nodePath!,
+          path.join(rollback.packageRoot, PACKAGE_POSTINSTALL_RELATIVE_PATH),
+        ],
+        cwd: rollback.packageRoot,
+        ...(rollback.env === undefined ? {} : { env: rollback.env }),
+        timeoutMs: rollback.timeoutMs,
+      });
+      if (postinstallStep.exitCode !== 0) {
+        outcome = preserveArtifactFailure(rollback, {
+          ...postinstallStep,
+          name: "global update rollback",
+        });
+      } else {
+        outcome = await completeSuccessfulRollback({ rollback, installStep, startedAt });
+      }
+    } else {
+      outcome = await completeSuccessfulRollback({ rollback, installStep, startedAt });
+    }
   } catch (error) {
-    return rollbackStep({
+    outcome = rollbackStep({
       name: "global update rollback",
-      command: `restore ${restoredPaths.join(", ")}`,
-      cwd: path.dirname(restoredPaths[0] ?? process.cwd()),
+      command: argv.join(" "),
+      cwd: rollback.cwd ?? rollback.packageRoot,
       startedAt,
       error: new Error(
-        `${formatErrorMessage(error)}; rollback backup preserved at ${rollback.backupDir}`,
+        `${formatErrorMessage(error)}; rollback artifact preserved at ${rollback.previousArtifactPath}`,
       ),
     });
   }
+  try {
+    await releaseLivePackageLock(rollback);
+  } catch (error) {
+    outcome = rollbackStep({
+      name: "global update rollback",
+      command: argv.join(" "),
+      cwd: rollback.cwd ?? rollback.packageRoot,
+      startedAt,
+      error: new AggregateError(
+        [new Error(outcome.stderrTail ?? "rollback completed"), error],
+        `rollback lock release failed; artifact preserved at ${rollback.previousArtifactPath}`,
+      ),
+    });
+  }
+  return outcome;
 }
 
 export async function finalizeLivePackageRollback(
@@ -350,10 +408,10 @@ export async function finalizeLivePackageRollback(
     await discardLivePackageRollback(rollback);
     return { failedStep: null, rollbackStep: null };
   }
-  const rollbackStep = await restoreLivePackageRollback(rollback);
+  const restoreStep = await restoreLivePackageRollback(rollback);
   return {
-    failedStep: rollbackStep?.exitCode ? rollbackStep : failedStep,
-    rollbackStep,
+    failedStep: restoreStep && restoreStep.exitCode !== 0 ? restoreStep : failedStep,
+    rollbackStep: restoreStep,
   };
 }
 
@@ -361,9 +419,9 @@ export async function throwAfterLivePackageRollback(
   rollback: LivePackageRollback | null,
   error: unknown,
 ): Promise<never> {
-  const rollbackStep = await restoreLivePackageRollback(rollback);
-  if (rollbackStep?.exitCode) {
-    throw new AggregateError([error, new Error(rollbackStep.stderrTail ?? "rollback failed")]);
+  const restoreStep = await restoreLivePackageRollback(rollback);
+  if (restoreStep && restoreStep.exitCode !== 0) {
+    throw new AggregateError([error, new Error(restoreStep.stderrTail ?? "rollback failed")]);
   }
   throw error;
 }
@@ -375,5 +433,10 @@ export async function discardLivePackageRollback(
     return;
   }
   rollback.active = false;
-  await fs.rm(rollback.backupDir, { recursive: true, force: true }).catch(() => undefined);
+  try {
+    await fs.rm(rollback.previousArtifactPath, { force: true }).catch(() => undefined);
+    await fs.rmdir(rollback.artifactDir).catch(() => undefined);
+  } finally {
+    await releaseLivePackageLock(rollback);
+  }
 }

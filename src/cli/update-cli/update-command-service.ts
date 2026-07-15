@@ -33,6 +33,7 @@ import {
   resolveGatewayService,
   type GatewayService,
 } from "../../daemon/service.js";
+import { resolveExecutablePath } from "../../infra/executable-path.js";
 import { parseStrictPositiveInteger } from "../../infra/parse-finite-number.js";
 import { getSelfAndAncestorPidsSync } from "../../infra/restart-stale-pids.js";
 import { nodeVersionSatisfiesEngine } from "../../infra/runtime-guard.js";
@@ -1038,19 +1039,34 @@ function resolveManagedServiceNodeRunner(
   return isNodeExecutable(runner) ? runner : undefined;
 }
 
-/**
- * Resolve the node binary baked into the managed gateway service unit,
- * independent of any package root redirect. This detects when the user's
- * current PATH-resolved node differs from the service's baked node even
- * when the package root is the same.
- */
-export async function resolveManagedServiceNodeRunnerOverride(): Promise<string | undefined> {
+function resolveManagedServiceNodeRunnerPath(
+  command: GatewayServiceCommandConfig | null,
+): string | undefined {
+  const runner = resolveManagedServiceNodeRunner(command);
+  if (!runner || path.isAbsolute(runner) || path.win32.isAbsolute(runner)) {
+    return runner;
+  }
+  const resolved = resolveExecutablePath(runner, {
+    ...(command?.workingDirectory ? { cwd: command.workingDirectory } : {}),
+    env: { ...process.env, ...command?.environment },
+  });
+  if (!resolved) {
+    throw new Error(`could not resolve managed gateway service Node executable: ${runner}`);
+  }
+  return resolved;
+}
+
+/** Keeps package preflight and activation on the service's baked Node. */
+export async function resolveManagedServiceNodeRunnerContext(): Promise<{
+  nodeRunner: string;
+  differsFromCurrent: boolean;
+} | null> {
   const command = await resolveGatewayService()
     .readCommand(process.env)
     .catch(() => null);
-  const serviceNode = resolveManagedServiceNodeRunner(command);
+  const serviceNode = resolveManagedServiceNodeRunnerPath(command);
   if (!serviceNode) {
-    return undefined;
+    return null;
   }
   const currentNode = resolveNodeRunner();
   const [serviceNodeReal, currentNodeReal] = await Promise.all([
@@ -1058,9 +1074,15 @@ export async function resolveManagedServiceNodeRunnerOverride(): Promise<string 
     tryRealpathOrResolve(currentNode),
   ]);
   if (serviceNodeReal === currentNodeReal) {
-    return undefined;
+    const pathNode = resolveExecutablePath("node", { env: process.env });
+    if (pathNode && (await tryRealpathOrResolve(pathNode)) === serviceNodeReal) {
+      return null;
+    }
   }
-  return serviceNode;
+  return {
+    nodeRunner: serviceNodeReal,
+    differsFromCurrent: serviceNodeReal !== currentNodeReal,
+  };
 }
 
 export async function resolveManagedServicePackageUpdateRoot(params: {
@@ -1081,7 +1103,7 @@ export async function resolveManagedServicePackageUpdateRoot(params: {
   if (currentRootReal === serviceRootReal) {
     return null;
   }
-  const nodeRunner = resolveManagedServiceNodeRunner(command);
+  const nodeRunner = resolveManagedServiceNodeRunnerPath(command);
   return {
     root: serviceRoot,
     previousRoot: params.root,
