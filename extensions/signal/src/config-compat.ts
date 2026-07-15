@@ -74,9 +74,12 @@ function hasLegacyFields(entry: Record<string, unknown>): boolean {
   return LEGACY_TRANSPORT_FIELDS.some((field) => Object.hasOwn(entry, field));
 }
 
-function hasInvalidLegacyHttpUrl(entries: Record<string, unknown>[]): boolean {
+function hasInvalidLegacyHttpUrl(
+  entries: Record<string, unknown>[],
+  parent: Record<string, unknown>,
+): boolean {
   return entries.some((entry) => {
-    const httpUrl = optionalString(entry.httpUrl);
+    const httpUrl = optionalString(inherited(entry, parent, "httpUrl"));
     if (!httpUrl) {
       return false;
     }
@@ -325,10 +328,13 @@ function applyMigratedSignalTransports(params: {
   const nextAccounts = isRecord(nextSignal.accounts) ? nextSignal.accounts : {};
   const nextEntries = [nextSignal, ...Object.values(nextAccounts).filter(isRecord)];
   const rootIsAccount = hasRootSignalAccount(params.entries);
+  const canonicalRootTransport = isSignalTransportConfig(params.entries[0]?.transport)
+    ? params.entries[0].transport
+    : undefined;
   for (const [index, entry] of nextEntries.entries()) {
     const accountId = index === 0 ? undefined : accountIds[index - 1];
     if (accountId === DEFAULT_ACCOUNT_ID) {
-      nextSignal.transport = params.transports[index];
+      nextSignal.transport = canonicalRootTransport ?? params.transports[index];
       delete entry.transport;
     } else if (index === 0 && !rootIsAccount) {
       delete entry.transport;
@@ -361,7 +367,7 @@ export async function migrateLegacySignalTransportConfig(params: {
   const entries = [signal, ...Object.values(accounts).filter(isRecord)];
   const rootIsAccount = hasRootSignalAccount(entries);
   const migrationEntries = rootIsAccount ? entries : entries.slice(1);
-  if (hasInvalidLegacyHttpUrl(migrationEntries)) {
+  if (hasInvalidLegacyHttpUrl(migrationEntries, signal)) {
     return {
       config: params.cfg,
       changes: [],
@@ -431,7 +437,7 @@ export function migrateLegacySignalTransportConfigSync(
   const entries = [signal, ...Object.values(accounts).filter(isRecord)];
   const rootIsAccount = hasRootSignalAccount(entries);
   const migrationEntries = rootIsAccount ? entries : entries.slice(1);
-  if (hasInvalidLegacyHttpUrl(migrationEntries)) {
+  if (hasInvalidLegacyHttpUrl(migrationEntries, signal)) {
     return {
       config: cfg,
       changes: [],

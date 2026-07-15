@@ -197,6 +197,22 @@ describe("signal transport compatibility", () => {
     expect(result.config.channels?.signal?.accounts?.default).not.toHaveProperty("transport");
   });
 
+  it("keeps a canonical root transport authoritative while migrating accounts.default", async () => {
+    const result = await migrateLegacySignalTransportConfig({
+      cfg: signalConfig({
+        apiMode: "native",
+        transport: { kind: "external-native", url: "http://canonical-native:8181" },
+        accounts: { default: { account: "+15555550123" } },
+      }),
+    });
+
+    expect(result.config.channels?.signal?.transport).toEqual({
+      kind: "external-native",
+      url: "http://canonical-native:8181",
+    });
+    expect(result.config.channels?.signal?.accounts?.default).not.toHaveProperty("transport");
+  });
+
   it("keeps attachment suppression account-owned for external transports", () => {
     const result = normalizeCompatibilityConfig({
       cfg: signalConfig({
@@ -428,6 +444,23 @@ describe("signal transport compatibility", () => {
       kind: "container",
       url: "http://signal-alerts:8080",
     });
+  });
+
+  it("defers a malformed root URL inherited by named accounts", async () => {
+    const cfg = signalConfig({
+      apiMode: "container",
+      httpUrl: "http://[bad",
+      accounts: {
+        work: { account: "+15555550123" },
+      },
+    });
+    const result = await migrateLegacySignalTransportConfig({ cfg });
+
+    expect(result.config).toBe(cfg);
+    expect(result.changes).toEqual([]);
+    expect(result.warnings).toEqual([
+      "- channels.signal: legacy httpUrl is invalid; keep the current config, correct httpUrl, then run openclaw doctor --fix.",
+    ]);
   });
 
   it("leaves an unreachable auto endpoint unchanged for a later doctor run", async () => {
