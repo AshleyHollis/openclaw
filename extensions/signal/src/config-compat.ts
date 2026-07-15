@@ -359,27 +359,23 @@ export async function migrateLegacySignalTransportConfig(params: {
   }
   const apiMode = signal.apiMode;
   const entries = [signal, ...Object.values(accounts).filter(isRecord)];
-  if (hasInvalidLegacyHttpUrl(entries)) {
+  const rootIsAccount = hasRootSignalAccount(entries);
+  const migrationEntries = rootIsAccount ? entries : entries.slice(1);
+  if (hasInvalidLegacyHttpUrl(migrationEntries)) {
     return {
       config: params.cfg,
       changes: [],
       warnings: [PENDING_LEGACY_INVALID_URL_WARNING],
     };
   }
-  const rootIsAccount = hasRootSignalAccount(entries);
-  if (
-    entries.some(
-      (entry, index) =>
-        (index > 0 || rootIsAccount) && hasIndependentManagedEndpoint(entry, signal, apiMode),
-    )
-  ) {
+  if (migrationEntries.some((entry) => hasIndependentManagedEndpoint(entry, signal, apiMode))) {
     return {
       config: params.cfg,
       changes: [],
       warnings: [PENDING_LEGACY_MANAGED_ENDPOINT_WARNING],
     };
   }
-  if (!params.detect && entries.some((entry) => requiresDetection(entry, signal, apiMode))) {
+  if (!params.detect && migrationEntries.some((entry) => requiresDetection(entry, signal, apiMode))) {
     return {
       config: params.cfg,
       changes: [],
@@ -390,12 +386,14 @@ export async function migrateLegacySignalTransportConfig(params: {
   const transports = allocateMigratedManagedPorts({
     entries,
     transports: await Promise.all(
-      entries.map((entry) =>
-        resolveLegacyTransport({ entry, parent: signal, apiMode, detect: params.detect }),
+      entries.map((entry, index) =>
+        index === 0 && !rootIsAccount
+          ? undefined
+          : resolveLegacyTransport({ entry, parent: signal, apiMode, detect: params.detect }),
       ),
     ),
   });
-  if (transports.some((transport) => !transport)) {
+  if (transports.some((transport, index) => (index > 0 || rootIsAccount) && !transport)) {
     return {
       config: params.cfg,
       changes: [],
@@ -431,19 +429,18 @@ export function migrateLegacySignalTransportConfigSync(
     return { config: cfg, changes: [] };
   }
   const entries = [signal, ...Object.values(accounts).filter(isRecord)];
-  if (hasInvalidLegacyHttpUrl(entries)) {
+  const rootIsAccount = hasRootSignalAccount(entries);
+  const migrationEntries = rootIsAccount ? entries : entries.slice(1);
+  if (hasInvalidLegacyHttpUrl(migrationEntries)) {
     return {
       config: cfg,
       changes: [],
       warnings: [PENDING_LEGACY_INVALID_URL_WARNING],
     };
   }
-  const rootIsAccount = hasRootSignalAccount(entries);
   if (
-    entries.some(
-      (entry, index) =>
-        (index > 0 || rootIsAccount) &&
-        hasIndependentManagedEndpoint(entry, signal, signal.apiMode),
+    migrationEntries.some((entry) =>
+      hasIndependentManagedEndpoint(entry, signal, signal.apiMode),
     )
   ) {
     return {
@@ -454,11 +451,17 @@ export function migrateLegacySignalTransportConfigSync(
   }
   const transports = allocateMigratedManagedPorts({
     entries,
-    transports: entries.map((entry) =>
-      resolveLegacyTransportWithoutDetection({ entry, parent: signal, apiMode: signal.apiMode }),
+    transports: entries.map((entry, index) =>
+      index === 0 && !rootIsAccount
+        ? undefined
+        : resolveLegacyTransportWithoutDetection({
+            entry,
+            parent: signal,
+            apiMode: signal.apiMode,
+          }),
     ),
   });
-  if (transports.some((transport) => !transport)) {
+  if (transports.some((transport, index) => (index > 0 || rootIsAccount) && !transport)) {
     return { config: cfg, changes: [] };
   }
   const next = applyMigratedSignalTransports({ cfg, entries, transports });

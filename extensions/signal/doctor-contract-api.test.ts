@@ -406,6 +406,30 @@ describe("signal transport compatibility", () => {
     ]);
   });
 
+  it("ignores discarded root transport state for named-account migration", async () => {
+    const result = await migrateLegacySignalTransportConfig({
+      cfg: signalConfig({
+        apiMode: "container",
+        httpUrl: "http://[bad",
+        accounts: {
+          work: { account: "+15555550123", httpUrl: "http://signal-work:8080" },
+          alerts: { account: "+15555550124", httpUrl: "http://signal-alerts:8080" },
+        },
+      }),
+    });
+
+    expect(result.warnings).toBeUndefined();
+    expect(result.config.channels?.signal?.transport).toBeUndefined();
+    expect(result.config.channels?.signal?.accounts?.work?.transport).toEqual({
+      kind: "container",
+      url: "http://signal-work:8080",
+    });
+    expect(result.config.channels?.signal?.accounts?.alerts?.transport).toEqual({
+      kind: "container",
+      url: "http://signal-alerts:8080",
+    });
+  });
+
   it("leaves an unreachable auto endpoint unchanged for a later doctor run", async () => {
     const cfg = signalConfig({ apiMode: "auto", httpUrl: "http://offline:8080" });
     const result = await migrateLegacySignalTransportConfig({
