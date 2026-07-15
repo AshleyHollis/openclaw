@@ -198,6 +198,16 @@ describe("signalSetupAdapter", () => {
     ).toBe("Signal --signal-transport requires --http-url.");
   });
 
+  it.each(["0", "abc", "65536"])("rejects invalid managed HTTP port %s", (httpPort) => {
+    expect(
+      signalSetupAdapter.validateInput?.({
+        cfg: {},
+        accountId: "work",
+        input: { httpPort },
+      }),
+    ).toBe("Signal --http-port must be an integer between 1 and 65535.");
+  });
+
   it("rejects a fresh container transport without a Signal account", () => {
     expect(
       signalSetupAdapter.validateInput?.({

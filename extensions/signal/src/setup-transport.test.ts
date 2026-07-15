@@ -147,6 +147,16 @@ describe("prepareSignalManagedNativeTransport", () => {
       prepareSignalManagedNativeTransport({ cfg: cfg as never, accountId: "work" }).httpPort,
     ).toBe(8081);
   });
+
+  it.each([0, Number.NaN, 65_536])("rejects invalid preferred port %s", (httpPort) => {
+    expect(() =>
+      prepareSignalManagedNativeTransport({
+        cfg: {},
+        accountId: "work",
+        overrides: { httpPort },
+      }),
+    ).toThrow("Signal managed native port must be an integer between 1 and 65535.");
+  });
 });
 
 describe("probeSignalTransport", () => {

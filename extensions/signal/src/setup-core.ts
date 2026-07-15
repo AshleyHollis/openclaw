@@ -33,6 +33,7 @@ import {
   prepareSignalManagedNativeTransport,
   writeSignalAccountTransport,
 } from "./setup-transport.js";
+import { isValidSignalManagedNativePort } from "./transport-policy.js";
 
 const t = createSetupTranslator();
 
@@ -321,6 +322,12 @@ const signalSetupAdapterBase = createPatchedAccountSetupAdapter({
       }
       if (input.signalTransport && !input.httpUrl) {
         return "Signal --signal-transport requires --http-url.";
+      }
+      if (
+        input.httpPort !== undefined &&
+        !isValidSignalManagedNativePort(Number(input.httpPort))
+      ) {
+        return "Signal --http-port must be an integer between 1 and 65535.";
       }
       if (
         input.signalTransport === "container" &&
