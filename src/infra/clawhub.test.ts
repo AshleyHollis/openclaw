@@ -1116,8 +1116,8 @@ describe("clawhub helpers", () => {
     const stalled = createStalledBodyResponse({
       firstChunk: new TextEncoder().encode("partial error"),
       headers: { "content-type": "text/plain" },
-      status: 500,
-      statusText: "Server Error",
+      status: 400,
+      statusText: "Bad Request",
     });
 
     await expect(
@@ -1126,7 +1126,7 @@ describe("clawhub helpers", () => {
         timeoutMs: 5,
         fetchImpl: async () => stalled.response,
       }),
-    ).rejects.toThrow("ClawHub /api/v1/search failed (500): Server Error");
+    ).rejects.toThrow("ClawHub /api/v1/search failed (400): Bad Request");
     expect(stalled.cancel).toHaveBeenCalledTimes(1);
     expect(stalled.cancel.mock.calls[0]?.[0]).toBeInstanceOf(Error);
   });
