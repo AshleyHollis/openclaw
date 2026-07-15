@@ -19,11 +19,10 @@ Status: official downloadable plugin.
 ## Install
 
 ```bash
-openclaw plugins install @tencent-connect/openclaw-qqbot@2.0.0
+openclaw plugins install @tencent-connect/openclaw-qqbot
 ```
 
-OpenClaw pins the Tencent package version and integrity in its official plugin
-catalog.
+OpenClaw installs the package version published under npm's `latest` tag.
 
 ## Setup
 

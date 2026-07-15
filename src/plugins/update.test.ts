@@ -4904,7 +4904,7 @@ describe("syncPluginsForUpdateChannel", () => {
         {
           bundledPluginId: "qqbot",
           pluginId: "openclaw-qqbot",
-          npmSpec: "@tencent-connect/openclaw-qqbot@2.0.0",
+          npmSpec: "@tencent-connect/openclaw-qqbot",
           channelIds: ["qqbot"],
         },
       ],
@@ -4931,7 +4931,7 @@ describe("syncPluginsForUpdateChannel", () => {
     expect(result.config.plugins?.installs?.qqbot).toBeUndefined();
     expectRecordFields(result.config.plugins?.installs?.["openclaw-qqbot"], {
       source: "npm",
-      spec: "@tencent-connect/openclaw-qqbot@2.0.0",
+      spec: "@tencent-connect/openclaw-qqbot",
       installPath: "/tmp/openclaw-plugins/openclaw-qqbot",
       version: "2.0.0",
     });

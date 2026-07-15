@@ -243,7 +243,7 @@ describe("ensureOnboardingPluginInstalled", () => {
           pluginId: "openclaw-qqbot",
           label: "QQ Bot",
           install: {
-            npmSpec: "@tencent-connect/openclaw-qqbot@2.0.0",
+            npmSpec: "@tencent-connect/openclaw-qqbot",
           },
         },
         prompter: {
@@ -257,7 +257,7 @@ describe("ensureOnboardingPluginInstalled", () => {
 
       expect(captured?.message).toBe("安装 QQ Bot 插件？");
       expect(captured?.options).toEqual([
-        { value: "npm", label: "从 npm 下载（@tencent-connect/openclaw-qqbot@2.0.0）" },
+        { value: "npm", label: "从 npm 下载（@tencent-connect/openclaw-qqbot）" },
         { value: "skip", label: "暂时跳过" },
       ]);
     } finally {
