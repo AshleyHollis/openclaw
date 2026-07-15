@@ -190,6 +190,8 @@ describe("hooks CLI process lifecycle", () => {
   it("exits after one-shot outputs when plugins leave ref'd handles", async () => {
     const fixture = await createLingeringPluginFixture();
 
+    // Both command families need real process coverage. Keep their expensive CLI
+    // bootstraps sequential so low-core shards test lifecycle, not startup contention.
     const listResult = await runHooksCli({
       args: ["hooks", "list", "--json"],
       env: {
@@ -215,5 +217,5 @@ describe("hooks CLI process lifecycle", () => {
         permissionDecisionReason: expect.any(String),
       },
     });
-  }, 20_000);
+  }, 35_000);
 });
