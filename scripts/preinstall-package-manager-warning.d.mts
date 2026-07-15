@@ -1,3 +1,4 @@
+export const PACKAGE_INSTALL_GUARD_RELATIVE_PATH: string;
 /** Checks a Node version against the standalone package engine-range subset. */
 export function nodeVersionSatisfiesPackageEngine(
   version: string | null,
@@ -12,6 +13,14 @@ export function enforceSupportedNodeRuntime(
     bunVersion?: string | null;
     engine?: string | null;
     execPath?: string | null;
+  },
+  reportError?: (...data: unknown[]) => void,
+): boolean;
+/** Removes the packed sentinel only after the runtime check succeeds. */
+export function completePackageInstallGuard(
+  options?: {
+    markerUrl?: URL;
+    remove?: (path: URL, options: { force: boolean }) => void;
   },
   reportError?: (...data: unknown[]) => void,
 ): boolean;
