@@ -202,10 +202,11 @@ export class OnePasswordBroker {
 
   private observeConfigFingerprint(fingerprint: string | null): void {
     if (this.lastConfigFingerprint !== undefined && this.lastConfigFingerprint !== fingerprint) {
-      // A reload can revoke policy or retarget a slug. Cached secrets and
-      // in-flight authorizations must not survive that ownership boundary.
+      // A reload can revoke policy or retarget a slug: drop this instance's
+      // cached secrets. Shared pending entries are NOT cleared here - that
+      // would race sibling broker instances with stale local tracking; get()
+      // rejects stale entries via their per-entry configFingerprint instead.
       this.cache.clear();
-      this.stores.pending.clear();
     }
     this.lastConfigFingerprint = fingerprint;
   }
@@ -446,9 +447,13 @@ export class OnePasswordBroker {
       slug: input.slug,
       reason: input.reason,
     };
+    // A present-but-unknown nonce means forgery, replay, or a consumed entry:
+    // fail closed. The identity fallback applies only when the nonce param was
+    // dropped entirely by another hook's params rewrite.
     const authorization =
-      (nonce ? this.stores.pending.consume(nonce) : undefined) ??
-      consumeUniquePendingAuthorization(this.stores.pending, fallbackContext);
+      nonce !== undefined
+        ? this.stores.pending.consume(nonce)
+        : consumeUniquePendingAuthorization(this.stores.pending, fallbackContext);
     if (
       !authorization ||
       authorization.slug !== input.slug ||

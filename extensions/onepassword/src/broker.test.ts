@@ -381,7 +381,8 @@ describe("OnePasswordBroker validation and policy", () => {
       ),
     ).rejects.toMatchObject({ code: "POLICY_NOT_EVALUATED" });
 
-    // The hook always overwrites a model-supplied nonce with its own.
+    // The hook always overwrites a model-supplied nonce with its own, and a
+    // present-but-unknown nonce never falls back to the identity match.
     const result = await before(broker, "call-1", {
       action: "get",
       slug: "automatic",
@@ -391,6 +392,14 @@ describe("OnePasswordBroker validation and policy", () => {
     const issuedNonce = nonceOf(result);
     expect(issuedNonce).toBeDefined();
     expect(issuedNonce).not.toBe("attacker-nonce");
+    await expect(
+      broker.get(
+        "call-1",
+        { action: "get", slug: "automatic", reason: "reject forged correlation" },
+        invocation,
+        "attacker-nonce",
+      ),
+    ).rejects.toMatchObject({ code: "POLICY_NOT_EVALUATED" });
     await expect(
       broker.get(
         "call-1",
