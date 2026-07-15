@@ -547,6 +547,7 @@ export async function applyClawRemovePlan(
   options: OpenClawStateDatabaseOptions & {
     config?: OpenClawConfig;
     commitConfig?: ConfigCommit;
+    deleteAgent?: (agentId: string) => Promise<void>;
     packageDeps?: PackageRemovalDeps;
     consentPlanIntegrity?: string;
     cronGateway?: Pick<ClawCronGateway, "remove">;
@@ -622,6 +623,7 @@ export async function applyClawRemovePlan(
         action: "error",
         message,
       });
+      updateClawInstallRecordStatus(agentId, "partial", options);
       return {
         schemaVersion: CLAW_REMOVE_RESULT_SCHEMA_VERSION,
         stability: CLAW_OUTPUT_STABILITY,
@@ -664,7 +666,28 @@ export async function applyClawRemovePlan(
   }
   let committedDelete: Awaited<ReturnType<typeof deleteAgentConfigEntry>>["result"] | undefined;
   let committedNextConfig: OpenClawConfig | undefined;
-  if (options.commitConfig) {
+  if (record.agentState === "present" && options.deleteAgent) {
+    try {
+      await options.deleteAgent(agentId);
+      agentRemoved = true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      updateClawInstallRecordStatus(agentId, "partial", options);
+      return {
+        schemaVersion: CLAW_REMOVE_RESULT_SCHEMA_VERSION,
+        stability: CLAW_OUTPUT_STABILITY,
+        dryRun: false,
+        status: "partial",
+        agentId,
+        agentRemoved: false,
+        workspaceFiles: [],
+        packages,
+        cronJobs,
+        packageRefsReleased: 0,
+        error: { code: "agent_cleanup_failed", message },
+      };
+    }
+  } else if (options.commitConfig) {
     await options.commitConfig((config) => {
       const deleteEffects = deletionEffects(config, agentId);
       const agents = config.agents?.list ?? [];
