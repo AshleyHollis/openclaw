@@ -156,6 +156,63 @@ describe("prepareSignalManagedNativeTransport", () => {
     });
   });
 
+  it("keeps an existing managed connection URL aligned with bind overrides", () => {
+    const cfg = {
+      channels: {
+        signal: {
+          account: "+15555550123",
+          transport: {
+            kind: "managed-native",
+            url: "http://127.0.0.2:8080",
+            httpHost: "127.0.0.2",
+            httpPort: 8080,
+          },
+        },
+      },
+    } as const;
+
+    expect(
+      prepareSignalManagedNativeTransport({
+        cfg: cfg as never,
+        accountId: "default",
+        overrides: { httpHost: "127.0.0.3", httpPort: 8181 },
+      }),
+    ).toEqual({
+      kind: "managed-native",
+      url: "http://127.0.0.3:8181",
+      httpHost: "127.0.0.3",
+      httpPort: 8181,
+    });
+  });
+
+  it("uses IPv6 loopback when an aligned endpoint moves to the IPv6 wildcard bind", () => {
+    const cfg = {
+      channels: {
+        signal: {
+          transport: {
+            kind: "managed-native",
+            url: "http://127.0.0.1:8080",
+            httpHost: "127.0.0.1",
+            httpPort: 8080,
+          },
+        },
+      },
+    } as const;
+
+    expect(
+      prepareSignalManagedNativeTransport({
+        cfg: cfg as never,
+        accountId: "default",
+        overrides: { httpHost: "::" },
+      }),
+    ).toEqual({
+      kind: "managed-native",
+      url: "http://[::1]:8080",
+      httpHost: "::",
+      httpPort: 8080,
+    });
+  });
+
   it("reserves ports used by enabled local external transports", () => {
     const cfg = {
       channels: {

@@ -16,6 +16,7 @@ import {
   allocateSignalManagedNativePort,
   assignSignalManagedNativePort,
   DEFAULT_SIGNAL_MANAGED_NATIVE_HOST,
+  isSignalManagedNativeConnectionUrlForBind,
   resolveLocalSignalTransportPort,
 } from "./transport-policy.js";
 import { normalizeSignalTransportUrl } from "./transport-url.js";
@@ -51,6 +52,38 @@ function configuredTransportForAccount(
   return accountId === DEFAULT_ACCOUNT_ID
     ? signal?.transport
     : signal?.accounts?.[accountId]?.transport;
+}
+
+function alignManagedConnectionUrlAfterBindChange(params: {
+  existing: SignalManagedNativeTransport | undefined;
+  prepared: SignalManagedNativeTransport;
+  httpPort: number;
+  hasUrlOverride: boolean;
+}): SignalManagedNativeTransport {
+  if (
+    params.hasUrlOverride ||
+    !params.existing?.url ||
+    !isSignalManagedNativeConnectionUrlForBind(params.existing)
+  ) {
+    return assignSignalManagedNativePort(params.prepared, params.httpPort);
+  }
+
+  const connectionUrl = new URL(params.existing.url);
+  connectionUrl.port = String(params.httpPort);
+  const alignedPortUrl = normalizeSignalTransportUrl(connectionUrl.toString());
+  const next = { ...params.prepared, url: alignedPortUrl, httpPort: params.httpPort };
+  if (isSignalManagedNativeConnectionUrlForBind(next)) {
+    return next;
+  }
+
+  const bindHost = params.prepared.httpHost ?? DEFAULT_SIGNAL_MANAGED_NATIVE_HOST;
+  const connectionHost =
+    bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost === "::" ? "::1" : bindHost;
+  connectionUrl.hostname = connectionHost.includes(":") ? `[${connectionHost}]` : connectionHost;
+  return {
+    ...next,
+    url: normalizeSignalTransportUrl(connectionUrl.toString()),
+  };
 }
 
 export function prepareSignalManagedNativeTransport(params: {
@@ -93,8 +126,13 @@ export function prepareSignalManagedNativeTransport(params: {
       params.overrides?.httpHost ?? existingManaged?.httpHost ?? DEFAULT_SIGNAL_MANAGED_NATIVE_HOST,
   };
   // A managed connection URL that points at the daemon's bind is one endpoint.
-  // Keep both ports aligned when setup reallocates the bind around another account.
-  return assignSignalManagedNativePort(prepared, httpPort);
+  // Keep its connection endpoint aligned when setup changes or reallocates the bind.
+  return alignManagedConnectionUrlAfterBindChange({
+    existing: existingManaged,
+    prepared,
+    httpPort,
+    hasUrlOverride: params.overrides?.url !== undefined,
+  });
 }
 
 export async function probeSignalTransport(params: {

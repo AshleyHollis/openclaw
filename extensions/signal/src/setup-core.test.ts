@@ -101,6 +101,34 @@ describe("signalSetupAdapter", () => {
     expect(next?.channels?.signal?.accounts?.default).not.toHaveProperty("transport");
   });
 
+  it("keeps the canonical root transport during a default account-only update", () => {
+    const cfg: OpenClawConfig = {
+      channels: {
+        signal: {
+          transport: { kind: "external-native", url: "http://canonical-signal:8080" },
+          accounts: {
+            default: {
+              account: "+15555550124",
+              transport: { kind: "container", url: "http://stale-container:8080" },
+            },
+          },
+        },
+      },
+    };
+
+    const next = signalSetupAdapter.applyAccountConfig?.({
+      cfg,
+      accountId: "default",
+      input: { signalNumber: "+15555550125" },
+    });
+
+    expect(next?.channels?.signal?.transport).toEqual({
+      kind: "external-native",
+      url: "http://canonical-signal:8080",
+    });
+    expect(next?.channels?.signal?.accounts?.default).not.toHaveProperty("transport");
+  });
+
   it("stores an explicitly selected container endpoint", () => {
     const next = signalSetupAdapter.applyAccountConfig?.({
       cfg: {},

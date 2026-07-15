@@ -354,6 +354,7 @@ export const signalSetupAdapter: ChannelSetupAdapter = {
     await prepareSignalSetupInput({ cfg, accountId, input }),
   applyAccountConfig: (params) => {
     const accountId = normalizeAccountId(params.accountId);
+    const rootTransport = params.cfg.channels?.signal?.transport;
     const nestedDefaultTransport =
       accountId === DEFAULT_ACCOUNT_ID
         ? resolveAccountEntry(params.cfg.channels?.signal?.accounts, DEFAULT_ACCOUNT_ID)?.transport
@@ -362,7 +363,9 @@ export const signalSetupAdapter: ChannelSetupAdapter = {
       ? writeSignalAccountTransport({
           cfg: params.cfg,
           accountId,
-          transport: nestedDefaultTransport,
+          // The root owns the default account. A nested copy is promoted only when
+          // no canonical root exists; otherwise this write merely removes the stale copy.
+          transport: rootTransport ?? nestedDefaultTransport,
         })
       : params.cfg;
     const previousTransport = resolveSignalAccount({
