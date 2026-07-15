@@ -145,6 +145,8 @@ type ReadOnlyChannelPluginOptions = {
   activationSourceConfig?: OpenClawConfig;
   includePersistedAuthState?: boolean;
   includeSetupFallbackPlugins?: boolean;
+  scopedChannelIds?: readonly string[];
+  includeDisabledPluginOwners?: boolean;
 };
 
 type ReadOnlyChannelPluginResolution = {
@@ -226,6 +228,8 @@ function resolveReadOnlyChannelPluginResolutionCacheKey(params: {
     `state:${params.options.stateDir ?? ""}`,
     `workspace:${params.workspaceDir}`,
     `setup:${params.options.includeSetupFallbackPlugins === true}`,
+    `scope:${params.options.scopedChannelIds?.join(",") ?? ""}`,
+    `disabled-owners:${params.options.includeDisabledPluginOwners === true}`,
   ].join("\0");
 }
 
@@ -871,6 +875,43 @@ function resolveExternalReadOnlyChannelPluginIds(params: {
     .toSorted((left, right) => left.localeCompare(right));
 }
 
+function resolveMaintenanceActivationSourceConfig(params: {
+  config: OpenClawConfig;
+  records: readonly PluginManifestRecord[];
+  channelIds: readonly string[];
+}): OpenClawConfig {
+  const requestedChannelIds = new Set(params.channelIds);
+  const entries = { ...params.config.plugins?.entries };
+  for (const record of params.records) {
+    if (
+      (record.origin !== "config" && record.origin !== "global") ||
+      !record.channels.some((channelId) => requestedChannelIds.has(channelId))
+    ) {
+      continue;
+    }
+    const entry = entries[record.id];
+    if (entry?.enabled === false) {
+      entries[record.id] = { ...entry, enabled: true };
+    }
+  }
+  const channels = { ...params.config.channels } as Record<string, unknown>;
+  for (const channelId of requestedChannelIds) {
+    const channel = channels[channelId];
+    if (channel && typeof channel === "object" && !Array.isArray(channel)) {
+      channels[channelId] = { ...channel, enabled: true };
+    }
+  }
+  return {
+    ...params.config,
+    channels,
+    plugins: {
+      ...params.config.plugins,
+      enabled: true,
+      entries,
+    },
+  };
+}
+
 export function listReadOnlyChannelPluginsForConfig(
   cfg: OpenClawConfig,
   options?: ReadOnlyChannelPluginOptions,
@@ -925,7 +966,18 @@ export function resolveReadOnlyChannelPluginsForConfig(
           includePersistedAuthState: options.includePersistedAuthState,
           manifestRecords,
         })),
+    ...(options.scopedChannelIds ?? []),
   ]).filter(isSafeManifestChannelId);
+  // Doctor cleanup must import the setup entry for an explicitly scoped installed owner even
+  // while that owner is disabled. The derived activation source retains deny/allow and trust
+  // policy, and never enables workspace plugins or changes the persisted configuration.
+  const discoveryActivationSourceConfig = options.includeDisabledPluginOwners
+    ? resolveMaintenanceActivationSourceConfig({
+        config: activationSourceConfig,
+        records: externalManifestRecords,
+        channelIds: configuredChannelIds,
+      })
+    : activationSourceConfig;
   const byId = new Map<string, ChannelPlugin>();
   const loadFailures: ReadOnlyChannelPluginLoadFailure[] = [];
 
@@ -970,8 +1022,8 @@ export function resolveReadOnlyChannelPluginsForConfig(
     (channelId) => !byId.has(channelId),
   );
   const externalPluginIds = resolveExternalReadOnlyChannelPluginIds({
-    cfg,
-    activationSourceConfig: options.activationSourceConfig ?? cfg,
+    cfg: options.includeDisabledPluginOwners ? discoveryActivationSourceConfig : cfg,
+    activationSourceConfig: discoveryActivationSourceConfig,
     channelIds: missingConfiguredChannelIds,
     records: externalManifestRecords,
     workspaceDir,
@@ -997,7 +1049,7 @@ export function resolveReadOnlyChannelPluginsForConfig(
       );
       const registry = loadPluginLoaderModule().loadOpenClawPlugins({
         config: cfg,
-        activationSourceConfig: options.activationSourceConfig ?? cfg,
+        activationSourceConfig: discoveryActivationSourceConfig,
         env,
         workspaceDir,
         cache: false,

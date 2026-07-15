@@ -1236,6 +1236,69 @@ describe("listReadOnlyChannelPluginsForConfig", () => {
     expect(fs.existsSync(fullMarker)).toBe(false);
   });
 
+  it("loads explicitly scoped disabled external owners for maintenance", () => {
+    const { pluginDir, fullMarker, setupMarker } = writeExternalSetupChannelPlugin({
+      pluginId: "external-chat-plugin",
+      channelId: "external-chat",
+    });
+    const plugins = listReadOnlyChannelPluginsForConfig(
+      {
+        channels: {
+          "external-chat": { enabled: false, legacyMode: "auto" },
+        },
+        plugins: {
+          load: { paths: [pluginDir] },
+          entries: {
+            "external-chat-plugin": { enabled: false },
+          },
+        },
+      } as never,
+      {
+        env: { ...process.env },
+        includePersistedAuthState: false,
+        includeSetupFallbackPlugins: true,
+        scopedChannelIds: ["external-chat"],
+        includeDisabledPluginOwners: true,
+      },
+    );
+
+    expect(pluginIds(plugins)).toContain("external-chat");
+    expect(fs.existsSync(setupMarker)).toBe(true);
+    expect(fs.existsSync(fullMarker)).toBe(false);
+  });
+
+  it("keeps explicitly scoped disabled external owners blocked by the denylist", () => {
+    const { pluginDir, fullMarker, setupMarker } = writeExternalSetupChannelPlugin({
+      pluginId: "external-chat-plugin",
+      channelId: "external-chat",
+    });
+    const plugins = listReadOnlyChannelPluginsForConfig(
+      {
+        channels: {
+          "external-chat": { enabled: false, legacyMode: "auto" },
+        },
+        plugins: {
+          load: { paths: [pluginDir] },
+          deny: ["external-chat-plugin"],
+          entries: {
+            "external-chat-plugin": { enabled: false },
+          },
+        },
+      } as never,
+      {
+        env: { ...process.env },
+        includePersistedAuthState: false,
+        includeSetupFallbackPlugins: true,
+        scopedChannelIds: ["external-chat"],
+        includeDisabledPluginOwners: true,
+      },
+    );
+
+    expect(pluginIds(plugins)).not.toContain("external-chat");
+    expect(fs.existsSync(setupMarker)).toBe(false);
+    expect(fs.existsSync(fullMarker)).toBe(false);
+  });
+
   it("does not promote disabled bundled channels from ambient env", () => {
     const { channelId, envVar, fullMarker, setupMarker } = writeBundledSetupChannelPlugin();
     const plugins = listReadOnlyChannelPluginsForConfig(

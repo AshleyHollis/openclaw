@@ -138,12 +138,17 @@ function safeGetBundledChannelPlugin(id: string) {
   }
 }
 
-function safeListReadOnlyChannelPlugins(context: ChannelDoctorLookupContext) {
+function safeListReadOnlyChannelPlugins(
+  context: ChannelDoctorLookupContext,
+  options: { channelIds?: readonly string[]; includeDisabled?: boolean } = {},
+) {
   try {
     return resolveReadOnlyChannelPluginsForConfig(context.cfg, {
       ...(context.env ? { env: context.env } : {}),
       includePersistedAuthState: false,
       includeSetupFallbackPlugins: true,
+      ...(options.channelIds ? { scopedChannelIds: options.channelIds } : {}),
+      ...(options.includeDisabled ? { includeDisabledPluginOwners: true } : {}),
     }).plugins;
   } catch {
     return [];
@@ -152,8 +157,11 @@ function safeListReadOnlyChannelPlugins(context: ChannelDoctorLookupContext) {
 
 function listReadOnlyChannelPluginsById(
   context: ChannelDoctorLookupContext,
+  options: { channelIds?: readonly string[]; includeDisabled?: boolean } = {},
 ): Map<string, ChannelDoctorPluginCandidate> {
-  return new Map(safeListReadOnlyChannelPlugins(context).map((plugin) => [plugin.id, plugin]));
+  return new Map(
+    safeListReadOnlyChannelPlugins(context, options).map((plugin) => [plugin.id, plugin]),
+  );
 }
 
 function mergeDoctorAdapters(
@@ -223,7 +231,11 @@ function listChannelDoctorEntries(
     return [];
   }
   const readOnlyPluginsById =
-    options.readOnlyPluginsById ?? listReadOnlyChannelPluginsById(context);
+    options.readOnlyPluginsById ??
+    listReadOnlyChannelPluginsById(context, {
+      ...(options.includeDisabled ? { channelIds: [...selectedIds] } : {}),
+      includeDisabled: options.includeDisabled,
+    });
 
   const entries: ChannelDoctorEntry[] = [];
   for (const id of selectedIds) {

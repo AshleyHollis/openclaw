@@ -22,6 +22,12 @@ const READ_ONLY_CHANNEL_DOCTOR_OPTIONS = {
   includeSetupFallbackPlugins: true,
 } as const;
 
+const READ_ONLY_DISABLED_CHANNEL_DOCTOR_OPTIONS = {
+  ...READ_ONLY_CHANNEL_DOCTOR_OPTIONS,
+  scopedChannelIds: ["signal"],
+  includeDisabledPluginOwners: true,
+} as const;
+
 vi.mock("../../../channels/plugins/registry.js", () => ({
   getLoadedChannelPlugin: (...args: Parameters<typeof mocks.getLoadedChannelPlugin>) =>
     mocks.getLoadedChannelPlugin(...args),
@@ -197,6 +203,10 @@ describe("channel doctor compatibility mutations", () => {
 
     expect(result).toHaveLength(1);
     expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(mocks.resolveReadOnlyChannelPluginsForConfig).toHaveBeenCalledWith(
+      expect.anything(),
+      READ_ONLY_DISABLED_CHANNEL_DOCTOR_OPTIONS,
+    );
   });
 
   it("keeps stale config warnings when cleanup cannot mutate config", async () => {
