@@ -37,6 +37,7 @@ import {
   deleteClawMcpServerRef,
   digestClawMcpServer,
   planClawMcpServerRemoval,
+  readClawMcpServerRefs,
   reconcileClawMcpServerRefs,
   type PersistedClawMcpServerRef,
 } from "./mcp.js";
@@ -289,9 +290,10 @@ export async function readClawStatus(
           inspectClawPackage(install, packageRef, options.packageDeps),
         ),
       ),
-      mcpServers: reconcileClawMcpServerRefs(install.agentId, configuredMcpServers, options).map(
-        (ref) => inspectMcpServer(ref, configuredMcpServers),
-      ),
+      mcpServers: (options.readOnly
+        ? readClawMcpServerRefs(install.agentId, options)
+        : reconcileClawMcpServerRefs(install.agentId, configuredMcpServers, options)
+      ).map((ref) => inspectMcpServer(ref, configuredMcpServers)),
       cronJobs: readClawCronRefs(install.agentId, options),
     });
   }
