@@ -26,6 +26,13 @@ export type SignalManagedNativeTransport = Extract<
   { kind: "managed-native" }
 >;
 
+function managedTransportOptions(
+  transport: SignalManagedNativeTransport,
+): Omit<SignalManagedNativeTransport, "kind"> {
+  const { kind: _kind, ...options } = transport;
+  return options;
+}
+
 function normalizeTransport(transport: SignalTransportConfig): SignalTransportConfig {
   if (transport.kind === "managed-native") {
     return transport.url
@@ -88,6 +95,8 @@ export function prepareSignalManagedNativeTransport(params: {
 }
 
 export async function probeSignalTransport(params: {
+  cfg: OpenClawConfig;
+  accountId: string;
   transport: SignalTransportConfig;
   account?: string;
   timeoutMs?: number;
@@ -95,7 +104,15 @@ export async function probeSignalTransport(params: {
   probeContainer?: SignalContainerTransportProbe;
 }): Promise<SignalTransportProbeResult> {
   const timeoutMs = params.timeoutMs ?? 10_000;
-  const resolved = resolveSignalTransport(params.transport);
+  const transport =
+    params.transport.kind === "managed-native"
+      ? prepareSignalManagedNativeTransport({
+          cfg: params.cfg,
+          accountId: params.accountId,
+          overrides: managedTransportOptions(params.transport),
+        })
+      : params.transport;
+  const resolved = resolveSignalTransport(transport);
   if (resolved.kind === "container") {
     const probeContainer =
       params.probeContainer ?? (await import("./transport-probes.runtime.js")).containerCheck;

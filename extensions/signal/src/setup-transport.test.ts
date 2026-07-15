@@ -190,6 +190,8 @@ describe("probeSignalTransport", () => {
 
     await expect(
       probeSignalTransport({
+        cfg: {},
+        accountId: "default",
         transport: { kind: "container", url: "http://signal:8080" },
         account: "+15555550123",
         probeNative,
@@ -198,6 +200,29 @@ describe("probeSignalTransport", () => {
     ).resolves.toEqual({ ok: true });
     expect(probeNative).not.toHaveBeenCalled();
     expect(probeContainer).toHaveBeenCalledWith("http://signal:8080", 10_000, "+15555550123");
+  });
+
+  it("probes the allocated port for an implicit managed account transport", async () => {
+    const probeNative = vi.fn().mockResolvedValue({ ok: true });
+    const cfg = {
+      channels: {
+        signal: {
+          account: "+15555550123",
+          transport: { kind: "managed-native", httpPort: 8080 },
+          accounts: { work: { account: "+15555550124" } },
+        },
+      },
+    } as const;
+
+    await expect(
+      probeSignalTransport({
+        cfg: cfg as never,
+        accountId: "work",
+        transport: { kind: "managed-native" },
+        probeNative,
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(probeNative).toHaveBeenCalledWith("http://127.0.0.1:8081", 10_000);
   });
 });
 
