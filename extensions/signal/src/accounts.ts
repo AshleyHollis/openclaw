@@ -12,7 +12,9 @@ import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runti
 import type { SignalAccountConfig, SignalTransportConfig } from "./account-types.js";
 import {
   allocateSignalManagedNativePort,
+  assignSignalManagedNativePort,
   DEFAULT_SIGNAL_MANAGED_NATIVE_PORT,
+  isSignalManagedNativeConnectionUrlForBind,
   resolveLocalSignalTransportPort,
 } from "./transport-policy.js";
 
@@ -105,7 +107,7 @@ function resolveSignalManagedNativePort(params: {
       } else {
         implicitManagedAccountIds.push(accountId);
       }
-      if (transport.url) {
+      if (transport.url && !isSignalManagedNativeConnectionUrlForBind(transport)) {
         const localConnectionPort = resolveLocalSignalTransportPort(transport.url);
         if (localConnectionPort !== undefined) {
           reservedPorts.add(localConnectionPort);
@@ -137,21 +139,25 @@ export function resolveSignalTransport(
     };
   }
 
-  const httpHost = normalizeOptionalString(transport?.httpHost) ?? "127.0.0.1";
-  const httpPort = transport?.httpPort ?? managedNativePort;
-  const configPath = normalizeOptionalString(transport?.configPath);
-  const connectionUrl = normalizeOptionalString(transport?.url);
+  const managedTransport =
+    transport?.kind === "managed-native"
+      ? assignSignalManagedNativePort(transport, transport.httpPort ?? managedNativePort)
+      : transport;
+  const httpHost = normalizeOptionalString(managedTransport?.httpHost) ?? "127.0.0.1";
+  const httpPort = managedTransport?.httpPort ?? managedNativePort;
+  const configPath = normalizeOptionalString(managedTransport?.configPath);
+  const connectionUrl = normalizeOptionalString(managedTransport?.url);
   return {
     kind: "managed-native",
     baseUrl: connectionUrl ?? `http://${httpHost}:${httpPort}`,
-    cliPath: normalizeOptionalString(transport?.cliPath) ?? "signal-cli",
+    cliPath: normalizeOptionalString(managedTransport?.cliPath) ?? "signal-cli",
     ...(configPath ? { configPath } : {}),
     httpHost,
     httpPort,
-    startupTimeoutMs: transport?.startupTimeoutMs ?? 30_000,
-    ...(transport?.receiveMode ? { receiveMode: transport.receiveMode } : {}),
-    ...(typeof transport?.ignoreStories === "boolean"
-      ? { ignoreStories: transport.ignoreStories }
+    startupTimeoutMs: managedTransport?.startupTimeoutMs ?? 30_000,
+    ...(managedTransport?.receiveMode ? { receiveMode: managedTransport.receiveMode } : {}),
+    ...(typeof managedTransport?.ignoreStories === "boolean"
+      ? { ignoreStories: managedTransport.ignoreStories }
       : {}),
   };
 }

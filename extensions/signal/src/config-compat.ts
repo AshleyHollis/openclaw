@@ -5,7 +5,9 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import type { SignalTransportConfig } from "./account-types.js";
 import {
   allocateSignalManagedNativePort,
+  assignSignalManagedNativePort,
   DEFAULT_SIGNAL_MANAGED_NATIVE_PORT,
+  isSignalManagedNativeConnectionUrlForBind,
   isValidSignalManagedNativePort,
   resolveLocalSignalTransportPort,
 } from "./transport-policy.js";
@@ -348,7 +350,7 @@ function allocateMigratedManagedPorts(params: {
       }
       continue;
     }
-    if (transport.url) {
+    if (transport.url && !isSignalManagedNativeConnectionUrlForBind(transport)) {
       const localConnectionPort = resolveLocalSignalTransportPort(transport.url);
       if (localConnectionPort !== undefined) {
         reservedPorts.add(localConnectionPort);
@@ -377,7 +379,7 @@ function allocateMigratedManagedPorts(params: {
       ...(typeof preferredPort === "number" ? { preferredPort } : {}),
     });
     reservedPorts.add(httpPort);
-    return { ...transport, httpPort };
+    return assignSignalManagedNativePort(transport, httpPort);
   });
 }
 

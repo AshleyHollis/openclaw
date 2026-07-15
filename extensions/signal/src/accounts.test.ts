@@ -44,6 +44,52 @@ describe("resolveSignalAccount", () => {
     });
   });
 
+  it("does not reserve a managed transport's own implicit connection endpoint", () => {
+    const resolved = resolveSignalAccount({
+      cfg: {
+        channels: {
+          signal: {
+            transport: {
+              kind: "managed-native",
+              url: "http://127.0.0.1:8080",
+              httpHost: "0.0.0.0",
+            },
+          },
+        },
+      } as never,
+    });
+
+    expect(resolved.transport).toMatchObject({
+      kind: "managed-native",
+      baseUrl: "http://127.0.0.1:8080",
+      httpHost: "0.0.0.0",
+      httpPort: 8080,
+    });
+  });
+
+  it("preserves a same-port connection URL on a different specific bind address", () => {
+    const resolved = resolveSignalAccount({
+      cfg: {
+        channels: {
+          signal: {
+            transport: {
+              kind: "managed-native",
+              url: "http://127.0.0.1:8080",
+              httpHost: "127.0.0.2",
+            },
+          },
+        },
+      } as never,
+    });
+
+    expect(resolved.transport).toMatchObject({
+      kind: "managed-native",
+      baseUrl: "http://127.0.0.1:8080",
+      httpHost: "127.0.0.2",
+      httpPort: 8081,
+    });
+  });
+
   it("does not inherit the default account transport into named accounts", () => {
     const cfg = {
       channels: {
@@ -110,6 +156,33 @@ describe("resolveSignalAccount", () => {
     });
     expect(resolveSignalAccount({ cfg, accountId: "work" }).transport).toMatchObject({
       kind: "managed-native",
+      httpPort: 8081,
+    });
+  });
+
+  it("keeps an implicit managed connection URL aligned with its allocated bind", () => {
+    const cfg = {
+      channels: {
+        signal: {
+          transport: { kind: "managed-native", httpPort: 8080 },
+          accounts: {
+            work: {
+              account: "+15555550124",
+              transport: {
+                kind: "managed-native",
+                url: "http://127.0.0.1:8080",
+                httpHost: "0.0.0.0",
+              },
+            },
+          },
+        },
+      },
+    } as never;
+
+    expect(resolveSignalAccount({ cfg, accountId: "work" }).transport).toMatchObject({
+      kind: "managed-native",
+      baseUrl: "http://127.0.0.1:8081",
+      httpHost: "0.0.0.0",
       httpPort: 8081,
     });
   });

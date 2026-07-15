@@ -270,6 +270,31 @@ describe("signal transport compatibility", () => {
     });
   });
 
+  it("keeps migrated managed connection URLs aligned with reassigned bind ports", () => {
+    const result = normalizeCompatibilityConfig({
+      cfg: signalConfig({
+        apiMode: "native",
+        autoStart: true,
+        account: "+15555550123",
+        httpHost: "0.0.0.0",
+        httpPort: 8080,
+        httpUrl: "http://127.0.0.1:8080",
+        accounts: { work: { account: "+15555550124" } },
+      }),
+    });
+
+    expect(result.config.channels?.signal?.transport).toMatchObject({
+      kind: "managed-native",
+      url: "http://127.0.0.1:8080",
+      httpPort: 8080,
+    });
+    expect(result.config.channels?.signal?.accounts?.work?.transport).toMatchObject({
+      kind: "managed-native",
+      url: "http://127.0.0.1:8081",
+      httpPort: 8081,
+    });
+  });
+
   it("reserves managed bind and local connection ports during migration", () => {
     const result = normalizeCompatibilityConfig({
       cfg: signalConfig({
@@ -290,6 +315,7 @@ describe("signal transport compatibility", () => {
     });
     expect(result.config.channels?.signal?.accounts?.work?.transport).toMatchObject({
       kind: "managed-native",
+      url: "http://localhost:8080",
       httpPort: 8081,
     });
   });
