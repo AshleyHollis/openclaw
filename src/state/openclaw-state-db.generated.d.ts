@@ -205,6 +205,19 @@ export interface ChannelPairingRequests {
   request_id: string;
 }
 
+export interface ClawCronRefs {
+  agent_id: string;
+  created_at_ms: number;
+  declaration_key: string;
+  error: string | null;
+  job_json: string;
+  manifest_id: string;
+  scheduler_job_id: string | null;
+  schema_version: string;
+  status: string;
+  updated_at_ms: number;
+}
+
 export interface ClawInstalls {
   added_at_ms: number;
   agent_config_digest: string;
@@ -225,9 +238,11 @@ export interface ClawPackageRefs {
   agent_id: string;
   claw_name: string;
   installed_at_ms: number;
+  ownership: string;
   package_kind: string;
   package_ref: string;
   package_source: string;
+  package_status: string;
   package_version: string;
   schema_version: string;
 }
@@ -1070,6 +1085,7 @@ export interface DB {
   channel_ingress_events: ChannelIngressEvents;
   channel_pairing_allow_entries: ChannelPairingAllowEntries;
   channel_pairing_requests: ChannelPairingRequests;
+  claw_cron_refs: ClawCronRefs;
   claw_installs: ClawInstalls;
   claw_package_refs: ClawPackageRefs;
   clawhub_promotion_claims: ClawhubPromotionClaims;

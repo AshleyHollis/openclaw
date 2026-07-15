@@ -214,6 +214,8 @@ export async function runClawsAddCommand(
       runtime: opts.json ? { ...runtime, log: () => undefined } : runtime,
       cronGateway: {
         add: async (input) => await callGatewayFromCli("cron.add", {}, input),
+        list: async (agentId) =>
+          await callGatewayFromCli("cron.list", {}, { agentId, includeDisabled: true }),
       },
     });
   } catch (error) {
@@ -303,7 +305,14 @@ export async function runClawsRemoveCommand(
     return;
   }
   try {
-    const result = await applyClawRemovePlan(plan);
+    const result = await applyClawRemovePlan(plan, {
+      deleteAgent: async (agentId) => {
+        await callGatewayFromCli("agents.delete", {}, { agentId, deleteFiles: false });
+      },
+      cronGateway: {
+        remove: async (id) => await callGatewayFromCli("cron.remove", {}, { id }),
+      },
+    });
     if (opts.json) {
       writeRuntimeJson(runtime, result);
     } else {
