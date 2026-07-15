@@ -6,18 +6,13 @@ import os from "node:os";
 import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
 import { Command } from "commander";
-import * as tar from "tar";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  PACKAGE_INSTALL_GUARD_RELATIVE_PATH,
-  writePackageDistInventory,
-} from "../../scripts/lib/package-dist-inventory.ts";
+import { writePackageDistInventory } from "../../scripts/lib/package-dist-inventory.ts";
 import { TEST_BUNDLED_RUNTIME_SIDECAR_PATHS } from "../../test/helpers/bundled-runtime-sidecars.js";
 import type { OpenClawConfig, ConfigFileSnapshot } from "../config/types.openclaw.js";
 import type { PluginInstallRecord } from "../config/types.plugins.js";
 import { GATEWAY_SERVICE_RUNTIME_PID_ENV } from "../daemon/constants.js";
 import type { ClawHubRiskAcknowledgementRequest } from "../infra/clawhub-install-trust.js";
-import { pinGitPackageInstallSpec } from "../infra/package-manager-install-policy.js";
 import { isBetaTag } from "../infra/update-channels.js";
 import {
   createDeferredConfiguredPluginRepairDoctorResult,
@@ -80,7 +75,6 @@ const restartHealthTestControl = vi.hoisted(() => ({
   snapshot: undefined as unknown,
 }));
 const nodeVersionSatisfiesEngine = vi.fn();
-const TEST_GIT_COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const execFile = vi.fn((...args: unknown[]) => {
   const callback = args.at(-1);
   if (typeof callback === "function") {
@@ -95,131 +89,6 @@ const serviceEnvSnapshot = captureEnv([
   "OPENCLAW_SERVICE_KIND",
   GATEWAY_SERVICE_RUNTIME_PID_ENV,
 ]);
-
-async function writeStagedPackageInstallGuard(packageRoot: string): Promise<void> {
-  const manifestPath = path.join(packageRoot, "package.json");
-  const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8")) as Record<string, unknown>;
-  manifest.engines = { node: ">=0.0.0" };
-  manifest.scripts = {
-    preinstall: "node scripts/preinstall-package-manager-warning.mjs",
-    postinstall: "node scripts/postinstall-bundled-plugins.mjs",
-  };
-  await fs.writeFile(manifestPath, JSON.stringify(manifest), "utf8");
-  const preinstallPath = path.join(
-    packageRoot,
-    "scripts",
-    "preinstall-package-manager-warning.mjs",
-  );
-  const postinstallPath = path.join(packageRoot, "scripts", "postinstall-bundled-plugins.mjs");
-  await Promise.all([
-    fs.mkdir(path.dirname(postinstallPath), { recursive: true }),
-    fs.mkdir(path.dirname(path.join(packageRoot, PACKAGE_INSTALL_GUARD_RELATIVE_PATH)), {
-      recursive: true,
-    }),
-  ]);
-  await fs.writeFile(preinstallPath, "// test preinstall\n", "utf8");
-  await fs.writeFile(postinstallPath, "// test postinstall\n", "utf8");
-  await fs.writeFile(
-    path.join(packageRoot, PACKAGE_INSTALL_GUARD_RELATIVE_PATH),
-    "preinstall incomplete\n",
-    "utf8",
-  );
-  await writePackageDistInventory(packageRoot);
-}
-
-async function writePackedPackageCandidate(packDir: string, version = "9999.0.0"): Promise<string> {
-  const packageRoot = path.join(packDir, "package");
-  await fs.mkdir(packageRoot, { recursive: true });
-  await fs.writeFile(
-    path.join(packageRoot, "package.json"),
-    JSON.stringify({ name: "openclaw", version }),
-    "utf8",
-  );
-  await writeStagedPackageInstallGuard(packageRoot);
-  const tarballPath = path.join(packDir, `openclaw-${version}.tgz`);
-  await tar.c({ cwd: packDir, file: tarballPath, gzip: true }, ["package"]);
-  return tarballPath;
-}
-
-function npmCommandArgs(argv: string[]): string[] | null {
-  const command = (argv[0] ?? "").replaceAll("\\", "/");
-  if (/^npm(?:\.cmd)?$/iu.test(command.split("/").at(-1) ?? "")) {
-    return argv.slice(1);
-  }
-  const cli = (argv[1] ?? "").replaceAll("\\", "/");
-  return cli.split("/").at(-1) === "npm-cli.js" ? argv.slice(2) : null;
-}
-
-function isNpmCommand(argv: string[]): boolean {
-  return npmCommandArgs(argv) !== null;
-}
-
-function exactVersionFromPackageSpec(spec: string | undefined): string | null {
-  const match = spec?.match(/@v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/u);
-  return match?.[1] ?? null;
-}
-
-async function maybeWritePackedPackageCandidate(
-  argv: string[],
-  explicitVersion?: string,
-  options: { entrypoint?: boolean } = {},
-): Promise<boolean> {
-  const npmArgs = npmCommandArgs(argv);
-  if (npmArgs?.[0] === "pack") {
-    const destination = argv[argv.indexOf("--pack-destination") + 1];
-    if (destination) {
-      const version = explicitVersion ?? exactVersionFromPackageSpec(npmArgs[1]) ?? "9999.0.0";
-      await writePackedPackageCandidate(destination, version);
-    }
-    return true;
-  }
-  if (npmArgs?.[0] !== "i" || npmArgs[1] !== "-g") {
-    return false;
-  }
-  const stagePrefix = argv[argv.indexOf("--prefix") + 1];
-  if (!stagePrefix) {
-    return false;
-  }
-  const installSpec = npmArgs.find((arg) => arg.startsWith("openclaw@"));
-  const packedSpec = installSpec?.startsWith("openclaw@file:") ? installSpec : undefined;
-  const packedVersion = packedSpec?.match(/openclaw-([^/\\]+)\.tgz$/u)?.[1];
-  const version =
-    explicitVersion ?? packedVersion ?? exactVersionFromPackageSpec(installSpec) ?? "9999.0.0";
-  const packageRoot =
-    process.platform === "win32"
-      ? path.join(stagePrefix, "node_modules", "openclaw")
-      : path.join(stagePrefix, "lib", "node_modules", "openclaw");
-  await fs.mkdir(path.join(packageRoot, "dist"), { recursive: true });
-  await fs.writeFile(
-    path.join(packageRoot, "package.json"),
-    JSON.stringify({ name: "openclaw", version }),
-    "utf8",
-  );
-  if (options.entrypoint !== false) {
-    await fs.writeFile(path.join(packageRoot, "dist", "index.js"), "export {};\n", "utf8");
-  }
-  await writeStagedPackageInstallGuard(packageRoot);
-  return true;
-}
-
-function maybeResolvePackageSourceMetadata(argv: string[]): string | null {
-  if (npmCommandArgs(argv)?.[0] !== "view" || !argv.includes("_resolved")) {
-    return null;
-  }
-  return JSON.stringify([
-    {
-      "engines.node": ">=0.0.0",
-      _resolved: `git+https://github.com/openclaw/openclaw.git#${TEST_GIT_COMMIT}`,
-    },
-  ]);
-}
-
-async function maybeWriteInstalledPackageGuard(argv: string[], packageRoot: string): Promise<void> {
-  const npmArgs = npmCommandArgs(argv);
-  if (npmArgs?.[0] === "i" && npmArgs[1] === "-g") {
-    await writeStagedPackageInstallGuard(packageRoot);
-  }
-}
 
 vi.mock("@clack/prompts", () => ({
   confirm,
@@ -558,52 +427,11 @@ const { runCommandWithTimeout, runExec } = await import("../process/exec.js");
 const { runDaemonRestart, runDaemonInstall } = await import("./daemon-cli.js");
 const { doctorCommand } = await import("../commands/doctor.js");
 const { defaultRuntime } = await import("../runtime.js");
-const updateGlobal = await import("../infra/update-global.js");
 const postCorePluginConvergence = await import("./update-cli/post-core-plugin-convergence.js");
 const runPostCorePluginConvergenceSpy = vi.spyOn(
   postCorePluginConvergence,
   "runPostCorePluginConvergence",
 );
-const resolveGlobalInstallTargetOriginal = updateGlobal.resolveGlobalInstallTarget;
-const sourceSwitchTestGlobalRoot = path.join(
-  os.tmpdir(),
-  `openclaw-update-cli-source-switch-${process.pid}`,
-  "node_modules",
-);
-vi.spyOn(updateGlobal, "resolveGlobalInstallTarget").mockImplementation(async (params) => {
-  const manager = typeof params.manager === "string" ? params.manager : params.manager.manager;
-  const pkgRoot = params.pkgRoot?.trim();
-  if (manager === "npm" && pkgRoot && path.resolve(pkgRoot) === path.resolve(process.cwd())) {
-    // Git-to-package tests start in this checkout, but npm owns a separate global root.
-    // Never let a successful staged swap replace the test runner's working tree.
-    return {
-      manager: "npm",
-      command: typeof params.manager === "string" ? params.manager : params.manager.command,
-      globalRoot: sourceSwitchTestGlobalRoot,
-      packageRoot: path.join(sourceSwitchTestGlobalRoot, params.packageName ?? "openclaw"),
-      directNodeModulesRoot: true,
-    };
-  }
-  const detectedGlobalRoot = pkgRoot ? path.dirname(pkgRoot) : null;
-  const hasStandardPosixNpmLayout =
-    detectedGlobalRoot !== null &&
-    path.basename(detectedGlobalRoot) === "node_modules" &&
-    path.basename(path.dirname(detectedGlobalRoot)) === "lib";
-  if (manager === "npm" && pkgRoot && !hasStandardPosixNpmLayout) {
-    const directGlobalRoot =
-      detectedGlobalRoot && path.basename(detectedGlobalRoot) === "node_modules"
-        ? detectedGlobalRoot
-        : path.join(path.dirname(pkgRoot), "node_modules");
-    return {
-      manager: "npm",
-      command: typeof params.manager === "string" ? params.manager : params.manager.command,
-      globalRoot: directGlobalRoot,
-      packageRoot: pkgRoot,
-      directNodeModulesRoot: true,
-    };
-  }
-  return resolveGlobalInstallTargetOriginal(params);
-});
 const {
   registerUpdateCli,
   updateCommand,
@@ -702,18 +530,10 @@ describe("update-cli", () => {
     >;
 
   const packageInstallCommandCall = () =>
-    commandCalls().find(([argv]) => {
-      const npmArgs = npmCommandArgs(argv);
-      return npmArgs?.[0] === "i" && npmArgs[1] === "-g";
-    });
+    commandCalls().find(([argv]) => argv[0] === "npm" && argv[1] === "i" && argv[2] === "-g");
 
-  const packagePackCommandCalls = () =>
-    commandCalls().filter(([argv]) => npmCommandArgs(argv)?.[0] === "pack");
-
-  const packagePackCommandCall = () => packagePackCommandCalls()[0];
-
-  const packageSourceMetadataCommandCall = () =>
-    commandCalls().find(([argv]) => npmCommandArgs(argv)?.[0] === "view");
+  const packagePackCommandCall = () =>
+    commandCalls().find(([argv]) => argv[0] === "npm" && argv[1] === "pack");
 
   const stripOpenClawPackageAlias = (spec: string) => {
     const trimmed = spec.trim();
@@ -747,7 +567,7 @@ describe("update-cli", () => {
       isHttpGitUrl = false;
     }
     return (
-      /^(?:bitbucket|gist|github|gitlab):/i.test(target) ||
+      /^github:/i.test(target) ||
       /^git(?:\+|:)/i.test(target) ||
       /^ssh:\/\//i.test(target) ||
       /^[^@\s]+@[^:\s]+:[^#\s]+(?:#.*)?$/u.test(target) ||
@@ -865,73 +685,31 @@ describe("update-cli", () => {
 
   const expectPackageInstallSpec = (spec: string) => {
     expect(runGatewayUpdate).not.toHaveBeenCalled();
-    const packCalls = packagePackCommandCalls();
-    const isGitSource = isNpmGitPackageSpec(spec);
-    const pinnedSpec = isGitSource
-      ? pinGitPackageInstallSpec("openclaw", spec, TEST_GIT_COMMIT)
-      : null;
-    if (isGitSource && !pinnedSpec) {
-      throw new Error(`Expected pinnable Git package spec: ${spec}`);
-    }
-    const packedSpec = pinnedSpec ?? spec;
-    const packedVersion = exactVersionFromPackageSpec(packedSpec) ?? "9999.0.0";
-    const metadataCall = packageSourceMetadataCommandCall();
-    if (isGitSource) {
-      expect(metadataCall?.[0]).toEqual([
-        expect.stringMatching(/npm(?:\.cmd)?$/iu),
-        "view",
-        spec,
-        "engines.node",
-        "_resolved",
-        "--allow-git=root",
-        "--ignore-scripts",
-        "--json",
-        "--loglevel=error",
-      ]);
-    } else {
-      expect(metadataCall).toBeUndefined();
-    }
-    expect(packCalls).toHaveLength(isGitSource ? 1 : 0);
-    if (isGitSource) {
-      expect(packCalls[0]?.[0]).toEqual([
-        expect.stringMatching(/npm(?:\.cmd)?$/iu),
+    let installSpec = spec;
+    if (isNpmGitPackageSpec(spec)) {
+      const packCall = packagePackCommandCall();
+      expect(packCall?.[0]).toEqual([
+        "npm",
         "pack",
-        packedSpec,
-        "--allow-git=all",
+        spec,
         "--pack-destination",
         expect.any(String),
-        "--ignore-scripts=false",
         "--json",
         "--loglevel=error",
       ]);
-    }
-    const sourceCalls = metadataCall ? [metadataCall, ...packCalls] : packCalls;
-    for (const [, options] of sourceCalls) {
-      const env = options.env as NodeJS.ProcessEnv | undefined;
-      expect(
-        env?.npm_config_min_release_age === "0" ||
-          (typeof env?.npm_config_before === "string" && env.npm_config_before.length > 0),
-      ).toBe(true);
-    }
-    let installSpec = spec;
-    if (isGitSource) {
-      const packCall = packCalls[0];
-      const packDestinationIndex = packCall?.[0].indexOf("--pack-destination") ?? -1;
-      const packDir = packCall?.[0][packDestinationIndex + 1];
+      const packDir = packCall?.[0][4];
       if (!packDir) {
         throw new Error("Expected package pack directory");
       }
-      installSpec = `openclaw@file:${path.join(packDir, `openclaw-${packedVersion}.tgz`)}`;
+      installSpec = path.join(packDir, "openclaw-9999.0.0.tgz");
+    } else {
+      expect(packagePackCommandCall()).toBeUndefined();
     }
     const call = packageInstallCommandCall();
     expect(call?.[0]).toEqual([
-      expect.stringMatching(/npm(?:\.cmd)?$/iu),
+      "npm",
       "i",
       "-g",
-      "--prefix",
-      expect.stringMatching(/\.openclaw-update-stage-/u),
-      ...(!isGitSource && /^https?:\/\//iu.test(spec) ? ["--allow-remote=root"] : []),
-      "--ignore-scripts",
       installSpec,
       "--no-fund",
       "--no-audit",
@@ -1149,9 +927,14 @@ describe("update-cli", () => {
       },
     });
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv);
+      if (argv[0] === "npm" && argv[1] === "pack") {
+        const destination = argv[argv.indexOf("--pack-destination") + 1];
+        if (destination) {
+          await fs.writeFile(path.join(destination, "openclaw-9999.0.0.tgz"), "packed\n", "utf8");
+        }
+      }
       return {
-        stdout: maybeResolvePackageSourceMetadata(argv) ?? "",
+        stdout: "",
         stderr: "",
         code: 0,
         signal: null,
@@ -1251,10 +1034,6 @@ describe("update-cli", () => {
 
   afterAll(() => {
     serviceEnvSnapshot.restore();
-  });
-
-  afterAll(async () => {
-    await fs.rm(path.dirname(sourceSwitchTestGlobalRoot), { recursive: true, force: true });
   });
 
   afterEach(async () => {
@@ -1776,7 +1555,7 @@ describe("update-cli", () => {
     expect(runGatewayUpdate).not.toHaveBeenCalled();
     const installCall = (
       vi.mocked(runCommandWithTimeout).mock.calls as unknown as Array<[string[], unknown]>
-    ).find(([argv]) => npmCommandArgs(argv)?.[0] === "i" && npmCommandArgs(argv)?.[1] === "-g");
+    ).find(([argv]) => argv[0] === "npm" && argv[1] === "i" && argv[2] === "-g");
     expect(installCall).toBeUndefined();
     expect(
       vi
@@ -2824,9 +2603,6 @@ describe("update-cli", () => {
       if (mode) {
         vi.mocked(runGatewayUpdate).mockResolvedValue(makeOkUpdateResult({ mode }));
       }
-      const sourceManifestBefore = expectedPersistedChannel
-        ? await fs.readFile(path.join(process.cwd(), "package.json"), "utf8")
-        : null;
 
       await updateCommand(options);
 
@@ -2845,9 +2621,6 @@ describe("update-cli", () => {
           | { nextConfig?: { update?: { channel?: string } } }
           | undefined;
         expect(writeCall?.nextConfig?.update?.channel).toBe(expectedPersistedChannel);
-        await expect(fs.readFile(path.join(process.cwd(), "package.json"), "utf8")).resolves.toBe(
-          sourceManifestBefore,
-        );
       }
     },
   );
@@ -3066,10 +2839,7 @@ describe("update-cli", () => {
     const installCalls = vi
       .mocked(runCommandWithTimeout)
       .mock.calls.filter(
-        ([argv]) =>
-          Array.isArray(argv) &&
-          npmCommandArgs(argv)?.[0] === "i" &&
-          npmCommandArgs(argv)?.[1] === "-g",
+        ([argv]) => Array.isArray(argv) && argv[0] === "npm" && argv[1] === "i" && argv[2] === "-g",
       );
     expect(installCalls).toHaveLength(1);
     expect(updateNpmInstalledPlugins).toHaveBeenCalledTimes(1);
@@ -3136,17 +2906,7 @@ describe("update-cli", () => {
         cwd: process.cwd(),
       }),
     );
-    const installEnv = packageInstallCommandCall()?.[1].env as NodeJS.ProcessEnv | undefined;
-    const preflightEnv = preflightParams?.env as NodeJS.ProcessEnv | undefined;
-    const {
-      PATH: _preflightPath,
-      Path: _preflightWindowsPath,
-      ...preflightEnvRest
-    } = preflightEnv ?? {};
-    expect(installEnv).toEqual(expect.objectContaining(preflightEnvRest));
-    expect((installEnv?.PATH ?? installEnv?.Path)?.split(path.delimiter)[0]).toBe(
-      path.dirname(process.execPath),
-    );
+    expect(packageInstallCommandCall()?.[1].env).toBe(preflightParams?.env);
     expect(defaultRuntime.exit).not.toHaveBeenCalledWith(1);
     expect(
       vi
@@ -3486,8 +3246,6 @@ describe("update-cli", () => {
     await writePackageDistInventory(pkgRoot);
     readPackageVersion.mockResolvedValue("2026.3.23");
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv, "2026.3.23");
-      await maybeWriteInstalledPackageGuard(argv, pkgRoot);
       if (Array.isArray(argv) && argv[0] === "npm" && argv[1] === "root" && argv[2] === "-g") {
         return {
           stdout: nodeModules,
@@ -3538,7 +3296,6 @@ describe("update-cli", () => {
     await writePackageDistInventory(pkgRoot);
 
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv, "2026.4.25");
       if (Array.isArray(argv) && argv[0] === "npm" && argv[1] === "root" && argv[2] === "-g") {
         return {
           stdout: `${nodeModules}\n`,
@@ -3549,7 +3306,12 @@ describe("update-cli", () => {
           termination: "exit",
         };
       }
-      if (Array.isArray(argv) && npmCommandArgs(argv)?.[0] === "i" && argv.includes("--prefix")) {
+      if (
+        Array.isArray(argv) &&
+        argv[0] === "npm" &&
+        argv[1] === "i" &&
+        argv.includes("--prefix")
+      ) {
         const stagePrefix = argv[argv.indexOf("--prefix") + 1];
         if (typeof stagePrefix !== "string") {
           throw new Error("missing stage prefix");
@@ -3563,7 +3325,6 @@ describe("update-cli", () => {
         );
         await fs.writeFile(path.join(stageRoot, "dist", "index.js"), "export {};\n", "utf-8");
         await writePackageDistInventory(stageRoot);
-        await writeStagedPackageInstallGuard(stageRoot);
         await fs.writeFile(
           path.join(stageRoot, "dist", "stale-runtime.js"),
           "export {};\n",
@@ -3624,8 +3385,6 @@ describe("update-cli", () => {
       }
     });
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv);
-      await maybeWriteInstalledPackageGuard(argv, pkgRoot);
       if (Array.isArray(argv) && argv[0] === "npm" && argv[1] === "root" && argv[2] === "-g") {
         return {
           stdout: `${nodeModules}\n`,
@@ -3700,8 +3459,6 @@ describe("update-cli", () => {
       }
     });
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv, options) => {
-      await maybeWritePackedPackageCandidate(argv);
-      await maybeWriteInstalledPackageGuard(argv, pkgRoot);
       if (Array.isArray(argv) && argv[0] === "npm" && argv[1] === "root" && argv[2] === "-g") {
         return {
           stdout: `${nodeModules}\n`,
@@ -3803,8 +3560,6 @@ describe("update-cli", () => {
       }
     });
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv);
-      await maybeWriteInstalledPackageGuard(argv, pkgRoot);
       if (Array.isArray(argv) && argv[0] === "npm" && argv[1] === "root" && argv[2] === "-g") {
         return {
           stdout: `${nodeModules}\n`,
@@ -3877,7 +3632,6 @@ describe("update-cli", () => {
       }
     });
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv, "2026.5.14");
       if (!Array.isArray(argv)) {
         return {
           stdout: "",
@@ -3898,7 +3652,7 @@ describe("update-cli", () => {
           termination: "exit",
         };
       }
-      if (npmCommandArgs(argv)?.[0] === "i" && argv.includes("--prefix")) {
+      if (argv[0] === "npm" && argv[1] === "i" && argv.includes("--prefix")) {
         const stagePrefix = argv[argv.indexOf("--prefix") + 1];
         const stagePackageRoot = path.join(
           requireValue(stagePrefix, "stage prefix"),
@@ -3915,7 +3669,6 @@ describe("update-cli", () => {
         );
         await fs.writeFile(stageEntryPath, "export {};\n", "utf-8");
         await writePackageDistInventory(stagePackageRoot);
-        await writeStagedPackageInstallGuard(stagePackageRoot);
       }
       return {
         stdout: "",
@@ -3988,7 +3741,6 @@ describe("update-cli", () => {
       }
     });
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv, undefined, { entrypoint: false });
       if (Array.isArray(argv) && argv[0] === "npm" && argv[1] === "root" && argv[2] === "-g") {
         return {
           stdout: `${nodeModules}\n`,
@@ -4023,7 +3775,7 @@ describe("update-cli", () => {
     const npmInstallCallIndex = vi
       .mocked(runCommandWithTimeout)
       .mock.calls.findIndex(
-        (call) => Array.isArray(call[0]) && npmCommandArgs(call[0])?.[0] === "i",
+        (call) => Array.isArray(call[0]) && call[0][0] === "npm" && call[0][1] === "i",
       );
     const npmInstallCallOrder =
       vi.mocked(runCommandWithTimeout).mock.invocationCallOrder[npmInstallCallIndex];
@@ -4129,8 +3881,7 @@ describe("update-cli", () => {
     serviceReadRuntime.mockResolvedValue({ status: "stopped", state: "stopped" });
     suspendScheduledTaskAutoStartForUpdate.mockResolvedValue(true);
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv);
-      if (npmCommandArgs(argv)?.[0] === "i" && npmCommandArgs(argv)?.[1] === "-g") {
+      if (argv[0] === "npm" && argv[1] === "i" && argv[2] === "-g") {
         throw new Error("update invariant broke");
       }
       return {
@@ -4239,7 +3990,7 @@ describe("update-cli", () => {
       const installCallIndex = vi
         .mocked(runCommandWithTimeout)
         .mock.calls.findIndex(
-          (call) => Array.isArray(call[0]) && npmCommandArgs(call[0])?.[0] === "i",
+          (call) => Array.isArray(call[0]) && call[0][0] === "npm" && call[0][1] === "i",
         );
       const installOrder =
         vi.mocked(runCommandWithTimeout).mock.invocationCallOrder[installCallIndex];
@@ -4609,7 +4360,6 @@ describe("update-cli", () => {
       }
     });
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv);
       if (Array.isArray(argv) && argv[0] === "npm" && argv[1] === "root" && argv[2] === "-g") {
         return {
           stdout: `${nodeModules}\n`,
@@ -4679,7 +4429,6 @@ describe("update-cli", () => {
       }
     });
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv);
       if (Array.isArray(argv) && argv[0] === "npm" && argv[1] === "root" && argv[2] === "-g") {
         return {
           stdout: `${nodeModules}\n`,
@@ -4743,8 +4492,6 @@ describe("update-cli", () => {
       }
     });
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv);
-      await maybeWriteInstalledPackageGuard(argv, pkgRoot);
       if (Array.isArray(argv) && argv[0] === "npm" && argv[1] === "root" && argv[2] === "-g") {
         return {
           stdout: `${nodeModules}\n`,
@@ -4799,7 +4546,6 @@ describe("update-cli", () => {
     );
 
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv);
       if (Array.isArray(argv) && argv[0] === "npm" && argv[1] === "root" && argv[2] === "-g") {
         return {
           stdout: `${nodeModules}\n`,
@@ -4812,7 +4558,7 @@ describe("update-cli", () => {
       }
       if (
         Array.isArray(argv) &&
-        isNpmCommand(argv) &&
+        argv[0] === "npm" &&
         argv.includes("-g") &&
         !argv.includes("--omit=optional")
       ) {
@@ -4825,7 +4571,6 @@ describe("update-cli", () => {
           termination: "exit",
         };
       }
-      await maybeWriteInstalledPackageGuard(argv, pkgRoot);
       return {
         stdout: "",
         stderr: "",
@@ -4840,34 +4585,23 @@ describe("update-cli", () => {
 
     const installArgvs = commandCalls()
       .map(([argv]) => argv)
-      .filter((argv) => npmCommandArgs(argv)?.[0] === "i" && npmCommandArgs(argv)?.[1] === "-g");
-    const packArgv = packagePackCommandCall()?.[0];
-    const packDir = packArgv?.[packArgv.indexOf("--pack-destination") + 1];
-    const installSpec = packDir
-      ? `openclaw@file:${path.join(packDir, "openclaw-9999.0.0.tgz")}`
-      : "openclaw@latest";
+      .filter((argv) => argv[0] === "npm" && argv[1] === "i" && argv[2] === "-g");
     expect(installArgvs).toEqual([
       [
-        expect.stringMatching(/npm(?:\.cmd)?$/iu),
+        "npm",
         "i",
         "-g",
-        "--prefix",
-        expect.stringMatching(/\.openclaw-update-stage-/u),
-        "--ignore-scripts",
-        installSpec,
+        "openclaw@latest",
         "--no-fund",
         "--no-audit",
         "--loglevel=error",
         "--min-release-age=0",
       ],
       [
-        expect.stringMatching(/npm(?:\.cmd)?$/iu),
+        "npm",
         "i",
         "-g",
-        "--prefix",
-        expect.stringMatching(/\.openclaw-update-stage-/u),
-        "--ignore-scripts",
-        installSpec,
+        "openclaw@latest",
         "--omit=optional",
         "--no-fund",
         "--no-audit",
@@ -4884,14 +4618,12 @@ describe("update-cli", () => {
     const brewRoot = path.join(brewPrefix, "lib", "node_modules");
     const pkgRoot = path.join(brewRoot, "openclaw");
     const brewNpm = path.join(brewPrefix, "bin", "npm");
-    const brewNpmCli = path.join(brewPrefix, "lib", "node_modules", "npm", "bin", "npm-cli.js");
     const win32PrefixNpm = path.join(brewPrefix, "npm.cmd");
     const pathNpmRoot = createCaseDir("nvm-root");
     mockPackageInstallStatus(pkgRoot);
     pathExists.mockResolvedValue(false);
 
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv);
       if (!Array.isArray(argv)) {
         return {
           stdout: "",
@@ -4922,25 +4654,6 @@ describe("update-cli", () => {
           termination: "exit",
         };
       }
-      if (
-        argv[0] === process.execPath &&
-        argv[1] === brewNpmCli &&
-        npmCommandArgs(argv)?.[0] === "i"
-      ) {
-        const stagePrefix = argv[argv.indexOf("--prefix") + 1];
-        if (!stagePrefix) {
-          throw new Error("missing owning npm stage prefix");
-        }
-        const stageRoot = path.join(stagePrefix, "lib", "node_modules", "openclaw");
-        await fs.mkdir(path.join(stageRoot, "dist"), { recursive: true });
-        await fs.writeFile(
-          path.join(stageRoot, "package.json"),
-          JSON.stringify({ name: "openclaw", version: "9999.0.0" }),
-          "utf8",
-        );
-        await fs.writeFile(path.join(stageRoot, "dist", "index.js"), "export {};\n", "utf8");
-        await writeStagedPackageInstallGuard(stageRoot);
-      }
       return {
         stdout: "",
         stderr: "",
@@ -4952,10 +4665,7 @@ describe("update-cli", () => {
     });
 
     await fs.mkdir(path.dirname(brewNpm), { recursive: true });
-    await fs.mkdir(path.dirname(brewNpmCli), { recursive: true });
     await fs.writeFile(brewNpm, "", "utf8");
-    await fs.chmod(brewNpm, 0o755);
-    await fs.writeFile(brewNpmCli, "", "utf8");
     await fs.writeFile(win32PrefixNpm, "", "utf8");
     await updateCommand({ yes: true });
 
@@ -4967,20 +4677,30 @@ describe("update-cli", () => {
       .mock.calls.find(
         ([argv]) =>
           Array.isArray(argv) &&
-          argv[0] === process.execPath &&
-          argv[1] === brewNpmCli &&
-          npmCommandArgs(argv)?.[0] === "i" &&
-          npmCommandArgs(argv)?.[1] === "-g" &&
+          isOwningNpmCommand(argv[0], brewPrefix) &&
+          argv[1] === "i" &&
+          argv[2] === "-g" &&
           argv.includes("openclaw@latest"),
       );
 
     const requiredInstallCall = requireValue(installCall, "brew npm install call");
-    expect(requiredInstallCall[0].slice(0, 2)).toEqual([process.execPath, brewNpmCli]);
+    const installCommand = requiredInstallCall[0][0] ?? "";
+    expect(installCommand).not.toBe("npm");
+    expect(path.isAbsolute(installCommand)).toBe(true);
+    expect(path.normalize(installCommand)).toContain(path.normalize(brewPrefix));
+    expect(path.normalize(installCommand)).toMatch(
+      new RegExp(
+        `${path
+          .normalize(path.join(brewPrefix, path.sep))
+          .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.*npm(?:\\.cmd)?$`,
+        "i",
+      ),
+    );
     expect(vi.mocked(resolveNpmChannelTag)).toHaveBeenCalledWith(
-      expect.objectContaining({ command: brewNpm }),
+      expect.objectContaining({ command: installCommand }),
     );
     expect(vi.mocked(fetchNpmPackageTargetStatus)).toHaveBeenCalledWith(
-      expect.objectContaining({ command: brewNpm }),
+      expect.objectContaining({ command: installCommand }),
     );
     const installOptions = requiredInstallCall[1] as { timeoutMs?: number };
     expect(typeof installOptions.timeoutMs).toBe("number");
@@ -5019,16 +4739,22 @@ describe("update-cli", () => {
 
     platformSpy.mockRestore();
 
-    const updateCall = packageInstallCommandCall();
+    const updateCall = vi
+      .mocked(runCommandWithTimeout)
+      .mock.calls.find(
+        (call) =>
+          Array.isArray(call[0]) &&
+          call[0][0] === "npm" &&
+          call[0][1] === "i" &&
+          call[0][2] === "-g",
+      );
     const updateOptions =
-      typeof updateCall?.[1] === "object" && updateCall[1] !== null
-        ? (updateCall[1] as { env?: NodeJS.ProcessEnv })
-        : undefined;
+      typeof updateCall?.[1] === "object" && updateCall[1] !== null ? updateCall[1] : undefined;
     const mergedPath = updateOptions?.env?.Path ?? updateOptions?.env?.PATH ?? "";
-    const mergedPathEntries = mergedPath.split(path.delimiter);
-    const portableGitIndex = mergedPathEntries.indexOf(portableGitMingw);
-    expect(portableGitIndex).toBeGreaterThanOrEqual(0);
-    expect(mergedPathEntries[portableGitIndex + 1]).toBe(portableGitUsr);
+    expect(mergedPath.split(path.delimiter).slice(0, 2)).toEqual([
+      portableGitMingw,
+      portableGitUsr,
+    ]);
     expect(updateOptions?.env?.NPM_CONFIG_SCRIPT_SHELL).toBeUndefined();
     expect(updateOptions?.env?.NODE_LLAMA_CPP_SKIP_DOWNLOAD).toBe("1");
   });
@@ -5075,8 +4801,9 @@ describe("update-cli", () => {
       .mock.calls.findIndex(
         (call) =>
           Array.isArray(call[0]) &&
-          npmCommandArgs(call[0])?.[0] === "i" &&
-          npmCommandArgs(call[0])?.[1] === "-g",
+          call[0][0] === "npm" &&
+          call[0][1] === "i" &&
+          call[0][2] === "-g",
       );
     expect(installCallIndex).toBeGreaterThanOrEqual(0);
     expect(replaceConfigFile).toHaveBeenCalledTimes(1);
@@ -5146,7 +4873,6 @@ describe("update-cli", () => {
       nodeEngine: ">=22.19.0",
     });
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv, "2026.5.20");
       if (Array.isArray(argv) && argv[0] === serviceNode && argv[1] === "--version") {
         return {
           stdout: "v22.18.0\n",
@@ -5215,7 +4941,6 @@ describe("update-cli", () => {
       }
     });
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv, "2026.5.20");
       if (Array.isArray(argv) && argv[0] === serviceNode && argv[1] === "--version") {
         return {
           stdout: "v22.22.0\n",
@@ -5261,7 +4986,6 @@ describe("update-cli", () => {
         );
         await fs.writeFile(stageEntryPoint, "export {};\n", "utf-8");
         await writePackageDistInventory(stageRoot);
-        await writeStagedPackageInstallGuard(stageRoot);
       }
       return {
         stdout: "",
@@ -5343,7 +5067,6 @@ describe("update-cli", () => {
       }
     });
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv, "2026.5.20");
       if (Array.isArray(argv) && argv[0] === serviceNode && argv[1] === "--version") {
         return {
           stdout: "v24.14.0\n",
@@ -5389,7 +5112,6 @@ describe("update-cli", () => {
         );
         await fs.writeFile(stageEntryPoint, "export {};\n", "utf-8");
         await writePackageDistInventory(stageRoot);
-        await writeStagedPackageInstallGuard(stageRoot);
       }
       return {
         stdout: "",
@@ -5445,17 +5167,13 @@ describe("update-cli", () => {
       }
     });
     // The PATH npm returns a DIFFERENT global root (simulates Node-B's npm).
-    const nodeBPrefix = await createTrackedTempDir("node-b-global-");
-    const nodeBGlobalRoot = path.join(nodeBPrefix, "lib", "node_modules");
-    const nodeBNpm = path.join(nodeBPrefix, "bin", "npm");
-    const nodeBNpmCli = path.join(nodeBPrefix, "lib", "node_modules", "npm", "bin", "npm-cli.js");
-    await fs.mkdir(path.dirname(nodeBNpm), { recursive: true });
-    await fs.mkdir(path.dirname(nodeBNpmCli), { recursive: true });
+    const nodeBGlobalRoot = path.join(
+      await createTrackedTempDir("node-b-global-"),
+      "lib",
+      "node_modules",
+    );
     await fs.mkdir(nodeBGlobalRoot, { recursive: true });
-    await fs.writeFile(nodeBNpm, "#!/bin/sh\n", { encoding: "utf8", mode: 0o755 });
-    await fs.writeFile(nodeBNpmCli, "", "utf8");
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv, "2026.5.20");
       if (Array.isArray(argv) && argv[0] === serviceNode && argv[1] === "--version") {
         return {
           stdout: "v24.14.0\n",
@@ -5477,12 +5195,7 @@ describe("update-cli", () => {
           termination: "exit",
         };
       }
-      if (
-        Array.isArray(argv) &&
-        argv[0] === serviceNode &&
-        argv[1] === nodeBNpmCli &&
-        argv[2] === "i"
-      ) {
+      if (Array.isArray(argv) && argv[0] === "npm" && argv[1] === "i") {
         // Install step: create the expected package structure at the target.
         const prefixIdx = argv.indexOf("--prefix");
         const stagePrefix = prefixIdx >= 0 ? argv[prefixIdx + 1] : undefined;
@@ -5498,7 +5211,6 @@ describe("update-cli", () => {
         );
         await fs.writeFile(stageEntryPoint, "export {};\n", "utf-8");
         await writePackageDistInventory(stageRoot);
-        await writeStagedPackageInstallGuard(stageRoot);
       }
       return {
         stdout: "",
@@ -5510,19 +5222,13 @@ describe("update-cli", () => {
       };
     });
 
-    await withEnvAsync(
-      { PATH: `${path.dirname(nodeBNpm)}${path.delimiter}${process.env.PATH ?? ""}` },
-      async () => await updateCommand({ yes: true }),
-    );
+    await updateCommand({ yes: true });
 
     // The install command must use --prefix pointing to a location within
     // the service root's prefix tree, NOT Node-B's global root.
-    const installCall = commandCalls().find(
-      ([argv]) => argv[0] === serviceNode && argv[1] === nodeBNpmCli && argv[2] === "i",
-    );
+    const installCall = packageInstallCommandCall();
     expect(installCall).toBeDefined();
     const installArgv = installCall![0];
-    expect(installArgv.slice(0, 4)).toEqual([serviceNode, nodeBNpmCli, "i", "-g"]);
     const prefixIdx = installArgv.indexOf("--prefix");
     expect(prefixIdx).toBeGreaterThan(-1);
     // Staging prefix should be under the service prefix, not Node-B's.
@@ -5752,12 +5458,7 @@ describe("update-cli", () => {
     const tempDir = createCaseDir("openclaw-update");
     mockPackageInstallStatus(tempDir);
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv);
-      if (
-        Array.isArray(argv) &&
-        npmCommandArgs(argv)?.[0] === "i" &&
-        npmCommandArgs(argv)?.[1] === "-g"
-      ) {
+      if (Array.isArray(argv) && argv[0] === "npm" && argv[1] === "i" && argv[2] === "-g") {
         return {
           stdout: "",
           stderr: "install failed",
@@ -6803,96 +6504,12 @@ describe("update-cli", () => {
   });
 
   it("persists channel and runs post-update work after switching from package to git", async () => {
-    const shellPrefix = await createTrackedTempDir("openclaw-package-prefix-");
-    const shellGlobalRoot = path.join(shellPrefix, "lib", "node_modules");
-    const shellRoot = path.join(shellGlobalRoot, "openclaw");
-    const gitRoot = await createTrackedTempDir("openclaw-dev-checkout-");
-    const serviceNode = path.join(shellPrefix, "bin", "node");
-    const serviceNpm = path.join(shellPrefix, "bin", "npm");
-    const serviceEntrypoint = path.join(shellRoot, "dist", "index.js");
-    await Promise.all([
-      fs.mkdir(path.dirname(serviceNode), { recursive: true }),
-      fs.mkdir(path.dirname(serviceEntrypoint), { recursive: true }),
-    ]);
-    await Promise.all([
-      fs.writeFile(serviceNode, "", "utf8"),
-      fs.writeFile(serviceNpm, "", "utf8"),
-      fs.writeFile(serviceEntrypoint, "", "utf8"),
-      fs.writeFile(
-        path.join(shellRoot, "package.json"),
-        JSON.stringify({ name: "openclaw", version: "1.0.0" }),
-        "utf8",
-      ),
-      fs.writeFile(
-        path.join(gitRoot, "package.json"),
-        JSON.stringify({ name: "openclaw", engines: { node: ">=24.15.0 <25" } }),
-        "utf8",
-      ),
-    ]);
+    const tempDir = createCaseDir("openclaw-update");
+    const gitRoot = path.join(tempDir, "..", "openclaw");
     const completionCacheSpy = vi
       .spyOn(updateCliShared, "tryWriteCompletionCache")
       .mockResolvedValue(undefined);
-    mockPackageInstallStatus(shellRoot);
-    serviceReadCommand.mockResolvedValue({
-      programArguments: [serviceNode, serviceEntrypoint, "gateway"],
-    });
-    vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv, "2026.4.10");
-      if (argv[0] === serviceNode && argv[1] === "--version") {
-        return {
-          stdout: "v24.15.0\n",
-          stderr: "",
-          code: 0,
-          signal: null,
-          killed: false,
-          termination: "exit",
-        };
-      }
-      if (argv[0] === serviceNpm && argv[1] === "root" && argv[2] === "-g") {
-        return {
-          stdout: `${shellGlobalRoot}\n`,
-          stderr: "",
-          code: 0,
-          signal: null,
-          killed: false,
-          termination: "exit",
-        };
-      }
-      if (argv[0] === serviceNpm && argv[1] === "view") {
-        return {
-          stdout: JSON.stringify({ "engines.node": ">=24.15.0 <25", _resolved: gitRoot }),
-          stderr: "",
-          code: 0,
-          signal: null,
-          killed: false,
-          termination: "exit",
-        };
-      }
-      if (argv[0] === serviceNpm && argv[1] === "i") {
-        const stagePrefix = argv[argv.indexOf("--prefix") + 1];
-        if (!stagePrefix) {
-          throw new Error("missing source activation stage");
-        }
-        const stageRoot = path.join(stagePrefix, "lib", "node_modules", "openclaw");
-        const stageEntryPoint = path.join(stageRoot, "dist", "index.js");
-        await fs.mkdir(path.dirname(stageEntryPoint), { recursive: true });
-        await fs.writeFile(
-          path.join(stageRoot, "package.json"),
-          JSON.stringify({ name: "openclaw", version: "2026.4.10" }),
-          "utf8",
-        );
-        await fs.writeFile(stageEntryPoint, "export {};\n", "utf8");
-        await writeStagedPackageInstallGuard(stageRoot);
-      }
-      return {
-        stdout: "",
-        stderr: "",
-        code: 0,
-        signal: null,
-        killed: false,
-        termination: "exit",
-      };
-    });
+    mockPackageInstallStatus(tempDir);
     vi.mocked(readConfigFileSnapshot).mockResolvedValue({
       ...baseSnapshot,
       parsed: { update: { channel: "stable" } },
@@ -6925,9 +6542,7 @@ describe("update-cli", () => {
       outcomes: [],
     }));
 
-    await withEnvAsync({ OPENCLAW_GIT_DIR: gitRoot }, async () => {
-      await updateCommand({ channel: "dev", yes: true, restart: false });
-    });
+    await updateCommand({ channel: "dev", yes: true, restart: false });
 
     const persistedConfig = replaceConfigCall()?.nextConfig;
     expect(persistedConfig?.update?.channel).toBe("dev");
@@ -6939,92 +6554,9 @@ describe("update-cli", () => {
     expect(syncCall?.workspaceDir).toBe(gitRoot);
     expect(npmPluginUpdateCall()?.config?.update?.channel).toBe("dev");
     expect(completionCacheSpy).toHaveBeenCalledWith(gitRoot, false);
-    expect(packageSourceMetadataCommandCall()?.[0]).toContain(gitRoot);
-    expect(packagePackCommandCall()?.[0]).toContain(gitRoot);
-    const gitInstallArgv = packageInstallCommandCall()?.[0];
-    expect(gitInstallArgv?.some((arg) => arg.startsWith("openclaw@file:"))).toBe(true);
-    expect(gitInstallArgv).toContain("--ignore-scripts");
-    expect(gitInstallArgv).toContain("--prefix");
-    const gitInstallEnv = packageInstallCommandCall()?.[1] as
-      | { env?: NodeJS.ProcessEnv }
-      | undefined;
-    const lifecyclePath = gitInstallEnv?.env?.PATH ?? gitInstallEnv?.env?.Path ?? "";
-    expect(lifecyclePath.split(path.delimiter)[0]).toBe(path.dirname(serviceNode));
-    const postinstallCall = commandCalls().find(
-      ([argv]) =>
-        argv[0] === serviceNode &&
-        argv[1]?.endsWith(path.join("scripts", "postinstall-bundled-plugins.mjs")),
-    );
-    expect(postinstallCall).toBeDefined();
-    const postinstallEnv = postinstallCall?.[1] as { env?: NodeJS.ProcessEnv } | undefined;
-    const postinstallPath = postinstallEnv?.env?.PATH ?? postinstallEnv?.env?.Path ?? "";
-    expect(postinstallPath.split(path.delimiter)[0]).toBe(path.dirname(serviceNode));
     expect(runRestartScript).not.toHaveBeenCalled();
     expect(runDaemonRestart).not.toHaveBeenCalled();
     expect(defaultRuntime.exit).not.toHaveBeenCalledWith(1);
-  });
-
-  it("blocks a package-to-git switch when the managed service Node is incompatible", async () => {
-    const shellPrefix = await createTrackedTempDir("openclaw-package-prefix-");
-    const shellGlobalRoot = path.join(shellPrefix, "lib", "node_modules");
-    const shellRoot = path.join(shellGlobalRoot, "openclaw");
-    const gitRoot = await createTrackedTempDir("openclaw-dev-checkout-");
-    const serviceNode = path.join(shellPrefix, "bin", "node");
-    const serviceNpm = path.join(shellPrefix, "bin", "npm");
-    const serviceEntrypoint = path.join(shellRoot, "dist", "index.js");
-    await Promise.all([
-      fs.mkdir(path.dirname(serviceNode), { recursive: true }),
-      fs.mkdir(path.dirname(serviceEntrypoint), { recursive: true }),
-    ]);
-    await Promise.all([
-      fs.writeFile(serviceNode, "", "utf8"),
-      fs.writeFile(serviceNpm, "", "utf8"),
-      fs.writeFile(serviceEntrypoint, "", "utf8"),
-      fs.writeFile(
-        path.join(shellRoot, "package.json"),
-        JSON.stringify({ name: "openclaw", version: "1.0.0" }),
-        "utf8",
-      ),
-      fs.writeFile(
-        path.join(gitRoot, "package.json"),
-        JSON.stringify({ name: "openclaw", engines: { node: ">=24.15.0 <25" } }),
-        "utf8",
-      ),
-    ]);
-    mockPackageInstallStatus(shellRoot);
-    serviceReadCommand.mockResolvedValue({
-      programArguments: [serviceNode, serviceEntrypoint, "gateway"],
-    });
-    vi.mocked(runGatewayUpdate).mockResolvedValue(
-      makeOkUpdateResult({ mode: "git", root: gitRoot }),
-    );
-    vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      const stdout =
-        argv[0] === serviceNode && argv[1] === "--version"
-          ? "v24.14.0\n"
-          : argv[0] === serviceNpm && argv[1] === "root"
-            ? `${shellGlobalRoot}\n`
-            : argv[0] === serviceNpm && argv[1] === "view"
-              ? JSON.stringify({ "engines.node": ">=24.15.0 <25", _resolved: gitRoot })
-              : "";
-      return {
-        stdout,
-        stderr: "",
-        code: 0,
-        signal: null,
-        killed: false,
-        termination: "exit",
-      };
-    });
-    nodeVersionSatisfiesEngine.mockReturnValue(false);
-
-    await withEnvAsync({ OPENCLAW_GIT_DIR: gitRoot }, async () => {
-      await updateCommand({ channel: "dev", yes: true, restart: false });
-    });
-
-    expect(nodeVersionSatisfiesEngine).toHaveBeenCalledWith("24.14.0", ">=24.15.0 <25");
-    expect(packageInstallCommandCall()).toBeUndefined();
-    expect(defaultRuntime.exit).toHaveBeenCalledWith(1);
   });
   it("explains why git updates cannot run with edited files", async () => {
     vi.mocked(defaultRuntime.log).mockClear();
@@ -7157,17 +6689,6 @@ describe("update-cli", () => {
     mockPackageInstallStatus(tempDir);
     serviceLoaded.mockResolvedValue(true);
     vi.mocked(runDaemonInstall).mockRejectedValueOnce(new Error("refresh failed"));
-    vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
-      await maybeWritePackedPackageCandidate(argv, "1.0.0", { entrypoint: false });
-      return {
-        stdout: maybeResolvePackageSourceMetadata(argv) ?? "",
-        stderr: "",
-        code: 0,
-        signal: null,
-        killed: false,
-        termination: "exit",
-      };
-    });
 
     await updateCommand({ yes: true });
 
@@ -8210,7 +7731,9 @@ describe("update-cli", () => {
     expect(
       vi
         .mocked(runCommandWithTimeout)
-        .mock.calls.some((call) => Array.isArray(call[0]) && npmCommandArgs(call[0])?.[0] === "i"),
+        .mock.calls.some(
+          (call) => Array.isArray(call[0]) && call[0][0] === "npm" && call[0][1] === "i",
+        ),
     ).toBe(shouldRunPackageUpdate);
   });
 

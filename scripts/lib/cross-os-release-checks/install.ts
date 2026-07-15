@@ -309,9 +309,9 @@ export async function writePackageDistInventoryForCandidate(params: {
       return isPackagedDistPath(relativePath) ? [relativePath] : [];
     })
     .toSorted((left, right) => left.localeCompare(right));
-  // Matrix resolution runs before dependencies exist; load this only after prepareCandidate installs them.
-  const { writePackageDistInventoryForPublish } = await import("../package-dist-inventory.ts");
-  await writePackageDistInventoryForPublish(params.sourceDir, inventory);
+  const inventoryPath = join(params.sourceDir, PACKAGE_DIST_INVENTORY_RELATIVE_PATH);
+  mkdirSync(dirname(inventoryPath), { recursive: true });
+  writeFileSync(inventoryPath, `${JSON.stringify(inventory, null, 2)}\n`, "utf8");
 }
 
 export function readProvidedCandidate(params: {

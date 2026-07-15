@@ -158,22 +158,12 @@ openclaw gateway status --deep --json
 openclaw doctor --lint --json
 ```
 
-When `openclaw update` manages a global npm install, it installs the
-candidate with dependency lifecycle scripts disabled and validates the
-candidate's packaged Node engine guard before activation. An update that needs
-a newer Node runtime therefore fails without replacing the working install.
-Exact npm version targets through `2026.7.1`, which predate that guard, remain
-installable after their Node requirement and package lifecycle contract pass.
-For Git and local-directory npm targets, OpenClaw first reads source metadata
-without lifecycle scripts and checks its Node requirement; only compatible
-sources run their normal pack lifecycle. Git sources are pinned to the exact
-commit resolved during that metadata check. OpenClaw then runs its own packaged
-postinstall explicitly with the selected Node runtime. npm uses a temporary
-prefix, verifies the packaged `dist` inventory, and swaps the clean package tree
-into the real global prefix — avoiding npm overlaying a new package onto stale
-files from the old one. If the install command fails, OpenClaw retries once with
-`--omit=optional`, which helps hosts where native optional dependencies cannot
-compile.
+When `openclaw update` manages a global npm install, it installs the target
+into a temporary npm prefix first, verifies the packaged `dist` inventory, then
+swaps the clean package tree into the real global prefix — avoiding npm
+overlaying a new package onto stale files from the old one. If the install
+command fails, OpenClaw retries once with `--omit=optional`, which helps hosts
+where native optional dependencies cannot compile.
 
 OpenClaw-managed npm update and plugin-update commands also clear npm's
 `min-release-age` supply-chain quarantine (or the older `before` config key)
@@ -251,9 +241,24 @@ LaunchAgent when possible. If the Gateway cannot make that handoff safely,
 `update.run` reports a safe shell command instead of running the package
 manager in-process.
 
-The Control UI sidebar update card starts this same `update.run` flow. In the
-signed macOS app, the card updates the app through Sparkle first; after relaunch,
-the app brings its managed local Gateway to the matching version.
+The Control UI sidebar update card shows **Update Gateway** when it will start
+this `update.run` flow directly. This covers browser-hosted Control UI, remote
+Gateways, and manually managed local Gateways.
+
+In the signed macOS app, a local app-owned Gateway changes that card to
+**Update Mac app + Gateway**. Sparkle updates the app first; after relaunch, the
+app runs `openclaw update --tag <app-version> --json`, restarts its Gateway,
+and verifies health in a setup-style progress window. Failure details stay
+visible with Retry, [Update guide](/install/updating), and
+[Discord](https://discord.gg/clawd) actions. The app never uses this coordinated
+path for a remote or externally managed Gateway, never downgrades a newer
+Gateway, and never overrides an `extended-stable` channel pin.
+
+When the update succeeds, the app queues a one-time welcome event for the most
+recent top-level direct session with a real user/channel interaction. Cron runs,
+heartbeats, and background-only session updates do not move that selection. In
+remote mode, the app updates only its local Mac node runtime and sends the event
+only when the connected remote Gateway is at least as new as the app.
 
 ## After updating
 

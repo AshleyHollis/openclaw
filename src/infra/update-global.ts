@@ -4,7 +4,6 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
-import { parse as parsePackageSemver } from "semver";
 import { BUNDLED_RUNTIME_SIDECAR_PATHS } from "../plugins/runtime-sidecar-paths.js";
 import { pathExists } from "../utils.js";
 import {
@@ -18,10 +17,6 @@ import {
   readPackageDistInventoryIfPresent,
 } from "./package-dist-inventory.js";
 import { readPackageVersion } from "./package-json.js";
-import {
-  isExplicitPackageInstallSpec,
-  npmSourceAccessArgs,
-} from "./package-manager-install-policy.js";
 import { applyPathPrepend } from "./path-prepend.js";
 import { parseSemver } from "./runtime-guard.js";
 
@@ -95,6 +90,23 @@ function isMainPackageTarget(value: string): boolean {
   return normalizeLowercaseStringOrEmpty(normalizePackageTarget(value)) === "main";
 }
 
+/**
+ * Returns true for targets that should pass through as package-manager specs
+ * rather than being treated as registry dist-tags.
+ */
+function isExplicitPackageInstallSpec(value: string): boolean {
+  const trimmed = normalizePackageTarget(value);
+  if (!trimmed) {
+    return false;
+  }
+  return (
+    /\.(?:tgz|tar\.gz)$/iu.test(trimmed) ||
+    trimmed.includes("://") ||
+    trimmed.includes("#") ||
+    /^(?:file|github|git\+ssh|git\+https|git\+http|git\+file|npm):/i.test(trimmed)
+  );
+}
+
 function stripPrimaryPackageAlias(spec: string): string {
   const normalized = normalizePackageTarget(spec);
   const prefix = `${PRIMARY_PACKAGE_NAME}@`;
@@ -136,8 +148,7 @@ export function resolveExpectedInstalledVersionFromSpec(
   ) {
     return null;
   }
-  const normalizedVersion = normalizePackageVersionForComparison(rawVersion);
-  return normalizedVersion && parsePackageSemver(normalizedVersion) ? normalizedVersion : null;
+  return normalizePackageVersionForComparison(rawVersion);
 }
 
 /**
@@ -901,14 +912,15 @@ export async function detectGlobalInstallManagerByPresence(
   return null;
 }
 
+/**
+ * Builds the primary package-manager argv for a global OpenClaw install.
+ * npm receives quiet/freshness-bypass flags; pnpm source installs allow builds.
+ */
 export function globalInstallArgs(
   managerOrCommand: GlobalInstallManager | ResolvedGlobalInstallCommand,
   spec: string,
   pkgRoot?: string | null,
   installPrefix?: string | null,
-  options: {
-    ignorePackageLifecycle?: boolean;
-  } = {},
 ): string[] {
   const resolved = normalizeGlobalInstallCommand(managerOrCommand, pkgRoot);
   if (resolved.manager === "pnpm") {
@@ -917,29 +929,18 @@ export function globalInstallArgs(
       "add",
       "-g",
       ...(installPrefix ? ["--global-dir", installPrefix] : []),
-      ...(options.ignorePackageLifecycle === true ? ["--ignore-scripts"] : []),
-      ...(options.ignorePackageLifecycle !== true && isPnpmOpenClawSourceInstallSpec(spec)
-        ? [PNPM_OPENCLAW_BUILD_ALLOWLIST_FLAG]
-        : []),
+      ...(isPnpmOpenClawSourceInstallSpec(spec) ? [PNPM_OPENCLAW_BUILD_ALLOWLIST_FLAG] : []),
       spec,
     ];
   }
   if (resolved.manager === "bun") {
-    return [
-      resolved.command,
-      "add",
-      "-g",
-      ...(options.ignorePackageLifecycle === true ? ["--ignore-scripts"] : []),
-      spec,
-    ];
+    return [resolved.command, "add", "-g", spec];
   }
   return [
     resolved.command,
     "i",
     "-g",
     ...(installPrefix ? ["--prefix", installPrefix] : []),
-    ...npmSourceAccessArgs(PRIMARY_PACKAGE_NAME, spec),
-    "--ignore-scripts",
     spec,
     ...NPM_GLOBAL_INSTALL_QUIET_FLAGS,
     ...createNpmFreshnessBypassArgs(process.env, new Date(), {
@@ -948,7 +949,10 @@ export function globalInstallArgs(
   ];
 }
 
-/** Builds npm's retry argv without optional dependencies; other managers have no fallback. */
+/**
+ * Builds npm's retry argv without optional dependencies.
+ * Non-npm managers have no equivalent fallback and return null.
+ */
 export function globalInstallFallbackArgs(
   managerOrCommand: GlobalInstallManager | ResolvedGlobalInstallCommand,
   spec: string,
@@ -964,8 +968,6 @@ export function globalInstallFallbackArgs(
     "i",
     "-g",
     ...(installPrefix ? ["--prefix", installPrefix] : []),
-    ...npmSourceAccessArgs(PRIMARY_PACKAGE_NAME, spec),
-    "--ignore-scripts",
     spec,
     "--omit=optional",
     ...NPM_GLOBAL_INSTALL_QUIET_FLAGS,

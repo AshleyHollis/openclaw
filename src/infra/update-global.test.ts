@@ -27,7 +27,6 @@ import {
   resolveGlobalInstallSpec,
   resolveNpmGlobalPrefixLayoutFromGlobalRoot,
   resolveNpmGlobalPrefixLayoutFromPrefix,
-  resolveExpectedInstalledVersionFromSpec,
   resolvePnpmGlobalDirFromGlobalRoot,
   type CommandRunner,
 } from "./update-global.js";
@@ -85,23 +84,6 @@ function createNpmRootRunner(params: {
 }
 
 describe("update global helpers", () => {
-  it("extracts only exact installed versions from package specs", () => {
-    expect(resolveExpectedInstalledVersionFromSpec("openclaw", "openclaw@v2026.3.23-2")).toBe(
-      "2026.3.23-2",
-    );
-    for (const spec of [
-      "openclaw@latest",
-      "openclaw@beta",
-      "openclaw@^2026.3.23",
-      "openclaw@~2026.3.23",
-      "openclaw@2026.3.x",
-      "openclaw@>=2026.3.23",
-      "openclaw@github:openclaw/openclaw#main",
-    ]) {
-      expect(resolveExpectedInstalledVersionFromSpec("openclaw", spec)).toBeNull();
-    }
-  });
-
   let envSnapshot: ReturnType<typeof captureEnv> | undefined;
 
   afterEach(() => {
@@ -142,12 +124,6 @@ describe("update global helpers", () => {
         tag: "https://example.com/openclaw-main.tgz",
       }),
     ).toBe("https://example.com/openclaw-main.tgz");
-    expect(resolveGlobalInstallSpec({ packageName: "openclaw", tag: "/tmp/openclaw" })).toBe(
-      "/tmp/openclaw",
-    );
-    expect(
-      resolveGlobalInstallSpec({ packageName: "openclaw", tag: "gitlab:openclaw/openclaw" }),
-    ).toBe("gitlab:openclaw/openclaw");
   });
 
   it("identifies package targets that support registry version resolution", () => {
@@ -344,6 +320,58 @@ describe("update global helpers", () => {
     });
   });
 
+  it("keeps UUID-prefixed npm installs authoritative when npm redacts its root", async () => {
+    await withMockedPlatform("darwin", async () => {
+      await withTempDir({ prefix: "openclaw-update-redacted-probe-" }, async (base) => {
+        const prefix = path.join(
+          base,
+          "ci-agent",
+          "01234567-89ab-cdef-0123-456789abcdef",
+          "workspace",
+          "sbx-fedcba98-7654-3210-fedc-ba9876543210",
+        );
+        const globalRoot = path.join(prefix, "lib", "node_modules");
+        const pkgRoot = path.join(globalRoot, "openclaw");
+        const adjacentNpm = path.join(prefix, "bin", "npm");
+        const redactedRoot = path.join(
+          base,
+          "ci-agent",
+          "***",
+          "workspace",
+          "sbx-***",
+          "lib",
+          "node_modules",
+        );
+        await fs.mkdir(pkgRoot, { recursive: true });
+        await fs.mkdir(path.dirname(adjacentNpm), { recursive: true });
+        await fs.writeFile(adjacentNpm, "", "utf8");
+
+        const runCommand = createNpmRootRunner({
+          defaultNpmRoot: redactedRoot,
+          overrideCommand: adjacentNpm,
+          overrideNpmRoot: redactedRoot,
+        });
+
+        await expect(detectGlobalInstallManagerForRoot(runCommand, pkgRoot, 1000)).resolves.toBe(
+          "npm",
+        );
+        await expect(
+          resolveGlobalInstallTarget({
+            manager: "npm",
+            runCommand,
+            timeoutMs: 1000,
+            pkgRoot,
+          }),
+        ).resolves.toEqual({
+          manager: "npm",
+          command: adjacentNpm,
+          globalRoot,
+          packageRoot: pkgRoot,
+        });
+      });
+    });
+  });
+
   it("keeps scoped npm self-updates on the running package root", async () => {
     await withMockedPlatform("darwin", async () => {
       await withTempDir({ prefix: "openclaw-update-scoped-probe-" }, async (base) => {
@@ -451,7 +479,6 @@ describe("update global helpers", () => {
         "npm",
         "i",
         "-g",
-        "--ignore-scripts",
         "openclaw@latest",
         "--no-fund",
         "--no-audit",
@@ -583,14 +610,15 @@ describe("update global helpers", () => {
       await expect(detectGlobalInstallManagerForRoot(runCommand, pkgRoot, 1000)).resolves.toBe(
         "pnpm",
       );
-      const installTarget = await resolveGlobalInstallTarget({
-        manager: { manager: "pnpm", command: "/custom/bin/pnpm" },
-        runCommand,
-        timeoutMs: 1000,
-        pkgRoot,
-        honorPackageRoot: true,
-      });
-      expect(installTarget).toEqual({
+      await expect(
+        resolveGlobalInstallTarget({
+          manager: { manager: "pnpm", command: "/custom/bin/pnpm" },
+          runCommand,
+          timeoutMs: 1000,
+          pkgRoot,
+          honorPackageRoot: true,
+        }),
+      ).resolves.toEqual({
         manager: "pnpm",
         command: "/custom/bin/pnpm",
         globalRoot: customGlobalRoot,
@@ -704,7 +732,6 @@ describe("update global helpers", () => {
       "-g",
       "--prefix",
       "/tmp/stage",
-      "--ignore-scripts",
       "openclaw@latest",
       "--no-fund",
       "--no-audit",
@@ -717,7 +744,6 @@ describe("update global helpers", () => {
       "-g",
       "--prefix",
       "/tmp/stage",
-      "--ignore-scripts",
       "openclaw@latest",
       "--omit=optional",
       "--no-fund",
@@ -732,19 +758,7 @@ describe("update global helpers", () => {
       "npm",
       "i",
       "-g",
-      "--ignore-scripts",
       "openclaw@latest",
-      "--no-fund",
-      "--no-audit",
-      "--loglevel=error",
-      "--min-release-age=0",
-    ]);
-    expect(globalInstallArgs("npm", "/tmp/openclaw-source")).toEqual([
-      "npm",
-      "i",
-      "-g",
-      "--ignore-scripts",
-      "/tmp/openclaw-source",
       "--no-fund",
       "--no-audit",
       "--loglevel=error",
@@ -769,82 +783,10 @@ describe("update global helpers", () => {
       "-g",
       "openclaw@latest",
     ]);
-    expect(
-      globalInstallArgs("pnpm", "/tmp/openclaw-candidate.tgz", null, null, {
-        ignorePackageLifecycle: true,
-      }),
-    ).toEqual(["pnpm", "add", "-g", "--ignore-scripts", "/tmp/openclaw-candidate.tgz"]);
-    expect(
-      globalInstallArgs("bun", "/tmp/openclaw-candidate.tgz", null, null, {
-        ignorePackageLifecycle: true,
-      }),
-    ).toEqual(["bun", "add", "-g", "--ignore-scripts", "/tmp/openclaw-candidate.tgz"]);
-    expect(
-      globalInstallArgs("npm", "/tmp/openclaw-candidate.tgz", null, "/tmp/stage", {
-        ignorePackageLifecycle: true,
-      }),
-    ).toEqual([
-      "npm",
-      "i",
-      "-g",
-      "--prefix",
-      "/tmp/stage",
-      "--ignore-scripts",
-      "/tmp/openclaw-candidate.tgz",
-      "--no-fund",
-      "--no-audit",
-      "--loglevel=error",
-      "--min-release-age=0",
-    ]);
-    expect(
-      globalInstallFallbackArgs("npm", "/tmp/openclaw-candidate.tgz", null, "/tmp/stage"),
-    ).toContain("--ignore-scripts");
-    for (const spec of ["/tmp/openclaw-candidate.tgz", "/tmp/openclaw-source"]) {
-      const argv = globalInstallArgs("npm", spec);
-      expect(argv).toContain("--ignore-scripts");
-      expect(argv.some((arg) => arg.startsWith("--allow-scripts="))).toBe(false);
-    }
-    const githubArgs = globalInstallArgs("npm", "github:openclaw/openclaw#main");
-    expect(githubArgs).toContain("--allow-git=root");
-    const githubUrlArgs = globalInstallArgs("npm", "https://github.com/openclaw/openclaw#main");
-    expect(githubUrlArgs).toContain("--allow-git=root");
-    for (const spec of [
-      "https://gitlab.com/openclaw/openclaw#main",
-      "https://bitbucket.org/openclaw/openclaw#main",
-      "https://git.sr.ht/~openclaw/openclaw#main",
-    ]) {
-      const argv = globalInstallArgs("npm", spec);
-      expect(argv).toContain("--allow-git=root");
-    }
-    for (const spec of [
-      "openclaw/openclaw#main",
-      "git@github.com:openclaw/openclaw.git#main",
-      "gitlab:openclaw/openclaw#main",
-      "bitbucket:openclaw/openclaw#main",
-      "gist:11081aaa281#main",
-    ]) {
-      const argv = globalInstallArgs("npm", spec);
-      expect(argv).toContain("--allow-git=root");
-    }
-    const remoteArgs = globalInstallArgs("npm", "https://downloads.example.com/openclaw.tgz");
-    expect(remoteArgs).toContain("--allow-remote=root");
-    for (const spec of [
-      "https://github.com/openclaw/openclaw/archive/refs/heads/main.tar.gz",
-      "https://github.com/openclaw/openclaw/releases/download/v2.0.0/openclaw.tgz",
-    ]) {
-      const argv = globalInstallArgs("npm", spec);
-      expect(argv).toContain("--allow-remote=root");
-      expect(argv).not.toContain("--allow-git=root");
-    }
-    expect(globalInstallArgs("npm", "openclaw@npm:@vendor/openclaw@1.2.3")).toContain(
-      "--ignore-scripts",
-    );
-    expect(globalInstallArgs("npm", "npm:openclaw-fork@next")).toContain("--ignore-scripts");
     expect(globalInstallFallbackArgs("npm", "openclaw@latest")).toEqual([
       "npm",
       "i",
       "-g",
-      "--ignore-scripts",
       "openclaw@latest",
       "--omit=optional",
       "--no-fund",
