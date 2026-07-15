@@ -184,7 +184,9 @@ export async function runClawsAddCommand(
 
   let addResult;
   try {
-    addResult = await applyClawAddPlan(plan);
+    addResult = await applyClawAddPlan(plan, {
+      runtime: opts.json ? { ...runtime, log: () => undefined } : runtime,
+    });
   } catch (error) {
     const code = error instanceof ClawAddMutationError ? error.code : "add_failed";
     const message = (error as Error).message;
