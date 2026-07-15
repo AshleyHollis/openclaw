@@ -9,17 +9,9 @@ import { normalizeOptionalStringifiedId } from "openclaw/plugin-sdk/string-coerc
 import type { ChannelType, Message } from "../internal/discord.js";
 import { resolveDiscordChannelInfoSafe } from "./channel-access.js";
 import { discordChannelInfoCacheState } from "./message-channel-info-state.js";
+import type { DiscordChannelInfo, DiscordChannelInfoClient } from "./message-channel-info-types.js";
 
-export type DiscordChannelInfo = {
-  type: ChannelType;
-  name?: string;
-  topic?: string;
-  parentId?: string;
-  ownerId?: string;
-};
-export type DiscordChannelInfoClient = {
-  fetchChannel(channelId: string): Promise<unknown>;
-};
+export type { DiscordChannelInfo, DiscordChannelInfoClient } from "./message-channel-info-types.js";
 
 type DiscordMessageWithChannelId = Message & {
   channel_id?: unknown;
