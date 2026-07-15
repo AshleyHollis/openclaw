@@ -4,7 +4,6 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { describe, expect, it, vi } from "vitest";
 import { legacyConfigRules, normalizeCompatibilityConfig } from "./doctor-contract-api.js";
 import { migrateLegacySignalTransportConfig } from "./src/config-compat.js";
-import { signalDoctor } from "./src/doctor.js";
 
 function signalConfig(entry: Record<string, unknown>): OpenClawConfig {
   return { channels: { signal: entry } } as never;
@@ -326,6 +325,23 @@ describe("signal transport compatibility", () => {
 
     expect(result.config).toBe(cfg);
     expect(result.changes).toEqual([]);
+  });
+
+  it("does not configure an account from non-configuring legacy options", () => {
+    const result = normalizeCompatibilityConfig({
+      cfg: signalConfig({
+        apiMode: "native",
+        startupTimeoutMs: 60_000,
+        receiveMode: "manual",
+        ignoreStories: true,
+      }),
+    });
+
+    expect(result.config.channels?.signal).not.toHaveProperty("transport");
+    expect(result.config.channels?.signal).not.toHaveProperty("apiMode");
+    expect(result.config.channels?.signal).not.toHaveProperty("startupTimeoutMs");
+    expect(result.config.channels?.signal).not.toHaveProperty("receiveMode");
+    expect(result.config.channels?.signal).not.toHaveProperty("ignoreStories");
   });
 
   it("detects an auto endpoint once and persists the concrete result", async () => {

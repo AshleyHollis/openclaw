@@ -160,6 +160,24 @@ describe("resolveSignalAccount", () => {
     });
   });
 
+  it("does not let an unconfigured placeholder consume a managed port", () => {
+    const cfg = {
+      channels: {
+        signal: {
+          accounts: {
+            placeholder: { enabled: false },
+            work: { account: "+15555550124", transport: { kind: "managed-native" } },
+          },
+        },
+      },
+    } as never;
+
+    expect(resolveSignalAccount({ cfg, accountId: "work" }).transport).toMatchObject({
+      kind: "managed-native",
+      httpPort: 8080,
+    });
+  });
+
   it("keeps an implicit managed connection URL aligned with its allocated bind", () => {
     const cfg = {
       channels: {

@@ -79,6 +79,14 @@ function mergeSignalAccountConfig(cfg: OpenClawConfig, accountId: string): Signa
   return merged;
 }
 
+function isSignalAccountConfigured(config: SignalAccountConfig): boolean {
+  return Boolean(
+    normalizeOptionalString(config.account) ||
+    normalizeOptionalString(config.accountUuid) ||
+    config.transport,
+  );
+}
+
 function resolveSignalManagedNativePort(params: {
   cfg: OpenClawConfig;
   accountId: string;
@@ -93,7 +101,11 @@ function resolveSignalManagedNativePort(params: {
   // Reserve concrete local endpoints first, then assign implicit ports in account order.
   // Independent account resolution must produce the same collision-free daemon binds.
   for (const accountId of listSignalAccountIds(params.cfg)) {
-    const transport = mergeSignalAccountConfig(params.cfg, accountId).transport;
+    const accountConfig = mergeSignalAccountConfig(params.cfg, accountId);
+    if (!isSignalAccountConfigured(accountConfig)) {
+      continue;
+    }
+    const transport = accountConfig.transport;
     if (transport?.kind === "external-native" || transport?.kind === "container") {
       const localPort = resolveLocalSignalTransportPort(transport.url);
       if (localPort !== undefined) {
@@ -178,11 +190,7 @@ export function resolveSignalAccount(params: {
     resolveSignalManagedNativePort({ cfg: params.cfg, accountId, transport: merged.transport }),
   );
   const baseUrl = transport.baseUrl;
-  const configured = Boolean(
-    normalizeOptionalString(merged.account) ||
-    normalizeOptionalString(merged.accountUuid) ||
-    merged.transport,
-  );
+  const configured = isSignalAccountConfigured(merged);
   return {
     accountId,
     enabled,

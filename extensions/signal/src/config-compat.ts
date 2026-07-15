@@ -99,6 +99,21 @@ function hasLegacyFields(entry: Record<string, unknown>): boolean {
   return LEGACY_TRANSPORT_FIELDS.some((field) => Object.hasOwn(entry, field));
 }
 
+function wasLegacySignalAccountConfigured(
+  entry: Record<string, unknown>,
+  parent: Record<string, unknown>,
+): boolean {
+  return Boolean(
+    optionalString(inherited(entry, parent, "account")) ||
+    optionalString(inherited(entry, parent, "configPath")) ||
+    optionalString(inherited(entry, parent, "httpUrl")) ||
+    optionalString(inherited(entry, parent, "httpHost")) ||
+    optionalString(inherited(entry, parent, "cliPath")) ||
+    typeof inherited(entry, parent, "httpPort") === "number" ||
+    typeof inherited(entry, parent, "autoStart") === "boolean",
+  );
+}
+
 function hasInvalidLegacyHttpUrl(
   entries: Record<string, unknown>[],
   parent: Record<string, unknown>,
@@ -294,6 +309,19 @@ function isDiscardedTransportEntry(entries: Record<string, unknown>[], index: nu
   );
 }
 
+function shouldMaterializeTransport(entries: Record<string, unknown>[], index: number): boolean {
+  if (isDiscardedTransportEntry(entries, index)) {
+    return false;
+  }
+  const entry = entries[index];
+  const parent = entries[0];
+  return Boolean(
+    entry &&
+    parent &&
+    (isSignalTransportConfig(entry.transport) || wasLegacySignalAccountConfigured(entry, parent)),
+  );
+}
+
 export function clearLegacySignalTransportFieldsForAccount(params: {
   cfg: OpenClawConfig;
   accountId: string;
@@ -403,12 +431,19 @@ function applyMigratedSignalTransports(params: {
   for (const [index, entry] of nextEntries.entries()) {
     const accountId = index === 0 ? undefined : accountIds[index - 1];
     if (accountId === DEFAULT_ACCOUNT_ID) {
-      nextSignal.transport = canonicalRootTransport ?? params.transports[index];
+      const defaultTransport = canonicalRootTransport ?? params.transports[index];
+      if (defaultTransport) {
+        nextSignal.transport = defaultTransport;
+      } else {
+        delete nextSignal.transport;
+      }
       delete entry.transport;
     } else if (index === 0 && !rootIsAccount) {
       delete entry.transport;
-    } else {
+    } else if (params.transports[index]) {
       entry.transport = params.transports[index];
+    } else {
+      delete entry.transport;
     }
     clearLegacyTransportFields(entry);
   }
@@ -434,7 +469,7 @@ export async function migrateLegacySignalTransportConfig(params: {
   }
   const apiMode = signal.apiMode;
   const entries = [signal, ...Object.values(accounts).filter(isRecord)];
-  const migrationEntries = entries.filter((_, index) => !isDiscardedTransportEntry(entries, index));
+  const migrationEntries = entries.filter((_, index) => shouldMaterializeTransport(entries, index));
   const legacyResolutionEntries = migrationEntries.filter(
     (entry) => !isSignalTransportConfig(entry.transport),
   );
@@ -467,14 +502,14 @@ export async function migrateLegacySignalTransportConfig(params: {
     entries,
     transports: await Promise.all(
       entries.map((entry, index) =>
-        isDiscardedTransportEntry(entries, index)
+        !shouldMaterializeTransport(entries, index)
           ? undefined
           : resolveLegacyTransport({ entry, parent: signal, apiMode, detect: params.detect }),
       ),
     ),
   });
   if (
-    transports.some((transport, index) => !isDiscardedTransportEntry(entries, index) && !transport)
+    transports.some((transport, index) => shouldMaterializeTransport(entries, index) && !transport)
   ) {
     return {
       config: params.cfg,
@@ -511,7 +546,7 @@ export function migrateLegacySignalTransportConfigSync(
     return { config: cfg, changes: [] };
   }
   const entries = [signal, ...Object.values(accounts).filter(isRecord)];
-  const migrationEntries = entries.filter((_, index) => !isDiscardedTransportEntry(entries, index));
+  const migrationEntries = entries.filter((_, index) => shouldMaterializeTransport(entries, index));
   const legacyResolutionEntries = migrationEntries.filter(
     (entry) => !isSignalTransportConfig(entry.transport),
   );
@@ -532,7 +567,7 @@ export function migrateLegacySignalTransportConfigSync(
   const transports = allocateMigratedManagedPorts({
     entries,
     transports: entries.map((entry, index) =>
-      isDiscardedTransportEntry(entries, index)
+      !shouldMaterializeTransport(entries, index)
         ? undefined
         : resolveLegacyTransportWithoutDetection({
             entry,
@@ -542,7 +577,7 @@ export function migrateLegacySignalTransportConfigSync(
     ),
   });
   if (
-    transports.some((transport, index) => !isDiscardedTransportEntry(entries, index) && !transport)
+    transports.some((transport, index) => shouldMaterializeTransport(entries, index) && !transport)
   ) {
     return { config: cfg, changes: [] };
   }
