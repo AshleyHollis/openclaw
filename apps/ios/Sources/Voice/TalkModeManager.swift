@@ -273,7 +273,6 @@ final class TalkModeManager: NSObject {
     private var realtimeProvider: String?
     private var realtimeModelId: String?
     private var realtimeVoiceId: String?
-    private var realtimeBrain = "agent-consult"
     private var configuredVoiceModeDescriptor = TalkVoiceModeDescriptor(
         title: String(localized: "Not loaded"),
         subtitle: nil,
@@ -2186,7 +2185,6 @@ final class TalkModeManager: NSObject {
         let session = TalkRealtimeWebRTCSession(
             gateway: gateway,
             sessionKey: mainSessionKey,
-            brain: realtimeBrain,
             delegate: self)
         self.realtimeSession = session
         // WebRTC owns the shared AVAudioSession internally; track the attempt
@@ -2397,11 +2395,7 @@ final class TalkModeManager: NSObject {
         model: String?,
         voice: String?) async throws -> TalkRealtimeClientSession
     {
-        let params = TalkRealtimeClientCreateParams(
-            provider: provider,
-            brain: realtimeBrain,
-            model: model,
-            voice: voice)
+        let params = TalkRealtimeClientCreateParams(provider: provider, model: model, voice: voice)
         let data = try JSONEncoder().encode(params)
         let json = String(data: data, encoding: .utf8)
         let res = try await gateway.request(
@@ -4089,7 +4083,6 @@ extension TalkModeManager {
         self.realtimeProvider = routing.realtimeProvider
         self.realtimeModelId = routing.realtimeModelId
         self.realtimeVoiceId = realtimeVoiceId
-        self.realtimeBrain = parsed.realtimeBrain
         self.defaultVoiceId = parsed.defaultVoiceId
         self.voiceAliases = parsed.voiceAliases
         if !self.voiceOverrideActive {
@@ -4247,7 +4240,6 @@ extension TalkModeManager {
         self.realtimeProvider = nil
         self.realtimeModelId = nil
         self.realtimeVoiceId = nil
-        self.realtimeBrain = "agent-consult"
         self.configuredProviderModelId = nil
         self.gatewayTalkProviderLabel = String(localized: "Not loaded")
         self.gatewayTalkTransportLabel = String(localized: "Not loaded")

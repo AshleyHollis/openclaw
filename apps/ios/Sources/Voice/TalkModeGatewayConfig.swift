@@ -339,7 +339,6 @@ struct TalkModeGatewayConfigState {
     let normalizedPayload: Bool
     let missingResolvedPayload: Bool
     let executionMode: TalkModeExecutionMode
-    let realtimeBrain: String
     let requiresGatewayRealtimeTransport: Bool
     let openAIRequiresGatewayRealtimeTransport: Bool
     let defaultVoiceId: String?
@@ -401,7 +400,6 @@ enum TalkModeGatewayConfigParser {
         let realtimeModelId = realtimeModel ?? defaultRealtimeModelIdFallback
         let realtimeVoiceId = Self.firstString(realtime, keys: ["voice"])
             ?? Self.firstString(realtimeProviderConfig, keys: ["voice"])
-        let realtimeBrain = Self.firstString(realtime, keys: ["brain"])?.lowercased() ?? "agent-consult"
         let realtimeTransport = Self.firstString(realtime, keys: ["transport"])?.lowercased()
         let requiresGatewayRealtimeTransport = realtimeTransport == "gateway-relay"
             || realtimeTransport == "provider-websocket"
@@ -427,7 +425,6 @@ enum TalkModeGatewayConfigParser {
             normalizedPayload: selection?.normalizedPayload == true,
             missingResolvedPayload: talk != nil && selection == nil,
             executionMode: executionMode,
-            realtimeBrain: realtimeBrain,
             requiresGatewayRealtimeTransport: requiresGatewayRealtimeTransport,
             openAIRequiresGatewayRealtimeTransport: openAIRequiresGatewayRealtimeTransport,
             defaultVoiceId: defaultVoiceId,
@@ -466,7 +463,7 @@ enum TalkModeGatewayConfigParser {
         guard mode == "realtime" else {
             return .native
         }
-        if brain != nil, brain != "agent-consult", brain != "none" {
+        if brain != nil, brain != "agent-consult" {
             return .native
         }
         if requiresGatewayRealtimeTransport {
