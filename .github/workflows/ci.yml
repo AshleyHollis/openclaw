@@ -1675,6 +1675,11 @@ jobs:
         with:
           node-version: "${{ matrix.node_version || '24.x' }}"
           install-bun: "false"
+          # Blacksmith runs mount deps from a sticky disk instead of restoring
+          # the ~1GB pnpm store tar in every job; fork/dispatch runs are
+          # GitHub-hosted and keep the actions/cache path.
+          sticky-disk: ${{ github.event_name != 'workflow_dispatch' && github.repository == 'openclaw/openclaw' && 'true' || 'false' }}
+          use-actions-cache: ${{ github.event_name != 'workflow_dispatch' && github.repository == 'openclaw/openclaw' && 'false' || 'true' }}
 
       - name: Setup Go for docs i18n
         if: matrix.requires_go == true

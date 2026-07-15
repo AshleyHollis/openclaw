@@ -27,6 +27,14 @@ inputs:
     description: Whether to save the pnpm store with actions/cache after install when no exact cache restored.
     required: false
     default: "false"
+  sticky-disk:
+    description: >
+      Mount a Blacksmith sticky disk holding the pnpm store, node_modules, and
+      virtual store instead of restoring the pnpm store from actions/cache.
+      Only valid on Blacksmith Linux runners; pass use-actions-cache: "false"
+      alongside.
+    required: false
+    default: "false"
 runs:
   using: composite
   steps:
@@ -47,6 +55,31 @@ runs:
         set -euo pipefail
         source "$GITHUB_ACTION_PATH/../setup-pnpm-store-cache/ensure-node.sh"
         openclaw_ensure_node "$REQUESTED_NODE_VERSION"
+
+    - name: Mount dependency sticky disk
+      if: inputs.sticky-disk == 'true'
+      uses: useblacksmith/stickydisk@5b350170ae4ef55b536b548ef5f5896e76a6b54f # v1.4.0
+      with:
+        # Keyed on install inputs: the first job per lockfile change installs
+        # onto a fresh disk and snapshots it once (if-missing); every later job
+        # clones that snapshot and pnpm install is a near no-op verify.
+        key: ${{ github.repository }}-node-deps-v1-${{ inputs.node-version }}-${{ hashFiles('package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml') }}
+        path: /var/tmp/openclaw-node-deps
+        commit: if-missing
+
+    - name: Configure sticky dependency layout
+      if: inputs.sticky-disk == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Store, virtual store, and modules dir must share the sticky disk's
+        # filesystem so pnpm keeps hardlinking instead of copying packages.
+        # zizmor: ignore[github-env] static trusted paths defined in this composite action.
+        {
+          echo "PNPM_CONFIG_STORE_DIR=/var/tmp/openclaw-node-deps/store"
+          echo "PNPM_CONFIG_MODULES_DIR=/var/tmp/openclaw-node-deps/node_modules"
+          echo "PNPM_CONFIG_VIRTUAL_STORE_DIR=/var/tmp/openclaw-node-deps/virtual-store"
+        } >> "$GITHUB_ENV"
 
     - name: Setup pnpm
       id: setup-pnpm
@@ -124,6 +157,7 @@ runs:
         append_pnpm_option_arg PNPM_CONFIG_CHILD_CONCURRENCY child-concurrency
         append_pnpm_option_arg PNPM_CONFIG_MODULES_DIR modules-dir
         append_pnpm_option_arg PNPM_CONFIG_NETWORK_CONCURRENCY network-concurrency
+        append_pnpm_option_arg PNPM_CONFIG_STORE_DIR store-dir
         append_pnpm_option_arg PNPM_CONFIG_VIRTUAL_STORE_DIR virtual-store-dir
         if [ -n "${PNPM_CONFIG_MODULES_DIR:-}" ]; then
           mkdir -p "$PNPM_CONFIG_MODULES_DIR"
