@@ -118,8 +118,7 @@ function hasIndependentManagedEndpoint(
   return (
     endpoint.protocol !== "http:" ||
     endpointHost !== bindHost ||
-    endpointPort !== bindPort ||
-    endpoint.pathname !== "/"
+    endpointPort !== bindPort
   );
 }
 

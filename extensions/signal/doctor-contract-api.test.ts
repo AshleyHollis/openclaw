@@ -354,6 +354,24 @@ describe("signal transport compatibility", () => {
     });
   });
 
+  it("ignores legacy native URL paths when the daemon bind matches", async () => {
+    const result = await migrateLegacySignalTransportConfig({
+      cfg: signalConfig({
+        apiMode: "native",
+        autoStart: true,
+        httpHost: "127.0.0.1",
+        httpPort: 8181,
+        httpUrl: "http://127.0.0.1:8181/proxy",
+      }),
+    });
+
+    expect(result.config.channels?.signal?.transport).toEqual({
+      kind: "managed-native",
+      httpHost: "127.0.0.1",
+      httpPort: 8181,
+    });
+  });
+
   it("defers managed migration when httpUrl is independent from the daemon bind", async () => {
     const cfg = signalConfig({
       apiMode: "native",
