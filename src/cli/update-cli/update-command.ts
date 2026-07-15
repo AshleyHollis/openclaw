@@ -52,8 +52,10 @@ import {
   canResolveRegistryVersionForPackageTarget,
   createGlobalInstallEnv,
   cleanupGlobalRenameDirs,
+  globalInstallArgs,
   resolveGlobalInstallTarget,
   resolveGlobalInstallSpec,
+  resolvePnpmGlobalDirFromGlobalRoot,
   type ResolvedGlobalInstallTarget,
 } from "../../infra/update-global.js";
 import { cleanupStaleManagedServiceUpdateHandoffs } from "../../infra/update-managed-service-handoff-cleanup.js";
@@ -87,7 +89,6 @@ import {
   tryWriteCompletionCache,
   type UpdateCommandOptions,
 } from "./shared.js";
-import { runSourceCheckoutGlobalInstall } from "./source-checkout-install.js";
 import { suppressDeprecations } from "./suppress-deprecations.js";
 import {
   createUpdateConfigSnapshot,
@@ -122,7 +123,7 @@ import {
   maybeRestartServiceAfterFailedMutableUpdate,
   maybeResumeWindowsTaskAutoStartAfterPackageUpdate,
   maybeStopManagedServiceBeforeMutableUpdate,
-  resolveManagedServiceNodeRunnerContext,
+  resolveManagedServiceNodeRunnerOverride,
   resolveManagedServicePackageUpdateRoot,
   resolvePackageRuntimePreflightError,
   resolvePostInstallDoctorEnv,
@@ -295,6 +296,7 @@ async function runPackageInstallUpdate(params: {
       defaultRuntime.log(theme.warn(diskWarning));
     }
   }
+
   const packageUpdate = await runGlobalPackageUpdateSteps({
     installTarget,
     installSpec,
@@ -302,7 +304,6 @@ async function runPackageInstallUpdate(params: {
     packageRoot: pkgRoot,
     runCommand,
     timeoutMs: params.timeoutMs,
-    ...(params.nodeRunner ? { nodePath: params.nodeRunner } : {}),
     ...(installEnv === undefined ? {} : { env: installEnv }),
     runStep: (stepParams) =>
       runUpdateStep({
@@ -411,7 +412,6 @@ async function runGitUpdate(params: {
   } | void>;
   allowGatewayServiceRepair: boolean;
   allowGatewayActivation: boolean;
-  nodeRunner?: string;
 }): Promise<UpdateRunResult> {
   const updateRoot = params.switchToGit ? resolveGitInstallDir() : params.root;
   const effectiveTimeout = params.timeoutMs ?? DEFAULT_UPDATE_STEP_TIMEOUT_MS;
@@ -457,19 +457,36 @@ async function runGitUpdate(params: {
   const steps = [...(cloneStep ? [cloneStep] : []), ...updateResult.steps];
 
   if (params.switchToGit && updateResult.status === "ok") {
-    const sourceInstall = await runSourceCheckoutGlobalInstall({
-      sourceRoot: updateRoot,
-      currentPackageRoot: params.root,
+    const manager = await resolveGlobalManager({
+      root: params.root,
       installKind: params.installKind,
-      nodeRunner: params.nodeRunner,
-      env: installEnv ?? process.env,
+      timeoutMs: effectiveTimeout,
+    });
+    const runCommand = createGlobalCommandRunner();
+    const installTarget = await resolveGlobalInstallTarget({
+      manager,
+      runCommand,
+      timeoutMs: effectiveTimeout,
+      pkgRoot: params.root,
+    });
+    const installLocation =
+      installTarget.manager === "pnpm"
+        ? resolvePnpmGlobalDirFromGlobalRoot(installTarget.globalRoot)
+        : null;
+    const installStep = await runUpdateStep({
+      name: "global install",
+      argv: globalInstallArgs(installTarget, updateRoot, undefined, installLocation),
+      cwd: updateRoot,
+      env: installEnv,
       timeoutMs: effectiveTimeout,
       progress: params.progress,
     });
-    steps.push(...sourceInstall.steps);
+    steps.push(installStep);
+
+    const failedStep = installStep.exitCode !== 0 ? installStep : null;
     return {
       ...updateResult,
-      status: sourceInstall.failedStep ? "error" : updateResult.status,
+      status: updateResult.status === "ok" && !failedStep ? "ok" : "error",
       steps,
       durationMs: Date.now() - params.startedAt,
     };
@@ -747,25 +764,22 @@ async function updateCommandInternal(
           );
         }
       }
-    }
-  }
-
-  if (!managedServiceRootRedirect && (updateInstallKind === "package" || switchToGit)) {
-    // Roots match or the update is switching to a source checkout, but the
-    // managed service can still use a different Node than the current shell.
-    const managedServiceNodeContext = await resolveManagedServiceNodeRunnerContext();
-    managedServiceNodeRunner = managedServiceNodeContext?.nodeRunner;
-    if (managedServiceNodeContext?.differsFromCurrent && !opts.json) {
-      defaultRuntime.log(
-        theme.warn(
-          `Current Node (${resolveNodeRunner()}) differs from the managed gateway service Node (${managedServiceNodeRunner}).`,
-        ),
-      );
-      defaultRuntime.log(
-        theme.muted(
-          `Using the managed service Node for this update so the gateway can start after the upgrade.`,
-        ),
-      );
+    } else {
+      // Roots match but the node binary may still differ (e.g. user switched
+      // nvm/fnm/brew node after gateway install).
+      managedServiceNodeRunner = await resolveManagedServiceNodeRunnerOverride();
+      if (managedServiceNodeRunner && !opts.json) {
+        defaultRuntime.log(
+          theme.warn(
+            `Current Node (${resolveNodeRunner()}) differs from the managed gateway service Node (${managedServiceNodeRunner}).`,
+          ),
+        );
+        defaultRuntime.log(
+          theme.muted(
+            `Using the managed service Node for this update so the gateway can start after the upgrade.`,
+          ),
+        );
+      }
     }
   }
 
@@ -1130,7 +1144,6 @@ async function updateCommandInternal(
                 : undefined,
             allowGatewayServiceRepair: false,
             allowGatewayActivation: false,
-            nodeRunner: managedServiceNodeRunner,
           });
   } catch (err) {
     stop();

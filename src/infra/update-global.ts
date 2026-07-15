@@ -4,7 +4,6 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
-import { parse as parsePackageSemver } from "semver";
 import { BUNDLED_RUNTIME_SIDECAR_PATHS } from "../plugins/runtime-sidecar-paths.js";
 import { pathExists } from "../utils.js";
 import {
@@ -18,10 +17,6 @@ import {
   readPackageDistInventoryIfPresent,
 } from "./package-dist-inventory.js";
 import { readPackageVersion } from "./package-json.js";
-import {
-  isExplicitPackageInstallSpec,
-  npmSourceAccessArgs,
-} from "./package-manager-install-policy.js";
 import { applyPathPrepend } from "./path-prepend.js";
 import { parseSemver } from "./runtime-guard.js";
 
@@ -63,6 +58,7 @@ const GLOBAL_RENAME_PREFIX = ".";
 const OPENCLAW_MAIN_PACKAGE_SPEC = "github:openclaw/openclaw#main";
 const COREPACK_ENABLE_DOWNLOAD_PROMPT_DEFAULT = "0";
 const NPM_GLOBAL_INSTALL_QUIET_FLAGS = ["--no-fund", "--no-audit", "--loglevel=error"] as const;
+const PNPM_OPENCLAW_BUILD_ALLOWLIST_FLAG = `--allow-build=${PRIMARY_PACKAGE_NAME}`;
 const FIRST_PACKAGED_DIST_INVENTORY_VERSION = { major: 2026, minor: 4, patch: 15 };
 const OMITTED_PRIVATE_QA_BUNDLED_PLUGIN_ROOTS = new Set([
   "dist/extensions/qa-channel",
@@ -95,6 +91,40 @@ function isMainPackageTarget(value: string): boolean {
 }
 
 /**
+ * Returns true for targets that should pass through as package-manager specs
+ * rather than being treated as registry dist-tags.
+ */
+function isExplicitPackageInstallSpec(value: string): boolean {
+  const trimmed = normalizePackageTarget(value);
+  if (!trimmed) {
+    return false;
+  }
+  return (
+    /\.(?:tgz|tar\.gz)$/iu.test(trimmed) ||
+    trimmed.includes("://") ||
+    trimmed.includes("#") ||
+    /^(?:file|github|git\+ssh|git\+https|git\+http|git\+file|npm):/i.test(trimmed)
+  );
+}
+
+function stripPrimaryPackageAlias(spec: string): string {
+  const normalized = normalizePackageTarget(spec);
+  const prefix = `${PRIMARY_PACKAGE_NAME}@`;
+  return normalized.toLowerCase().startsWith(prefix)
+    ? normalized.slice(prefix.length).trim()
+    : normalized;
+}
+
+function isPnpmOpenClawSourceInstallSpec(spec: string): boolean {
+  const target = stripPrimaryPackageAlias(spec);
+  return (
+    /^github:/i.test(target) ||
+    /^git\+(?:ssh|https|http|file):/i.test(target) ||
+    /^git:/i.test(target)
+  );
+}
+
+/**
  * Extracts a pinned installed version from package specs like `openclaw@1.2.3`.
  * Moving tags, URLs, git refs, and aliases return null because they cannot be
  * compared reliably after install.
@@ -118,8 +148,7 @@ export function resolveExpectedInstalledVersionFromSpec(
   ) {
     return null;
   }
-  const normalizedVersion = normalizePackageVersionForComparison(rawVersion);
-  return normalizedVersion && parsePackageSemver(normalizedVersion) ? normalizedVersion : null;
+  return normalizePackageVersionForComparison(rawVersion);
 }
 
 /**
@@ -883,6 +912,10 @@ export async function detectGlobalInstallManagerByPresence(
   return null;
 }
 
+/**
+ * Builds the primary package-manager argv for a global OpenClaw install.
+ * npm receives quiet/freshness-bypass flags; pnpm source installs allow builds.
+ */
 export function globalInstallArgs(
   managerOrCommand: GlobalInstallManager | ResolvedGlobalInstallCommand,
   spec: string,
@@ -896,22 +929,18 @@ export function globalInstallArgs(
       "add",
       "-g",
       ...(installPrefix ? ["--global-dir", installPrefix] : []),
-      "--ignore-scripts",
+      ...(isPnpmOpenClawSourceInstallSpec(spec) ? [PNPM_OPENCLAW_BUILD_ALLOWLIST_FLAG] : []),
       spec,
     ];
   }
   if (resolved.manager === "bun") {
-    // Bun can skip materializing an already-selected version. Activation and
-    // rollback both require the exact artifact to replace the live package.
-    return [resolved.command, "add", "-g", "--force", "--ignore-scripts", spec];
+    return [resolved.command, "add", "-g", spec];
   }
   return [
     resolved.command,
     "i",
     "-g",
     ...(installPrefix ? ["--prefix", installPrefix] : []),
-    ...npmSourceAccessArgs(PRIMARY_PACKAGE_NAME, spec),
-    "--ignore-scripts",
     spec,
     ...NPM_GLOBAL_INSTALL_QUIET_FLAGS,
     ...createNpmFreshnessBypassArgs(process.env, new Date(), {
@@ -920,7 +949,10 @@ export function globalInstallArgs(
   ];
 }
 
-/** Builds npm's retry argv without optional dependencies; other managers have no fallback. */
+/**
+ * Builds npm's retry argv without optional dependencies.
+ * Non-npm managers have no equivalent fallback and return null.
+ */
 export function globalInstallFallbackArgs(
   managerOrCommand: GlobalInstallManager | ResolvedGlobalInstallCommand,
   spec: string,
@@ -936,8 +968,6 @@ export function globalInstallFallbackArgs(
     "i",
     "-g",
     ...(installPrefix ? ["--prefix", installPrefix] : []),
-    ...npmSourceAccessArgs(PRIMARY_PACKAGE_NAME, spec),
-    "--ignore-scripts",
     spec,
     "--omit=optional",
     ...NPM_GLOBAL_INSTALL_QUIET_FLAGS,

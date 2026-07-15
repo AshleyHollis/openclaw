@@ -48,6 +48,7 @@ describe("package dist inventory", () => {
       const currentFile = path.join(packageRoot, "dist", "current.js");
       await fs.mkdir(path.dirname(currentFile), { recursive: true });
       await fs.writeFile(currentFile, "export {};\n", "utf8");
+
       await expect(writePackageDistInventoryForPublish(packageRoot)).resolves.toEqual([
         "dist/current.js",
       ]);
