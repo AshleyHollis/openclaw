@@ -251,7 +251,8 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +6: shared progress receipt tracker + compositor snapshot across channel barrels.
       // +1: selectPreferredLocalModelId shares app-guided local model ranking across providers.
       // +4: shared audio-energy stats and speech-threshold gate through realtime-voice.
-      8010,
+      // +2: turn-admission mapper and side-effect type on channel-ingress-runtime.
+      8012,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -277,7 +278,8 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +1: unified implicit-mention policy resolver.
       // +1: selectPreferredLocalModelId shares app-guided local model ranking across providers.
       // +3: PCM16/mu-law energy readers and speech-threshold gate factory.
-      4476,
+      // +1: turn-admission mapper on channel-ingress-runtime.
+      4477,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
