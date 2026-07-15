@@ -35,8 +35,8 @@ import { collectPackUnpackedSizeErrors as collectNpmPackUnpackedSizeErrors } fro
 import {
   isLegacyPluginDependencyInstallStagePath,
   LOCAL_BUILD_METADATA_DIST_PATHS,
-  PACKAGE_INSTALL_REQUIRED_PATHS,
-  writePackageDistInventoryForPublish,
+  PACKAGE_DIST_INVENTORY_RELATIVE_PATH,
+  writePackageDistInventory,
 } from "./lib/package-dist-inventory.ts";
 import { collectBundledPluginPackageDependencySpecs } from "./lib/plugin-package-dependencies.mjs";
 import {
@@ -83,7 +83,7 @@ const rootPackageExcludedExtensionPrefixes = [...rootPackageExcludedExtensionDir
 );
 const requiredPathGroups = [
   "npm-shrinkwrap.json",
-  ...PACKAGE_INSTALL_REQUIRED_PATHS,
+  PACKAGE_DIST_INVENTORY_RELATIVE_PATH,
   ["dist/index.js", "dist/index.mjs"],
   ["dist/entry.js", "dist/entry.mjs"],
   ...listPluginSdkDistArtifacts(),
@@ -1326,7 +1326,7 @@ async function main() {
   }
   runCriticalPluginSdkEntrypointImportSmoke();
   checkBundledExtensionMetadata();
-  await writePackageDistInventoryForPublish(process.cwd());
+  await writePackageDistInventory(process.cwd());
 
   const results = runPackDry();
   const files = results.flatMap((entry) => entry.files ?? []);

@@ -103,7 +103,6 @@ import {
   writePackageDistInventoryForCandidate,
 } from "../../scripts/lib/cross-os-release-checks/index.ts";
 import { LOCAL_BUILD_METADATA_DIST_PATHS } from "../../scripts/lib/local-build-metadata-paths.mjs";
-import { PACKAGE_INSTALL_GUARD_RELATIVE_PATH } from "../../scripts/lib/package-dist-inventory.ts";
 
 function isProcessAlive(pid: number): boolean {
   try {
@@ -884,8 +883,6 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
     const topLevelImports = configSource.slice(0, configSource.indexOf("export type CrossOsSuite"));
 
     expect(topLevelImports).not.toContain("package-dist-inventory");
-    expect(installSource).not.toContain('from "../package-dist-inventory.ts"');
-    expect(installSource).toContain('await import("../package-dist-inventory.ts")');
     expect(installSource).toMatch(
       /function assertNoLegacyPluginDependencyStagingDebris\(packageRoot: string\)/u,
     );
@@ -2083,9 +2080,6 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
       expect(
         JSON.parse(readFileSync(join(packageRoot, "dist", "postinstall-inventory.json"), "utf8")),
       ).toEqual(["dist/index.js"]);
-      expect(
-        readFileSync(join(packageRoot, PACKAGE_INSTALL_GUARD_RELATIVE_PATH), "utf8"),
-      ).toContain("preinstall has not completed");
     } finally {
       rmSync(packageRoot, { recursive: true, force: true });
     }

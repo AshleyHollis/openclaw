@@ -2,10 +2,10 @@
 // Write Package Dist Inventory script supports OpenClaw repository automation.
 
 import { pathToFileURL } from "node:url";
-import { writePackageDistInventoryForPublish } from "./lib/package-dist-inventory.ts";
+import { writePackageDistInventory } from "./lib/package-dist-inventory.ts";
 
 async function writeCurrentPackageDistInventory(): Promise<void> {
-  await writePackageDistInventoryForPublish(process.cwd());
+  await writePackageDistInventory(process.cwd());
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
