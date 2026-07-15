@@ -51,7 +51,11 @@ export type ChannelsAddOptions = {
 const CHANNEL_ADD_CONTROL_OPTION_KEYS = new Set(["channel", "account"]);
 const NEXTCLOUD_TALK_CLI_ALIASES = new Set(["nextcloud-talk", "nc-talk", "nc"]);
 
-async function resolveCatalogChannelEntry(raw: string, cfg: OpenClawConfig | null) {
+async function resolveCatalogChannelEntry(
+  raw: string,
+  cfg: OpenClawConfig | null,
+  opts?: { trustedRecoveryOnly?: boolean },
+) {
   const trimmed = normalizeOptionalLowercaseString(raw);
   if (!trimmed) {
     return undefined;
@@ -66,7 +70,12 @@ async function resolveCatalogChannelEntry(raw: string, cfg: OpenClawConfig | nul
       )
     : await import("../../channels/plugins/catalog.js").then(
         ({ listRawChannelPluginCatalogEntries }) =>
-          listRawChannelPluginCatalogEntries({ excludeWorkspace: true }),
+          listRawChannelPluginCatalogEntries({
+            excludeWorkspace: true,
+            ...(opts?.trustedRecoveryOnly
+              ? { excludeOrigins: ["config", "workspace", "global"] }
+              : {}),
+          }),
       );
   return entries.find((entry) => {
     if (normalizeOptionalLowercaseString(entry.id) === trimmed) {
@@ -144,7 +153,25 @@ async function channelsAddCommandImpl(
   runtime: RuntimeEnv,
   params?: { hasFlags?: boolean; beforePersistentEffect?: () => Promise<void> },
 ) {
-  const configSnapshot = await requireValidConfigFileSnapshot(runtime);
+  const useWizard = shouldUseWizard(params);
+  const rawChannel = opts.channel ?? "";
+  const recoveryCatalogEntry = useWizard
+    ? undefined
+    : await resolveCatalogChannelEntry(rawChannel, null, { trustedRecoveryOnly: true });
+  // Invalid config may reach setup only through a trusted owner that opted in,
+  // and requireValidConfigFileSnapshot still confines every issue to that owner.
+  const recoveryChannelId =
+    (recoveryCatalogEntry?.origin === "bundled" ||
+      recoveryCatalogEntry?.trustedSourceLinkedOfficialInstall === true) &&
+    recoveryCatalogEntry.install.allowInvalidConfigRecovery === true
+      ? normalizeChannelId(recoveryCatalogEntry.id)
+      : undefined;
+  const configSnapshot = await requireValidConfigFileSnapshot(
+    runtime,
+    recoveryChannelId
+      ? { invalidConfigRecoveryPathPrefix: `channels.${recoveryChannelId}` }
+      : undefined,
+  );
   if (!configSnapshot) {
     return;
   }
@@ -153,7 +180,6 @@ async function channelsAddCommandImpl(
   let nextConfig = cfg;
   let pluginRegistrySourceChanged = false;
 
-  const useWizard = shouldUseWizard(params);
   if (useWizard) {
     const { resolveInitialWizardChannel, runChannelsAddWizardFlow } =
       await import("./add-wizard.js");
@@ -171,7 +197,6 @@ async function channelsAddCommandImpl(
     return;
   }
 
-  const rawChannel = opts.channel ?? "";
   let channel = normalizeChannelId(rawChannel);
   let catalogEntry = await resolveCatalogChannelEntry(rawChannel, nextConfig);
   const resolveWorkspaceDir = () =>

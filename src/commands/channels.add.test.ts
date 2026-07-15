@@ -480,6 +480,58 @@ describe("channelsAddCommand", () => {
     expect(channelWizardMocks.prompter.outro).toHaveBeenCalledWith("No channel changes made.");
   });
 
+  it("lets an opted-in trusted channel repair its own invalid config during explicit setup", async () => {
+    const config = {
+      channels: {
+        signal: {
+          enabled: true,
+          httpUrl: "http://127.0.0.1:8080",
+          mode: "native",
+        },
+      },
+    } as OpenClawConfig;
+    const afterAccountConfigWritten = vi.fn(async () => undefined);
+    const plugin = createSignalPlugin(afterAccountConfigWritten);
+    setActivePluginRegistry(createTestRegistry([{ pluginId: "signal", plugin, source: "test" }]));
+    catalogMocks.listChannelPluginCatalogEntries.mockReturnValue([
+      {
+        id: "signal",
+        pluginId: "signal",
+        trustedSourceLinkedOfficialInstall: true,
+        meta: plugin.meta,
+        install: {
+          npmSpec: "@openclaw/signal",
+          defaultChoice: "npm",
+          allowInvalidConfigRecovery: true,
+        },
+      },
+    ]);
+    configMocks.readConfigFileSnapshot.mockResolvedValue({
+      ...baseConfigSnapshot,
+      valid: false,
+      sourceConfig: config,
+      config,
+      issues: [{ path: "channels.signal.mode", message: "legacy Signal transport" }],
+    });
+
+    await channelsAddCommand(
+      { channel: "signal", account: "ops", signalNumber: "+15550001" },
+      runtime,
+      { hasFlags: true },
+    );
+
+    expect(catalogMocks.listChannelPluginCatalogEntries).toHaveBeenCalledWith({
+      excludeWorkspace: true,
+      excludeOrigins: ["config", "workspace", "global"],
+    });
+    expect(runtime.exit).not.toHaveBeenCalled();
+    expect(configMocks.writeConfigFile).toHaveBeenCalledTimes(1);
+    expect(writtenChannel("signal")).toMatchObject({
+      enabled: true,
+      accounts: { ops: { account: "+15550001" } },
+    });
+  });
+
   it("preselects an installable catalog channel in guided setup", async () => {
     const config: OpenClawConfig = { channels: {} };
     configMocks.readConfigFileSnapshot.mockResolvedValue({

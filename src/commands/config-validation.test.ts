@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PluginCompatibilityNotice } from "../plugins/status.js";
 import { createCompatibilityNotice } from "../plugins/status.test-fixtures.js";
-import { requireValidConfigSnapshot } from "./config-validation.js";
+import { requireValidConfigFileSnapshot, requireValidConfigSnapshot } from "./config-validation.js";
 
 const { readConfigFileSnapshot, buildPluginCompatibilitySnapshotNotices } = vi.hoisted(() => ({
   readConfigFileSnapshot: vi.fn(),
@@ -157,6 +157,40 @@ describe("requireValidConfigSnapshot", () => {
 
     expect(config).toBeNull();
     expect(runtime.error).toHaveBeenCalledWith("Fix: openclaw doctor --fix");
+    expect(runtime.exit).toHaveBeenCalledWith(1);
+  });
+
+  it("allows invalid-config recovery only when every issue is under the requested path", async () => {
+    const runtime = createRuntime();
+    const snapshot = {
+      path: "/tmp/openclaw.json",
+      exists: true,
+      valid: false,
+      config: {},
+      issues: [
+        { path: "channels.signal.transport", message: "legacy transport" },
+        { path: "channels.signal.accounts.ops.transport", message: "legacy account transport" },
+      ],
+    };
+    readConfigFileSnapshot.mockResolvedValue(snapshot);
+
+    await expect(
+      requireValidConfigFileSnapshot(runtime, {
+        invalidConfigRecoveryPathPrefix: "channels.signal",
+      }),
+    ).resolves.toBe(snapshot);
+    expect(runtime.exit).not.toHaveBeenCalled();
+
+    readConfigFileSnapshot.mockResolvedValue({
+      ...snapshot,
+      issues: [...snapshot.issues, { path: "gateway.port", message: "invalid port" }],
+    });
+
+    await expect(
+      requireValidConfigFileSnapshot(runtime, {
+        invalidConfigRecoveryPathPrefix: "channels.signal",
+      }),
+    ).resolves.toBeNull();
     expect(runtime.exit).toHaveBeenCalledWith(1);
   });
 });

@@ -17,10 +17,25 @@ import type { RuntimeEnv } from "../runtime.js";
 /** Read the config file and exit through the runtime when validation fails. */
 export async function requireValidConfigFileSnapshot(
   runtime: RuntimeEnv,
-  opts?: { includeCompatibilityAdvisory?: boolean },
+  opts?: {
+    includeCompatibilityAdvisory?: boolean;
+    invalidConfigRecoveryPathPrefix?: string;
+  },
 ): Promise<ConfigFileSnapshot | null> {
   const snapshot = await readConfigFileSnapshot();
   if (snapshot.exists && !snapshot.valid) {
+    const recoveryPathPrefix = opts?.invalidConfigRecoveryPathPrefix?.trim();
+    const canRecoverScopedInvalidConfig =
+      recoveryPathPrefix !== undefined &&
+      recoveryPathPrefix.length > 0 &&
+      snapshot.issues.length > 0 &&
+      snapshot.issues.every(
+        (issue) =>
+          issue.path === recoveryPathPrefix || issue.path.startsWith(`${recoveryPathPrefix}.`),
+      );
+    if (canRecoverScopedInvalidConfig) {
+      return snapshot;
+    }
     const issues =
       snapshot.issues.length > 0
         ? formatConfigIssueLines(snapshot.issues, "-").join("\n")
