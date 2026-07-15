@@ -65,6 +65,17 @@ describe("install runtime enforcement", () => {
     expect(reportError).not.toHaveBeenCalled();
   });
 
+  it.each(["24.15.0-rc.1", "24.15.0-nightly.20260715"])(
+    "rejects prerelease Node %s at the stable minimum",
+    (version) => {
+      expect(nodeVersionSatisfiesPackageEngine(version, ">=24.15.0 <25")).toBe(false);
+    },
+  );
+
+  it("allows build metadata on a supported stable Node version", () => {
+    expect(nodeVersionSatisfiesPackageEngine("24.15.0+build.1", ">=24.15.0 <25")).toBe(true);
+  });
+
   it("allows Bun package lifecycle scripts", () => {
     const reportError = vi.fn();
     expect(
