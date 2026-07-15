@@ -2250,6 +2250,53 @@ describe("active-memory plugin", () => {
     expectLinesToContain(infoLines, "thinking=medium fast=on start");
   });
 
+  it("inherits parent session fast mode before the agent default", async () => {
+    api.config = {
+      agents: {
+        defaults: {
+          model: { primary: "github-copilot/gpt-5.4-mini" },
+        },
+        list: [{ id: "main", fastModeDefault: true }],
+      },
+    };
+    hoisted.sessionStore["agent:main:main"] = {
+      sessionId: "s-main",
+      updatedAt: 0,
+      fastMode: false,
+    };
+
+    await requireHook("before_prompt_build")(
+      {
+        prompt: "What is my favorite food? session-fast-mode-check",
+        messages: [],
+      },
+      {
+        agentId: "main",
+        trigger: "user",
+        sessionKey: "agent:main:main",
+        messageProvider: "webchat",
+      },
+    );
+
+    expect(lastEmbeddedRunParams().fastMode).toBe(false);
+
+    delete hoisted.sessionStore["agent:main:main"].fastMode;
+    await requireHook("before_prompt_build")(
+      {
+        prompt: "What is my favorite food? agent-fast-mode-check",
+        messages: [],
+      },
+      {
+        agentId: "main",
+        trigger: "user",
+        sessionKey: "agent:main:main",
+        messageProvider: "webchat",
+      },
+    );
+
+    expect(lastEmbeddedRunParams().fastMode).toBe(true);
+  });
+
   it("allows appending extra prompt instructions without replacing the base prompt", async () => {
     api.pluginConfig = {
       agents: ["main"],
