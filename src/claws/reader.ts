@@ -82,7 +82,8 @@ function parseClawMarkdown(
   raw: string,
   path: string,
 ): { ok: true; value: unknown } | { ok: false; diagnostics: ClawDiagnostic[] } {
-  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  const markdown = raw.startsWith("\uFEFF") ? raw.slice(1) : raw;
+  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
   if (!match) {
     return {
       ok: false,

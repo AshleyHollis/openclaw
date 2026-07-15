@@ -1,5 +1,6 @@
 // Tests for the grouped Claw manifest and read-only add plan.
-import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -334,6 +335,44 @@ describe("readClawManifestFile", () => {
     expect(result.source).not.toHaveProperty("manifestFormatPath");
   });
 
+  it("accepts a UTF-8 BOM before CLAW.md frontmatter and hashes the original bytes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openclaw-claw-markdown-bom-"));
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({
+        name: "@acme/github-triage",
+        version: "3.2.1",
+        openclaw: { claw: "CLAW.md" },
+      }),
+      "utf8",
+    );
+    const raw =
+      "\uFEFF" +
+      [
+        "---",
+        "schemaVersion: 1",
+        "agent:",
+        "  id: triage",
+        "workspace: {}",
+        "packages: []",
+        "mcpServers: {}",
+        "cronJobs: []",
+        "---",
+      ].join("\n");
+    await writeFile(join(root, "CLAW.md"), raw, "utf8");
+
+    const result = await readClawManifestFile(root);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("expected BOM-prefixed CLAW.md to parse");
+    }
+    expect(result.manifest.agent.id).toBe("triage");
+    expect(result.source.integrity).toBe(
+      `sha256:${createHash("sha256").update(raw).digest("hex")}`,
+    );
+  });
+
   it("rejects CLAW.md without YAML frontmatter", async () => {
     const root = await mkdtemp(join(tmpdir(), "openclaw-claw-markdown-invalid-"));
     const path = join(root, "CLAW.md");
@@ -431,7 +470,7 @@ describe("readClawManifestFile", () => {
       expect(result).toMatchObject({
         ok: true,
         manifest: { agent: { id: "triage" } },
-        source: { manifestPath: join(root, "manifest.json") },
+        source: { manifestPath: await realpath(join(root, "manifest.json")) },
       });
     },
   );
