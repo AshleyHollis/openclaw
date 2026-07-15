@@ -175,7 +175,11 @@ runs:
         append_pnpm_option_arg PNPM_CONFIG_VIRTUAL_STORE_DIR virtual-store-dir
         if [ -n "${PNPM_CONFIG_MODULES_DIR:-}" ]; then
           mkdir -p "$PNPM_CONFIG_MODULES_DIR"
-          ln -sfn . "$PNPM_CONFIG_MODULES_DIR/node_modules"
+          # The node_modules -> . self-link must NOT exist while pnpm runs:
+          # its bin walk descends through the cycle (node_modules/node_modules/
+          # ...) re-resolving every level, exhausting even a 65536 fd limit.
+          # The post-install block recreates the link once pnpm is done.
+          rm -f "$PNPM_CONFIG_MODULES_DIR/node_modules"
           export NODE_PATH="$PNPM_CONFIG_MODULES_DIR${NODE_PATH:+:$NODE_PATH}"
         fi
         pnpm "${install_args[@]}" || pnpm "${install_args[@]}"
