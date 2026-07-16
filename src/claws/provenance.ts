@@ -177,8 +177,9 @@ export function readClawInstallRecords(
   const rows = database.db
     .prepare(
       `SELECT schema_version, source_kind, claw_name, claw_version, package_root,
-              manifest_path, integrity, agent_id, workspace, agent_config_digest,
-              status, added_at_ms, updated_at_ms
+              manifest_path, integrity_kind, integrity, source_byte_length,
+              manifest_schema_version, plan_integrity, agent_id, workspace,
+              agent_config_digest, agent_owned_paths_json, status, added_at_ms, updated_at_ms
          FROM claw_installs
         ORDER BY agent_id`,
     )
