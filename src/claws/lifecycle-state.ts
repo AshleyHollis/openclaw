@@ -196,13 +196,17 @@ export async function readClawStatus(
   target?: string,
   options: OpenClawStateDatabaseOptions & {
     config?: OpenClawConfig;
+    sourceMcpServers?: Record<string, Record<string, unknown>>;
     packageDeps?: PackageRemovalDeps;
   } = {},
 ): Promise<ClawStatusResult> {
   const config = options.config ?? loadConfig();
-  const listedMcp = options.config ? undefined : await listConfiguredMcpServers();
+  const listedMcp =
+    options.config || options.sourceMcpServers ? undefined : await listConfiguredMcpServers();
   const sourceConfig = listedMcp?.ok ? listedMcp.config : config;
-  const configuredMcpServers = normalizeConfiguredMcpServers(sourceConfig.mcp?.servers);
+  const configuredMcpServers = normalizeConfiguredMcpServers(
+    options.sourceMcpServers ?? sourceConfig.mcp?.servers,
+  );
   const installs = readClawInstallRecords(options).filter(
     (install) => !target || install.agentId === target || install.claw.name === target,
   );
@@ -272,6 +276,7 @@ export async function buildClawRemovePlan(
   target: string,
   options: OpenClawStateDatabaseOptions & {
     config?: OpenClawConfig;
+    sourceMcpServers?: Record<string, Record<string, unknown>>;
     packageDeps?: PackageRemovalDeps;
   } = {},
 ): Promise<ClawRemovePlan> {
@@ -519,6 +524,7 @@ export async function applyClawRemovePlan(
   plan: ClawRemovePlan,
   options: OpenClawStateDatabaseOptions & {
     config?: OpenClawConfig;
+    sourceMcpServers?: Record<string, Record<string, unknown>>;
     commitConfig?: ConfigCommit;
     deleteAgent?: (agentId: string) => Promise<void>;
     packageDeps?: PackageRemovalDeps;
@@ -632,9 +638,14 @@ export async function applyClawRemovePlan(
       };
     }
   }
-  const configuredMcpServers = normalizeConfiguredMcpServers(
-    (options.config ?? loadConfig()).mcp?.servers,
-  );
+  const listedMcpServers =
+    options.config || options.sourceMcpServers ? undefined : await listConfiguredMcpServers();
+  if (listedMcpServers && !listedMcpServers.ok) {
+    throw new ClawRemoveError("mcp_config_unavailable", listedMcpServers.error);
+  }
+  const configuredMcpServers = listedMcpServers?.ok
+    ? listedMcpServers.mcpServers
+    : normalizeConfiguredMcpServers(options.sourceMcpServers ?? options.config?.mcp?.servers);
   const unsetMcpServer = options.unsetMcpServer ?? unsetConfiguredMcpServer;
   for (const server of record.mcpServers) {
     const ownerAction =

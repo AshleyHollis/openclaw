@@ -30,6 +30,7 @@ import {
 import { agentsDeleteCommand } from "../commands/agents.commands.delete.js";
 // Runtime handlers for experimental local Claws commands.
 import { loadConfig } from "../config/config.js";
+import { listConfiguredMcpServers } from "../config/mcp-config.js";
 import { redactSensitiveArgv } from "../config/redact-argv.js";
 import {
   defaultRuntime,
@@ -204,6 +205,12 @@ export async function runClawsAddCommand(
   }
 
   const config = loadConfig();
+  const listedMcpServers = await listConfiguredMcpServers();
+  if (!listedMcpServers.ok) {
+    runtime.error(listedMcpServers.error);
+    runtime.exit(1);
+    return;
+  }
   const existingAgentIds = listAgentIds(config);
   const plan = await buildClawAddPlan({
     manifest: result.manifest,
@@ -216,7 +223,7 @@ export async function runClawsAddCommand(
       existingWorkspacePaths: existingAgentIds.map((agentId) =>
         resolveAgentWorkspaceDir(config, agentId),
       ),
-      existingMcpServers: config.mcp?.servers,
+      existingMcpServers: listedMcpServers.mcpServers,
       packagePreflight: preflightClawPackage,
     },
   });
@@ -424,7 +431,14 @@ export async function runClawsExportCommand(
 ): Promise<void> {
   assertExperimentalClawsEnabled();
   try {
-    const result = await exportClawAgent(agentId, opts.out, { config: loadConfig() });
+    const listedMcpServers = await listConfiguredMcpServers();
+    if (!listedMcpServers.ok) {
+      throw new ClawExportError("mcp_config_unavailable", listedMcpServers.error);
+    }
+    const result = await exportClawAgent(agentId, opts.out, {
+      config: loadConfig(),
+      sourceMcpServers: listedMcpServers.mcpServers,
+    });
     if (opts.json) {
       writeRuntimeJson(runtime, result);
       return;

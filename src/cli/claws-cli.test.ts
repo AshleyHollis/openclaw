@@ -433,6 +433,7 @@ describe("claws cli", () => {
 
     expect(mocks.exportClawAgent).toHaveBeenCalledWith("demo-agent", "/tmp/exported", {
       config: {},
+      sourceMcpServers: {},
     });
     expect(JSON.parse(mocks.logs[0] ?? "{}")).toMatchObject({
       schemaVersion: "openclaw.clawExportResult.v1",
