@@ -23,6 +23,7 @@ async function expectModelReturnsAssistantText(
   modelId: "glm-5.2" | "glm-5-turbo" | "glm-5.1",
   baseUrl = ZAI_GLOBAL_BASE_URL,
 ) {
+  let requestSummary: Record<string, unknown> = {};
   const model: Model<"openai-completions"> = {
     id: modelId,
     name: modelId,
@@ -40,7 +41,38 @@ async function expectModelReturnsAssistantText(
     {
       messages: createSingleUserPromptMessage(),
     },
-    { apiKey: ZAI_KEY, maxTokens: 64 },
+    {
+      apiKey: ZAI_KEY,
+      maxTokens: 64,
+      onPayload(payload) {
+        const request = payload as Record<string, unknown>;
+        requestSummary = {
+          enable_thinking: request.enable_thinking,
+          max_completion_tokens: request.max_completion_tokens,
+          max_tokens: request.max_tokens,
+          thinking: request.thinking,
+        };
+        return payload;
+      },
+    },
+  );
+  const blocks = res.content.map((block) => {
+    if (block.type === "text") {
+      return { type: block.type, length: block.text.length };
+    }
+    if (block.type === "thinking") {
+      return { type: block.type, length: block.thinking.length };
+    }
+    return { type: block.type };
+  });
+  process.stderr.write(
+    `[zai-diagnostic] ${JSON.stringify({
+      modelId,
+      request: requestSummary,
+      stopReason: res.stopReason,
+      usage: res.usage,
+      blocks,
+    })}\n`,
   );
   const text = extractNonEmptyAssistantText(res.content);
   expect(text.length).toBeGreaterThan(0);
