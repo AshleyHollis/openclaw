@@ -2432,7 +2432,7 @@ struct ChatViewModelTests {
             OpenClawChatComposerPresentationOwner(viewModel: replacement)
         }
 
-        #expect(firstOwner.sessionKey == replacementOwner.sessionKey)
+        #expect(firstOwner.session.key == replacementOwner.session.key)
         #expect(firstOwner != replacementOwner)
     }
 
@@ -2449,7 +2449,7 @@ struct ChatViewModelTests {
             return OpenClawChatComposerPresentationOwner(viewModel: vm)
         }
 
-        #expect(alphaOwner.sessionKey == betaOwner.sessionKey)
+        #expect(alphaOwner.session.key == betaOwner.session.key)
         #expect(alphaOwner != betaOwner)
     }
 
