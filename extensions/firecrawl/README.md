@@ -1,6 +1,6 @@
-# OpenClaw Firecrawl Plugin
+# FireCrawl
 
-Official OpenClaw plugin for Firecrawl.
+Search the web and scrape clean, structured page content with FireCrawl.
 
 Install from OpenClaw:
 

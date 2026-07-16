@@ -5,6 +5,7 @@
   },
   "name": "tokenjuice",
   "description": "Compacts exec and bash tool results with tokenjuice reducers.",
+  "icon": "https://raw.githubusercontent.com/openclaw/openclaw/main/ui/public/plugin-art/tokenjuice.webp",
   "catalog": { "featured": true, "order": 60 },
   "contracts": {
     "agentToolResultMiddleware": ["openclaw", "codex"]
