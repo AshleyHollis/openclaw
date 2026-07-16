@@ -105,6 +105,7 @@ export async function installClawPackages(
     deps?: PackageInstallerDeps;
     runtime?: RuntimeEnv;
     nowMs?: number;
+    onExternalMutation?: (pkg: ClawPackage) => void;
   } = {},
 ): Promise<PersistedClawPackageRef[]> {
   const deps = options.deps ?? {};
@@ -176,10 +177,15 @@ export async function installClawPackages(
       });
       installedPackages.push(packageRef);
 
+      if (pkg.kind === "skill") {
+        throw new Error("Claw skill package installation is not supported yet.");
+      }
+      options.onExternalMutation?.(pkg);
       await installPlugin({
         raw: `clawhub:${pkg.ref}@${pkg.version}`,
         opts: {},
         invalidateRuntimeCache: false,
+        clawManaged: true,
         runtime: installerRuntime(runtime),
       });
       packageRef = completePackageRef(packageRef, "complete", options);
