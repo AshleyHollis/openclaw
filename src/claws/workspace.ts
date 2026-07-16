@@ -260,7 +260,6 @@ export function readClawWorkspaceFiles(
   ) {
     return [];
   }
-  ensureWorkspaceFileTable(database.db);
   const rows = database.db
     .prepare(
       `SELECT schema_version, agent_id, workspace, target_path, source_path,

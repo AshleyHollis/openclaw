@@ -255,6 +255,14 @@ export function readClawMcpServerRefs(
   options: OpenClawStateDatabaseOptions = {},
 ): PersistedClawMcpServerRef[] {
   const database = openOpenClawStateDatabase(options);
+  if (
+    options.readOnly &&
+    !database.db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'claw_mcp_server_refs'")
+      .get()
+  ) {
+    return [];
+  }
   const rows = database.db
     .prepare(
       `SELECT schema_version, agent_id, name, config_digest, ownership, status, error,
@@ -272,6 +280,14 @@ export function readClawMcpServerRefsByName(
   options: OpenClawStateDatabaseOptions = {},
 ): PersistedClawMcpServerRef[] {
   const database = openOpenClawStateDatabase(options);
+  if (
+    options.readOnly &&
+    !database.db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'claw_mcp_server_refs'")
+      .get()
+  ) {
+    return [];
+  }
   const rows = database.db
     .prepare(
       `SELECT schema_version, agent_id, name, config_digest, ownership, status, error,
