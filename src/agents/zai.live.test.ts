@@ -70,6 +70,7 @@ async function expectModelReturnsAssistantText(
       modelId,
       request: requestSummary,
       stopReason: res.stopReason,
+      errorMessage: res.errorMessage,
       usage: res.usage,
       blocks,
     })}\n`,
