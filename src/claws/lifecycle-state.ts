@@ -197,12 +197,21 @@ export async function readClawStatus(
   options: OpenClawStateDatabaseOptions & {
     config?: OpenClawConfig;
     sourceMcpServers?: Record<string, Record<string, unknown>>;
+    listMcpServers?: typeof listConfiguredMcpServers;
     packageDeps?: PackageRemovalDeps;
   } = {},
 ): Promise<ClawStatusResult> {
   const config = options.config ?? loadConfig();
-  const listedMcp =
-    options.config || options.sourceMcpServers ? undefined : await listConfiguredMcpServers();
+  const listedMcp = options.sourceMcpServers
+    ? undefined
+    : options.listMcpServers
+      ? await options.listMcpServers()
+      : options.config
+        ? undefined
+        : await listConfiguredMcpServers();
+  if (listedMcp && !listedMcp.ok) {
+    throw new ClawRemoveError("mcp_config_unavailable", listedMcp.error);
+  }
   const sourceConfig = listedMcp?.ok ? listedMcp.config : config;
   const configuredMcpServers = normalizeConfiguredMcpServers(
     options.sourceMcpServers ?? sourceConfig.mcp?.servers,
@@ -277,6 +286,7 @@ export async function buildClawRemovePlan(
   options: OpenClawStateDatabaseOptions & {
     config?: OpenClawConfig;
     sourceMcpServers?: Record<string, Record<string, unknown>>;
+    listMcpServers?: typeof listConfiguredMcpServers;
     packageDeps?: PackageRemovalDeps;
   } = {},
 ): Promise<ClawRemovePlan> {
@@ -525,6 +535,7 @@ export async function applyClawRemovePlan(
   options: OpenClawStateDatabaseOptions & {
     config?: OpenClawConfig;
     sourceMcpServers?: Record<string, Record<string, unknown>>;
+    listMcpServers?: typeof listConfiguredMcpServers;
     commitConfig?: ConfigCommit;
     deleteAgent?: (agentId: string) => Promise<void>;
     packageDeps?: PackageRemovalDeps;
@@ -638,8 +649,13 @@ export async function applyClawRemovePlan(
       };
     }
   }
-  const listedMcpServers =
-    options.config || options.sourceMcpServers ? undefined : await listConfiguredMcpServers();
+  const listedMcpServers = options.sourceMcpServers
+    ? undefined
+    : options.listMcpServers
+      ? await options.listMcpServers()
+      : options.config
+        ? undefined
+        : await listConfiguredMcpServers();
   if (listedMcpServers && !listedMcpServers.ok) {
     throw new ClawRemoveError("mcp_config_unavailable", listedMcpServers.error);
   }
