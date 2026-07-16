@@ -216,7 +216,7 @@ export async function runClawsAddCommand(
       existingWorkspacePaths: existingAgentIds.map((agentId) =>
         resolveAgentWorkspaceDir(config, agentId),
       ),
-      existingMcpServerNames: Object.keys(config.mcp?.servers ?? {}),
+      existingMcpServers: config.mcp?.servers,
       packagePreflight: preflightClawPackage,
     },
   });

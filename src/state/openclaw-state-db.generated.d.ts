@@ -245,6 +245,7 @@ export interface ClawMcpServerRefs {
   created_at_ms: number;
   error: string | null;
   name: string;
+  ownership: string;
   schema_version: string;
   status: string;
   updated_at_ms: number;
