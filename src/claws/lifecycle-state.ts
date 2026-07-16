@@ -27,6 +27,7 @@ import {
 import {
   deleteClawMcpServerRef,
   digestClawMcpServer,
+  planClawMcpServerRemoval,
   reconcileClawMcpServerRefs,
   type PersistedClawMcpServerRef,
 } from "./mcp.js";
@@ -354,7 +355,7 @@ export async function buildClawRemovePlan(
     }
   }
   for (const server of record?.mcpServers ?? []) {
-    if (server.state === "modified" || server.state === "pending") {
+    if (server.state === "pending") {
       blockers.push({
         code: "mcp_cleanup_uncertain",
         message: `MCP server ${JSON.stringify(server.name)} has ${server.state} ownership state and must be reconciled before removal.`,
@@ -480,14 +481,20 @@ export async function buildClawRemovePlan(
       });
     }
     for (const server of record.mcpServers) {
-      const blocked = server.state === "modified" || server.state === "pending";
+      const blocked = server.state === "pending";
+      const ownerAction =
+        server.state === "present" ? planClawMcpServerRemoval(server, options) : "release";
       actions.push({
         kind: "mcpServer",
         id: server.name,
-        action: server.state === "present" ? "remove" : blocked ? "retain" : "release",
+        action: blocked ? "retain" : ownerAction,
         target: `mcp.servers.${server.name}`,
         blocked,
-        details: { expectedState: server.state, status: server.status },
+        details: {
+          expectedState: server.state,
+          configDigest: server.configDigest,
+          ownership: server.ownership,
+        },
         ...(blocked ? { reason: `MCP ownership state is ${server.state}.` } : {}),
       });
     }
@@ -576,7 +583,7 @@ export async function applyClawRemovePlan(
     !record ||
     record.agentState === "modified" ||
     record.workspaceFiles.some((file) => file.state === "unsafe") ||
-    record.mcpServers.some((server) => server.state === "modified" || server.state === "pending")
+    record.mcpServers.some((server) => server.state === "pending")
   ) {
     throw new ClawRemoveError("remove_changed", "Claw-owned state changed after remove planning.");
   }
@@ -597,17 +604,33 @@ export async function applyClawRemovePlan(
   if (JSON.stringify(plannedPackages) !== JSON.stringify(currentPackages)) {
     throw new ClawRemoveError("remove_changed", "Package ownership changed after remove planning.");
   }
+  const plannedMcpServers = plan.actions
+    .filter((action) => action.kind === "mcpServer")
+    .map((action) => `${action.id}:${action.action}`)
+    .toSorted();
+  const currentMcpServers = record.mcpServers
+    .map((server) => {
+      const action =
+        server.state === "present" ? planClawMcpServerRemoval(server, options) : "release";
+      return `${server.name}:${action}`;
+    })
+    .toSorted();
+  if (JSON.stringify(plannedMcpServers) !== JSON.stringify(currentMcpServers)) {
+    throw new ClawRemoveError("remove_changed", "MCP ownership changed after remove planning.");
+  }
   const mcpServers: RemovedMcpServer[] = [];
   const configuredMcpServers = normalizeConfiguredMcpServers(
     (options.config ?? getRuntimeConfig()).mcp?.servers,
   );
   const unsetMcpServer = options.unsetMcpServer ?? unsetConfiguredMcpServer;
   for (const server of record.mcpServers) {
-    if (server.state === "failed" || server.state === "missing") {
+    const ownerAction =
+      server.state === "present" ? planClawMcpServerRemoval(server, options) : "release";
+    if (server.state !== "present" || ownerAction === "release") {
       deleteClawMcpServerRef(plan.agentId, server.name, options);
       mcpServers.push({
         name: server.name,
-        action: server.state === "failed" ? "released" : "missing",
+        action: server.state === "missing" ? "missing" : "released",
       });
       continue;
     }

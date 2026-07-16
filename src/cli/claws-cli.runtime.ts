@@ -251,7 +251,11 @@ export async function runClawsAddCommand(
     manifest: result.manifest,
     source: result.source,
     diagnostics: result.diagnostics,
-    context: basePlanContext,
+    context: {
+      ...basePlanContext,
+      existingMcpServerNames: [],
+      existingMcpServers: config.mcp?.servers,
+    },
   });
   const resumeRecord = matchingResumeRecord(plan, opts);
   if (resumeRecord && plan.blockers.length > 0) {
@@ -265,6 +269,8 @@ export async function runClawsAddCommand(
         existingWorkspacePaths: existingWorkspacePaths.filter(
           (workspacePath) => resolve(workspacePath) !== resolve(resumeRecord.workspace),
         ),
+        existingMcpServerNames: [],
+        existingMcpServers: config.mcp?.servers,
       },
     });
   }

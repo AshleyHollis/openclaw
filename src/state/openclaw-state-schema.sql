@@ -1941,9 +1941,10 @@ CREATE TABLE IF NOT EXISTS claw_cron_refs (
 
 CREATE TABLE IF NOT EXISTS claw_mcp_server_refs (
   agent_id TEXT NOT NULL,
-  name TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
   schema_version TEXT NOT NULL,
   config_digest TEXT NOT NULL,
+  ownership TEXT NOT NULL,
   status TEXT NOT NULL,
   error TEXT,
   created_at_ms INTEGER NOT NULL,

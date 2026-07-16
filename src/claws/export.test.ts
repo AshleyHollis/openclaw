@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { McpServerConfig } from "../config/types.mcp.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import { applyClawAddPlan } from "./add.js";
@@ -79,8 +80,9 @@ async function installedFixture() {
       await installClawMcpServers(currentPlan, {
         ...options,
         setMcpServer: async ({ name, server }) => {
-          config.mcp = { ...config.mcp, servers: { ...config.mcp?.servers, [name]: server } };
-          return { ok: true, path: "config", config, mcpServers: config.mcp.servers! };
+          const servers = { ...config.mcp?.servers, [name]: server as McpServerConfig };
+          config.mcp = { ...config.mcp, servers };
+          return { ok: true, path: "config", config, mcpServers: servers };
         },
       }),
     cronGateway: { add: async () => ({ id: "scheduler-daily" }) },

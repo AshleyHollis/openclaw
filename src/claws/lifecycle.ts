@@ -12,6 +12,7 @@ import {
   type Root,
 } from "../infra/fs-safe.js";
 import { resolveUserPath } from "../utils.js";
+import { digestClawMcpServer } from "./mcp.js";
 import {
   CLAW_ADD_PLAN_SCHEMA_VERSION,
   CLAW_BOOTSTRAP_FILE_NAMES,
@@ -35,6 +36,7 @@ type ClawAddPlanContext = {
   existingAgentIds?: Iterable<string>;
   existingWorkspacePaths?: Iterable<string>;
   existingMcpServerNames?: Iterable<string>;
+  existingMcpServers?: Record<string, Record<string, unknown>>;
   packagePreflight?: (
     pkg: ClawPackage,
   ) => Promise<{ ok: boolean; action?: "install" | "reuse"; code?: string; message?: string }>;
@@ -385,14 +387,20 @@ export async function buildClawAddPlan(params: {
   }
 
   const existingMcpServerNames = new Set(context.existingMcpServerNames ?? []);
-  for (const [name, server] of Object.entries(params.manifest.mcpServers)) {
-    const blocked = existingMcpServerNames.has(name);
+  for (const name of Object.keys(params.manifest.mcpServers)) {
+    const server = params.manifest.mcpServers[name];
+    const existingServer = context.existingMcpServers?.[name];
+    const exactExisting =
+      existingServer !== undefined &&
+      digestClawMcpServer(existingServer) === digestClawMcpServer(server);
+    const blocked =
+      !exactExisting && (existingMcpServerNames.has(name) || existingServer !== undefined);
     if (blocked) {
       blockers.push(
         blocker(
           "mcp_server_collision",
           `$.mcpServers.${name}`,
-          `MCP server ${JSON.stringify(name)} already exists and will not be overwritten.`,
+          `MCP server ${JSON.stringify(name)} already exists with different or unresolved configuration and will not be overwritten.`,
         ),
       );
     }
@@ -415,7 +423,7 @@ export async function buildClawAddPlan(params: {
       target: `mcp.servers.${name}`,
       details: {
         ...server,
-        expectedState: "absent",
+        expectedState: exactExisting ? "present-exact" : "absent",
         prerequisites: readinessRequirements.filter(
           (requirement) => requirement.mcpServer === name,
         ),
