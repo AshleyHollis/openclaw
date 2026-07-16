@@ -272,14 +272,21 @@ export async function applyClawAddPlan(
     markInstallStatus(plan.agent.finalId, "config_committed", options);
   } catch (error) {
     if (!configCommitted) {
-      const removedWorkspace = await rmdir(workspace)
-        .then(() => true)
-        .catch(() => false);
-      if (removedWorkspace) {
-        updateRecord(plan.agent.finalId, "partial", options);
-      }
+      await rmdir(workspace).catch(() => undefined);
     }
-    throw error;
+    updateRecord(plan.agent.finalId, "partial", options);
+    return partialResult({
+      plan,
+      installRecord,
+      workspaceCreated: false,
+      configCommitted: false,
+      packages,
+      error: {
+        code: error instanceof ClawAddMutationError ? error.code : "config_commit_failed",
+        message: error instanceof Error ? error.message : String(error),
+      },
+      nowMs: options.nowMs,
+    });
   }
 
   const createFiles = options.createWorkspaceFiles ?? createClawWorkspaceFiles;
