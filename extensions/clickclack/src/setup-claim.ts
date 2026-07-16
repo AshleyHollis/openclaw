@@ -13,7 +13,7 @@ const CLICKCLACK_ERROR_BODY_LIMIT_BYTES = 8 * 1024;
 const CLICKCLACK_SETUP_CODE_CLAIM_JSON_LIMIT_BYTES = 64 * 1024;
 const CLICKCLACK_SETUP_CODE_CLAIM_TIMEOUT_MS = 30_000;
 
-export class ClickClackSetupCodeClaimError extends Error {
+class ClickClackSetupCodeClaimError extends Error {
   constructor(
     readonly status: number,
     detail: string,

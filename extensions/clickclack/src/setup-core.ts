@@ -16,6 +16,7 @@ import type { CoreConfig } from "./types.js";
 const channel = "clickclack" as const;
 const SETUP_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const SETUP_CODE_LENGTH = 12;
+const TOKEN_FIELD = "token";
 const REQUIRED_INPUT_ERROR =
   "ClickClack requires --token, --base-url, and --workspace (or --use-env).";
 const INVALID_BASE_URL_ERROR = "ClickClack base URL must be a valid http(s) URL.";
@@ -40,11 +41,13 @@ export function normalizeClickClackBaseUrl(value: string | undefined): string | 
 
 function normalizeClickClackSetupCode(value: string): string | undefined {
   const normalized = value.trim().toUpperCase().replaceAll("-", "").replaceAll(" ", "");
-  if (
-    normalized.length !== SETUP_CODE_LENGTH ||
-    [...normalized].some((character) => !SETUP_CODE_ALPHABET.includes(character))
-  ) {
+  if (normalized.length !== SETUP_CODE_LENGTH) {
     return undefined;
+  }
+  for (const character of normalized) {
+    if (!SETUP_CODE_ALPHABET.includes(character)) {
+      return undefined;
+    }
   }
   return normalized;
 }
@@ -57,7 +60,7 @@ function requireHttpsClickClackBaseUrl(value: string | undefined): string {
   return baseUrl;
 }
 
-export function parseClickClackSetupCodeInput(params: { code: string; baseUrl?: string }): {
+function parseClickClackSetupCodeInput(params: { code: string; baseUrl?: string }): {
   code: string;
   baseUrl: string;
 } {
@@ -263,7 +266,7 @@ export const clickClackSetupAdapter: ChannelSetupAdapter = {
     return {
       ...remainingInput,
       baseUrl: setup.baseUrl,
-      ["token"]: claim.token,
+      [TOKEN_FIELD]: claim.token,
       workspace: claim.workspace.id,
       ...(claim.defaults.defaultTo !== undefined ? { defaultTo: claim.defaults.defaultTo } : {}),
       ...(claim.defaults.allowFrom !== undefined

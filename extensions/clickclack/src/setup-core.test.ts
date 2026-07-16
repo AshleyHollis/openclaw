@@ -14,7 +14,6 @@ vi.mock("./setup-claim.js", async (importOriginal) => ({
 vi.mock("./setup-verify.js", () => ({
   verifyClickClackAccountAfterSetup,
 }));
-import { ClickClackSetupCodeClaimError } from "./setup-claim.js";
 import {
   applyClickClackCredentialConfig,
   clickClackSetupAdapter,
@@ -164,14 +163,14 @@ describe("ClickClack setup adapter", () => {
 
   it("maps invalid and rate-limited claims to actionable errors", async () => {
     claimClickClackSetupCode.mockRejectedValueOnce(
-      new ClickClackSetupCodeClaimError(404, "not found"),
+      Object.assign(new Error("not found"), { status: 404 }),
     );
     await expect(
       prepare({ code: "ABCD-EFGH-JKMN", baseUrl: "https://clickclack.example" }),
     ).rejects.toThrow("invalid, expired, or already used");
 
     claimClickClackSetupCode.mockRejectedValueOnce(
-      new ClickClackSetupCodeClaimError(429, "retry later"),
+      Object.assign(new Error("retry later"), { status: 429 }),
     );
     await expect(
       prepare({ code: "ABCD-EFGH-JKMN", baseUrl: "https://clickclack.example" }),
