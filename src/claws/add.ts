@@ -46,6 +46,7 @@ export type ClawAddResult = {
   stability: typeof CLAW_OUTPUT_STABILITY;
   dryRun: false;
   mutationAllowed: true;
+  planIntegrity: string;
   status: "complete" | "partial";
   claw: ClawAddPlan["claw"];
   agent: ClawAddPlan["agent"];
@@ -85,6 +86,7 @@ function partialResult(params: {
     stability: CLAW_OUTPUT_STABILITY,
     dryRun: false,
     mutationAllowed: true,
+    planIntegrity: params.plan.planIntegrity,
     status: "partial",
     claw: params.plan.claw,
     agent: params.plan.agent,
@@ -105,6 +107,7 @@ function partialResult(params: {
 export async function applyClawAddPlan(
   plan: ClawAddPlan,
   options: OpenClawStateDatabaseOptions & {
+    consentPlanIntegrity?: string;
     commitConfig?: ConfigCommit;
     persistRecord?: typeof persistClawInstallRecord;
     updateRecord?: typeof updateClawInstallRecordStatus;
@@ -123,6 +126,12 @@ export async function applyClawAddPlan(
     throw new ClawAddMutationError(
       "unsupported_components",
       "This build can add agent settings, workspace files, packages, and cron jobs; declared MCP servers require a later lifecycle slice.",
+    );
+  }
+  if (options.consentPlanIntegrity !== plan.planIntegrity) {
+    throw new ClawAddMutationError(
+      "plan_integrity_mismatch",
+      "Consent does not match the current Claw add plan; run add --dry-run again.",
     );
   }
 
@@ -220,7 +229,18 @@ export async function applyClawAddPlan(
   } catch (error) {
     await rmdir(workspace).catch(() => undefined);
     updateRecord(plan.agent.finalId, "partial", options);
-    throw error;
+    return partialResult({
+      plan,
+      installRecord,
+      workspaceCreated: false,
+      configCommitted: false,
+      packages,
+      error: {
+        code: error instanceof ClawAddMutationError ? error.code : "config_commit_failed",
+        message: error instanceof Error ? error.message : String(error),
+      },
+      nowMs: options.nowMs,
+    });
   }
 
   const createFiles = options.createWorkspaceFiles ?? createClawWorkspaceFiles;
@@ -236,6 +256,7 @@ export async function applyClawAddPlan(
               {
                 level: "error",
                 code: "workspace_file_io_error",
+                phase: "mutation",
                 path: "$.workspace",
                 message: error instanceof Error ? error.message : String(error),
               },
@@ -307,6 +328,7 @@ export async function applyClawAddPlan(
     stability: CLAW_OUTPUT_STABILITY,
     dryRun: false,
     mutationAllowed: true,
+    planIntegrity: plan.planIntegrity,
     status: "complete",
     claw: plan.claw,
     agent: plan.agent,
