@@ -378,6 +378,8 @@ const config = {
     [`${BUNDLED_PLUGIN_ROOT_DIR}/azure-speech`]: strictBundledPluginWorkspace(),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/browser`]: strictBundledPluginWorkspace([
       // Core and plugin-SDK facades resolve these shipped Browser surfaces by basename.
+      "browser-bridge.ts!",
+      "browser-cdp.ts!",
       "browser-control-auth.ts!",
       "browser-config.ts!",
       "browser-doctor.ts!",
@@ -393,7 +395,10 @@ const config = {
     [`${BUNDLED_PLUGIN_ROOT_DIR}/copilot`]: strictBundledPluginWorkspace(),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/deepgram`]: strictBundledPluginWorkspace(),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/deepinfra`]: strictBundledPluginWorkspace(),
-    [`${BUNDLED_PLUGIN_ROOT_DIR}/discord`]: strictBundledPluginWorkspace(),
+    [`${BUNDLED_PLUGIN_ROOT_DIR}/discord`]: strictBundledPluginWorkspace([
+      "configured-state.ts!",
+      "timeouts.ts!",
+    ]),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/elevenlabs`]: strictBundledPluginWorkspace(),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/featherless`]: strictBundledPluginWorkspace(),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/fal`]: strictBundledPluginWorkspace(),
@@ -415,7 +420,10 @@ const config = {
     [`${BUNDLED_PLUGIN_ROOT_DIR}/pixverse`]: strictBundledPluginWorkspace(),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/qianfan`]: strictBundledPluginWorkspace(),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/qwen`]: strictBundledPluginWorkspace(),
-    [`${BUNDLED_PLUGIN_ROOT_DIR}/qa-lab`]: strictBundledPluginWorkspace(),
+    [`${BUNDLED_PLUGIN_ROOT_DIR}/qa-lab`]: strictBundledPluginWorkspace([
+      "cli.ts!",
+      "model-selection.ts!",
+    ]),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/senseaudio`]: strictBundledPluginWorkspace(),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/tavily`]: strictBundledPluginWorkspace(),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/tencent`]: strictBundledPluginWorkspace(),

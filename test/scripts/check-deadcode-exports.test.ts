@@ -68,18 +68,24 @@ describe("check-deadcode-exports", () => {
     expect(knipConfig.workspaces["extensions/reef"].entry).toContain("*.ts!");
   });
 
-  it("models the Browser facades loaded by basename", () => {
-    const workspace = knipConfig.workspaces["extensions/browser"];
-    expect(workspace.entry).toEqual(
-      expect.arrayContaining([
+  it.each([
+    [
+      "extensions/browser",
+      [
+        "browser-bridge.ts!",
+        "browser-cdp.ts!",
         "browser-control-auth.ts!",
         "browser-config.ts!",
         "browser-doctor.ts!",
         "browser-host-inspection.ts!",
         "browser-maintenance.ts!",
         "browser-profiles.ts!",
-      ]),
-    );
+      ],
+    ],
+    ["extensions/discord", ["configured-state.ts!", "timeouts.ts!"]],
+    ["extensions/qa-lab", ["cli.ts!", "model-selection.ts!"]],
+  ] as const)("models the %s facades loaded by basename", (workspace, entries) => {
+    expect(knipConfig.workspaces[workspace].entry).toEqual(expect.arrayContaining(entries));
   });
 
   it.each([
