@@ -22,6 +22,11 @@ const BUNDLED_NODE_TEST_RUNNER = "blacksmith-4vcpu-ubuntu-2404";
 const GATEWAY_STARTUP_CORE_RUNNER = DEFAULT_NODE_TEST_RUNNER;
 // This cold gateway graph can stall after warming Vitest's module cache; its
 // retry completes in seconds, so do not spend the global five-minute timeout.
+// The agents-core CLI graph currently needs about three minutes to import on a
+// cold runner. Keep a family bound, but leave headroom below the global limit.
+const AGENTS_CORE_RUNTIME_ENV = {
+  OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "240000",
+};
 const GATEWAY_STARTUP_HEALTH_RUNTIME_ENV = {
   OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "60000",
 };
@@ -477,6 +482,7 @@ function createAgentCoreSplitShards() {
         return createStripedBatches(includePatterns, AGENTS_CORE_RUNNER_CLI_STRIPES).map(
           (batch, index) => ({
             configs: ["test/vitest/vitest.agents-core.config.ts"],
+            env: AGENTS_CORE_RUNTIME_ENV,
             includePatterns: batch,
             requiresDist: false,
             shardName: `${shardName}-${index + 1}`,
@@ -486,6 +492,7 @@ function createAgentCoreSplitShards() {
       return [
         {
           configs: ["test/vitest/vitest.agents-core.config.ts"],
+          env: AGENTS_CORE_RUNTIME_ENV,
           includePatterns,
           requiresDist: false,
           shardName,
