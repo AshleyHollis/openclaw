@@ -237,6 +237,7 @@ export interface ClawPackageRefs {
   package_status: string;
   package_version: string;
   schema_version: string;
+  updated_at_ms: number;
 }
 
 export interface ClawWorkspaceFiles {

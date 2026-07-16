@@ -272,7 +272,11 @@ export async function buildClawAddPlan(params: {
       target: `${pkg.source}:${pkg.ref}@${pkg.version}`,
       details: {
         ...pkg,
-        expectedState: preflight.action === "reuse" ? "present-exact" : "absent",
+        expectedState: !preflight.ok
+          ? "unresolved"
+          : preflight.action === "reuse"
+            ? "present-exact"
+            : "absent",
         ownerAction: preflight.action,
       },
       blocked: !preflight.ok,
