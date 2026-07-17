@@ -85,6 +85,16 @@ function hostEventsMigration() {
   return migration;
 }
 
+function qmdFileLockMigration() {
+  const migration = stateMigrations.find(
+    (entry) => entry.id === "memory-core-qmd-file-locks-to-sqlite-leases",
+  );
+  if (!migration) {
+    throw new Error("expected memory-core QMD file-lock migration");
+  }
+  return migration;
+}
+
 function vectorToBlob(embedding: number[]): Buffer {
   return Buffer.from(new Float32Array(embedding).buffer);
 }
@@ -526,10 +536,108 @@ describe("memory-core doctor dreaming migration", () => {
       "runtime after upgrade",
     ]);
     expect(events[0]?.sequence).toBeLessThan(0);
-    expect(entries.find((entry) => entry.value.sequence < 0)?.createdAt).toBe(
-      Date.parse("2026-07-01T00:00:00.000Z"),
-    );
+    const migratedEntry = entries.find((entry) => entry.value.sequence < 0);
+    expect(migratedEntry?.createdAt).toBe(migratedEntry?.value.sequence);
     await expect(fs.access(`${eventPath}.migrated`)).resolves.toBeUndefined();
+  });
+
+  it("defers host event import when a source contains invalid rows", async () => {
+    const eventPath = path.join(workspaceDir, "memory", ".dreams", "events.jsonl");
+    await fs.writeFile(
+      eventPath,
+      `${JSON.stringify({
+        type: "memory.recall.recorded",
+        timestamp: "2026-07-01T00:00:00.000Z",
+        query: "valid before malformed",
+        resultCount: 0,
+        results: [],
+      })}\n${JSON.stringify({
+        type: "memory.recall.recorded",
+        timestamp: "2026-07-01T00:00:01.000Z",
+      })}\n{malformed\n`,
+      "utf8",
+    );
+
+    const result = await hostEventsMigration().migrateLegacyState(migrationParams());
+
+    expect(result.changes).toEqual([]);
+    expect(result.warnings).toEqual([
+      expect.stringContaining("Skipped invalid Memory Core host event"),
+      expect.stringContaining("Skipped malformed Memory Core host event"),
+      expect.stringContaining("invalid rows still require repair"),
+    ]);
+    await expect(readMemoryHostEventRecords({ workspaceDir, env })).resolves.toEqual([]);
+    await expect(fs.access(eventPath)).resolves.toBeUndefined();
+    await expect(fs.access(`${eventPath}.migrated`)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("imports host events after malformed rows are repaired", async () => {
+    const eventPath = path.join(workspaceDir, "memory", ".dreams", "events.jsonl");
+    const event = {
+      type: "memory.recall.recorded",
+      timestamp: "2026-07-01T00:00:00.000Z",
+      query: "stable after repair",
+      resultCount: 0,
+      results: [],
+    };
+    await fs.writeFile(eventPath, `{malformed\n${JSON.stringify(event)}\n`, "utf8");
+    const migration = hostEventsMigration();
+
+    await migration.migrateLegacyState(migrationParams());
+    await fs.writeFile(
+      eventPath,
+      `  ${JSON.stringify({
+        results: [],
+        resultCount: 0,
+        query: event.query,
+        timestamp: event.timestamp,
+        type: event.type,
+      })}  \n`,
+      "utf8",
+    );
+    const repaired = await migration.migrateLegacyState(migrationParams());
+
+    expect(repaired.warnings).toEqual([]);
+    expect(repaired.changes).toEqual([
+      "Migrated Memory Core host events -> SQLite plugin state (1 new row(s))",
+      expect.stringContaining("Archived Memory Core host events legacy source"),
+    ]);
+    await expect(readMemoryHostEventRecords({ workspaceDir, env })).resolves.toMatchObject([
+      { query: "stable after repair" },
+    ]);
+    await expect(fs.access(`${eventPath}.migrated`)).resolves.toBeUndefined();
+  });
+
+  it("preserves legacy host event append order when timestamps move backward", async () => {
+    const eventPath = path.join(workspaceDir, "memory", ".dreams", "events.jsonl");
+    const events = [
+      {
+        type: "memory.recall.recorded",
+        timestamp: "2026-07-02T00:00:00.000Z",
+        query: "appended first",
+        resultCount: 0,
+        results: [],
+      },
+      {
+        type: "memory.recall.recorded",
+        timestamp: "2026-07-01T00:00:00.000Z",
+        query: "appended last after clock rollback",
+        resultCount: 0,
+        results: [],
+      },
+    ];
+    await fs.writeFile(eventPath, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`);
+
+    const result = await hostEventsMigration().migrateLegacyState(migrationParams());
+
+    expect(result.warnings).toEqual([]);
+    await expect(readMemoryHostEventRecords({ workspaceDir, env })).resolves.toMatchObject([
+      { query: "appended first" },
+      { query: "appended last after clock rollback" },
+    ]);
+    await expect(
+      readMemoryHostEventRecords({ workspaceDir, env, limit: 1 }),
+    ).resolves.toMatchObject([{ query: "appended last after clock rollback" }]);
   });
 
   it.runIf(process.platform !== "win32")(
@@ -619,6 +727,31 @@ describe("memory-core doctor dreaming migration", () => {
       }
     },
   );
+
+  it("imports the newest retained tail from an oversized legacy host event log", async () => {
+    const eventPath = path.join(workspaceDir, "memory", ".dreams", "events.jsonl");
+    const events = Array.from({ length: 10_002 }, (_, index) => ({
+      type: "memory.recall.recorded",
+      timestamp: "2026-07-01T00:00:00.000Z",
+      query: `oversized-${index}`,
+      resultCount: 0,
+      results: [],
+    }));
+    await fs.writeFile(eventPath, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`);
+
+    const result = await hostEventsMigration().migrateLegacyState(migrationParams());
+
+    expect(result.warnings).toEqual([]);
+    expect(result.changes).toEqual([
+      "Migrated Memory Core host events -> SQLite plugin state (10000 new row(s))",
+      expect.stringContaining("Archived Memory Core host events legacy source"),
+    ]);
+    const imported = await readMemoryHostEventRecords({ workspaceDir, env });
+    expect(imported).toHaveLength(10_000);
+    expect(imported[0]).toMatchObject({ query: "oversized-2" });
+    expect(imported.at(-1)).toMatchObject({ query: "oversized-10001" });
+    await expect(fs.access(`${eventPath}.migrated`)).resolves.toBeUndefined();
+  });
 
   it("leaves legacy host events in place when plugin-wide SQLite capacity is exhausted", async () => {
     const eventPath = path.join(workspaceDir, "memory", ".dreams", "events.jsonl");
@@ -1929,6 +2062,97 @@ describe("memory-core doctor dreaming migration", () => {
     ]);
     await expect(fs.access(legacyPath)).rejects.toThrow();
     await expect(fs.access(`${legacyPath}.migrated`)).resolves.toBeUndefined();
+  });
+
+  it("removes only exact stale QMD lock sidecars and is idempotent", async () => {
+    const stateDir = path.join(rootDir, "state");
+    const globalLockPath = path.join(stateDir, "qmd", "embed.lock.lock");
+    const agentLockPath = path.join(stateDir, "agents", "main", "qmd-write.lock.lock");
+    const ignoredPaths = [
+      path.join(stateDir, "qmd", "other.lock.lock"),
+      path.join(stateDir, "agents", "main", "nested", "qmd-write.lock.lock"),
+      path.join(stateDir, "agents", "main!", "qmd-write.lock.lock"),
+      path.join(stateDir, "agents", "main", "qmd-write.lock.lock.extra"),
+    ];
+    const stalePayload = `${JSON.stringify({ pid: 2 ** 30, createdAt: new Date().toISOString() })}\n`;
+    for (const filePath of [globalLockPath, agentLockPath, ...ignoredPaths]) {
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, stalePayload, "utf8");
+    }
+
+    const migration = qmdFileLockMigration();
+    await expect(migration.detectLegacyState(migrationParams())).resolves.toEqual({
+      preview: [
+        `- Retired Memory Core QMD file lock: ${globalLockPath} -> remove only if definitely stale (coordination now uses SQLite leases)`,
+        `- Retired Memory Core QMD file lock: ${agentLockPath} -> remove only if definitely stale (coordination now uses SQLite leases)`,
+      ],
+    });
+
+    await expect(migration.migrateLegacyState(migrationParams())).resolves.toEqual({
+      changes: [
+        `Removed retired Memory Core QMD file lock: ${globalLockPath}`,
+        `Removed retired Memory Core QMD file lock: ${agentLockPath}`,
+      ],
+      warnings: [],
+    });
+    await expect(fs.access(globalLockPath)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.access(agentLockPath)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.access(path.join(stateDir, "openclaw.sqlite"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await expect(
+      fs.access(path.join(stateDir, "agents", "main", "agent", "openclaw-agent.sqlite")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    for (const filePath of ignoredPaths) {
+      await expect(fs.access(filePath)).resolves.toBeUndefined();
+    }
+    await expect(migration.detectLegacyState(migrationParams())).resolves.toBeNull();
+    await expect(migration.migrateLegacyState(migrationParams())).resolves.toEqual({
+      changes: [],
+      warnings: [],
+    });
+  });
+
+  it("retains live and ambiguous QMD locks and ignores symlink candidates", async () => {
+    const stateDir = path.join(rootDir, "state");
+    const globalLockPath = path.join(stateDir, "qmd", "embed.lock.lock");
+    const malformedLockPath = path.join(stateDir, "agents", "main", "qmd-write.lock.lock");
+    const symlinkLockPath = path.join(stateDir, "agents", "other", "qmd-write.lock.lock");
+    const symlinkTargetPath = path.join(rootDir, "stale-lock-target");
+    await fs.mkdir(path.dirname(globalLockPath), { recursive: true });
+    await fs.mkdir(path.dirname(malformedLockPath), { recursive: true });
+    await fs.mkdir(path.dirname(symlinkLockPath), { recursive: true });
+    await fs.writeFile(
+      globalLockPath,
+      `${JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() })}\n`,
+      "utf8",
+    );
+    await fs.writeFile(malformedLockPath, "{", "utf8");
+    await fs.writeFile(
+      symlinkTargetPath,
+      `${JSON.stringify({ pid: 2 ** 30, createdAt: new Date().toISOString() })}\n`,
+      "utf8",
+    );
+    await fs.symlink(symlinkTargetPath, symlinkLockPath);
+
+    const migration = qmdFileLockMigration();
+    await expect(migration.detectLegacyState(migrationParams())).resolves.toEqual({
+      preview: [
+        `- Retired Memory Core QMD file lock: ${globalLockPath} -> remove only if definitely stale (coordination now uses SQLite leases)`,
+        `- Retired Memory Core QMD file lock: ${malformedLockPath} -> remove only if definitely stale (coordination now uses SQLite leases)`,
+      ],
+    });
+    await expect(migration.migrateLegacyState(migrationParams())).resolves.toEqual({
+      changes: [],
+      warnings: [
+        `Retained retired Memory Core QMD file lock because its owner is live or ambiguous: ${globalLockPath}`,
+        `Retained retired Memory Core QMD file lock because its owner is live or ambiguous: ${malformedLockPath}`,
+      ],
+    });
+    await expect(fs.access(globalLockPath)).resolves.toBeUndefined();
+    await expect(fs.readFile(malformedLockPath, "utf8")).resolves.toBe("{");
+    expect((await fs.lstat(symlinkLockPath)).isSymbolicLink()).toBe(true);
+    await expect(fs.access(symlinkTargetPath)).resolves.toBeUndefined();
   });
 });
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

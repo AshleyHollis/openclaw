@@ -295,6 +295,26 @@ function countLivePluginStateNamespaceEntries(
   return countRow(row);
 }
 
+function allocatePluginStateNamespaceCreatedAt(
+  db: DatabaseSync,
+  params: { pluginId: string; namespace: string },
+): number {
+  const row = executeSqliteQueryTakeFirstSync(
+    db,
+    getPluginStateKysely(db)
+      .selectFrom("plugin_state_entries")
+      .select((eb) => eb.fn.max<number | bigint>("created_at").as("max_created_at"))
+      .where("plugin_id", "=", params.pluginId)
+      .where("namespace", "=", params.namespace),
+  );
+  const previous = normalizeSqliteNumber(row?.max_created_at ?? null);
+  const next = previous === undefined ? 0 : Math.max(0, previous + 1);
+  if (!Number.isSafeInteger(next)) {
+    throw new RangeError("Plugin state namespace append order exhausted safe integer range");
+  }
+  return next;
+}
+
 function countLivePluginStateEntries(
   db: DatabaseSync,
   params: { pluginId: string; now: number },
@@ -508,6 +528,7 @@ export function pluginStateRegister(params: {
   maxEntries: number;
   overflowPolicy: PluginStateOverflowPolicy;
   createdAt?: number;
+  monotonicCreatedAt?: boolean;
   ttlMs?: number;
   env?: NodeJS.ProcessEnv;
 }): void {
@@ -543,6 +564,14 @@ export function pluginStateRegister(params: {
             now,
           });
         }
+        const createdAt =
+          params.createdAt ??
+          (params.monotonicCreatedAt
+            ? allocatePluginStateNamespaceCreatedAt(store.db, {
+                pluginId: params.pluginId,
+                namespace: params.namespace,
+              })
+            : now);
         upsertPluginStateEntry(
           store.db,
           bindPluginStateEntry({
@@ -550,7 +579,7 @@ export function pluginStateRegister(params: {
             namespace: params.namespace,
             key: params.key,
             valueJson: params.valueJson,
-            createdAt: params.createdAt ?? now,
+            createdAt,
             expiresAt,
           }),
         );

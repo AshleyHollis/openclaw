@@ -1,5 +1,5 @@
 // Doctor-only import for retired core JSONL audit stores.
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -29,6 +29,74 @@ type PreparedAuditRecord = {
   createdAt: number;
 };
 
+type LegacyAuditRawCheckpoint = {
+  dev: number;
+  ino: number;
+  mtimeMs: number;
+  size: number;
+};
+
+const LEGACY_AUDIT_RAW_CHECKPOINT_SCOPE = "migration.legacy-audit-raw";
+const LEGACY_AUDIT_RAW_CHECKPOINT_MAX_ENTRIES = 10_000;
+
+function legacyAuditClaimPath(sourcePath: string): string {
+  return path.join(path.dirname(sourcePath), `.${path.basename(sourcePath)}.doctor-importing`);
+}
+
+function legacyAuditRawCheckpointKey(
+  sourcePath: string,
+  checkpoint: LegacyAuditRawCheckpoint,
+): string {
+  return createHash("sha256")
+    .update(
+      `${path.resolve(sourcePath)}\0${checkpoint.dev}\0${checkpoint.ino}\0${checkpoint.mtimeMs}\0${checkpoint.size}`,
+    )
+    .digest("hex");
+}
+
+function legacyAuditSourceGenerationKey(checkpoint: LegacyAuditRawCheckpoint): string {
+  // The inode survives active -> claim -> raw archive moves. It therefore keeps
+  // retries idempotent while separating identical rows from later generations.
+  return createHash("sha256")
+    .update(`${checkpoint.dev}\0${checkpoint.ino}`)
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function openLegacyAuditRawCheckpointStore(stateDir: string) {
+  return createSqliteAuditRecordStore<LegacyAuditRawCheckpoint>({
+    scope: LEGACY_AUDIT_RAW_CHECKPOINT_SCOPE,
+    maxEntries: LEGACY_AUDIT_RAW_CHECKPOINT_MAX_ENTRIES,
+    env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
+  });
+}
+
+function statLegacyAuditRawCheckpoint(sourcePath: string): LegacyAuditRawCheckpoint | undefined {
+  try {
+    const stat = fs.lstatSync(sourcePath);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      return undefined;
+    }
+    return { dev: stat.dev, ino: stat.ino, mtimeMs: stat.mtimeMs, size: stat.size };
+  } catch {
+    return undefined;
+  }
+}
+
+function legacyAuditRawCheckpointsMatch(
+  left: LegacyAuditRawCheckpoint | undefined,
+  right: LegacyAuditRawCheckpoint | undefined,
+): boolean {
+  return (
+    left !== undefined &&
+    right !== undefined &&
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.mtimeMs === right.mtimeMs &&
+    left.size === right.size
+  );
+}
+
 function legacyAuditRecordCreatedAt(
   source: LegacyAuditLogSource,
   value: ConfigAuditRecord | SystemAgentAuditEntry,
@@ -48,7 +116,7 @@ export function detectLegacyAuditLogs(params: {
   stateDir: string;
   doctorOnlyStateMigrations?: boolean;
 }): LegacyAuditLogsDetection {
-  const candidates: LegacyAuditLogSource[] = [
+  const logicalSources: Array<Pick<LegacyAuditLogSource, "kind" | "label" | "sourcePath">> = [
     {
       kind: "config",
       label: "config audit log",
@@ -67,10 +135,81 @@ export function detectLegacyAuditLogs(params: {
   ];
   // Intentionally invisible to automatic startup migration. That caller migrates every
   // detected source; these audit imports belong only to explicit `doctor --fix` repair.
-  const sources =
-    params.doctorOnlyStateMigrations === true
-      ? candidates.filter((source) => fs.existsSync(source.sourcePath))
-      : [];
+  if (params.doctorOnlyStateMigrations !== true) {
+    return { sources: [], hasLegacy: false };
+  }
+  let checkpoints: Map<string, LegacyAuditRawCheckpoint> | undefined;
+  const loadCheckpoints = () => {
+    if (checkpoints) {
+      return checkpoints;
+    }
+    try {
+      checkpoints = new Map(
+        openLegacyAuditRawCheckpointStore(params.stateDir)
+          .entries()
+          .map((entry) => [entry.key, entry.value]),
+      );
+    } catch {
+      checkpoints = new Map();
+    }
+    return checkpoints;
+  };
+  const sources: LegacyAuditLogSource[] = [];
+  for (const logical of logicalSources) {
+    const claimPath = legacyAuditClaimPath(logical.sourcePath);
+    let directoryEntries: string[] = [];
+    try {
+      directoryEntries = fs.readdirSync(path.dirname(logical.sourcePath));
+    } catch {
+      // The active-path check below still preserves the ordinary detection result.
+    }
+    const baseName = path.basename(logical.sourcePath).replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    const rawArchivePattern = new RegExp(
+      `^${baseName}\\.migrated(?:\\.([2-9]|[1-9][0-9]+))?\\.raw$`,
+      "u",
+    );
+    const rawArchives = directoryEntries
+      .flatMap((entry) => {
+        const match = rawArchivePattern.exec(entry);
+        return match ? [{ entry, generation: BigInt(match[1] ?? "1") }] : [];
+      })
+      .toSorted(
+        (left, right) =>
+          (left.generation < right.generation ? -1 : left.generation > right.generation ? 1 : 0) ||
+          left.entry.localeCompare(right.entry),
+      );
+    for (const { entry } of rawArchives) {
+      const rawPath = path.join(path.dirname(logical.sourcePath), entry);
+      const checkpoint = statLegacyAuditRawCheckpoint(rawPath);
+      if (checkpoint && loadCheckpoints().has(legacyAuditRawCheckpointKey(rawPath, checkpoint))) {
+        continue;
+      }
+      sources.push({
+        ...logical,
+        sourcePath: rawPath,
+        logicalSourcePath: logical.sourcePath,
+        storage: "raw-archive",
+        sanitizedArchivePath: rawPath.slice(0, -".raw".length),
+      });
+    }
+    // Archived generations are older than an interrupted claim; a recreated
+    // active path is newest. This order feeds explicit legacy audit sequences.
+    if (fs.existsSync(claimPath)) {
+      sources.push({
+        ...logical,
+        sourcePath: claimPath,
+        logicalSourcePath: logical.sourcePath,
+        storage: "claim",
+      });
+    }
+    if (fs.existsSync(logical.sourcePath)) {
+      sources.push({
+        ...logical,
+        logicalSourcePath: logical.sourcePath,
+        storage: "active",
+      });
+    }
+  }
   return { sources, hasLegacy: sources.length > 0 };
 }
 
@@ -79,13 +218,13 @@ type PreparedLegacyAuditRecords =
   | {
       ok: true;
       records: PreparedAuditRecord[];
-      sourceRaw: string;
       sanitizedJsonl: string;
     };
 
 function prepareLegacyAuditRecords(
   source: LegacyAuditLogSource,
   raw: string,
+  sourceGeneration: string,
 ): PreparedLegacyAuditRecords {
   const records: PreparedAuditRecord[] = [];
   const warnings: string[] = [];
@@ -115,7 +254,7 @@ function prepareLegacyAuditRecords(
         : (redactSecrets(parsed) as SystemAgentAuditEntry);
     const digest = createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16);
     records.push({
-      key: `legacy:${source.kind}:${index + 1}:${digest}`,
+      key: `legacy:${source.kind}:${sourceGeneration}:${index + 1}:${digest}`,
       value,
       createdAt: legacyAuditRecordCreatedAt(source, value),
     });
@@ -126,7 +265,6 @@ function prepareLegacyAuditRecords(
   return {
     ok: true,
     records,
-    sourceRaw: raw,
     sanitizedJsonl:
       records.length > 0
         ? `${records.map((record) => JSON.stringify(record.value)).join("\n")}\n`
@@ -136,51 +274,84 @@ function prepareLegacyAuditRecords(
 
 type AuditMigrationRoot = Awaited<ReturnType<typeof createFsSafeRoot>>;
 
-async function replaceLegacyAuditSourceWithSanitizedContent(params: {
-  source: LegacyAuditLogSource;
-  sourceRelativePath: string;
-  root: AuditMigrationRoot;
-  sourceRaw: string;
-  sanitizedJsonl: string;
-  warnings: string[];
-}): Promise<boolean> {
-  const tempRelativePath = path.join(
-    path.dirname(params.sourceRelativePath),
-    `.${path.basename(params.sourceRelativePath)}.sanitize-${process.pid}-${randomUUID()}.tmp`,
-  );
+type LegacyAuditSourceSnapshot = LegacyAuditRawCheckpoint & { raw: string };
+
+async function readLegacyAuditSourceSnapshot(
+  root: AuditMigrationRoot,
+  relativePath: string,
+): Promise<LegacyAuditSourceSnapshot> {
+  const opened = await root.open(relativePath);
   try {
-    await params.root.create(tempRelativePath, params.sanitizedJsonl, {
-      mode: 0o600,
-    });
-    if ((await params.root.readText(params.sourceRelativePath)) !== params.sourceRaw) {
-      params.warnings.push(
-        `Skipped archiving ${params.source.label} because the legacy source changed during sanitization`,
-      );
-      return false;
+    const before = await opened.handle.stat();
+    if (!before.isFile()) {
+      throw new Error("legacy audit source is not a regular file");
     }
-    // The caller holds exclusive Gateway/state ownership, so no legitimate
-    // legacy writer can append between this final check and the rooted move.
-    // Both paths stay pinned; move commits the prepared bytes atomically.
-    await params.root.move(tempRelativePath, params.sourceRelativePath, { overwrite: true });
-    return true;
-  } catch (error) {
-    params.warnings.push(
-      `Failed sanitizing ${params.source.label} legacy source before archival: ${String(error)}`,
-    );
-    return false;
+    const raw = await opened.handle.readFile({ encoding: "utf8" });
+    const after = await opened.handle.stat();
+    const beforeCheckpoint = {
+      dev: before.dev,
+      ino: before.ino,
+      mtimeMs: before.mtimeMs,
+      size: before.size,
+    };
+    const afterCheckpoint = {
+      dev: after.dev,
+      ino: after.ino,
+      mtimeMs: after.mtimeMs,
+      size: after.size,
+    };
+    if (!legacyAuditRawCheckpointsMatch(beforeCheckpoint, afterCheckpoint)) {
+      throw new Error("legacy audit source changed while Doctor was reading it");
+    }
+    return { ...afterCheckpoint, raw };
   } finally {
-    await params.root.remove(tempRelativePath).catch(() => undefined);
+    await opened.handle.close();
   }
 }
 
-async function firstFreeAuditArchiveRelativePath(
+async function recordLegacyAuditRawCheckpoint(params: {
+  stateDir: string;
+  rawPath: string;
+  rawRelativePath: string;
+  root: AuditMigrationRoot;
+  snapshot: LegacyAuditSourceSnapshot;
+  warnings: string[];
+}): Promise<void> {
+  try {
+    const opened = await params.root.open(params.rawRelativePath);
+    let checkpoint: LegacyAuditRawCheckpoint;
+    try {
+      const stat = await opened.handle.stat();
+      checkpoint = { dev: stat.dev, ino: stat.ino, mtimeMs: stat.mtimeMs, size: stat.size };
+    } finally {
+      await opened.handle.close();
+    }
+    if (!legacyAuditRawCheckpointsMatch(checkpoint, params.snapshot)) {
+      params.warnings.push(
+        `Retained changed legacy audit backup ${params.rawPath}; rerun openclaw doctor --fix to import its later rows`,
+      );
+      return;
+    }
+    openLegacyAuditRawCheckpointStore(params.stateDir).register(
+      legacyAuditRawCheckpointKey(params.rawPath, checkpoint),
+      checkpoint,
+    );
+  } catch (error) {
+    params.warnings.push(
+      `Failed recording legacy audit backup checkpoint for ${params.rawPath}: ${String(error)}`,
+    );
+  }
+}
+
+async function resolveAuditArchiveRelativePaths(
   root: AuditMigrationRoot,
   sourceRelativePath: string,
-): Promise<string> {
-  for (let index = 2; ; index += 1) {
-    const candidate = `${sourceRelativePath}.migrated.${index}`;
-    if (!(await root.exists(candidate))) {
-      return candidate;
+): Promise<{ sanitized: string; raw: string }> {
+  for (let index = 1; ; index += 1) {
+    const sanitized = `${sourceRelativePath}.migrated${index === 1 ? "" : `.${index}`}`;
+    const raw = `${sanitized}.raw`;
+    if (!(await root.exists(sanitized)) && !(await root.exists(raw))) {
+      return { sanitized, raw };
     }
   }
 }
@@ -206,54 +377,92 @@ async function secureAuditArchiveFile(params: {
   }
 }
 
-async function archiveLegacyAuditSource(params: {
+async function archiveLegacyAuditClaim(params: {
   source: LegacyAuditLogSource;
+  claimRelativePath: string;
   sourceRelativePath: string;
+  sanitizedJsonl: string;
   root: AuditMigrationRoot;
   changes: string[];
   warnings: string[];
-}): Promise<void> {
-  const archivedRelativePath = `${params.sourceRelativePath}.migrated`;
-  const archivedPath = `${params.source.sourcePath}.migrated`;
+}): Promise<{ moved: boolean; rawRelativePath?: string }> {
+  let moved = false;
+  let sanitizedCreated = false;
+  let archivePaths: { sanitized: string; raw: string } | undefined;
   try {
-    if (
-      !(await secureAuditArchiveFile({
+    archivePaths = await resolveAuditArchiveRelativePaths(params.root, params.sourceRelativePath);
+    await params.root.create(archivePaths.sanitized, params.sanitizedJsonl, { mode: 0o600 });
+    sanitizedCreated = true;
+    await secureAuditArchiveFile({
+      root: params.root,
+      relativePath: archivePaths.sanitized,
+      label: `sanitized ${params.source.label}`,
+      warnings: params.warnings,
+    });
+    // Keep the claimed inode intact. A predecessor CLI may already hold an append
+    // descriptor across the claim; moving that inode to a named migration backup
+    // preserves any late write while the sanitized sibling remains safe to inspect.
+    await params.root.move(params.claimRelativePath, archivePaths.raw);
+    moved = true;
+    await secureAuditArchiveFile({
+      root: params.root,
+      relativePath: archivePaths.raw,
+      label: `raw archived ${params.source.label}`,
+      warnings: params.warnings,
+    });
+    params.changes.push(
+      `Archived sanitized ${params.source.label} legacy source → ${path.join(path.dirname(params.source.logicalSourcePath), path.basename(archivePaths.sanitized))}; preserved original inode → ${path.join(path.dirname(params.source.logicalSourcePath), path.basename(archivePaths.raw))}`,
+    );
+  } catch (error) {
+    params.warnings.push(
+      `Failed archiving ${params.source.label} ${params.source.logicalSourcePath}: ${String(error)}`,
+    );
+  } finally {
+    if (!moved && sanitizedCreated && archivePaths) {
+      await params.root.remove(archivePaths.sanitized).catch(() => undefined);
+    }
+  }
+  return { moved, ...(moved && archivePaths ? { rawRelativePath: archivePaths.raw } : {}) };
+}
+
+async function restoreOrPreserveLegacyAuditClaim(params: {
+  source: LegacyAuditLogSource;
+  claimRelativePath: string;
+  sourceRelativePath: string;
+  root: AuditMigrationRoot;
+  warnings: string[];
+}): Promise<void> {
+  try {
+    if (!(await params.root.exists(params.claimRelativePath))) {
+      return;
+    }
+    if (!(await params.root.exists(params.sourceRelativePath))) {
+      await params.root.move(params.claimRelativePath, params.sourceRelativePath);
+      await secureAuditArchiveFile({
         root: params.root,
         relativePath: params.sourceRelativePath,
         label: params.source.label,
         warnings: params.warnings,
-      }))
-    ) {
-      return;
-    }
-    if (await params.root.exists(archivedRelativePath)) {
-      const nextRelativePath = await firstFreeAuditArchiveRelativePath(
-        params.root,
-        params.sourceRelativePath,
-      );
-      await params.root.move(params.sourceRelativePath, nextRelativePath);
-      await secureAuditArchiveFile({
-        root: params.root,
-        relativePath: nextRelativePath,
-        label: `archived ${params.source.label}`,
-        warnings: params.warnings,
       });
-      params.changes.push(
-        `Archived ${params.source.label} legacy source → ${path.join(path.dirname(params.source.sourcePath), path.basename(nextRelativePath))}`,
-      );
       return;
     }
-    await params.root.move(params.sourceRelativePath, archivedRelativePath);
+    const preservedPaths = await resolveAuditArchiveRelativePaths(
+      params.root,
+      params.sourceRelativePath,
+    );
+    await params.root.move(params.claimRelativePath, preservedPaths.raw);
     await secureAuditArchiveFile({
       root: params.root,
-      relativePath: archivedRelativePath,
-      label: `archived ${params.source.label}`,
+      relativePath: preservedPaths.raw,
+      label: `preserved ${params.source.label}`,
       warnings: params.warnings,
     });
-    params.changes.push(`Archived ${params.source.label} legacy source → ${archivedPath}`);
+    params.warnings.push(
+      `Preserved claimed ${params.source.label} at ${path.join(path.dirname(params.source.logicalSourcePath), path.basename(preservedPaths.raw))} because an old writer recreated ${params.source.logicalSourcePath}`,
+    );
   } catch (error) {
     params.warnings.push(
-      `Failed archiving ${params.source.label} ${params.source.sourcePath}: ${String(error)}`,
+      `Failed restoring claimed ${params.source.label} ${params.source.logicalSourcePath}: ${String(error)}`,
     );
   }
 }
@@ -261,8 +470,10 @@ async function archiveLegacyAuditSource(params: {
 async function migrateLegacyAuditLogSource(params: {
   source: LegacyAuditLogSource;
   stateDir: string;
+  recreatedSourceScheduled?: boolean;
 }): Promise<MigrationMessages> {
   const changes: string[] = [];
+  const warnings: string[] = [];
   const root = await createFsSafeRoot(params.stateDir, {
     hardlinks: "reject",
     // Doctor previously accepted the complete legacy log; keep that migration
@@ -272,61 +483,138 @@ async function migrateLegacyAuditLogSource(params: {
     mode: 0o600,
     symlinks: "reject",
   });
-  const sourceRelativePath = path.relative(path.resolve(params.stateDir), params.source.sourcePath);
-  const sourceRaw = await root.readText(sourceRelativePath);
-  const prepared = prepareLegacyAuditRecords(params.source, sourceRaw);
-  if (!prepared.ok) {
-    return { changes, warnings: prepared.warnings };
-  }
-  const warnings: string[] = [];
-  const env = { ...process.env, OPENCLAW_STATE_DIR: params.stateDir };
-  const maxEntries =
-    params.source.kind === "config" ? CONFIG_AUDIT_MAX_ENTRIES : SYSTEM_AGENT_AUDIT_MAX_ENTRIES;
-  const store = createSqliteAuditRecordStore<ConfigAuditRecord | SystemAgentAuditEntry>({
-    scope: params.source.kind === "config" ? CONFIG_AUDIT_SCOPE : SYSTEM_AGENT_AUDIT_SCOPE,
-    maxEntries,
-    env,
-  });
-  const existingEntries = store.entries();
-  const existingKeys = new Set(existingEntries.map((entry) => entry.key));
-  const missing = prepared.records.filter((record) => !existingKeys.has(record.key));
-  const availableEntries = maxEntries - existingEntries.length;
-  if (missing.length > availableEntries) {
-    warnings.push(
-      `Skipped ${params.source.label} migration because SQLite has room for ${availableEntries} of ${missing.length} missing rows; left legacy source in place`,
-    );
-    return { changes, warnings };
-  }
-  store.registerMany(missing);
-  const importedKeys = new Set(store.entries().map((entry) => entry.key));
-  const missingKey = prepared.records.find((record) => !importedKeys.has(record.key))?.key;
-  if (missingKey) {
-    warnings.push(`SQLite verification missed ${params.source.label} row ${missingKey}`);
-    return { changes, warnings };
-  }
-  if (
-    !(await replaceLegacyAuditSourceWithSanitizedContent({
-      source: params.source,
-      sourceRelativePath,
-      root,
-      sourceRaw: prepared.sourceRaw,
-      sanitizedJsonl: prepared.sanitizedJsonl,
-      warnings,
-    }))
-  ) {
-    return { changes, warnings };
-  }
-  changes.push(
-    `Migrated ${params.source.label} -> shared SQLite state (${missing.length} new row(s))`,
+  const sourceRelativePath = path.relative(
+    path.resolve(params.stateDir),
+    params.source.logicalSourcePath,
   );
-  await archiveLegacyAuditSource({
-    source: params.source,
-    sourceRelativePath,
-    root,
-    changes,
-    warnings,
-  });
-  return { changes, warnings };
+  const detectedRelativePath = path.relative(
+    path.resolve(params.stateDir),
+    params.source.sourcePath,
+  );
+  const claimRelativePath =
+    params.source.storage === "active"
+      ? path.relative(path.resolve(params.stateDir), legacyAuditClaimPath(params.source.sourcePath))
+      : detectedRelativePath;
+  if (params.source.storage === "active") {
+    await root.move(detectedRelativePath, claimRelativePath);
+  }
+  let claimFinalized = params.source.storage === "raw-archive";
+  try {
+    if (
+      !(await secureAuditArchiveFile({
+        root,
+        relativePath: claimRelativePath,
+        label: `claimed ${params.source.label}`,
+        warnings,
+      }))
+    ) {
+      return { changes, warnings };
+    }
+    const snapshot = await readLegacyAuditSourceSnapshot(root, claimRelativePath);
+    const prepared = prepareLegacyAuditRecords(
+      params.source,
+      snapshot.raw,
+      legacyAuditSourceGenerationKey(snapshot),
+    );
+    if (!prepared.ok) {
+      warnings.push(...prepared.warnings);
+      return { changes, warnings };
+    }
+    const env = { ...process.env, OPENCLAW_STATE_DIR: params.stateDir };
+    const maxEntries =
+      params.source.kind === "config" ? CONFIG_AUDIT_MAX_ENTRIES : SYSTEM_AGENT_AUDIT_MAX_ENTRIES;
+    const store = createSqliteAuditRecordStore<ConfigAuditRecord | SystemAgentAuditEntry>({
+      scope: params.source.kind === "config" ? CONFIG_AUDIT_SCOPE : SYSTEM_AGENT_AUDIT_SCOPE,
+      maxEntries,
+      env,
+    });
+    const existingEntries = store.entries();
+    const existingKeys = new Set(existingEntries.map((entry) => entry.key));
+    const missing = prepared.records.filter((record) => !existingKeys.has(record.key));
+    store.registerLegacyMany(missing);
+    const importedKeys = new Set(store.entries().map((entry) => entry.key));
+    const retainedNewRows = missing.filter((record) => importedKeys.has(record.key)).length;
+    const retentionNote =
+      retainedNewRows === missing.length
+        ? ""
+        : `; ${retainedNewRows} retained after bounded retention`;
+    if (params.source.storage === "raw-archive") {
+      const sanitizedArchivePath = params.source.sanitizedArchivePath;
+      if (!sanitizedArchivePath) {
+        throw new Error(`Missing sanitized archive path for ${params.source.sourcePath}`);
+      }
+      const sanitizedRelativePath = path.relative(
+        path.resolve(params.stateDir),
+        sanitizedArchivePath,
+      );
+      await root.write(sanitizedRelativePath, prepared.sanitizedJsonl, {
+        mkdir: false,
+        mode: 0o600,
+      });
+      await secureAuditArchiveFile({
+        root,
+        relativePath: sanitizedRelativePath,
+        label: `sanitized ${params.source.label}`,
+        warnings,
+      });
+      if (missing.length > 0) {
+        changes.push(
+          `Recovered ${missing.length} later ${params.source.label} row(s) from ${params.source.sourcePath}${retentionNote}`,
+        );
+      }
+      await recordLegacyAuditRawCheckpoint({
+        stateDir: params.stateDir,
+        rawPath: params.source.sourcePath,
+        rawRelativePath: claimRelativePath,
+        root,
+        snapshot,
+        warnings,
+      });
+      return { changes, warnings };
+    }
+    changes.push(
+      `Migrated ${params.source.label} -> shared SQLite state (${missing.length} new row(s)${retentionNote})`,
+    );
+    const archived = await archiveLegacyAuditClaim({
+      source: params.source,
+      claimRelativePath,
+      sourceRelativePath,
+      sanitizedJsonl: prepared.sanitizedJsonl,
+      root,
+      changes,
+      warnings,
+    });
+    claimFinalized = archived.moved;
+    if (!archived.moved || !archived.rawRelativePath) {
+      changes.pop();
+      return { changes, warnings };
+    }
+    const rawPath = path.join(params.stateDir, archived.rawRelativePath);
+    await recordLegacyAuditRawCheckpoint({
+      stateDir: params.stateDir,
+      rawPath,
+      rawRelativePath: archived.rawRelativePath,
+      root,
+      snapshot,
+      warnings,
+    });
+    if ((await root.exists(sourceRelativePath)) && !params.recreatedSourceScheduled) {
+      warnings.push(
+        `An old writer recreated ${params.source.label} at ${params.source.logicalSourcePath}; rerun openclaw doctor --fix to import the retained rows`,
+      );
+    }
+    return { changes, warnings };
+  } finally {
+    if (!claimFinalized && params.source.storage === "active") {
+      await restoreOrPreserveLegacyAuditClaim({
+        source: params.source,
+        claimRelativePath,
+        sourceRelativePath,
+        root,
+        warnings,
+      });
+    }
+  }
 }
 
 export async function migrateLegacyAuditLogs(params: {
@@ -341,8 +629,9 @@ export async function migrateLegacyAuditLogs(params: {
   const env = { ...process.env, OPENCLAW_STATE_DIR: params.stateDir };
   let lock: Awaited<ReturnType<typeof acquireGatewayLock>>;
   try {
-    // Retired audit paths have no current writer. Exclusive state ownership also
-    // excludes a running predecessor Gateway and sibling doctor during raw-file removal.
+    // Exclusive state ownership excludes a predecessor Gateway and sibling doctor.
+    // Each source is also atomically claimed because old short-lived CLI processes
+    // can append config audit rows without participating in the Gateway lock.
     lock = await acquireGatewayLock({
       allowInTests: true,
       env,
@@ -363,9 +652,20 @@ export async function migrateLegacyAuditLogs(params: {
     return { changes, warnings };
   }
   try {
-    for (const source of params.detected.sources) {
+    for (const [index, source] of params.detected.sources.entries()) {
       try {
-        const result = await migrateLegacyAuditLogSource({ source, stateDir: params.stateDir });
+        const recreatedSourceScheduled = params.detected.sources
+          .slice(index + 1)
+          .some(
+            (candidate) =>
+              candidate.storage === "active" &&
+              candidate.logicalSourcePath === source.logicalSourcePath,
+          );
+        const result = await migrateLegacyAuditLogSource({
+          source,
+          stateDir: params.stateDir,
+          ...(recreatedSourceScheduled ? { recreatedSourceScheduled: true } : {}),
+        });
         changes.push(...result.changes);
         warnings.push(...result.warnings);
       } catch (error) {

@@ -1156,6 +1156,174 @@ public struct AgentEvent: Codable, Sendable {
     }
 }
 
+public struct ConversationSendParams: Codable, Sendable {
+    public let agentid: String
+    public let sourcesessionkey: String?
+    public let operationid: String
+    public let conversationref: String
+    public let message: String
+
+    public init(
+        agentid: String,
+        sourcesessionkey: String? = nil,
+        operationid: String,
+        conversationref: String,
+        message: String)
+    {
+        self.agentid = agentid
+        self.sourcesessionkey = sourcesessionkey
+        self.operationid = operationid
+        self.conversationref = conversationref
+        self.message = message
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case agentid = "agentId"
+        case sourcesessionkey = "sourceSessionKey"
+        case operationid = "operationId"
+        case conversationref = "conversationRef"
+        case message
+    }
+}
+
+public struct ConversationSendResult: Codable, Sendable {
+    public let status: AnyCodable
+    public let conversationref: String
+    public let channel: String
+    public let messageid: String?
+    public let queueid: String?
+
+    public init(
+        status: AnyCodable,
+        conversationref: String,
+        channel: String,
+        messageid: String? = nil,
+        queueid: String? = nil)
+    {
+        self.status = status
+        self.conversationref = conversationref
+        self.channel = channel
+        self.messageid = messageid
+        self.queueid = queueid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case status
+        case conversationref = "conversationRef"
+        case channel
+        case messageid = "messageId"
+        case queueid = "queueId"
+    }
+}
+
+public struct ConversationTurnCancelParams: Codable, Sendable {
+    public let agentid: String
+    public let turnid: String
+
+    public init(
+        agentid: String,
+        turnid: String)
+    {
+        self.agentid = agentid
+        self.turnid = turnid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case agentid = "agentId"
+        case turnid = "turnId"
+    }
+}
+
+public struct ConversationTurnCancelResult: Codable, Sendable {
+    public let cancelled: Bool
+
+    public init(
+        cancelled: Bool)
+    {
+        self.cancelled = cancelled
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case cancelled
+    }
+}
+
+public struct ConversationTurnParams: Codable, Sendable {
+    public let agentid: String
+    public let sourcesessionkey: String?
+    public let turnid: String
+    public let conversationref: String
+    public let message: String
+    public let timeoutms: Int
+
+    public init(
+        agentid: String,
+        sourcesessionkey: String? = nil,
+        turnid: String,
+        conversationref: String,
+        message: String,
+        timeoutms: Int)
+    {
+        self.agentid = agentid
+        self.sourcesessionkey = sourcesessionkey
+        self.turnid = turnid
+        self.conversationref = conversationref
+        self.message = message
+        self.timeoutms = timeoutms
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case agentid = "agentId"
+        case sourcesessionkey = "sourceSessionKey"
+        case turnid = "turnId"
+        case conversationref = "conversationRef"
+        case message
+        case timeoutms = "timeoutMs"
+    }
+}
+
+public struct ConversationTurnReply: Codable, Sendable {
+    public let conversationref: String
+    public let messageid: String
+    public let replytoid: String?
+    public let threadid: String?
+    public let text: String
+    public let timestamp: Int
+    public let transcriptartifactid: String?
+    public let transcriptmessageid: String?
+
+    public init(
+        conversationref: String,
+        messageid: String,
+        replytoid: String? = nil,
+        threadid: String? = nil,
+        text: String,
+        timestamp: Int,
+        transcriptartifactid: String? = nil,
+        transcriptmessageid: String? = nil)
+    {
+        self.conversationref = conversationref
+        self.messageid = messageid
+        self.replytoid = replytoid
+        self.threadid = threadid
+        self.text = text
+        self.timestamp = timestamp
+        self.transcriptartifactid = transcriptartifactid
+        self.transcriptmessageid = transcriptmessageid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case conversationref = "conversationRef"
+        case messageid = "messageId"
+        case replytoid = "replyToId"
+        case threadid = "threadId"
+        case text
+        case timestamp
+        case transcriptartifactid = "transcriptArtifactId"
+        case transcriptmessageid = "transcriptMessageId"
+    }
+}
+
 public struct MessageActionParams: Codable, Sendable {
     public let channel: String
     public let action: String
@@ -4554,6 +4722,46 @@ public struct SessionsFilesGetResult: Codable, Sendable {
     }
 }
 
+public struct SessionsFilesRevealParams: Codable, Sendable {
+    public let key: String
+    public let agentid: String?
+
+    public init(
+        key: String,
+        agentid: String? = nil)
+    {
+        self.key = key
+        self.agentid = agentid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case key
+        case agentid = "agentId"
+    }
+}
+
+public struct SessionsFilesRevealResult: Codable, Sendable {
+    public let ok: Bool
+    public let path: String?
+    public let error: String?
+
+    public init(
+        ok: Bool,
+        path: String? = nil,
+        error: String? = nil)
+    {
+        self.ok = ok
+        self.path = path
+        self.error = error
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ok
+        case path
+        case error
+    }
+}
+
 public struct SessionsFilesSetParams: Codable, Sendable {
     public let sessionkey: String
     public let path: String
@@ -7158,6 +7366,7 @@ public struct TalkClientCreateParams: Codable, Sendable {
     public let mode: AnyCodable?
     public let transport: AnyCodable?
     public let brain: AnyCodable?
+    public let capabilities: [String]?
 
     public init(
         sessionkey: String? = nil,
@@ -7170,7 +7379,8 @@ public struct TalkClientCreateParams: Codable, Sendable {
         reasoningeffort: String? = nil,
         mode: AnyCodable? = nil,
         transport: AnyCodable? = nil,
-        brain: AnyCodable? = nil)
+        brain: AnyCodable? = nil,
+        capabilities: [String]? = nil)
     {
         self.sessionkey = sessionkey
         self.provider = provider
@@ -7183,6 +7393,7 @@ public struct TalkClientCreateParams: Codable, Sendable {
         self.mode = mode
         self.transport = transport
         self.brain = brain
+        self.capabilities = capabilities
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -7197,6 +7408,7 @@ public struct TalkClientCreateParams: Codable, Sendable {
         case mode
         case transport
         case brain
+        case capabilities
     }
 }
 
@@ -12433,6 +12645,7 @@ public struct PluginCatalogEntry: Codable, Sendable {
     public let state: AnyCodable
     public let featured: Bool?
     public let order: Double?
+    public let hasicon: Bool?
     public let install: PluginCatalogInstallAction?
     public let error: String?
     public let category: String?
@@ -12451,6 +12664,7 @@ public struct PluginCatalogEntry: Codable, Sendable {
         state: AnyCodable,
         featured: Bool? = nil,
         order: Double? = nil,
+        hasicon: Bool? = nil,
         install: PluginCatalogInstallAction? = nil,
         error: String? = nil,
         category: String? = nil,
@@ -12468,6 +12682,7 @@ public struct PluginCatalogEntry: Codable, Sendable {
         self.state = state
         self.featured = featured
         self.order = order
+        self.hasicon = hasicon
         self.install = install
         self.error = error
         self.category = category
@@ -12487,6 +12702,7 @@ public struct PluginCatalogEntry: Codable, Sendable {
         case state
         case featured
         case order
+        case hasicon = "hasIcon"
         case install
         case error
         case category
@@ -12673,6 +12889,22 @@ public struct PluginsListResult: Codable, Sendable {
         case plugins
         case diagnostics
         case mutationallowed = "mutationAllowed"
+    }
+}
+
+public struct PluginsRefreshParams: Codable, Sendable {}
+
+public struct PluginsRefreshResult: Codable, Sendable {
+    public let ok: Bool
+
+    public init(
+        ok: Bool)
+    {
+        self.ok = ok
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ok
     }
 }
 

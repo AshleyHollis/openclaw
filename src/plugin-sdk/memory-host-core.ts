@@ -15,6 +15,7 @@ import { KeyedAsyncQueue } from "./keyed-async-queue.js";
 import { resolveMemoryDreamingWorkspaces } from "./memory-core-host-status.js";
 
 const MEMORY_HOST_EVENTS_FILENAME = "memory-host-events.jsonl";
+const MEMORY_HOST_EVENTS_OWNER_FILENAME = ".openclaw-memory-host-events-owner.json";
 const MAX_MEMORY_HOST_PUBLIC_EXPORT_EVENTS = 1_000;
 const MAX_MEMORY_HOST_PUBLIC_EXPORT_BYTES = 1024 * 1024;
 const MEMORY_HOST_EVENT_EXPORT_LOCK_OPTIONS = {
@@ -32,26 +33,67 @@ function isMissingPathError(error: unknown): boolean {
   );
 }
 
+function isWorkspaceWriteUnavailable(error: unknown, seen = new Set<unknown>()): boolean {
+  if (!error || typeof error !== "object" || seen.has(error)) {
+    return false;
+  }
+  seen.add(error);
+  const code = (error as { code?: unknown }).code;
+  if (
+    code === "EACCES" ||
+    code === "EPERM" ||
+    code === "EROFS" ||
+    (error instanceof FsSafeError && code === "not-removable")
+  ) {
+    return true;
+  }
+  if (error instanceof FsSafeError && error.category === "policy" && code !== "invalid-path") {
+    return false;
+  }
+  return isWorkspaceWriteUnavailable((error as { cause?: unknown }).cause, seen);
+}
+
 async function resolveMemoryHostEventExportOwner(workspaceDir: string): Promise<{
   queueKey: string;
   lockTarget: string;
   relativePath: string;
+  ownerRelativePath: string;
+  ownerContent: string;
 }> {
   const requestedStateDir = path.resolve(resolveStateDir());
   await fs.mkdir(requestedStateDir, { recursive: true, mode: 0o700 });
   const stateDir = await fs.realpath(requestedStateDir);
   const stateHash = sha256HexPrefix(stateDir, 32);
   const workspaceHash = sha256HexPrefix(path.resolve(workspaceDir), 32);
+  const exportDirectory = path.posix.join("memory", "events", stateHash);
   return {
     queueKey: `${stateHash}\0${workspaceHash}`,
     lockTarget: path.join(stateDir, `.memory-host-events-export-${workspaceHash}`),
-    relativePath: path.posix.join(
-      "memory",
-      "events",
+    relativePath: path.posix.join(exportDirectory, MEMORY_HOST_EVENTS_FILENAME),
+    ownerRelativePath: path.posix.join(exportDirectory, MEMORY_HOST_EVENTS_OWNER_FILENAME),
+    ownerContent: `${JSON.stringify({
+      schemaVersion: 1,
+      kind: "openclaw-memory-host-events-export",
       stateHash,
-      MEMORY_HOST_EVENTS_FILENAME,
-    ),
+      workspaceHash,
+    })}\n`,
   };
+}
+
+async function readMemoryHostEventExportOwnership(
+  workspaceRoot: Awaited<ReturnType<typeof createFsSafeRoot>>,
+  owner: Awaited<ReturnType<typeof resolveMemoryHostEventExportOwner>>,
+): Promise<"owned" | "missing" | "foreign"> {
+  const content = await workspaceRoot.readText(owner.ownerRelativePath).catch((error: unknown) => {
+    if (isMissingPathError(error)) {
+      return undefined;
+    }
+    throw error;
+  });
+  if (content === undefined) {
+    return "missing";
+  }
+  return content === owner.ownerContent ? "owned" : "foreign";
 }
 
 export {
@@ -130,48 +172,76 @@ async function materializeMemoryHostEventExport(params: {
   // State-qualified paths keep different profiles from replacing each other's export.
   return memoryHostEventExportQueue.enqueue(owner.queueKey, async () => {
     const absolutePath = path.join(workspaceKey, ...owner.relativePath.split("/"));
-    return await withFileLock(
-      owner.lockTarget,
-      MEMORY_HOST_EVENT_EXPORT_LOCK_OPTIONS,
-      async () => {
-        const storedEvents = listStoredMemoryHostEvents({
-          workspaceDir: workspaceKey,
-          limit: MAX_MEMORY_HOST_PUBLIC_EXPORT_EVENTS,
-        });
-        if (storedEvents.length === 0) {
-          try {
-            await workspaceRoot.remove(owner.relativePath);
-          } catch (error) {
-            if (isMissingPathError(error)) {
-              return undefined;
-            }
-            throw error;
-          }
-          // Persist removal before releasing the cross-process export lock. Otherwise
-          // a crash can resurrect a stale export after SQLite retention removed it.
-          await syncDirectoryBestEffort(path.dirname(absolutePath));
+    return await withFileLock(owner.lockTarget, MEMORY_HOST_EVENT_EXPORT_LOCK_OPTIONS, async () => {
+      const storedEvents = listStoredMemoryHostEvents({
+        workspaceDir: workspaceKey,
+        limit: MAX_MEMORY_HOST_PUBLIC_EXPORT_EVENTS,
+      });
+      const ownership = await readMemoryHostEventExportOwnership(workspaceRoot, owner);
+      if (storedEvents.length === 0) {
+        if (ownership !== "owned") {
           return undefined;
         }
-        const content = serializeMemoryHostEventExport(storedEvents);
-        // SQLite is authoritative. Reading this bounded export only avoids replacing
-        // an unchanged named artifact and preserves stable mtimes for bridge consumers.
-        const existing = await workspaceRoot
-          .readText(owner.relativePath)
-          .catch((error: unknown) => {
-            if (isMissingPathError(error)) {
-              return undefined;
-            }
-            throw error;
+        try {
+          await workspaceRoot.remove(owner.relativePath);
+        } catch (error) {
+          if (isMissingPathError(error)) {
+            return undefined;
+          }
+          if (isWorkspaceWriteUnavailable(error)) {
+            return undefined;
+          }
+          throw error;
+        }
+        // Persist removal before releasing the cross-process export lock. Otherwise
+        // a crash can resurrect a stale export after SQLite retention removed it.
+        await syncDirectoryBestEffort(path.dirname(absolutePath));
+        return undefined;
+      }
+      if (ownership === "foreign") {
+        return undefined;
+      }
+      if (ownership === "missing") {
+        if (await workspaceRoot.exists(owner.relativePath)) {
+          return undefined;
+        }
+        try {
+          await workspaceRoot.create(owner.ownerRelativePath, owner.ownerContent, {
+            mkdir: true,
+            mode: 0o600,
           });
-        if (existing !== content) {
+        } catch (error) {
+          if (isWorkspaceWriteUnavailable(error)) {
+            return undefined;
+          }
+          throw error;
+        }
+        await syncDirectoryBestEffort(path.dirname(absolutePath));
+      }
+      const content = serializeMemoryHostEventExport(storedEvents);
+      // SQLite is authoritative. Reading this bounded export only avoids replacing
+      // an unchanged named artifact and preserves stable mtimes for bridge consumers.
+      const existing = await workspaceRoot.readText(owner.relativePath).catch((error: unknown) => {
+        if (isMissingPathError(error)) {
+          return undefined;
+        }
+        throw error;
+      });
+      if (existing !== content) {
+        try {
           await workspaceRoot.write(owner.relativePath, content, {
             mkdir: true,
             mode: 0o600,
           });
+        } catch (error) {
+          if (isWorkspaceWriteUnavailable(error)) {
+            return undefined;
+          }
+          throw error;
         }
-        return { absolutePath, relativePath: owner.relativePath };
-      },
-    );
+      }
+      return { absolutePath, relativePath: owner.relativePath };
+    });
   });
 }
 

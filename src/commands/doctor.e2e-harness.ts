@@ -288,6 +288,10 @@ function createLegacyStateMigrationDetectionResult(params?: {
       sources: [],
       hasLegacy: false,
     },
+    acpReplayLedger: {
+      sourcePath: "/tmp/state/acp/event-ledger.json",
+      hasLegacy: false,
+    },
     managedOutgoingImages: {
       sourceDir: "/tmp/state/media/outgoing/records",
       hasLegacy: false,

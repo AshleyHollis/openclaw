@@ -1,9 +1,11 @@
 import crypto from "node:crypto";
 // Memory Core doctor contract migrates shipped workspace dreaming state.
 import fsSync from "node:fs";
+import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { reclaimDefinitelyStaleFileLock } from "openclaw/plugin-sdk/file-lock";
 import { resolveUserPath, root } from "openclaw/plugin-sdk/memory-core-host-engine-foundation";
 import {
   ensureMemoryIndexSchema,
@@ -17,7 +19,10 @@ import {
   requireNodeSqlite,
 } from "openclaw/plugin-sdk/memory-core-host-engine-storage";
 import { resolveMemoryDreamingWorkspaces } from "openclaw/plugin-sdk/memory-core-host-status";
-import { resolveMemoryHostEventLogPath } from "openclaw/plugin-sdk/memory-host-events";
+import {
+  normalizeMemoryHostEventRecordForStorage,
+  resolveMemoryHostEventLogPath,
+} from "openclaw/plugin-sdk/memory-host-events";
 import { normalizeAgentId } from "openclaw/plugin-sdk/routing";
 import {
   archiveLegacyStateSource,
@@ -78,18 +83,9 @@ type LegacyMemoryHostEventSource =
 
 type ReadyLegacyMemoryHostEventSource = Extract<LegacyMemoryHostEventSource, { kind: "ready" }>;
 
-type LegacyMemoryHostEvent = Record<string, unknown> & {
-  type:
-    | "memory.recall.recorded"
-    | "memory.recall.skipped"
-    | "memory.promotion.applied"
-    | "memory.dream.completed";
-  timestamp: string;
-};
-
 type StoredMemoryHostEvent = {
   kind: "event";
-  event: LegacyMemoryHostEvent;
+  event: NonNullable<ReturnType<typeof normalizeMemoryHostEventRecordForStorage>>;
   recordedAt: number;
   sequence: number;
 };
@@ -112,20 +108,6 @@ function memoryHostWorkspacePrefix(workspaceDir: string): string {
     .update(normalizeMemoryHostWorkspaceKey(workspaceDir))
     .digest("hex")
     .slice(0, 24);
-}
-
-function isMemoryHostEventRecord(value: unknown): value is LegacyMemoryHostEvent {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-  const event = value as { type?: unknown; timestamp?: unknown };
-  return (
-    typeof event.timestamp === "string" &&
-    (event.type === "memory.recall.recorded" ||
-      event.type === "memory.recall.skipped" ||
-      event.type === "memory.promotion.applied" ||
-      event.type === "memory.dream.completed")
-  );
 }
 
 type LegacyMemorySidecarSource = {
@@ -1109,6 +1091,52 @@ async function collectLegacySources(
   return sources;
 }
 
+const RETIRED_QMD_GLOBAL_LOCK_NAME = "embed.lock.lock";
+const RETIRED_QMD_AGENT_LOCK_NAME = "qmd-write.lock.lock";
+
+async function readDirectoryEntries(directoryPath: string): Promise<Dirent[]> {
+  try {
+    return (await fs.readdir(directoryPath, { withFileTypes: true })).toSorted((left, right) =>
+      left.name.localeCompare(right.name),
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function collectRetiredQmdFileLocks(stateDir: string): Promise<string[]> {
+  const stateEntries = await readDirectoryEntries(stateDir);
+  const lockPaths: string[] = [];
+
+  if (stateEntries.some((entry) => entry.name === "qmd" && entry.isDirectory())) {
+    const qmdDir = path.join(stateDir, "qmd");
+    const qmdEntries = await readDirectoryEntries(qmdDir);
+    if (qmdEntries.some((entry) => entry.name === RETIRED_QMD_GLOBAL_LOCK_NAME && entry.isFile())) {
+      lockPaths.push(path.join(qmdDir, RETIRED_QMD_GLOBAL_LOCK_NAME));
+    }
+  }
+
+  if (!stateEntries.some((entry) => entry.name === "agents" && entry.isDirectory())) {
+    return lockPaths;
+  }
+  const agentsDir = path.join(stateDir, "agents");
+  for (const entry of await readDirectoryEntries(agentsDir)) {
+    if (!entry.isDirectory() || entry.name !== normalizeAgentId(entry.name)) {
+      continue;
+    }
+    const agentDir = path.join(agentsDir, entry.name);
+    const agentEntries = await readDirectoryEntries(agentDir);
+    if (
+      agentEntries.some(
+        (agentEntry) => agentEntry.name === RETIRED_QMD_AGENT_LOCK_NAME && agentEntry.isFile(),
+      )
+    ) {
+      lockPaths.push(path.join(agentDir, RETIRED_QMD_AGENT_LOCK_NAME));
+    }
+  }
+  return lockPaths;
+}
+
 async function migrateDailyIngestion(source: LegacySource): Promise<number> {
   const state = normalizeDailyIngestionState(await readJsonFile(source.filePath));
   await writeMemoryCoreWorkspaceEntries({
@@ -1334,19 +1362,21 @@ async function migrateLegacyMemoryHostEventSource(params: {
       );
       continue;
     }
-    if (!isMemoryHostEventRecord(event)) {
+    const normalizedEvent = normalizeMemoryHostEventRecordForStorage(event);
+    if (!normalizedEvent) {
       params.warnings.push(
         `Skipped invalid Memory Core host event at ${params.source.filePath}:${index + 1}`,
       );
       continue;
     }
-    const parsedTimestamp = Date.parse(event.timestamp);
-    const recordedAt = Number.isFinite(parsedTimestamp) ? parsedTimestamp : Date.now();
-    const sequence = LEGACY_MEMORY_HOST_SEQUENCE_BASE + index + 1;
-    const digest = crypto.createHash("sha256").update(trimmed).digest("hex").slice(0, 16);
+    const canonicalEvent = JSON.stringify(normalizedEvent);
+    const parsedTimestamp = Date.parse(normalizedEvent.timestamp);
+    const recordedAt = Number.isSafeInteger(parsedTimestamp) ? parsedTimestamp : 0;
+    const sequence = LEGACY_MEMORY_HOST_SEQUENCE_BASE + records.length + 1;
+    const digest = crypto.createHash("sha256").update(canonicalEvent).digest("hex");
     const value: StoredMemoryHostEvent = {
       kind: "event",
-      event,
+      event: normalizedEvent,
       recordedAt,
       // Legacy keys sort before SQLite-native keys. Negative order also keeps
       // old events before runtime events when readers inspect the stored value.
@@ -1362,11 +1392,17 @@ async function migrateLegacyMemoryHostEventSource(params: {
     }
     records.push({
       // Runtime event keys use the adjacent `1:` range in event-store.ts.
-      key: `${prefix}:event:0:${(index + 1).toString().padStart(16, "0")}:${digest}`,
+      // Valid-row ordinals preserve the retired JSONL append order. Canonical
+      // digests keep an interrupted all-valid import stable across formatting.
+      key: `${prefix}:event:0:${records.length.toString().padStart(16, "0")}:${digest}`,
       value,
     });
   }
-  if (params.warnings.length > warningStart) {
+  const hasInvalidRecords = params.warnings.length > warningStart;
+  if (hasInvalidRecords) {
+    params.warnings.push(
+      "Left Memory Core host events legacy source in place because invalid rows still require repair",
+    );
     return;
   }
 
@@ -1374,14 +1410,18 @@ async function migrateLegacyMemoryHostEventSource(params: {
     namespace: MEMORY_HOST_EVENTS_NAMESPACE,
     maxEntries: MAX_MEMORY_HOST_EVENTS,
   });
-  const existingKeys = new Set((await store.entries()).map((entry) => entry.key));
-  const missing = records.filter((record) => !existingKeys.has(record.key));
-  if (missing.length > MAX_MEMORY_HOST_EVENTS - existingKeys.size) {
-    params.warnings.push(
-      `Skipped Memory Core host event migration because SQLite has room for ${MAX_MEMORY_HOST_EVENTS - existingKeys.size} of ${missing.length} missing rows; left legacy source in place`,
-    );
-    return;
-  }
+  const existingEntries = await store.entries();
+  const existingKeys = new Set(existingEntries.map((entry) => entry.key));
+  const sourceKeys = new Set(records.map((record) => record.key));
+  const nonSourceExistingCount = existingEntries.filter(
+    (entry) => !sourceKeys.has(entry.key),
+  ).length;
+  const sourceRetentionLimit = Math.max(0, MAX_MEMORY_HOST_EVENTS - nonSourceExistingCount);
+  // The retired JSONL was unbounded. Keep its newest append-ordered tail while
+  // preserving any SQLite-native rows already occupying the namespace budget.
+  const retainedRecords = sourceRetentionLimit === 0 ? [] : records.slice(-sourceRetentionLimit);
+  const retainedKeys = new Set(retainedRecords.map((record) => record.key));
+  const missing = retainedRecords.filter((record) => !existingKeys.has(record.key));
   const capacity = params.context.getPluginStateCapacity?.();
   if (!capacity) {
     params.warnings.push(
@@ -1390,9 +1430,12 @@ async function migrateLegacyMemoryHostEventSource(params: {
     return;
   }
   const pluginRemainingCapacity = Math.max(0, capacity.maxEntries - capacity.liveEntries);
-  if (missing.length > pluginRemainingCapacity) {
+  const replaceableSourceRows = existingEntries.filter(
+    (entry) => sourceKeys.has(entry.key) && !retainedKeys.has(entry.key),
+  ).length;
+  if (missing.length > pluginRemainingCapacity + replaceableSourceRows) {
     params.warnings.push(
-      `Skipped Memory Core host event migration because SQLite plugin state has room for ${pluginRemainingCapacity} of ${missing.length} missing rows; left legacy source in place`,
+      `Skipped Memory Core host event migration because SQLite plugin state has room for ${pluginRemainingCapacity + replaceableSourceRows} of ${missing.length} missing rows; left legacy source in place`,
     );
     return;
   }
@@ -1408,11 +1451,13 @@ async function migrateLegacyMemoryHostEventSource(params: {
     missing.map((record) => ({
       key: record.key,
       value: record.value,
-      createdAt: record.value.recordedAt,
+      // Retention follows retired JSONL append order, not payload clocks. The
+      // negative legacy sequence also keeps all migrated rows older than runtime rows.
+      createdAt: record.value.sequence,
     })),
   );
   const importedKeys = new Set((await store.entries()).map((entry) => entry.key));
-  const missingKey = records.find((record) => !importedKeys.has(record.key))?.key;
+  const missingKey = retainedRecords.find((record) => !importedKeys.has(record.key))?.key;
   if (missingKey) {
     params.warnings.push(
       `Skipped archiving Memory Core host events because SQLite verification missed ${missingKey}`,
@@ -1592,6 +1637,43 @@ export const stateMigrations: PluginDoctorStateMigration[] = [
             changes,
             warnings,
           });
+        }
+      }
+      return { changes, warnings };
+    },
+  },
+  {
+    id: "memory-core-qmd-file-locks-to-sqlite-leases",
+    label: "Memory Core retired QMD file locks",
+    async detectLegacyState(params) {
+      const lockPaths = await collectRetiredQmdFileLocks(params.stateDir);
+      if (lockPaths.length === 0) {
+        return null;
+      }
+      return {
+        preview: lockPaths.map(
+          (lockPath) =>
+            `- Retired Memory Core QMD file lock: ${lockPath} -> remove only if definitely stale (coordination now uses SQLite leases)`,
+        ),
+      };
+    },
+    async migrateLegacyState(params) {
+      const changes: string[] = [];
+      const warnings: string[] = [];
+      for (const lockPath of await collectRetiredQmdFileLocks(params.stateDir)) {
+        try {
+          const result = await reclaimDefinitelyStaleFileLock(lockPath);
+          if (result === "removed") {
+            changes.push(`Removed retired Memory Core QMD file lock: ${lockPath}`);
+          } else if (result === "retained") {
+            warnings.push(
+              `Retained retired Memory Core QMD file lock because its owner is live or ambiguous: ${lockPath}`,
+            );
+          }
+        } catch (err) {
+          warnings.push(
+            `Failed removing retired Memory Core QMD file lock ${lockPath}: ${String(err)}`,
+          );
         }
       }
       return { changes, warnings };

@@ -22,7 +22,10 @@ import {
   type SqliteSchemaCompatibility,
 } from "../infra/sqlite-schema-contract.js";
 import { migrateSqliteSchemaToStrictInTransaction } from "../infra/sqlite-strict.js";
-import { runSqliteImmediateTransactionSync } from "../infra/sqlite-transaction.js";
+import {
+  runSqliteImmediateTransactionSync,
+  type SqliteTransactionOptions,
+} from "../infra/sqlite-transaction.js";
 import {
   createNewerSqliteSchemaVersionError,
   readSqliteUserVersion,
@@ -76,6 +79,7 @@ const OPENCLAW_STATE_CANONICAL_UNIQUE_INDEXES = [
 ] as const satisfies readonly CanonicalSqliteUniqueIndex[];
 const OPENCLAW_STATE_MAINTENANCE_SCHEMA_COMPATIBILITY = {
   allowedColumnDefinitions: {
+    "diagnostic_events.sequence": ["sequence INTEGER NOT NULL DEFAULT 0"],
     "commitments.attempts": ["attempts INTEGER NOT NULL DEFAULT 0"],
     "commitments.confidence": ["confidence REAL NOT NULL DEFAULT 0"],
     "commitments.created_at_ms": ["created_at_ms INTEGER NOT NULL DEFAULT 0"],
@@ -1353,6 +1357,8 @@ function backfillDeliveryQueueEntriesFromEntryJson(db: DatabaseSync): void {
 // The caller owns the state.schema.ensure transaction so every probe, DDL
 // change, and backfill observes one authoritative schema across processes.
 function ensureAdditiveStateColumns(db: DatabaseSync): void {
+  ensureColumn(db, "diagnostic_events", "sequence INTEGER NOT NULL DEFAULT 0");
+  db.exec("DROP INDEX IF EXISTS idx_diagnostic_events_scope_created;");
   ensureColumn(db, "worktrees", "provisioned_paths_json TEXT");
   ensureColumn(db, "node_host_config", "gateway_context_path TEXT");
   ensureColumn(db, "apns_registrations", "relay_origin TEXT");
@@ -1696,12 +1702,17 @@ export function openOpenClawStateDatabase(
 export function runOpenClawStateWriteTransaction<T>(
   operation: (database: OpenClawStateDatabase) => T,
   options: OpenClawStateDatabaseOptions = {},
+  transactionOptions: Pick<
+    SqliteTransactionOptions,
+    "busyTimeoutMs" | "operationLabel" | "slowTransactionHoldMs"
+  > = {},
 ): T {
   const database = openOpenClawStateDatabase(options);
   const result = runSqliteImmediateTransactionSync(database.db, () => operation(database), {
-    busyTimeoutMs: OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
+    busyTimeoutMs: transactionOptions.busyTimeoutMs ?? OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
     databaseLabel: database.path,
-    operationLabel: "state.write",
+    ...transactionOptions,
+    operationLabel: transactionOptions.operationLabel ?? "state.write",
   });
   try {
     ensureOpenClawStatePermissions(database.path, options.env ?? process.env);

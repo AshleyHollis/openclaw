@@ -31,6 +31,10 @@ import {
 } from "../state/openclaw-state-db.js";
 import { acquireGatewayLock } from "./gateway-lock.js";
 import {
+  detectLegacyAcpReplayLedger,
+  migrateLegacyAcpReplayLedger,
+} from "./state-migrations.acp-replay.js";
+import {
   detectLegacyApnsRegistrations,
   migrateLegacyApnsRegistrations,
 } from "./state-migrations.apns.js";
@@ -412,6 +416,10 @@ export async function detectLegacyStateMigrations(params: {
     stateDir,
     doctorOnlyStateMigrations: params.doctorOnlyStateMigrations,
   });
+  const acpReplayLedger = detectLegacyAcpReplayLedger({
+    stateDir,
+    doctorOnlyStateMigrations: params.doctorOnlyStateMigrations,
+  });
   const managedOutgoingImages = detectLegacyManagedOutgoingImages({
     stateDir,
     doctorOnlyStateMigrations: params.doctorOnlyStateMigrations,
@@ -593,6 +601,9 @@ export async function detectLegacyStateMigrations(params: {
   for (const source of auditLogs.sources) {
     preview.push(`- ${source.label}: legacy JSONL file → shared SQLite state`);
   }
+  if (acpReplayLedger.hasLegacy) {
+    preview.push("- ACP replay ledger: legacy JSON file → shared SQLite state");
+  }
   if (managedOutgoingImages.hasLegacy) {
     preview.push("- Managed outgoing images: legacy record JSON → shared SQLite state");
   }
@@ -699,6 +710,7 @@ export async function detectLegacyStateMigrations(params: {
     tuiLastSessions,
     commitments,
     auditLogs,
+    acpReplayLedger,
     managedOutgoingImages,
     apns,
     workspace,
@@ -948,6 +960,10 @@ export async function runLegacyStateMigrations(params: {
     detected: detected.auditLogs,
     stateDir: detected.stateDir,
   });
+  const acpReplayLedger = await migrateLegacyAcpReplayLedger({
+    detected: detected.acpReplayLedger,
+    stateDir: detected.stateDir,
+  });
   const managedOutgoingImages = migrateLegacyManagedOutgoingImages({
     detected: detected.managedOutgoingImages,
     stateDir: detected.stateDir,
@@ -1013,6 +1029,7 @@ export async function runLegacyStateMigrations(params: {
     tuiLastSessions,
     commitments,
     auditLogs,
+    acpReplayLedger,
     managedOutgoingImages,
     apns,
     workspace,
@@ -1037,6 +1054,7 @@ export async function runLegacyStateMigrations(params: {
       ...tuiLastSessions.changes,
       ...commitments.changes,
       ...auditLogs.changes,
+      ...acpReplayLedger.changes,
       ...managedOutgoingImages.changes,
       ...apns.changes,
       ...workspace.changes,
@@ -1068,6 +1086,7 @@ export async function runLegacyStateMigrations(params: {
       ...tuiLastSessions.warnings,
       ...commitments.warnings,
       ...auditLogs.warnings,
+      ...acpReplayLedger.warnings,
       ...managedOutgoingImages.warnings,
       ...apns.warnings,
       ...workspace.warnings,

@@ -1,6 +1,7 @@
 /**
  * Tests memory host core public artifact discovery and workspace handling.
  */
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -98,6 +99,13 @@ describe("memory-host-core helpers", () => {
       vi.stubEnv("OPENCLAW_STATE_DIR", path.join(fixtureRoot, "state"));
       await fs.mkdir(workspaceDir);
       await fs.writeFile(path.join(workspaceDir, "MEMORY.md"), "# Read-only memory\n", "utf8");
+      await appendMemoryHostEvent(workspaceDir, {
+        type: "memory.recall.recorded",
+        timestamp: "2026-05-18T12:00:00.000Z",
+        query: "read-only",
+        resultCount: 0,
+        results: [],
+      });
       await fs.chmod(workspaceDir, 0o500);
 
       await expect(
@@ -122,7 +130,58 @@ describe("memory-host-core helpers", () => {
   });
 
   it.runIf(process.platform !== "win32")(
-    "refuses to delete an event export through a symlinked parent",
+    "propagates failures reading an existing event export",
+    async () => {
+      const fixtureRoot = await fs.mkdtemp(
+        path.join(os.tmpdir(), "memory-host-unreadable-export-"),
+      );
+      const workspaceDir = path.join(fixtureRoot, "workspace");
+      let eventExportPath: string | undefined;
+      try {
+        vi.stubEnv("OPENCLAW_STATE_DIR", path.join(fixtureRoot, "state"));
+        await fs.mkdir(workspaceDir);
+        await appendMemoryHostEvent(workspaceDir, {
+          type: "memory.recall.recorded",
+          timestamp: "2026-05-18T12:00:00.000Z",
+          query: "unreadable export",
+          resultCount: 0,
+          results: [],
+        });
+        const firstListing = await listMemoryHostPublicArtifacts({
+          cfg: {
+            agents: {
+              list: [{ id: "main", default: true, workspace: workspaceDir }],
+            },
+          },
+        });
+        eventExportPath = firstListing.find(
+          (artifact) => artifact.kind === "event-log",
+        )?.absolutePath;
+        if (!eventExportPath) {
+          throw new Error("expected memory event export");
+        }
+        await fs.chmod(eventExportPath, 0o000);
+
+        await expect(
+          listMemoryHostPublicArtifacts({
+            cfg: {
+              agents: {
+                list: [{ id: "main", default: true, workspace: workspaceDir }],
+              },
+            },
+          }),
+        ).rejects.toThrow();
+      } finally {
+        if (eventExportPath) {
+          await fs.chmod(eventExportPath, 0o600).catch(() => undefined);
+        }
+        await fs.rm(fixtureRoot, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
+    "does not delete an event export through a symlinked parent",
     async () => {
       const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "memory-host-export-symlink-"));
       const workspaceDir = path.join(fixtureRoot, "workspace");
@@ -143,13 +202,60 @@ describe("memory-host-core helpers", () => {
               },
             },
           }),
-        ).rejects.toThrow(/alias|symlink/u);
+        ).resolves.toEqual([]);
         await expect(fs.readFile(externalExport, "utf8")).resolves.toBe('{"type":"external"}\n');
       } finally {
         await fs.rm(fixtureRoot, { recursive: true, force: true });
       }
     },
   );
+
+  it("does not replace or delete an unowned event export path", async () => {
+    const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "memory-host-unowned-export-"));
+    const workspaceDir = path.join(fixtureRoot, "workspace");
+    try {
+      vi.stubEnv("OPENCLAW_STATE_DIR", fixtureRoot);
+      await fs.mkdir(workspaceDir);
+      await appendMemoryHostEvent(workspaceDir, {
+        type: "memory.recall.recorded",
+        timestamp: "2026-05-18T12:00:00.000Z",
+        query: "must not replace user file",
+        resultCount: 0,
+        results: [],
+      });
+      const stateHash = createHash("sha256")
+        .update(await fs.realpath(fixtureRoot))
+        .digest("hex")
+        .slice(0, 32);
+      const exportPath = path.join(
+        workspaceDir,
+        "memory",
+        "events",
+        stateHash,
+        "memory-host-events.jsonl",
+      );
+      await fs.mkdir(path.dirname(exportPath), { recursive: true });
+      await fs.writeFile(exportPath, '{"owner":"user"}\n', "utf8");
+
+      const listed = await listMemoryHostPublicArtifacts({
+        cfg: { agents: { list: [{ id: "main", default: true, workspace: workspaceDir }] } },
+      });
+      expect(listed.some((artifact) => artifact.kind === "event-log")).toBe(false);
+      await expect(fs.readFile(exportPath, "utf8")).resolves.toBe('{"owner":"user"}\n');
+
+      await createPluginStateKeyedStore("memory-core", {
+        namespace: "memory-host.events",
+        maxEntries: 10_000,
+        env: { ...process.env, OPENCLAW_STATE_DIR: fixtureRoot },
+      }).clear();
+      await listMemoryHostPublicArtifacts({
+        cfg: { agents: { list: [{ id: "main", default: true, workspace: workspaceDir }] } },
+      });
+      await expect(fs.readFile(exportPath, "utf8")).resolves.toBe('{"owner":"user"}\n');
+    } finally {
+      await fs.rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
 
   it("lists shared public artifacts from memory workspaces", async () => {
     const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "memory-host-public-artifacts-"));

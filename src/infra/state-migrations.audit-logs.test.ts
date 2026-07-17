@@ -76,8 +76,11 @@ describe("legacy core audit log migration", () => {
       expect(configEntries[0]?.key).not.toContain(unredactedDigest);
       const archivedConfig = await fs.readFile(`${configPath}.migrated`, "utf8");
       expect(archivedConfig).not.toContain("secret-value");
+      const rawArchivedConfig = await fs.readFile(`${configPath}.migrated.raw`, "utf8");
+      expect(rawArchivedConfig).toContain("secret-value");
       if (process.platform !== "win32") {
         expect((await fs.stat(`${configPath}.migrated`)).mode & 0o777).toBe(0o600);
+        expect((await fs.stat(`${configPath}.migrated.raw`)).mode & 0o777).toBe(0o600);
       }
       expect(JSON.parse(archivedConfig.trim())).toMatchObject({
         argv: ["openclaw", "config", "set", "token", "***"],
@@ -90,6 +93,131 @@ describe("legacy core audit log migration", () => {
       await expect(fs.access(configPath)).rejects.toThrow();
       await expect(fs.access(systemPath)).rejects.toThrow();
       await expect(fs.access(crestodianPath)).rejects.toThrow();
+
+      expect(detectLegacyAuditLogs({ stateDir, doctorOnlyStateMigrations: true }).hasLegacy).toBe(
+        false,
+      );
+      const laterConfigRecord = {
+        ...unredactedConfigRecord,
+        ts: "2026-07-04T00:00:00.000Z",
+        argv: ["openclaw", "config", "set", "token", "later-secret"],
+      };
+      await fs.appendFile(`${configPath}.migrated.raw`, `${JSON.stringify(laterConfigRecord)}\n`);
+      const rawRecovery = detectLegacyAuditLogs({
+        stateDir,
+        doctorOnlyStateMigrations: true,
+      });
+      expect(rawRecovery.sources).toMatchObject([{ storage: "raw-archive" }]);
+      const recovered = await migrateLegacyAuditLogs({ detected: rawRecovery, stateDir });
+      expect(recovered.warnings).toEqual([]);
+      expect(recovered.changes.join("\n")).toContain("Recovered 1 later config audit log row");
+      expect(listConfigAuditRecordsForTests({ env, homedir: () => stateDir })).toHaveLength(2);
+      await expect(fs.readFile(`${configPath}.migrated`, "utf8")).resolves.not.toContain(
+        "later-secret",
+      );
+      expect(detectLegacyAuditLogs({ stateDir, doctorOnlyStateMigrations: true }).hasLegacy).toBe(
+        false,
+      );
+    });
+  });
+
+  it("resumes a deterministic audit claim left by an interrupted Doctor", async () => {
+    await withTempDir({ prefix: "openclaw-audit-migration-resume-" }, async (stateDir) => {
+      const sourcePath = path.join(stateDir, "audit", "system-agent.jsonl");
+      const claimPath = path.join(
+        path.dirname(sourcePath),
+        `.${path.basename(sourcePath)}.doctor-importing`,
+      );
+      await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+      await fs.writeFile(
+        sourcePath,
+        `${JSON.stringify({
+          timestamp: "2026-07-03T00:00:00.000Z",
+          operation: "gateway.restart",
+          summary: "Restarted gateway",
+        })}\n`,
+      );
+      await fs.rename(sourcePath, claimPath);
+
+      const detected = detectLegacyAuditLogs({ stateDir, doctorOnlyStateMigrations: true });
+      expect(detected.sources).toMatchObject([{ sourcePath: claimPath, storage: "claim" }]);
+      const result = await migrateLegacyAuditLogs({ detected, stateDir });
+
+      expect(result.warnings).toEqual([]);
+      await expect(fs.access(claimPath)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(fs.access(`${sourcePath}.migrated.raw`)).resolves.toBeUndefined();
+      expect(
+        listSystemAgentAuditEntriesForTests({
+          env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
+        }),
+      ).toHaveLength(1);
+
+      const tenthRawArchive = `${sourcePath}.migrated.10.raw`;
+      await fs.writeFile(
+        tenthRawArchive,
+        `${JSON.stringify({
+          timestamp: "2026-07-04T00:00:00.000Z",
+          operation: "gateway.reload",
+          summary: "Reloaded gateway",
+        })}\n`,
+      );
+      const numberedRaw = detectLegacyAuditLogs({
+        stateDir,
+        doctorOnlyStateMigrations: true,
+      });
+      expect(numberedRaw.sources).toMatchObject([
+        { sourcePath: tenthRawArchive, storage: "raw-archive" },
+      ]);
+      await migrateLegacyAuditLogs({ detected: numberedRaw, stateDir });
+      expect(
+        listSystemAgentAuditEntriesForTests({
+          env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
+        }),
+      ).toHaveLength(2);
+    });
+  });
+
+  it("keeps identical rows from separate raw archive generations", async () => {
+    await withTempDir({ prefix: "openclaw-audit-migration-generations-" }, async (stateDir) => {
+      const sourcePath = path.join(stateDir, "audit", "system-agent.jsonl");
+      const record = {
+        timestamp: "2026-07-03T00:00:00.000Z",
+        operation: "gateway.restart",
+        summary: "Repeated operation",
+      };
+      await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+      await fs.writeFile(`${sourcePath}.migrated.raw`, `${JSON.stringify(record)}\n`);
+      await fs.writeFile(`${sourcePath}.migrated.2.raw`, `${JSON.stringify(record)}\n`);
+      await fs.writeFile(`${sourcePath}.migrated.10.raw`, `${JSON.stringify(record)}\n`);
+      const claimPath = path.join(
+        path.dirname(sourcePath),
+        `.${path.basename(sourcePath)}.doctor-importing`,
+      );
+      await fs.writeFile(claimPath, `${JSON.stringify(record)}\n`);
+      await fs.writeFile(sourcePath, `${JSON.stringify(record)}\n`);
+
+      const detected = detectLegacyAuditLogs({
+        stateDir,
+        doctorOnlyStateMigrations: true,
+      });
+      expect(detected.sources.map((source) => path.basename(source.sourcePath))).toEqual([
+        "system-agent.jsonl.migrated.raw",
+        "system-agent.jsonl.migrated.2.raw",
+        "system-agent.jsonl.migrated.10.raw",
+        ".system-agent.jsonl.doctor-importing",
+        "system-agent.jsonl",
+      ]);
+      const result = await migrateLegacyAuditLogs({ detected, stateDir });
+
+      expect(result.warnings).toEqual([]);
+      expect(
+        listSystemAgentAuditEntriesForTests({
+          env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
+        }),
+      ).toHaveLength(5);
+      expect(detectLegacyAuditLogs({ stateDir, doctorOnlyStateMigrations: true }).hasLegacy).toBe(
+        false,
+      );
     });
   });
 
@@ -151,6 +279,73 @@ describe("legacy core audit log migration", () => {
       expect(result.warnings.join("\n")).toContain("exclusive state ownership is unavailable");
       await expect(fs.access(sourcePath)).resolves.toBeUndefined();
       expect(listSystemAgentAuditEntriesForTests({ env })).toEqual([]);
+    });
+  });
+
+  it("leaves rows from an old config writer at the recreated source path", async () => {
+    await withTempDir({ prefix: "openclaw-audit-migration-concurrent-" }, async (stateDir) => {
+      const sourcePath = path.join(stateDir, "logs", "config-audit.jsonl");
+      await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+      const records = Array.from({ length: 10_000 }, (_, index) =>
+        JSON.stringify({
+          ts: new Date(Date.UTC(2026, 6, 1, 0, 0, index)).toISOString(),
+          source: "config-io",
+          event: "config.write",
+          argv: ["openclaw", "config", "set", `key-${index}`, "value"],
+          execArgv: [],
+        }),
+      );
+      await fs.writeFile(sourcePath, `${records.join("\n")}\n`);
+      const retainedRecord = {
+        ts: "2026-07-02T00:00:00.000Z",
+        source: "config-io",
+        event: "config.write",
+        argv: ["openclaw", "config", "set", "later", "value"],
+        execArgv: [],
+      };
+
+      let settled = false;
+      const migration = migrateLegacyAuditLogs({
+        detected: detectLegacyAuditLogs({ stateDir, doctorOnlyStateMigrations: true }),
+        stateDir,
+      }).finally(() => {
+        settled = true;
+      });
+      for (let attempt = 0; attempt < 500; attempt += 1) {
+        try {
+          await fs.access(sourcePath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+            break;
+          }
+          throw error;
+        }
+        await new Promise<void>((resolve) => {
+          setImmediate(resolve);
+        });
+      }
+      expect(settled).toBe(false);
+      await fs.appendFile(sourcePath, `${JSON.stringify(retainedRecord)}\n`);
+
+      const first = await migration;
+      expect(first.warnings.join("\n")).toContain("An old writer recreated config audit log");
+      await expect(fs.readFile(sourcePath, "utf8")).resolves.toBe(
+        `${JSON.stringify(retainedRecord)}\n`,
+      );
+
+      const second = await migrateLegacyAuditLogs({
+        detected: detectLegacyAuditLogs({ stateDir, doctorOnlyStateMigrations: true }),
+        stateDir,
+      });
+      expect(second.warnings).toEqual([]);
+      await expect(fs.access(sourcePath)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(
+        createSqliteAuditRecordStore({
+          scope: CONFIG_AUDIT_SCOPE,
+          maxEntries: CONFIG_AUDIT_MAX_ENTRIES,
+          env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
+        }).entries(),
+      ).toHaveLength(10_001);
     });
   });
 

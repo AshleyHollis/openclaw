@@ -428,6 +428,39 @@ export function createPluginStateSyncKeyedStore<T>(
   return createSyncKeyedStoreForPluginId<T>(pluginId, options);
 }
 
+/** Internal namespace-ordered registration for core-owned plugin state journals. */
+export function registerPluginStateSyncJournalEntry<T>(params: {
+  pluginId: string;
+  options: OpenKeyedStoreOptions;
+  key: string;
+  value: T;
+}): void {
+  if (params.pluginId.startsWith("core:")) {
+    throw invalidInput("Plugin ids starting with 'core:' are reserved for core consumers.", "open");
+  }
+  const namespace = validateNamespace(params.options.namespace);
+  const maxEntries = validateMaxEntries(params.options.maxEntries);
+  const overflowPolicy = validateOverflowPolicy(params.options.overflowPolicy);
+  const defaultTtlMs = validateOptionalTtlMs(params.options.defaultTtlMs);
+  const prepared = prepareRegisterParams(params.key, params.value, defaultTtlMs);
+  assertConsistentOptions(params.pluginId, namespace, {
+    maxEntries,
+    overflowPolicy,
+    defaultTtlMs,
+  });
+  pluginStateRegister({
+    pluginId: params.pluginId,
+    namespace,
+    key: prepared.key,
+    valueJson: prepared.valueJson,
+    maxEntries,
+    overflowPolicy,
+    monotonicCreatedAt: true,
+    ...(params.options.env ? { env: params.options.env } : {}),
+    ...(prepared.ttlMs != null ? { ttlMs: prepared.ttlMs } : {}),
+  });
+}
+
 /** Doctor-only import that preserves source age for retention ordering. */
 export function importPluginStateEntriesForDoctor(
   pluginId: string,

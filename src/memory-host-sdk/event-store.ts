@@ -3,6 +3,7 @@ import { resolveWorkspaceStateIdentity } from "../agents/workspace-state-store.j
 import {
   createPluginStateSyncKeyedStore,
   pluginStateEntriesInKeyRange,
+  registerPluginStateSyncJournalEntry,
 } from "../plugin-state/plugin-state-store.js";
 import type { MemoryHostEventRecord } from "./event-types.js";
 
@@ -68,14 +69,6 @@ function memoryHostEventStorageKey(workspaceDir: string, sequence: number): stri
   return `${eventKeyPrefix(workspaceDir)}1:${sequence.toString().padStart(16, "0")}`;
 }
 
-function openMemoryHostEventStore(env?: NodeJS.ProcessEnv) {
-  return createPluginStateSyncKeyedStore<StoredMemoryHostEvent>(MEMORY_HOST_EVENTS_PLUGIN_ID, {
-    namespace: MEMORY_HOST_EVENTS_NAMESPACE,
-    maxEntries: maxMemoryHostEventsForTests ?? MAX_MEMORY_HOST_EVENTS,
-    ...(env ? { env } : {}),
-  });
-}
-
 function openMemoryHostCursorStore(env?: NodeJS.ProcessEnv) {
   // Cursor isolation keeps event rotation from evicting sequence ownership.
   // Lost inactive cursors remain recoverable from each workspace's latest event.
@@ -117,7 +110,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** Validate and bound one diagnostic event before storing it in plugin state. */
-function normalizeMemoryHostEventRecordForStorage(value: unknown): MemoryHostEventRecord | null {
+export function normalizeMemoryHostEventRecordForStorage(
+  value: unknown,
+): MemoryHostEventRecord | null {
   if (!isRecord(value) || typeof value.type !== "string" || typeof value.timestamp !== "string") {
     return null;
   }
@@ -348,18 +343,26 @@ export function registerMemoryHostEvent(params: {
   if (!event) {
     throw new TypeError("Memory host event is invalid");
   }
-  const store = openMemoryHostEventStore(params.env);
   const cursorStore = openMemoryHostCursorStore(params.env);
   const sequence = allocateEventSequence({
     workspaceDir: params.workspaceDir,
     cursorStore,
     ...(params.env ? { env: params.env } : {}),
   });
-  store.register(memoryHostEventStorageKey(params.workspaceDir, sequence), {
-    kind: "event",
-    event,
-    recordedAt: Date.now(),
-    sequence,
+  registerPluginStateSyncJournalEntry({
+    pluginId: MEMORY_HOST_EVENTS_PLUGIN_ID,
+    options: {
+      namespace: MEMORY_HOST_EVENTS_NAMESPACE,
+      maxEntries: maxMemoryHostEventsForTests ?? MAX_MEMORY_HOST_EVENTS,
+      ...(params.env ? { env: params.env } : {}),
+    },
+    key: memoryHostEventStorageKey(params.workspaceDir, sequence),
+    value: {
+      kind: "event",
+      event,
+      recordedAt: Date.now(),
+      sequence,
+    },
   });
 }
 
