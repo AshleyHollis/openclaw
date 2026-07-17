@@ -476,14 +476,14 @@ export function createPluginStateSyncKeyedStore<T>(
 }
 
 /** Atomically allocates a workspace sequence and appends one journal entry. */
-export function registerPluginStateSyncSequencedJournalEntry<T>(params: {
+export function registerPluginStateSyncSequencedJournalEntry(params: {
   pluginId: string;
   cursorOptions: OpenKeyedStoreOptions;
   cursorKey: string;
   journalOptions: OpenKeyedStoreOptions;
   initialSequence: number;
   journalKey: (sequence: number) => string;
-  journalValue: (sequence: number) => T;
+  journalValue: (sequence: number) => unknown;
 }): number {
   if (params.pluginId.startsWith("core:")) {
     throw invalidInput("Plugin ids starting with 'core:' are reserved for core consumers.", "open");

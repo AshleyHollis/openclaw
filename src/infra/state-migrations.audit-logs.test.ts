@@ -300,7 +300,10 @@ describe("legacy core audit log migration", () => {
           chmod(mode: number): Promise<void>;
         };
         await probe.close();
-        const originalChmod = fileHandlePrototype.chmod;
+        const originalChmod = Reflect.get(fileHandlePrototype, "chmod") as (
+          this: typeof fileHandlePrototype,
+          mode: number,
+        ) => Promise<void>;
         let chmodCalls = 0;
         const chmodSpy = vi.spyOn(fileHandlePrototype, "chmod").mockImplementation(function (
           this: typeof fileHandlePrototype,
@@ -609,7 +612,10 @@ describe("legacy core audit log migration", () => {
         chmod(mode: number): Promise<void>;
       };
       await probe.close();
-      const originalChmod = fileHandlePrototype.chmod;
+      const originalChmod = Reflect.get(fileHandlePrototype, "chmod") as (
+        this: typeof fileHandlePrototype,
+        mode: number,
+      ) => Promise<void>;
       let chmodCalls = 0;
       const chmodSpy = vi.spyOn(fileHandlePrototype, "chmod").mockImplementation(function (
         this: typeof fileHandlePrototype,
