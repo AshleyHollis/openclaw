@@ -73,8 +73,8 @@ export { resolveOpenClawAgentSqlitePath } from "./openclaw-agent-db.paths.js";
  * OpenClaw state database for discovery and maintenance.
  */
 // v12 = session-owned ACP parent-stream events.
-// v11 = agent-scoped runtime leases, durable delivery operations, and canonical
-// external conversation addresses.
+// v11 = agent-scoped runtime leases, durable delivery operations, canonical
+// external conversation addresses, and bounded per-session heartbeat outcome context.
 // v10 = materialized active transcript paths.
 // v9 = SQLite STRICT tables.
 // v8 added per-transcript session provenance. v7 added per-entry lifecycle status projection.
