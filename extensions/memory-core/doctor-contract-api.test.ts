@@ -575,6 +575,92 @@ describe("memory-core doctor dreaming migration", () => {
     await expect(fs.access(`${eventPath}.migrated.2`)).resolves.toBeUndefined();
   });
 
+  it("recovers appends written through an open legacy descriptor after archival", async () => {
+    const eventPath = path.join(workspaceDir, "memory", ".dreams", "events.jsonl");
+    const event = (query: string) => ({
+      type: "memory.recall.recorded" as const,
+      timestamp: "2026-07-01T00:00:00.000Z",
+      query,
+      resultCount: 0,
+      results: [],
+    });
+    await fs.writeFile(eventPath, `${JSON.stringify(event("before claim"))}\n`, "utf8");
+    const oldWriter = await fs.open(eventPath, "a");
+    const migration = hostEventsMigration();
+    try {
+      await migration.migrateLegacyState(migrationParams());
+      await fs.writeFile(eventPath, `${JSON.stringify(event("newer generation"))}\n`, "utf8");
+      await migration.migrateLegacyState(migrationParams());
+      await oldWriter.appendFile(`${JSON.stringify(event("late append"))}\n`, "utf8");
+      await oldWriter.sync();
+    } finally {
+      await oldWriter.close();
+    }
+
+    await expect(migration.detectLegacyState(migrationParams())).resolves.toEqual({
+      preview: [expect.stringContaining("events.jsonl.migrated")],
+    });
+    const recovered = await migration.migrateLegacyState(migrationParams());
+
+    expect(recovered.warnings).toEqual([]);
+    expect(recovered.changes).toEqual([
+      expect.stringContaining("Recovered 1 later Memory Core host event row"),
+    ]);
+    await expect(readMemoryHostEventRecords({ workspaceDir, env })).resolves.toMatchObject([
+      { query: "before claim" },
+      { query: "newer generation" },
+      { query: "late append" },
+    ]);
+    await expect(
+      readMemoryHostEventRecords({ workspaceDir, env, limit: 1 }),
+    ).resolves.toMatchObject([{ query: "late append" }]);
+    await expect(migration.detectLegacyState(migrationParams())).resolves.toBeNull();
+
+    await fs.writeFile(eventPath, `${JSON.stringify(event("after recovery generation"))}\n`);
+    await migration.migrateLegacyState(migrationParams());
+    await expect(
+      readMemoryHostEventRecords({ workspaceDir, env, limit: 1 }),
+    ).resolves.toMatchObject([{ query: "after recovery generation" }]);
+  });
+
+  it("fails closed when a checkpointed host event archive changes other than by append", async () => {
+    const eventPath = path.join(workspaceDir, "memory", ".dreams", "events.jsonl");
+    const archivedPath = `${eventPath}.migrated`;
+    await fs.writeFile(
+      eventPath,
+      `${JSON.stringify({
+        type: "memory.recall.recorded",
+        timestamp: "2026-07-01T00:00:00.000Z",
+        query: "original archive row",
+        resultCount: 0,
+        results: [],
+      })}\n`,
+      "utf8",
+    );
+    const migration = hostEventsMigration();
+    await migration.migrateLegacyState(migrationParams());
+    await fs.writeFile(
+      archivedPath,
+      `${JSON.stringify({
+        type: "memory.recall.recorded",
+        timestamp: "2026-07-01T00:00:00.000Z",
+        query: "rewritten archive row",
+        resultCount: 0,
+        results: [],
+      })}\n`,
+      "utf8",
+    );
+
+    const result = await migration.migrateLegacyState(migrationParams());
+
+    expect(result.changes).toEqual([]);
+    expect(result.warnings).toEqual([expect.stringContaining("changed other than by append")]);
+    await expect(readMemoryHostEventRecords({ workspaceDir, env })).resolves.toMatchObject([
+      { query: "original archive row" },
+    ]);
+    await expect(fs.readFile(archivedPath, "utf8")).resolves.toContain("rewritten archive row");
+  });
+
   it("orders and limits migrated host events by archive generation", async () => {
     const eventPath = path.join(workspaceDir, "memory", ".dreams", "events.jsonl");
     const event = (query: string) => ({
@@ -856,7 +942,7 @@ describe("memory-core doctor dreaming migration", () => {
     await expect(fs.access(`${eventPath}.migrated`)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("reserves plugin-wide capacity for the migrated workspace cursor", async () => {
+  it("reserves plugin-wide capacity for the migrated workspace cursor and checkpoint", async () => {
     const eventPath = path.join(workspaceDir, "memory", ".dreams", "events.jsonl");
     const events = Array.from({ length: 3 }, (_, index) => ({
       type: "memory.recall.recorded",
@@ -876,11 +962,10 @@ describe("memory-core doctor dreaming migration", () => {
 
     expect(result.warnings).toEqual([]);
     expect(result.changes).toEqual([
-      "Migrated Memory Core host events -> SQLite plugin state (2 new row(s))",
+      "Migrated Memory Core host events -> SQLite plugin state (1 new row(s))",
       expect.stringContaining("Archived Memory Core host events legacy source"),
     ]);
     await expect(readMemoryHostEventRecords({ workspaceDir, env })).resolves.toMatchObject([
-      { query: "capacity-1" },
       { query: "capacity-2" },
     ]);
     const cursors = await context()
@@ -890,6 +975,14 @@ describe("memory-core doctor dreaming migration", () => {
       })
       .entries();
     expect(cursors).toHaveLength(1);
+    const checkpoints = await context()
+      .openPluginStateKeyedStore({
+        namespace: "memory-host.event-migration-checkpoints",
+        maxEntries: 10_000,
+        overflowPolicy: "reject-new",
+      })
+      .entries();
+    expect(checkpoints).toHaveLength(1);
   });
 
   it("retires an empty legacy memory host event source without claiming an import", async () => {

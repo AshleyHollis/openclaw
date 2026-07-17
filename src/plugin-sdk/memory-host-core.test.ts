@@ -274,6 +274,161 @@ describe("memory-host-core helpers", () => {
     }
   });
 
+  it("does not let an orphaned owner marker authorize a later workspace file", async () => {
+    const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "memory-host-orphan-owner-"));
+    const stateDir = path.join(fixtureRoot, "state");
+    const workspaceDir = path.join(fixtureRoot, "workspace");
+    try {
+      vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
+      await fs.mkdir(workspaceDir);
+      await appendMemoryHostEvent(workspaceDir, {
+        type: "memory.recall.recorded",
+        timestamp: "2026-05-18T12:00:00.000Z",
+        query: "expected export",
+        resultCount: 0,
+        results: [],
+      });
+      const stateHash = createHash("sha256")
+        .update(await fs.realpath(stateDir))
+        .digest("hex")
+        .slice(0, 32);
+      const workspaceHash = createHash("sha256")
+        .update(await fs.realpath(workspaceDir))
+        .digest("hex")
+        .slice(0, 32);
+      const exportDir = path.join(workspaceDir, "memory", "events", stateHash);
+      const exportPath = path.join(exportDir, "memory-host-events.jsonl");
+      const ownerPath = path.join(exportDir, ".openclaw-memory-host-events-owner.json");
+      const expectedContent = `${JSON.stringify({
+        type: "memory.recall.recorded",
+        timestamp: "2026-05-18T12:00:00.000Z",
+        query: "expected export",
+        resultCount: 0,
+        results: [],
+      })}\n`;
+      await fs.mkdir(exportDir, { recursive: true });
+      await fs.writeFile(
+        ownerPath,
+        `${JSON.stringify({
+          schemaVersion: 3,
+          kind: "openclaw-memory-host-events-export",
+          stateHash,
+          workspaceHash,
+          pendingContentSha256: createHash("sha256").update(expectedContent).digest("hex"),
+        })}\n`,
+        "utf8",
+      );
+      await fs.writeFile(exportPath, '{"owner":"user after crash"}\n', "utf8");
+
+      const listed = await listMemoryHostPublicArtifacts({
+        cfg: { agents: { list: [{ id: "main", default: true, workspace: workspaceDir }] } },
+      });
+
+      expect(listed.some((artifact) => artifact.kind === "event-log")).toBe(false);
+      await expect(fs.readFile(exportPath, "utf8")).resolves.toBe('{"owner":"user after crash"}\n');
+    } finally {
+      await fs.rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers a pending event export publication before refreshing it", async () => {
+    const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "memory-host-pending-owner-"));
+    const stateDir = path.join(fixtureRoot, "state");
+    const workspaceDir = path.join(fixtureRoot, "workspace");
+    const firstEvent = {
+      type: "memory.recall.recorded" as const,
+      timestamp: "2026-05-18T12:00:00.000Z",
+      query: "pending export",
+      resultCount: 0,
+      results: [],
+    };
+    try {
+      vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
+      await fs.mkdir(workspaceDir);
+      await appendMemoryHostEvent(workspaceDir, firstEvent);
+      const stateHash = createHash("sha256")
+        .update(await fs.realpath(stateDir))
+        .digest("hex")
+        .slice(0, 32);
+      const workspaceHash = createHash("sha256")
+        .update(await fs.realpath(workspaceDir))
+        .digest("hex")
+        .slice(0, 32);
+      const exportDir = path.join(workspaceDir, "memory", "events", stateHash);
+      const exportPath = path.join(exportDir, "memory-host-events.jsonl");
+      const ownerPath = path.join(exportDir, ".openclaw-memory-host-events-owner.json");
+      const pendingContent = `${JSON.stringify(firstEvent)}\n`;
+      await fs.mkdir(exportDir, { recursive: true });
+      await fs.writeFile(exportPath, pendingContent, "utf8");
+      await fs.writeFile(
+        ownerPath,
+        `${JSON.stringify({
+          schemaVersion: 3,
+          kind: "openclaw-memory-host-events-export",
+          stateHash,
+          workspaceHash,
+          pendingContentSha256: createHash("sha256").update(pendingContent).digest("hex"),
+        })}\n`,
+        "utf8",
+      );
+      await appendMemoryHostEvent(workspaceDir, {
+        ...firstEvent,
+        timestamp: "2026-05-18T12:01:00.000Z",
+        query: "after interruption",
+      });
+
+      const listed = await listMemoryHostPublicArtifacts({
+        cfg: { agents: { list: [{ id: "main", default: true, workspace: workspaceDir }] } },
+      });
+
+      expect(listed.some((artifact) => artifact.kind === "event-log")).toBe(true);
+      await expect(fs.readFile(exportPath, "utf8")).resolves.toContain("after interruption");
+      const owner = JSON.parse(await fs.readFile(ownerPath, "utf8")) as {
+        contentSha256?: string;
+        pendingContentSha256?: string;
+      };
+      expect(owner.contentSha256).toBe(
+        createHash("sha256")
+          .update(await fs.readFile(exportPath))
+          .digest("hex"),
+      );
+      expect(owner.pendingContentSha256).toBeUndefined();
+    } finally {
+      await fs.rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("omits the event export when a workspace path component is a file", async () => {
+    const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "memory-host-blocked-export-"));
+    const workspaceDir = path.join(fixtureRoot, "workspace");
+    try {
+      vi.stubEnv("OPENCLAW_STATE_DIR", path.join(fixtureRoot, "state"));
+      await fs.mkdir(workspaceDir);
+      await fs.writeFile(path.join(workspaceDir, "MEMORY.md"), "# Still visible\n", "utf8");
+      await fs.writeFile(path.join(workspaceDir, "memory"), "user file\n", "utf8");
+      await appendMemoryHostEvent(workspaceDir, {
+        type: "memory.recall.recorded",
+        timestamp: "2026-05-18T12:00:00.000Z",
+        query: "blocked export",
+        resultCount: 0,
+        results: [],
+      });
+
+      await expect(
+        listMemoryHostPublicArtifacts({
+          cfg: { agents: { list: [{ id: "main", default: true, workspace: workspaceDir }] } },
+        }),
+      ).resolves.toEqual([
+        expect.objectContaining({ kind: "memory-root", relativePath: "MEMORY.md" }),
+      ]);
+      await expect(fs.readFile(path.join(workspaceDir, "memory"), "utf8")).resolves.toBe(
+        "user file\n",
+      );
+    } finally {
+      await fs.rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
   it("lists shared public artifacts from memory workspaces", async () => {
     const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "memory-host-public-artifacts-"));
     try {

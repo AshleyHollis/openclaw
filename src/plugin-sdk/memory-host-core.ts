@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveStateDir } from "../config/paths.js";
-import { sha256HexPrefix } from "../infra/crypto-digest.js";
+import { sha256Hex, sha256HexPrefix } from "../infra/crypto-digest.js";
 import { withFileLock } from "../infra/file-lock.js";
 import { FsSafeError, root as createFsSafeRoot } from "../infra/fs-safe.js";
 import { syncDirectoryBestEffort } from "../infra/sqlite-snapshot.js";
@@ -54,9 +54,11 @@ function isWorkspaceWriteUnavailable(error: unknown, seen = new Set<unknown>()):
   const code = (error as { code?: unknown }).code;
   if (
     code === "EACCES" ||
+    code === "EEXIST" ||
+    code === "ENOTDIR" ||
     code === "EPERM" ||
     code === "EROFS" ||
-    (error instanceof FsSafeError && code === "not-removable")
+    (error instanceof FsSafeError && (code === "not-file" || code === "not-removable"))
   ) {
     return true;
   }
@@ -71,7 +73,8 @@ async function resolveMemoryHostEventExportOwner(workspaceDir: string): Promise<
   lockTarget: string;
   relativePath: string;
   ownerRelativePath: string;
-  ownerContent: string;
+  stateHash: string;
+  workspaceHash: string;
 }> {
   const requestedStateDir = path.resolve(resolveStateDir());
   await fs.mkdir(requestedStateDir, { recursive: true, mode: 0o700 });
@@ -84,19 +87,35 @@ async function resolveMemoryHostEventExportOwner(workspaceDir: string): Promise<
     lockTarget: path.join(stateDir, `.memory-host-events-export-${workspaceHash}`),
     relativePath: path.posix.join(exportDirectory, MEMORY_HOST_EVENTS_FILENAME),
     ownerRelativePath: path.posix.join(exportDirectory, MEMORY_HOST_EVENTS_OWNER_FILENAME),
-    ownerContent: `${JSON.stringify({
-      schemaVersion: 1,
-      kind: "openclaw-memory-host-events-export",
-      stateHash,
-      workspaceHash,
-    })}\n`,
+    stateHash,
+    workspaceHash,
   };
+}
+
+function memoryHostEventExportOwnerContent(
+  owner: Awaited<ReturnType<typeof resolveMemoryHostEventExportOwner>>,
+  content: { currentSha256?: string; pendingSha256?: string },
+): string {
+  return `${JSON.stringify({
+    schemaVersion: 3,
+    kind: "openclaw-memory-host-events-export",
+    stateHash: owner.stateHash,
+    workspaceHash: owner.workspaceHash,
+    ...(content.currentSha256 ? { contentSha256: content.currentSha256 } : {}),
+    ...(content.pendingSha256 ? { pendingContentSha256: content.pendingSha256 } : {}),
+  })}\n`;
 }
 
 async function readMemoryHostEventExportOwnership(
   workspaceRoot: Awaited<ReturnType<typeof createFsSafeRoot>>,
   owner: Awaited<ReturnType<typeof resolveMemoryHostEventExportOwner>>,
-): Promise<"owned" | "missing" | "foreign"> {
+): Promise<
+  | { kind: "owned"; content: string; needsFinalize: boolean }
+  | { kind: "missing" }
+  | { kind: "orphan" }
+  | { kind: "pending-missing" }
+  | { kind: "foreign" }
+> {
   const content = await workspaceRoot.readText(owner.ownerRelativePath).catch((error: unknown) => {
     if (isMissingPathError(error)) {
       return undefined;
@@ -107,12 +126,61 @@ async function readMemoryHostEventExportOwnership(
     throw error;
   });
   if (content === null) {
-    return "foreign";
+    return { kind: "foreign" };
   }
   if (content === undefined) {
-    return "missing";
+    return { kind: "missing" };
   }
-  return content === owner.ownerContent ? "owned" : "foreign";
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content) as unknown;
+  } catch {
+    return { kind: "foreign" };
+  }
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
+    (parsed as { schemaVersion?: unknown }).schemaVersion !== 3 ||
+    (parsed as { kind?: unknown }).kind !== "openclaw-memory-host-events-export" ||
+    (parsed as { stateHash?: unknown }).stateHash !== owner.stateHash ||
+    (parsed as { workspaceHash?: unknown }).workspaceHash !== owner.workspaceHash ||
+    ((parsed as { contentSha256?: unknown }).contentSha256 !== undefined &&
+      typeof (parsed as { contentSha256?: unknown }).contentSha256 !== "string") ||
+    ((parsed as { pendingContentSha256?: unknown }).pendingContentSha256 !== undefined &&
+      typeof (parsed as { pendingContentSha256?: unknown }).pendingContentSha256 !== "string") ||
+    ((parsed as { contentSha256?: unknown }).contentSha256 === undefined &&
+      (parsed as { pendingContentSha256?: unknown }).pendingContentSha256 === undefined)
+  ) {
+    return { kind: "foreign" };
+  }
+  const exportContent = await workspaceRoot.readText(owner.relativePath).catch((error: unknown) => {
+    if (isMissingPathError(error)) {
+      return undefined;
+    }
+    if (isRejectedWorkspaceArtifactPath(error)) {
+      return null;
+    }
+    throw error;
+  });
+  if (exportContent === null) {
+    return { kind: "foreign" };
+  }
+  if (exportContent === undefined) {
+    return typeof (parsed as { pendingContentSha256?: unknown }).pendingContentSha256 === "string"
+      ? { kind: "pending-missing" }
+      : { kind: "orphan" };
+  }
+  const exportSha256 = sha256Hex(exportContent);
+  const currentSha256 = (parsed as { contentSha256?: string }).contentSha256;
+  const pendingSha256 = (parsed as { pendingContentSha256?: string }).pendingContentSha256;
+  return exportSha256 === currentSha256 || exportSha256 === pendingSha256
+    ? {
+        kind: "owned",
+        content: exportContent,
+        needsFinalize: exportSha256 !== currentSha256 || pendingSha256 !== undefined,
+      }
+    : { kind: "foreign" };
 }
 
 export {
@@ -196,12 +264,42 @@ async function materializeMemoryHostEventExport(params: {
         workspaceDir: workspaceKey,
         limit: MAX_MEMORY_HOST_PUBLIC_EXPORT_EVENTS,
       });
-      const ownership = await readMemoryHostEventExportOwnership(workspaceRoot, owner);
+      let ownership = await readMemoryHostEventExportOwnership(workspaceRoot, owner);
+      if (ownership.kind === "orphan") {
+        try {
+          await workspaceRoot.remove(owner.ownerRelativePath);
+          await syncDirectoryBestEffort(path.dirname(absolutePath));
+          ownership = { kind: "missing" };
+        } catch (error) {
+          if (isMissingPathError(error)) {
+            ownership = { kind: "missing" };
+          } else if (isWorkspaceWriteUnavailable(error)) {
+            return undefined;
+          } else {
+            throw error;
+          }
+        }
+      }
       if (storedEvents.length === 0) {
-        if (ownership !== "owned") {
+        if (ownership.kind === "pending-missing") {
+          try {
+            await workspaceRoot.remove(owner.ownerRelativePath);
+            await syncDirectoryBestEffort(path.dirname(absolutePath));
+          } catch (error) {
+            if (!isMissingPathError(error) && !isWorkspaceWriteUnavailable(error)) {
+              throw error;
+            }
+          }
+          return undefined;
+        }
+        if (ownership.kind !== "owned") {
           return undefined;
         }
         try {
+          // Revoke ownership before removing the export. A crash can leave a stale,
+          // unowned artifact, but never a marker that authorizes a future user file.
+          await workspaceRoot.remove(owner.ownerRelativePath);
+          await syncDirectoryBestEffort(path.dirname(absolutePath));
           await workspaceRoot.remove(owner.relativePath);
         } catch (error) {
           if (isMissingPathError(error)) {
@@ -217,18 +315,42 @@ async function materializeMemoryHostEventExport(params: {
         await syncDirectoryBestEffort(path.dirname(absolutePath));
         return undefined;
       }
-      if (ownership === "foreign") {
+      if (ownership.kind === "foreign") {
         return undefined;
       }
-      if (ownership === "missing") {
-        if (await workspaceRoot.exists(owner.relativePath)) {
+      const content = serializeMemoryHostEventExport(storedEvents);
+      const contentSha256 = sha256Hex(content);
+      if (ownership.kind === "missing") {
+        const existing = await workspaceRoot
+          .readText(owner.relativePath)
+          .catch((error: unknown) => {
+            if (isMissingPathError(error)) {
+              return undefined;
+            }
+            if (isRejectedWorkspaceArtifactPath(error)) {
+              return null;
+            }
+            throw error;
+          });
+        if (existing !== undefined) {
           return undefined;
         }
         try {
-          await workspaceRoot.create(owner.ownerRelativePath, owner.ownerContent, {
-            mkdir: true,
-            mode: 0o600,
-          });
+          // A content-specific pending hash makes marker-first publication
+          // recoverable without authorizing replacement of a different later file.
+          await workspaceRoot.create(
+            owner.ownerRelativePath,
+            memoryHostEventExportOwnerContent(owner, { pendingSha256: contentSha256 }),
+            { mkdir: true, mode: 0o600 },
+          );
+          await syncDirectoryBestEffort(path.dirname(absolutePath));
+          await workspaceRoot.create(owner.relativePath, content, { mkdir: true, mode: 0o600 });
+          await syncDirectoryBestEffort(path.dirname(absolutePath));
+          await workspaceRoot.write(
+            owner.ownerRelativePath,
+            memoryHostEventExportOwnerContent(owner, { currentSha256: contentSha256 }),
+            { mkdir: true, mode: 0o600 },
+          );
         } catch (error) {
           if (isWorkspaceWriteUnavailable(error)) {
             return undefined;
@@ -236,22 +358,70 @@ async function materializeMemoryHostEventExport(params: {
           throw error;
         }
         await syncDirectoryBestEffort(path.dirname(absolutePath));
+        return { absolutePath, relativePath: owner.relativePath };
       }
-      const content = serializeMemoryHostEventExport(storedEvents);
-      // SQLite is authoritative. Reading this bounded export only avoids replacing
-      // an unchanged named artifact and preserves stable mtimes for bridge consumers.
-      const existing = await workspaceRoot.readText(owner.relativePath).catch((error: unknown) => {
-        if (isMissingPathError(error)) {
-          return undefined;
-        }
-        throw error;
-      });
-      if (existing !== content) {
+      if (ownership.kind === "pending-missing") {
         try {
+          await workspaceRoot.write(
+            owner.ownerRelativePath,
+            memoryHostEventExportOwnerContent(owner, { pendingSha256: contentSha256 }),
+            { mkdir: true, mode: 0o600 },
+          );
+          await syncDirectoryBestEffort(path.dirname(absolutePath));
+          await workspaceRoot.create(owner.relativePath, content, { mkdir: true, mode: 0o600 });
+          await syncDirectoryBestEffort(path.dirname(absolutePath));
+          await workspaceRoot.write(
+            owner.ownerRelativePath,
+            memoryHostEventExportOwnerContent(owner, { currentSha256: contentSha256 }),
+            { mkdir: true, mode: 0o600 },
+          );
+          await syncDirectoryBestEffort(path.dirname(absolutePath));
+          return { absolutePath, relativePath: owner.relativePath };
+        } catch (error) {
+          if (isWorkspaceWriteUnavailable(error)) {
+            return undefined;
+          }
+          throw error;
+        }
+      }
+      // SQLite is authoritative. The owner hash proves the existing bytes are the
+      // prior export before replacement and preserves stable mtimes when unchanged.
+      if (ownership.content !== content) {
+        try {
+          await workspaceRoot.write(
+            owner.ownerRelativePath,
+            memoryHostEventExportOwnerContent(owner, {
+              currentSha256: sha256Hex(ownership.content),
+              pendingSha256: contentSha256,
+            }),
+            { mkdir: true, mode: 0o600 },
+          );
+          await syncDirectoryBestEffort(path.dirname(absolutePath));
           await workspaceRoot.write(owner.relativePath, content, {
             mkdir: true,
             mode: 0o600,
           });
+          await syncDirectoryBestEffort(path.dirname(absolutePath));
+          await workspaceRoot.write(
+            owner.ownerRelativePath,
+            memoryHostEventExportOwnerContent(owner, { currentSha256: contentSha256 }),
+            { mkdir: true, mode: 0o600 },
+          );
+          await syncDirectoryBestEffort(path.dirname(absolutePath));
+        } catch (error) {
+          if (isWorkspaceWriteUnavailable(error)) {
+            return undefined;
+          }
+          throw error;
+        }
+      } else if (ownership.needsFinalize) {
+        try {
+          await workspaceRoot.write(
+            owner.ownerRelativePath,
+            memoryHostEventExportOwnerContent(owner, { currentSha256: contentSha256 }),
+            { mkdir: true, mode: 0o600 },
+          );
+          await syncDirectoryBestEffort(path.dirname(absolutePath));
         } catch (error) {
           if (isWorkspaceWriteUnavailable(error)) {
             return undefined;
