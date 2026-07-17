@@ -47,8 +47,8 @@ function directPnE164(jid: string | null | undefined): string | undefined {
   return classified.kind === "pn" ? `+${classified.user}` : undefined;
 }
 
-function canonicalizeDirectJids(
-  values: readonly string[] | null | undefined,
+export function canonicalizeWhatsAppDirectJids(
+  values: readonly (string | null | undefined)[] | null | undefined,
 ): string[] | undefined {
   const canonical = new Set<string>();
   for (const value of values ?? []) {
@@ -81,7 +81,7 @@ export function cacheInboundMessageMeta(
     participant: canonicalizeSupportedJid(meta.participant),
     participantE164: canonicalizeComparableE164(meta.participantE164),
     remoteE164: canonicalizeComparableE164(meta.remoteE164),
-    remoteJids: canonicalizeDirectJids(meta.remoteJids),
+    remoteJids: canonicalizeWhatsAppDirectJids(meta.remoteJids),
     ts: Date.now(),
   });
 }

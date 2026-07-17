@@ -1,10 +1,12 @@
 // Whatsapp plugin module implements targets runtime behavior.
-import fs from "node:fs";
-import path from "node:path";
 import { normalizeE164 } from "openclaw/plugin-sdk/account-resolution";
 import { logVerbose, shouldLogVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { escapeRegExp } from "openclaw/plugin-sdk/text-utility-runtime";
-import { CONFIG_DIR, resolveUserPath } from "openclaw/plugin-sdk/text-utility-runtime";
+import {
+  readWhatsAppLidToPnMapping,
+  readWhatsAppPnToLidMapping,
+  type WhatsAppLidMappingFileOptions,
+} from "./lid-mapping-files.js";
 import { classifyWhatsAppJid, encodeWhatsAppJid, type WhatsAppDirectJid } from "./whatsapp-jid.js";
 
 const WHATSAPP_FENCE_PLACEHOLDER = "\x00FENCE";
@@ -70,13 +72,11 @@ export function toWhatsappJidWithLid(number: string, opts?: JidToE164Options): s
   }
   const e164 = normalizeE164(stripped);
   const phoneDigits = e164.replace(/\D/g, "");
-  const lid = readLidForwardMapping({ phoneDigits, opts });
+  const lid = readWhatsAppPnToLidMapping({ phoneDigits, options: opts });
   return lid ? encodeWhatsAppJid(lid, "lid") : encodeWhatsAppJid(phoneDigits, "s.whatsapp.net");
 }
 
-export type JidToE164Options = {
-  authDir?: string;
-  lidMappingDirs?: string[];
+export type JidToE164Options = WhatsAppLidMappingFileOptions & {
   logMissing?: boolean;
 };
 
@@ -140,7 +140,10 @@ export async function resolveEquivalentWhatsAppDirectChatJids(
     const mappedLid = await tryLookupMappedJid(() => opts?.lidLookup?.getLIDForPN?.(directJid.jid));
     addEquivalentDirectChatCandidate(candidates, mappedLid, "lid");
 
-    const mappedLocalLid = readLidForwardMapping({ phoneDigits: directJid.user, opts });
+    const mappedLocalLid = readWhatsAppPnToLidMapping({
+      phoneDigits: directJid.user,
+      options: opts,
+    });
     const localLidDomain = directJid.server === "hosted" ? "hosted.lid" : "lid";
     addUniqueString(
       candidates,
@@ -168,70 +171,6 @@ export async function resolveEquivalentWhatsAppDirectChatJids(
   return candidates;
 }
 
-function resolveLidMappingDirs(params: { opts?: JidToE164Options }): string[] {
-  const dirs = new Set<string>();
-  const addDir = (dir?: string | null) => {
-    if (!dir) {
-      return;
-    }
-    dirs.add(resolveUserPath(dir));
-  };
-  addDir(params.opts?.authDir);
-  for (const dir of params.opts?.lidMappingDirs ?? []) {
-    addDir(dir);
-  }
-  addDir(CONFIG_DIR);
-  addDir(path.join(CONFIG_DIR, "credentials"));
-  return [...dirs];
-}
-
-function readLidReverseMapping(params: { lid: string; opts?: JidToE164Options }): string | null {
-  const mappingFilename = `lid-mapping-${params.lid}_reverse.json`;
-  const mappingDirs = resolveLidMappingDirs({ opts: params.opts });
-  for (const dir of mappingDirs) {
-    const mappingPath = path.join(dir, mappingFilename);
-    try {
-      const data = fs.readFileSync(mappingPath, "utf8");
-      const phone = JSON.parse(data) as string | number | null;
-      if (phone === null || phone === undefined) {
-        continue;
-      }
-      const candidate = String(phone).trim();
-      if (/^\+?\d+$/.test(candidate)) {
-        return normalizeE164(candidate);
-      }
-    } catch {
-      // next location
-    }
-  }
-  return null;
-}
-
-function readLidForwardMapping(params: {
-  phoneDigits: string;
-  opts?: JidToE164Options;
-}): string | null {
-  const mappingFilename = `lid-mapping-${params.phoneDigits}.json`;
-  const mappingDirs = resolveLidMappingDirs({ opts: params.opts });
-  for (const dir of mappingDirs) {
-    const mappingPath = path.join(dir, mappingFilename);
-    try {
-      const data = fs.readFileSync(mappingPath, "utf8");
-      const lid = JSON.parse(data) as string | number | null;
-      if (lid === null || lid === undefined) {
-        continue;
-      }
-      const candidate = String(lid).trim();
-      if (/^\d+$/.test(candidate)) {
-        return candidate;
-      }
-    } catch {
-      // next location
-    }
-  }
-  return null;
-}
-
 export function jidToE164(jid: string, opts?: JidToE164Options): string | null {
   const directJid = classifyDirectJid(jid);
   if (!directJid) {
@@ -240,9 +179,9 @@ export function jidToE164(jid: string, opts?: JidToE164Options): string | null {
   if (directJid.kind === "pn") {
     return `+${directJid.user}`;
   }
-  const phone = readLidReverseMapping({
+  const phone = readWhatsAppLidToPnMapping({
     lid: directJid.user,
-    opts,
+    options: opts,
   });
   if (phone) {
     return phone;

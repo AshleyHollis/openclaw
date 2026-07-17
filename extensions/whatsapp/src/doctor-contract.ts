@@ -5,6 +5,10 @@ import type {
 } from "openclaw/plugin-sdk/channel-contract";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { asObjectRecord, defineChannelAliasMigration } from "openclaw/plugin-sdk/runtime-doctor";
+import {
+  migrateWhatsAppLidAllowFromConfig,
+  whatsAppLidAllowFromLegacyRules,
+} from "./allowlist-doctor.js";
 import { normalizeCompatibilityConfig as normalizeAckReactionConfig } from "./doctor.js";
 
 // WhatsApp's nested streaming schema is delivery-only ({chunkMode, block});
@@ -18,8 +22,10 @@ const streamingAliasMigration = defineChannelAliasMigration({
   streaming: { defaultMode: "partial", deliveryOnly: true },
 });
 
-export const legacyConfigRules: ChannelDoctorLegacyConfigRule[] =
-  streamingAliasMigration.legacyConfigRules;
+export const legacyConfigRules: ChannelDoctorLegacyConfigRule[] = [
+  ...streamingAliasMigration.legacyConfigRules,
+  ...whatsAppLidAllowFromLegacyRules,
+];
 
 /** Deep-fills fields missing from target with copies of source values. */
 function fillMissingStreamingFields(
@@ -141,12 +147,15 @@ export function normalizeCompatibilityConfig({
     cfg: ackReaction.config,
     changes: ackReaction.changes,
   });
-  return {
-    config: seedMigratedAccountStreaming({
-      cfg: aliases.config,
-      accountsWithoutStreamingBefore,
-      changes: aliases.changes,
-    }),
+  const seeded = seedMigratedAccountStreaming({
+    cfg: aliases.config,
+    accountsWithoutStreamingBefore,
     changes: aliases.changes,
+  });
+  const lidAllowFrom = migrateWhatsAppLidAllowFromConfig(seeded);
+  return {
+    config: lidAllowFrom.config,
+    changes: [...aliases.changes, ...lidAllowFrom.changes],
+    warnings: lidAllowFrom.warnings,
   };
 }

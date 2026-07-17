@@ -45,6 +45,7 @@ type MockSock = {
   logger: Record<string, unknown>;
   signalRepository: {
     lidMapping: {
+      getLIDForPN: AnyMockFn;
       getPNForLID: AnyMockFn;
     };
   };
@@ -229,6 +230,7 @@ function createMockSock(): MockSock {
     logger: {},
     signalRepository: {
       lidMapping: {
+        getLIDForPN: vi.fn().mockResolvedValue(null),
         getPNForLID: vi.fn().mockResolvedValue(null),
       },
     },
@@ -348,6 +350,7 @@ export function buildNotifyMessageUpsert(params: {
   timestamp: number;
   pushName?: string;
   participant?: string;
+  remoteJidAlt?: string;
 }) {
   return {
     type: "notify",
@@ -357,6 +360,7 @@ export function buildNotifyMessageUpsert(params: {
           id: params.id,
           fromMe: false,
           remoteJid: params.remoteJid,
+          remoteJidAlt: params.remoteJidAlt,
           participant: params.participant,
         },
         message: { conversation: params.text },
