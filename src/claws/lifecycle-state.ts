@@ -1,5 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
+import { createHash } from "node:crypto";
 import { findOverlappingWorkspaceAgentIds } from "../agents/agent-delete-safety.js";
 import { stableStringify } from "../agents/stable-stringify.js";
 import {
@@ -14,11 +13,8 @@ import { moveToTrash } from "../commands/onboard-helpers.js";
 import { getRuntimeConfig } from "../config/config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { deleteAgentConfigEntry } from "../gateway/server-methods/agents-config-mutations.js";
-import { root as fsSafeRoot, FsSafeError } from "../infra/fs-safe.js";
-import {
-  runOpenClawStateWriteTransaction,
-  type OpenClawStateDatabaseOptions,
-} from "../state/openclaw-state-db.js";
+import { root as fsSafeRoot } from "../infra/fs-safe.js";
+import type { OpenClawStateDatabaseOptions } from "../state/openclaw-state-db.js";
 import {
   deleteClawCronRef,
   markClawCronRefRemoved,
@@ -30,7 +26,10 @@ import {
   clawRemoveQuietRuntime,
   deletionEffects,
   readAllClawWorkspaceFiles,
+  releaseClawRemoveRows,
+  removeClawWorkspaceFile,
   synthesizeOrphanInstall,
+  type RemovedWorkspaceFile,
 } from "./lifecycle-delete-support.js";
 import {
   applyClawPackageRemovals,
@@ -113,11 +112,6 @@ type ClawRemovePlan = {
   agentId?: string;
   actions: ClawRemovePlanAction[];
   blockers: Array<{ code: string; message: string }>;
-};
-type RemovedWorkspaceFile = {
-  path: string;
-  action: "deleted" | "missing" | "retainedModified" | "error";
-  message?: string;
 };
 type RemovedCronJob = {
   manifestId: string;
@@ -477,78 +471,6 @@ export async function buildClawRemovePlan(
   };
 }
 
-function tableExists(db: DatabaseSync, name: string): boolean {
-  return Boolean(
-    db /* sqlite-allow-raw: schema probe for optional Claw state tables. */
-      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
-      .get(name),
-  );
-}
-
-async function removeFile(record: ClawManagedFileStatus): Promise<RemovedWorkspaceFile> {
-  if (record.state === "missing") {
-    return { path: record.path, action: "missing" };
-  }
-  if (record.state === "modified") {
-    return { path: record.path, action: "retainedModified" };
-  }
-  try {
-    const workspace = await fsSafeRoot(record.workspace, {
-      hardlinks: "reject",
-      maxBytes: MAX_FILE_BYTES,
-      symlinks: "reject",
-    });
-    if (!(await workspace.exists(record.path))) {
-      return { path: record.path, action: "missing" };
-    }
-    const stagedPath = `${record.path}.openclaw-claw-remove-${randomUUID()}`;
-    await workspace.move(record.path, stagedPath, { overwrite: false });
-    const content = await workspace.readBytes(stagedPath, { maxBytes: MAX_FILE_BYTES });
-    const digest = `sha256:${createHash("sha256").update(content).digest("hex")}`;
-    if (digest !== record.contentDigest) {
-      await workspace.move(stagedPath, record.path, { overwrite: false });
-      return { path: record.path, action: "retainedModified" };
-    }
-    await workspace.remove(stagedPath);
-    return { path: record.path, action: "deleted" };
-  } catch (error) {
-    return {
-      path: record.path,
-      action: "error",
-      message: error instanceof FsSafeError ? `${error.code}: ${error.message}` : String(error),
-    };
-  }
-}
-function releaseRows(
-  agentId: string,
-  files: RemovedWorkspaceFile[],
-  complete: boolean,
-  options: OpenClawStateDatabaseOptions,
-): void {
-  runOpenClawStateWriteTransaction(({ db }) => {
-    if (tableExists(db, "claw_workspace_files")) {
-      for (const file of files.filter((candidate) => candidate.action !== "error")) {
-        db /* sqlite-allow-raw: remove one owned Claw workspace-file row. */
-          .prepare("DELETE FROM claw_workspace_files WHERE agent_id = ? AND target_path = ?")
-          .run(agentId, file.path);
-      }
-    }
-    if (!complete) {
-      return;
-    }
-    if (tableExists(db, "claw_package_refs")) {
-      db /* sqlite-allow-raw: release package refs for a removed Claw agent. */
-        .prepare("DELETE FROM claw_package_refs WHERE agent_id = ?")
-        .run(agentId);
-    }
-    if (tableExists(db, "claw_installs")) {
-      db /* sqlite-allow-raw: remove the completed Claw install owner row. */
-        .prepare("DELETE FROM claw_installs WHERE agent_id = ?")
-        .run(agentId);
-    }
-  }, options);
-}
-
 type ConfigCommit = (transform: (config: OpenClawConfig) => OpenClawConfig) => Promise<void>;
 export async function applyClawRemovePlan(
   plan: ClawRemovePlan,
@@ -724,7 +646,7 @@ export async function applyClawRemovePlan(
   }
   const workspaceFiles: RemovedWorkspaceFile[] = [];
   for (const file of record.workspaceFiles) {
-    workspaceFiles.push(await removeFile(file));
+    workspaceFiles.push(await removeClawWorkspaceFile(file));
   }
   const errors = workspaceFiles.filter((file) => file.action === "error");
   const complete = errors.length === 0;
@@ -752,7 +674,7 @@ export async function applyClawRemovePlan(
     await moveToTrash(committedDelete.agentDir, clawRemoveQuietRuntime);
     await moveToTrash(committedDelete.sessionsDir, clawRemoveQuietRuntime);
   }
-  releaseRows(plan.agentId, workspaceFiles, complete, options);
+  releaseClawRemoveRows(plan.agentId, workspaceFiles, complete, options);
   return {
     schemaVersion: CLAW_REMOVE_RESULT_SCHEMA_VERSION,
     stability: CLAW_OUTPUT_STABILITY,
