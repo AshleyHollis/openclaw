@@ -309,6 +309,7 @@ describe("collectClawStateHealthFindings", () => {
     const current = await installFixture({ withFile: true });
     current.getConfig().agents!.list![0] = {
       ...current.getConfig().agents!.list![0],
+      id: current.plan.agent.finalId,
       name: "Operator edit",
     };
     await writeFile(join(current.plan.agent.workspace, "SOUL.md"), "local edit\n", "utf8");
