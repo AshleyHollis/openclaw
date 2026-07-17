@@ -6,6 +6,7 @@ import type {
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { defineChannelAliasMigration } from "openclaw/plugin-sdk/runtime-doctor";
 import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { IMESSAGE_MINIMUM_SUPPORTED_CLI_VERSION } from "./src/constants.js";
 
 // Disabled `channels.imessage.catchup` blocks are retired. Enabled blocks stay
 // as a compatibility contract: older configs that opted into replay still get
@@ -66,7 +67,7 @@ export const legacyConfigRules: ChannelDoctorLegacyConfigRule[] = [
   {
     path: ["channels", "imessage"],
     message:
-      "channels.imessage.coalesceSameSenderDms is retired; imsg >= 0.11.1 coalesces Apple URL-preview split-sends before OpenClaw receives them. " +
+      `channels.imessage.coalesceSameSenderDms is retired; imsg >= ${IMESSAGE_MINIMUM_SUPPORTED_CLI_VERSION} coalesces Apple URL-preview split-sends before OpenClaw receives them. ` +
       'Run "openclaw doctor --fix" to remove the stale key.',
     match: (value) => imessageEntryHasRetiredCoalesceSameSenderDms(value),
   },

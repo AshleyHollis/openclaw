@@ -15,7 +15,10 @@ import {
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import { createIMessageRpcClient } from "./client.js";
-import { DEFAULT_IMESSAGE_PROBE_TIMEOUT_MS } from "./constants.js";
+import {
+  DEFAULT_IMESSAGE_PROBE_TIMEOUT_MS,
+  IMESSAGE_MINIMUM_SUPPORTED_CLI_VERSION,
+} from "./constants.js";
 import {
   getCachedIMessagePrivateApiStatus,
   setCachedIMessagePrivateApiStatus,
@@ -23,7 +26,6 @@ import {
 } from "./private-api-status.js";
 import {
   IMESSAGE_INSTALL_COMMAND,
-  IMESSAGE_MINIMUM_SUPPORTED_CLI_VERSION,
   IMESSAGE_UPDATE_COMMAND,
   isAutoManagedIMessageCliPath,
 } from "./setup-core.js";

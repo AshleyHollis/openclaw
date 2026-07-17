@@ -1,6 +1,9 @@
 /** Default timeout for iMessage probe/RPC operations (10 seconds). */
 export const DEFAULT_IMESSAGE_PROBE_TIMEOUT_MS = 10_000;
 
+// First imsg release that includes GUID-linked URL-preview coalescing.
+export const IMESSAGE_MINIMUM_SUPPORTED_CLI_VERSION = "0.13.1";
+
 // Sends get a much longer default than probes: on macOS 26 (Tahoe) the private
 // API bridge intermittently stalls up to ~124s before the send completes. The
 // 10s probe timeout aborts those mid-flight, and non-recoverable shapes

@@ -22,6 +22,7 @@ import {
 import { formatDocsLink } from "openclaw/plugin-sdk/setup-tools";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { resolveDefaultIMessageAccountId, resolveIMessageAccount } from "./accounts.js";
+import { IMESSAGE_MINIMUM_SUPPORTED_CLI_VERSION } from "./constants.js";
 import { normalizeIMessageHandle } from "./targets.js";
 
 const t = createSetupTranslator();
@@ -30,7 +31,7 @@ const channel = "imessage" as const;
 
 export const IMESSAGE_INSTALL_COMMAND = "brew install steipete/tap/imsg";
 export const IMESSAGE_UPDATE_COMMAND = "brew update && brew upgrade imsg";
-export const IMESSAGE_MINIMUM_SUPPORTED_CLI_VERSION = "0.11.1";
+export { IMESSAGE_MINIMUM_SUPPORTED_CLI_VERSION };
 
 const HOMEBREW_IMSG_PATHS = new Set([
   "/opt/homebrew/bin/imsg",

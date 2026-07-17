@@ -16,7 +16,7 @@ For the usual OpenClaw iMessage deployment, run the Gateway and `imsg` on the sa
 BlueBubbles support was removed. Migrate `channels.bluebubbles` configs to `channels.imessage`; OpenClaw supports iMessage through `imsg` only. Start with [BlueBubbles removal and the imsg iMessage path](/announcements/bluebubbles-imessage) for the short announcement, or [Coming from BlueBubbles](/channels/imessage-from-bluebubbles) for the full migration table.
 </Warning>
 
-Status: native external CLI integration. The Gateway spawns `imsg rpc` and speaks JSON-RPC over stdio — no separate daemon or port. OpenClaw requires `imsg` 0.11.1 or newer. Private API mode is strongly encouraged for a complete iMessage channel; replies, tapbacks, effects, polls, attachment replies, and group actions require `imsg launch` and a successful private API probe.
+Status: native external CLI integration. The Gateway spawns `imsg rpc` and speaks JSON-RPC over stdio — no separate daemon or port. OpenClaw requires `imsg` 0.13.1 or newer. Private API mode is strongly encouraged for a complete iMessage channel; replies, tapbacks, effects, polls, attachment replies, and group actions require `imsg launch` and a successful private API probe.
 
 For the common local setup, OpenClaw setup can offer a user-confirmed Homebrew install or update for `imsg` on the signed-in Messages Mac. Manual setup and SSH-wrapper topologies remain operator-managed: install or update `imsg` in the same user context that will run the Gateway or wrapper.
 
@@ -147,7 +147,7 @@ A wrapper that buffers stdin until a large block fills will produce symptoms tha
 ## Requirements and permissions (macOS)
 
 - Messages must be signed in on the Mac running `imsg`.
-- `imsg` 0.11.1 or newer is required.
+- `imsg` 0.13.1 or newer is required.
 - Full Disk Access is required for the process context running OpenClaw/`imsg` (Messages DB access).
 - Automation permission is required to send messages through Messages.app.
 - For advanced actions (react / edit / unsend / threaded reply / effects / polls / group ops), System Integrity Protection must be disabled — see [Enabling the imsg private API](#enabling-the-imsg-private-api). Basic text and media send/receive work without it.
@@ -670,13 +670,13 @@ When a user types a command and a URL together — e.g. `Dump https://example.co
 1. A text message (`"Dump"`).
 2. A URL-preview balloon (`"https://..."`) with OG-preview images as attachments.
 
-Modern `imsg` handles this before OpenClaw sees the message. `imsg >= 0.11.1` folds the URL-preview row into the originating text row across watch, history, and search, so OpenClaw receives one logical message without adding DM latency.
+Modern `imsg` handles this before OpenClaw sees the message. `imsg >= 0.13.1` folds the URL-preview row into the originating text row across watch, history, and search, so OpenClaw receives one logical message without adding DM latency.
 
 No OpenClaw-side coalescing config is required. The retired `channels.imessage.coalesceSameSenderDms` key is removed from existing configs by `openclaw doctor --fix`.
 
 ### Scenarios and what the agent sees
 
-| User composes                                                      | `imsg >= 0.11.1` output                            | Agent turn                                                |
+| User composes                                                      | `imsg >= 0.13.1` output                            | Agent turn                                                |
 | ------------------------------------------------------------------ | -------------------------------------------------- | --------------------------------------------------------- |
 | `Dump https://example.com` (one send)                              | One logical message with URL-preview metadata      | One turn: `Dump https://example.com`                      |
 | `Save this 📎image.jpg caption` (attachment + text)                | The message rows and attachments decoded by `imsg` | One turn per logical `imsg` message                       |

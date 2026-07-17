@@ -19,7 +19,7 @@ For the short announcement and operator summary, see [BlueBubbles removal and th
 
 The shortest safe path when you already know your old BlueBubbles config:
 
-1. Verify `imsg` 0.11.1 or newer directly on the Mac that runs Messages.app (`imsg --version`, `imsg chats`, `imsg history`, `imsg send`, `imsg rpc --help`).
+1. Verify `imsg` 0.13.1 or newer directly on the Mac that runs Messages.app (`imsg --version`, `imsg chats`, `imsg history`, `imsg send`, `imsg rpc --help`).
 2. Copy behavior keys from `channels.bluebubbles` to `channels.imessage`: `dmPolicy`, `allowFrom`, `groupPolicy`, `groupAllowFrom`, `groups`, `includeAttachments`, `attachmentRoots`, `mediaMaxMb`, `textChunkLimit`, and `actions`.
 3. Drop transport keys that no longer exist: `serverUrl`, `password`, webhook URLs, and BlueBubbles server setup.
 4. If the Gateway is not running on the Messages Mac, set `channels.imessage.cliPath` to an SSH wrapper and set `remoteHost` for remote attachment fetches.
@@ -48,7 +48,7 @@ The shortest safe path when you already know your old BlueBubbles config:
    imsg chats --limit 3
    ```
 
-   OpenClaw requires `imsg` 0.11.1 or newer. For the usual local setup, OpenClaw setup can offer a user-confirmed Homebrew install or update for `imsg` on the signed-in Messages Mac. Manual setup and SSH-wrapper topologies remain operator-managed: repeat the Homebrew update in the same local or remote user context that will run `imsg`. If `imsg chats` fails with `unable to open database file`, empty output, or `authorization denied`, grant Full Disk Access to the terminal, editor, Node process, Gateway service, or SSH parent process that launches `imsg`, then reopen that parent process.
+   OpenClaw requires `imsg` 0.13.1 or newer. For the usual local setup, OpenClaw setup can offer a user-confirmed Homebrew install or update for `imsg` on the signed-in Messages Mac. Manual setup and SSH-wrapper topologies remain operator-managed: repeat the Homebrew update in the same local or remote user context that will run `imsg`. If `imsg chats` fails with `unable to open database file`, empty output, or `authorization denied`, grant Full Disk Access to the terminal, editor, Node process, Gateway service, or SSH parent process that launches `imsg`, then reopen that parent process.
 
 2. Verify the read, watch, send, and RPC surfaces before changing OpenClaw config:
 
@@ -108,7 +108,7 @@ iMessage and BlueBubbles share most channel-level behavior keys. What changes is
 | _(N/A)_                                                    | `channels.imessage.remoteAttachmentRoots` | Only used when `remoteHost` is set for SCP fetches.                                                                                                                                                                                                                              |
 | `channels.bluebubbles.mediaMaxMb`                          | `channels.imessage.mediaMaxMb`            | Default 16 MB on iMessage (BlueBubbles default was 8 MB). Set explicitly to keep the lower cap.                                                                                                                                                                                  |
 | `channels.bluebubbles.textChunkLimit`                      | `channels.imessage.textChunkLimit`        | Default 4000 on both.                                                                                                                                                                                                                                                            |
-| `channels.bluebubbles.coalesceSameSenderDms`               | _(N/A)_                                   | Do not migrate. Current iMessage uses `imsg >= 0.11.1`, which coalesces Apple URL-preview split-sends before OpenClaw receives them. Run `openclaw doctor --fix` to remove stale iMessage coalescing keys after migration.                                                       |
+| `channels.bluebubbles.coalesceSameSenderDms`               | _(N/A)_                                   | Do not migrate. Current iMessage uses `imsg >= 0.13.1`, which coalesces Apple URL-preview split-sends before OpenClaw receives them. Run `openclaw doctor --fix` to remove stale iMessage coalescing keys after migration.                                                       |
 | `channels.bluebubbles.enrichGroupParticipantsFromContacts` | _(N/A)_                                   | `imsg` already surfaces sender display names from `chat.db`.                                                                                                                                                                                                                     |
 | `channels.bluebubbles.actions.*`                           | `channels.imessage.actions.*`             | Same per-action toggles (`reactions`, `edit`, `unsend`, `reply`, `sendWithEffect`, `renameGroup`, `setGroupIcon`, `addParticipant`, `removeParticipant`, `leaveGroup`, `sendAttachment`) plus new `polls`. All default to enabled; private API actions still require the bridge. |
 
@@ -201,7 +201,7 @@ This admits the configured senders in any group. Add `groups` entries to scope a
 | Rename group / set group icon                       | ✅                 | ✅                                                                            |
 | Add / remove participant, leave group               | ✅                 | ✅                                                                            |
 | Read receipts and typing indicator                  | ✅                 | ✅ (gated on private API probe)                                               |
-| Apple URL-preview split-send coalescing             | ✅                 | ✅ (handled by `imsg >= 0.11.1`; no OpenClaw config needed)                   |
+| Apple URL-preview split-send coalescing             | ✅                 | ✅ (handled by `imsg >= 0.13.1`; no OpenClaw config needed)                   |
 | Inbound recovery after a restart                    | ✅                 | ✅ (automatic: `since_rowid` replay + GUID dedupe; wider window on local)     |
 
 iMessage recovers messages missed while the gateway was down: on startup it replays from the last dispatched rowid via `imsg watch.subscribe` `since_rowid`, dedupes by GUID, and a stale-backlog age fence suppresses the Push-flush "backlog bomb". This runs over the `imsg` RPC connection, so it works for remote SSH `cliPath` setups too; local setups get a wider recovery window because they can read `chat.db`. See [Inbound recovery after a bridge or gateway restart](/channels/imessage#inbound-recovery-after-a-bridge-or-gateway-restart).

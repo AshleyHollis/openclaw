@@ -72,6 +72,10 @@ describe("iMessage doctor contract: retired coalesceSameSenderDms config", () =>
     rule.message.includes("coalesceSameSenderDms"),
   );
 
+  it("names the imsg release floor that owns URL-preview coalescing", () => {
+    expect(coalesceRule?.message).toContain("imsg >= 0.13.1");
+  });
+
   it("detects the retired top-level and per-account key", () => {
     const imessage = {
       coalesceSameSenderDms: true,
