@@ -323,6 +323,79 @@ describe("readClawManifestFile", () => {
     });
   });
 
+  it("rejects workspace sources through an intermediate symlink", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openclaw-claw-reader-symlink-"));
+    await mkdir(join(root, "workspace"));
+    await writeFile(join(root, "workspace", "AGENTS.md"), "# Agent\n", "utf8");
+    await symlink(join(root, "workspace"), join(root, "workspace-link"), "dir");
+    const manifestPath = join(root, "demo.claw.json");
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        agent: { id: "symlink-agent" },
+        workspace: { bootstrapFiles: { "AGENTS.md": { source: "workspace-link/AGENTS.md" } } },
+      }),
+      "utf8",
+    );
+
+    const result = await readClawManifestFile(manifestPath);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "workspace_source_unsafe" }),
+    );
+  });
+
+  it("rejects a workspace source over the per-file byte limit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openclaw-claw-reader-file-limit-"));
+    await writeFile(join(root, "large.md"), Buffer.alloc(1024 * 1024 + 1));
+    const manifestPath = join(root, "demo.claw.json");
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        agent: { id: "large-agent" },
+        workspace: { files: [{ source: "large.md", path: "large.md" }] },
+      }),
+      "utf8",
+    );
+
+    const result = await readClawManifestFile(manifestPath);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "workspace_source_too_large" }),
+    );
+  });
+
+  it("rejects aggregate workspace bytes before reading source contents", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openclaw-claw-reader-aggregate-limit-"));
+    const files = [];
+    for (let index = 0; index < 5; index += 1) {
+      const source = `large-${index}.md`;
+      await writeFile(join(root, source), Buffer.alloc(1024 * 1024, index));
+      files.push({ source, path: source });
+    }
+    const manifestPath = join(root, "demo.claw.json");
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        agent: { id: "large-agent" },
+        workspace: { files },
+      }),
+      "utf8",
+    );
+
+    const result = await readClawManifestFile(manifestPath);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "workspace_sources_too_large" }),
+    );
+  });
+
   it("rejects package manifests that escape the package root", async () => {
     const parent = await mkdtemp(join(tmpdir(), "openclaw-claw-escape-"));
     const root = join(parent, "package");

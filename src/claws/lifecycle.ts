@@ -11,6 +11,7 @@ import {
   type Root,
 } from "../infra/fs-safe.js";
 import { resolveUserPath } from "../utils.js";
+import { MAX_MANAGED_FILE_BYTES, MAX_MANAGED_WORKSPACE_BYTES } from "./source-limits.js";
 import {
   CLAW_ADD_PLAN_SCHEMA_VERSION,
   CLAW_BOOTSTRAP_FILE_NAMES,
@@ -23,8 +24,6 @@ import {
   type ClawSourceIdentity,
 } from "./types.js";
 
-const MAX_MANAGED_FILE_BYTES = 1024 * 1024;
-const MAX_MANAGED_WORKSPACE_BYTES = 4 * MAX_MANAGED_FILE_BYTES;
 const AGENT_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
 
 type ClawAddPlanContext = {
@@ -238,7 +237,7 @@ export async function buildClawAddPlan(params: {
   });
 
   const pendingWorkspaceFiles: PendingWorkspaceFileAction[] = [];
-  async function addWorkspaceFileInspection(params: {
+  async function addWorkspaceFileInspection(fileParams: {
     sourcePath: string;
     targetPath: string;
     id: string;
@@ -248,10 +247,10 @@ export async function buildClawAddPlan(params: {
       sourceRoot,
       source,
       workspace,
-      sourcePath: params.sourcePath,
-      targetPath: params.targetPath,
-      id: params.id,
-      manifestPath: params.manifestPath,
+      sourcePath: fileParams.sourcePath,
+      targetPath: fileParams.targetPath,
+      id: fileParams.id,
+      manifestPath: fileParams.manifestPath,
     });
     const action = result.pending?.action ?? result.action;
     if (!action) {

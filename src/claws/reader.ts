@@ -1,9 +1,16 @@
 // Local package and development-manifest reader for Claws.
 import { createHash } from "node:crypto";
-import { lstat, readFile, realpath, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import {
+  assertNoSymlinkParents,
+  FsSafeError,
+  root as fsSafeRoot,
+  type OpenResult,
+} from "../infra/fs-safe.js";
 import { isCanonicalClawHubPackageName, isExactSemVer } from "./schema-portability.js";
 import { parseClawManifest } from "./schema.js";
+import { MAX_MANAGED_FILE_BYTES, MAX_MANAGED_WORKSPACE_BYTES } from "./source-limits.js";
 import type { ClawDiagnostic, ClawManifest, ClawReadResult, ClawSourceIdentity } from "./types.js";
 
 type PackageJson = {
@@ -30,6 +37,32 @@ function updateSnapshotHash(
 ): void {
   hash.update(`${Buffer.byteLength(label, "utf8")}:${label}:${bytes.byteLength}:`, "utf8");
   hash.update(bytes);
+}
+
+function workspaceSourceDiagnostic(error: unknown, sourcePath: string): ClawDiagnostic {
+  if (error instanceof FsSafeError && error.code === "too-large") {
+    return fileDiagnostic(
+      "workspace_source_too_large",
+      `Workspace source ${JSON.stringify(sourcePath)} exceeds ${MAX_MANAGED_FILE_BYTES} bytes.`,
+      "$.workspace",
+    );
+  }
+  if (
+    (error instanceof FsSafeError &&
+      (error.code === "symlink" || error.code === "hardlink" || error.code === "path-mismatch")) ||
+    (error instanceof Error && error.message.includes("symlinked directory"))
+  ) {
+    return fileDiagnostic(
+      "workspace_source_unsafe",
+      `Workspace source ${JSON.stringify(sourcePath)} must be a regular, non-symlinked, non-hardlinked file.`,
+      "$.workspace",
+    );
+  }
+  return fileDiagnostic(
+    "workspace_source_invalid",
+    `Workspace source ${JSON.stringify(sourcePath)} must resolve inside the Claw source.`,
+    "$.workspace",
+  );
 }
 
 async function buildDevelopmentSnapshot(params: {
@@ -68,42 +101,80 @@ async function buildDevelopmentSnapshot(params: {
     ...params.manifest.workspace.files.map((entry) => entry.source),
   ].toSorted((left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)));
 
-  for (const sourcePath of declaredSources) {
-    const requested = resolve(params.source.packageRoot, sourcePath);
-    const [requestedStat, sourceRealPath] = await Promise.all([
-      lstat(requested).catch(() => undefined),
-      realpath(requested).catch(() => undefined),
-    ]);
-    if (
-      !requestedStat ||
-      !sourceRealPath ||
-      !isContained(params.source.packageRoot, sourceRealPath)
-    ) {
+  const sourceRoot = await fsSafeRoot(params.source.packageRoot);
+  const openedSources: Array<{ sourcePath: string; opened: OpenResult }> = [];
+  try {
+    let workspaceByteLength = 0;
+    for (const sourcePath of declaredSources) {
+      try {
+        await assertNoSymlinkParents({
+          rootDir: params.source.packageRoot,
+          targetPath: resolve(params.source.packageRoot, sourcePath),
+          allowMissing: false,
+          messagePrefix: "Workspace source",
+        });
+        const opened = await sourceRoot.open(sourcePath, {
+          hardlinks: "reject",
+          symlinks: "reject",
+        });
+        if (opened.stat.size > MAX_MANAGED_FILE_BYTES) {
+          await opened[Symbol.asyncDispose]();
+          throw new FsSafeError(
+            "too-large",
+            `file exceeds limit of ${MAX_MANAGED_FILE_BYTES} bytes (got ${opened.stat.size})`,
+          );
+        }
+        workspaceByteLength += opened.stat.size;
+        openedSources.push({ sourcePath, opened });
+      } catch (error) {
+        return { ok: false, diagnostics: [workspaceSourceDiagnostic(error, sourcePath)] };
+      }
+    }
+
+    if (workspaceByteLength > MAX_MANAGED_WORKSPACE_BYTES) {
       return {
         ok: false,
         diagnostics: [
           fileDiagnostic(
-            "workspace_source_invalid",
-            `Workspace source ${JSON.stringify(sourcePath)} must resolve inside the Claw source.`,
+            "workspace_sources_too_large",
+            `Workspace sources exceed ${MAX_MANAGED_WORKSPACE_BYTES} aggregate bytes.`,
             "$.workspace",
           ),
         ],
       };
     }
-    const sourceStat = await stat(sourceRealPath);
-    if (!sourceStat.isFile() || requestedStat.isSymbolicLink() || sourceStat.nlink > 1) {
-      return {
-        ok: false,
-        diagnostics: [
-          fileDiagnostic(
-            "workspace_source_unsafe",
-            `Workspace source ${JSON.stringify(sourcePath)} must be a regular, non-linked file.`,
-            "$.workspace",
-          ),
-        ],
-      };
+
+    let readWorkspaceByteLength = 0;
+    for (const { sourcePath, opened } of openedSources) {
+      const bytes = await opened.handle.readFile();
+      if (bytes.byteLength > MAX_MANAGED_FILE_BYTES) {
+        return {
+          ok: false,
+          diagnostics: [
+            workspaceSourceDiagnostic(
+              new FsSafeError("too-large", "workspace source grew while reading"),
+              sourcePath,
+            ),
+          ],
+        };
+      }
+      readWorkspaceByteLength += bytes.byteLength;
+      if (readWorkspaceByteLength > MAX_MANAGED_WORKSPACE_BYTES) {
+        return {
+          ok: false,
+          diagnostics: [
+            fileDiagnostic(
+              "workspace_sources_too_large",
+              `Workspace sources exceed ${MAX_MANAGED_WORKSPACE_BYTES} aggregate bytes.`,
+              "$.workspace",
+            ),
+          ],
+        };
+      }
+      add(`workspace:${sourcePath.replaceAll("\\", "/")}`, bytes);
     }
-    add(`workspace:${sourcePath.replaceAll("\\", "/")}`, await readFile(sourceRealPath));
+  } finally {
+    await Promise.all(openedSources.map(({ opened }) => opened[Symbol.asyncDispose]()));
   }
 
   return { ok: true, integrity: `sha256:${hash.digest("hex")}`, byteLength };
