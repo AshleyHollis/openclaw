@@ -5,6 +5,7 @@ export type LegacyAuditLogSource = {
   logicalSourcePath: string;
   storage: "active" | "claim" | "raw-archive";
   sanitizedArchivePath?: string;
+  rawArchivePath?: string;
 };
 
 export type LegacyAuditLogsDetection = {

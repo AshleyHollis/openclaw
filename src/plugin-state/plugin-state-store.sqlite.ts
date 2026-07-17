@@ -297,7 +297,7 @@ function countLivePluginStateNamespaceEntries(
 
 function allocatePluginStateNamespaceCreatedAt(
   db: DatabaseSync,
-  params: { pluginId: string; namespace: string },
+  params: { pluginId: string; namespace: string; now: number },
 ): number {
   const row = executeSqliteQueryTakeFirstSync(
     db,
@@ -308,7 +308,7 @@ function allocatePluginStateNamespaceCreatedAt(
       .where("namespace", "=", params.namespace),
   );
   const previous = normalizeSqliteNumber(row?.max_created_at ?? null);
-  const next = previous === undefined ? 0 : Math.max(0, previous + 1);
+  const next = previous === undefined ? params.now : Math.max(params.now, previous + 1);
   if (!Number.isSafeInteger(next)) {
     throw new RangeError("Plugin state namespace append order exhausted safe integer range");
   }
@@ -710,6 +710,7 @@ export function pluginStateRegisterSequencedJournalEntry(params: {
             createdAt: allocatePluginStateNamespaceCreatedAt(store.db, {
               pluginId: params.pluginId,
               namespace: params.journalNamespace,
+              now,
             }),
             expiresAt: null,
           }),

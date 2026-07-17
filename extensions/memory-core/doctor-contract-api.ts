@@ -1299,35 +1299,45 @@ async function collectLegacyMemoryHostEventSources(
   return sources;
 }
 
-async function firstFreeMemoryHostEventArchivePath(
+async function resolveMemoryHostEventArchivePath(
   source: ReadyLegacyMemoryHostEventSource,
-): Promise<string> {
-  for (let index = 2; ; index += 1) {
-    const candidate = `${source.relativePath}.migrated.${index}`;
-    if (!(await source.root.exists(candidate))) {
-      return candidate;
+): Promise<{ relativePath: string; generationKey: string }> {
+  const directoryPath = path.join(source.root.rootReal, path.dirname(source.relativePath));
+  const baseName = path.basename(source.relativePath).replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const archivePattern = new RegExp(`^${baseName}\\.migrated(?:\\.([2-9]|[1-9][0-9]+))?$`, "u");
+  let latestGeneration = 0n;
+  for (const entry of await fs.readdir(directoryPath)) {
+    const match = archivePattern.exec(entry);
+    if (!match) {
+      continue;
+    }
+    const generation = BigInt(match[1] ?? "1");
+    if (generation > latestGeneration) {
+      latestGeneration = generation;
     }
   }
+  const generation = latestGeneration + 1n;
+  const generationText = generation.toString();
+  if (generationText.length > 20) {
+    throw new RangeError("Memory Core host event archive generation is too large");
+  }
+  return {
+    relativePath: `${source.relativePath}.migrated${generation === 1n ? "" : `.${generation}`}`,
+    // Fixed-width decimal order keeps key-range reads chronological across archives.
+    generationKey: generationText.padStart(20, "0"),
+  };
 }
 
 async function archiveLegacyMemoryHostEventSource(params: {
   source: ReadyLegacyMemoryHostEventSource;
+  archivedRelativePath: string;
   changes: string[];
   warnings: string[];
 }): Promise<void> {
-  const archivedRelativePath = `${params.source.relativePath}.migrated`;
   try {
-    if (await params.source.root.exists(archivedRelativePath)) {
-      const nextRelativePath = await firstFreeMemoryHostEventArchivePath(params.source);
-      await params.source.root.move(params.source.relativePath, nextRelativePath);
-      params.changes.push(
-        `Archived Memory Core host events legacy source -> ${path.join(params.source.workspaceDir, nextRelativePath)}`,
-      );
-      return;
-    }
-    await params.source.root.move(params.source.relativePath, archivedRelativePath);
+    await params.source.root.move(params.source.relativePath, params.archivedRelativePath);
     params.changes.push(
-      `Archived Memory Core host events legacy source -> ${params.source.filePath}.migrated`,
+      `Archived Memory Core host events legacy source -> ${path.join(params.source.workspaceDir, params.archivedRelativePath)}`,
     );
   } catch (error) {
     params.warnings.push(
@@ -1344,10 +1354,13 @@ async function migrateLegacyMemoryHostEventSource(params: {
 }): Promise<void> {
   const warningStart = params.warnings.length;
   const raw = await params.source.root.readText(params.source.relativePath);
+  const archive = await resolveMemoryHostEventArchivePath(params.source);
+  const archivedRelativePath = archive.relativePath;
   if (!raw.trim()) {
     params.changes.push("Retired empty Memory Core host events legacy source");
     await archiveLegacyMemoryHostEventSource({
       source: params.source,
+      archivedRelativePath,
       changes: params.changes,
       warnings: params.warnings,
     });
@@ -1401,7 +1414,7 @@ async function migrateLegacyMemoryHostEventSource(params: {
       // Runtime event keys use the adjacent `1:` range in event-store.ts.
       // Valid-row ordinals preserve the retired JSONL append order. Canonical
       // digests keep an interrupted all-valid import stable across formatting.
-      key: `${prefix}:event:0:${records.length.toString().padStart(16, "0")}:${digest}`,
+      key: `${prefix}:event:0:${archive.generationKey}:${records.length.toString().padStart(16, "0")}:${digest}`,
       value,
     });
   }
@@ -1419,14 +1432,50 @@ async function migrateLegacyMemoryHostEventSource(params: {
   });
   const existingEntries = await store.entries();
   const existingKeys = new Set(existingEntries.map((entry) => entry.key));
+  const existingByKey = new Map(existingEntries.map((entry) => [entry.key, entry]));
   const sourceKeys = new Set(records.map((record) => record.key));
-  const nonSourceExistingCount = existingEntries.filter(
-    (entry) => !sourceKeys.has(entry.key),
-  ).length;
-  const sourceRetentionLimit = Math.max(0, MAX_MEMORY_HOST_EVENTS - nonSourceExistingCount);
-  // The retired JSONL was unbounded. Keep its newest append-ordered tail while
-  // preserving any SQLite-native rows already occupying the namespace budget.
-  let retainedRecords = sourceRetentionLimit === 0 ? [] : records.slice(-sourceRetentionLimit);
+  const existingSourceBase = records.flatMap((record, index) => {
+    const existing = existingByKey.get(record.key);
+    return existing && existing.value.sequence < 0 ? [existing.value.sequence - (index + 1)] : [];
+  })[0];
+  const latestLegacySequence = existingEntries.reduce(
+    (latest, entry) => (entry.value.sequence < 0 ? Math.max(latest, entry.value.sequence) : latest),
+    LEGACY_MEMORY_HOST_SEQUENCE_BASE,
+  );
+  const sourceSequenceBase = existingSourceBase ?? latestLegacySequence;
+  const sequencedRecords = records.map((record, index) => ({
+    ...record,
+    value: { ...record.value, sequence: sourceSequenceBase + index + 1 },
+  }));
+  if (
+    sequencedRecords.some(
+      (record) => !Number.isSafeInteger(record.value.sequence) || record.value.sequence >= 0,
+    )
+  ) {
+    params.warnings.push(
+      "Skipped Memory Core host event migration because legacy sequence capacity is exhausted; left legacy source in place",
+    );
+    return;
+  }
+  const nativeCount = existingEntries.filter((entry) => entry.value.sequence >= 0).length;
+  const legacyRetentionLimit = Math.max(0, MAX_MEMORY_HOST_EVENTS - nativeCount);
+  const combinedLegacy = [
+    ...existingEntries
+      .filter((entry) => entry.value.sequence < 0 && !sourceKeys.has(entry.key))
+      .map((entry) => ({ key: entry.key, sequence: entry.value.sequence })),
+    ...sequencedRecords.map((record) => ({
+      key: record.key,
+      sequence: record.value.sequence,
+    })),
+  ].toSorted((left, right) => left.sequence - right.sequence || left.key.localeCompare(right.key));
+  const desiredLegacyKeys = new Set(
+    legacyRetentionLimit === 0
+      ? []
+      : combinedLegacy.slice(-legacyRetentionLimit).map((record) => record.key),
+  );
+  // Native rows stay protected. Newer legacy sources replace older legacy rows
+  // across workspaces and archive generations within the remaining namespace budget.
+  let retainedRecords = sequencedRecords.filter((record) => desiredLegacyKeys.has(record.key));
   const capacity = params.context.getPluginStateCapacity?.();
   if (!capacity) {
     params.warnings.push(
@@ -1457,20 +1506,20 @@ async function migrateLegacyMemoryHostEventSource(params: {
   }
   let retainedKeys = new Set(retainedRecords.map((record) => record.key));
   let missing = retainedRecords.filter((record) => !existingKeys.has(record.key));
-  let replaceableSourceRows = existingEntries.filter(
-    (entry) => sourceKeys.has(entry.key) && !retainedKeys.has(entry.key),
+  let replaceableLegacyRows = existingEntries.filter(
+    (entry) => entry.value.sequence < 0 && !retainedKeys.has(entry.key),
   ).length;
-  const eventCapacity = pluginRemainingCapacity - cursorCapacity + replaceableSourceRows;
+  const eventCapacity = pluginRemainingCapacity - cursorCapacity + replaceableLegacyRows;
   const retentionDeficit = Math.max(0, missing.length - eventCapacity);
   if (retentionDeficit > 0) {
     retainedRecords = retainedRecords.slice(Math.min(retentionDeficit, retainedRecords.length));
     retainedKeys = new Set(retainedRecords.map((record) => record.key));
     missing = retainedRecords.filter((record) => !existingKeys.has(record.key));
-    replaceableSourceRows = existingEntries.filter(
-      (entry) => sourceKeys.has(entry.key) && !retainedKeys.has(entry.key),
+    replaceableLegacyRows = existingEntries.filter(
+      (entry) => entry.value.sequence < 0 && !retainedKeys.has(entry.key),
     ).length;
   }
-  const availableEventCapacity = pluginRemainingCapacity - cursorCapacity + replaceableSourceRows;
+  const availableEventCapacity = pluginRemainingCapacity - cursorCapacity + replaceableLegacyRows;
   if (missing.length > availableEventCapacity) {
     params.warnings.push(
       `Skipped Memory Core host event migration because SQLite plugin state has room for ${availableEventCapacity} of ${missing.length} missing rows after reserving its workspace cursor; left legacy source in place`,
@@ -1517,6 +1566,7 @@ async function migrateLegacyMemoryHostEventSource(params: {
   );
   await archiveLegacyMemoryHostEventSource({
     source: params.source,
+    archivedRelativePath,
     changes: params.changes,
     warnings: params.warnings,
   });

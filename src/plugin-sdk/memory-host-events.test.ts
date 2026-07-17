@@ -4,7 +4,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { setMaxMemoryHostEventsForTests } from "../memory-host-sdk/event-store.js";
+import {
+  listStoredMemoryHostEvents,
+  setMaxMemoryHostEventsForTests,
+} from "../memory-host-sdk/event-store.js";
 import { resetPluginStateStoreForTests } from "../plugin-state/plugin-state-store.js";
 import {
   appendMemoryHostEvent,
@@ -87,6 +90,32 @@ describe("memory host event journal helpers", () => {
     expect(events[1].outcome).toBe("completed");
     expect(tail).toHaveLength(1);
     expect(tail[0]?.type).toBe("memory.dream.completed");
+  });
+
+  it("keeps journal retention timestamps in the current wall-clock domain", async () => {
+    const workspaceDir = await createTempDir("memory-host-events-created-at-");
+    const env = { ...process.env, OPENCLAW_STATE_DIR: workspaceDir };
+    const now = Date.parse("2026-07-16T12:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    for (const query of ["first", "second"]) {
+      await appendMemoryHostEvent(
+        workspaceDir,
+        {
+          type: "memory.recall.recorded",
+          timestamp: "2026-07-16T12:00:00.000Z",
+          query,
+          resultCount: 0,
+          results: [],
+        },
+        { env },
+      );
+    }
+
+    expect(
+      listStoredMemoryHostEvents({ workspaceDir, env }).map((entry) => entry.createdAt),
+    ).toEqual([now, now + 1]);
   });
 
   it("keeps legacy event readers stable when diagnostic records are present", async () => {

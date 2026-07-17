@@ -549,6 +549,56 @@ describe("memory-core doctor dreaming migration", () => {
     await expect(fs.access(`${eventPath}.migrated`)).resolves.toBeUndefined();
   });
 
+  it("keeps identical events recreated by an older writer as a new archive generation", async () => {
+    const eventPath = path.join(workspaceDir, "memory", ".dreams", "events.jsonl");
+    const event = {
+      type: "memory.recall.recorded",
+      timestamp: "2026-07-01T00:00:00.000Z",
+      query: "repeated after downgrade",
+      resultCount: 0,
+      results: [],
+    };
+    const migration = hostEventsMigration();
+    await fs.writeFile(eventPath, `${JSON.stringify(event)}\n`, "utf8");
+    await migration.migrateLegacyState(migrationParams());
+    await fs.writeFile(eventPath, `${JSON.stringify(event)}\n`, "utf8");
+
+    const repeated = await migration.migrateLegacyState(migrationParams());
+
+    expect(repeated.warnings).toEqual([]);
+    expect(repeated.changes).toEqual([
+      "Migrated Memory Core host events -> SQLite plugin state (1 new row(s))",
+      expect.stringContaining("events.jsonl.migrated.2"),
+    ]);
+    await expect(readMemoryHostEventRecords({ workspaceDir, env })).resolves.toHaveLength(2);
+    await expect(fs.access(`${eventPath}.migrated`)).resolves.toBeUndefined();
+    await expect(fs.access(`${eventPath}.migrated.2`)).resolves.toBeUndefined();
+  });
+
+  it("orders and limits migrated host events by archive generation", async () => {
+    const eventPath = path.join(workspaceDir, "memory", ".dreams", "events.jsonl");
+    const event = (query: string) => ({
+      type: "memory.recall.recorded",
+      timestamp: "2026-07-01T00:00:00.000Z",
+      query,
+      resultCount: 0,
+      results: [],
+    });
+    const migration = hostEventsMigration();
+    await fs.writeFile(eventPath, `${JSON.stringify(event("older generation"))}\n`, "utf8");
+    await migration.migrateLegacyState(migrationParams());
+    await fs.writeFile(eventPath, `${JSON.stringify(event("newer generation"))}\n`, "utf8");
+    await migration.migrateLegacyState(migrationParams());
+
+    await expect(readMemoryHostEventRecords({ workspaceDir, env })).resolves.toMatchObject([
+      { query: "older generation" },
+      { query: "newer generation" },
+    ]);
+    await expect(
+      readMemoryHostEventRecords({ workspaceDir, env, limit: 1 }),
+    ).resolves.toMatchObject([{ query: "newer generation" }]);
+  });
+
   it("defers host event import when a source contains invalid rows", async () => {
     const eventPath = path.join(workspaceDir, "memory", ".dreams", "events.jsonl");
     await fs.writeFile(
@@ -758,7 +808,25 @@ describe("memory-core doctor dreaming migration", () => {
     expect(imported).toHaveLength(10_000);
     expect(imported[0]).toMatchObject({ query: "oversized-2" });
     expect(imported.at(-1)).toMatchObject({ query: "oversized-10001" });
+    await fs.writeFile(
+      eventPath,
+      `${JSON.stringify({
+        type: "memory.recall.recorded",
+        timestamp: "2026-07-02T00:00:00.000Z",
+        query: "newer recreated generation",
+        resultCount: 0,
+        results: [],
+      })}\n`,
+    );
+    const repeated = await hostEventsMigration().migrateLegacyState(migrationParams());
+    expect(repeated.warnings).toEqual([]);
+    expect(repeated.changes[0]).toContain("1 new row");
+    const afterRepeated = await readMemoryHostEventRecords({ workspaceDir, env });
+    expect(afterRepeated).toHaveLength(10_000);
+    expect(afterRepeated[0]).toMatchObject({ query: "oversized-3" });
+    expect(afterRepeated.at(-1)).toMatchObject({ query: "newer recreated generation" });
     await expect(fs.access(`${eventPath}.migrated`)).resolves.toBeUndefined();
+    await expect(fs.access(`${eventPath}.migrated.2`)).resolves.toBeUndefined();
   });
 
   it("leaves legacy host events in place when plugin-wide SQLite capacity is exhausted", async () => {
