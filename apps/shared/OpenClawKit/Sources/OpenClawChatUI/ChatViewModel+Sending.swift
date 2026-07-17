@@ -640,7 +640,7 @@ extension OpenClawChatViewModel {
                 + "localRunId=\(attempt.runId) remoteRunId=\(response.runId)")
         if response.status != "error", response.status != "timeout" {
             haptics.perform(.messageSent)
-            finishAcceptedComposerSend(attempt.draft)
+            self.finishAcceptedComposerSend(attempt.draft)
         }
         let reusedRunAlreadyFinal = response.runId == attempt.runId
             ? false
@@ -720,7 +720,7 @@ extension OpenClawChatViewModel {
                 session: attempt.draft.session,
                 deliveryIsAmbiguous: deliveryIsAmbiguous)
             if preserved {
-                finishAcceptedComposerSend(attempt.draft)
+                self.finishAcceptedComposerSend(attempt.draft)
                 applyTransportHealth(false)
                 let outcome = deliveryIsAmbiguous ? "delivery unconfirmed" : "queued after route change"
                 logDiagnostic(
