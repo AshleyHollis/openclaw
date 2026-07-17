@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CONFIG_AUDIT_MAX_ENTRIES, CONFIG_AUDIT_SCOPE } from "../config/io.audit.js";
 import { listConfigAuditRecordsForTests } from "../config/io.audit.test-support.js";
 import { resetPluginStateStoreForTests } from "../plugin-state/plugin-state-store.js";
@@ -233,6 +233,79 @@ describe("legacy core audit log migration", () => {
       expect(rawCheckpoints).toHaveLength(1);
       expect(rawCheckpoints[0]?.value.recordCount).toBe(4);
     });
+  });
+
+  it("retries raw archive recovery when sanitized archive hardening fails", async () => {
+    await withTempDir(
+      { prefix: "openclaw-audit-migration-recovery-permissions-" },
+      async (stateDir) => {
+        const sourcePath = path.join(stateDir, "audit", "system-agent.jsonl");
+        const event = (summary: string) => ({
+          timestamp: "2026-07-03T00:00:00.000Z",
+          operation: "gateway.restart",
+          summary,
+        });
+        await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+        await fs.writeFile(sourcePath, `${JSON.stringify(event("before archive"))}\n`);
+        await migrateLegacyAuditLogs({
+          detected: detectLegacyAuditLogs({ stateDir, doctorOnlyStateMigrations: true }),
+          stateDir,
+        });
+        await fs.appendFile(
+          `${sourcePath}.migrated.raw`,
+          `${JSON.stringify(event("later row"))}\n`,
+        );
+        const probe = await fs.open(path.join(stateDir, "recovery-chmod-probe"), "w");
+        const fileHandlePrototype = Object.getPrototypeOf(probe) as {
+          chmod(mode: number): Promise<void>;
+        };
+        await probe.close();
+        const originalChmod = fileHandlePrototype.chmod;
+        let chmodCalls = 0;
+        const chmodSpy = vi.spyOn(fileHandlePrototype, "chmod").mockImplementation(function (
+          this: typeof fileHandlePrototype,
+          mode: number,
+        ) {
+          chmodCalls += 1;
+          if (chmodCalls === 2) {
+            return Promise.reject(new Error("simulated recovery chmod failure"));
+          }
+          return originalChmod.call(this, mode);
+        });
+
+        let failed: Awaited<ReturnType<typeof migrateLegacyAuditLogs>>;
+        try {
+          failed = await migrateLegacyAuditLogs({
+            detected: detectLegacyAuditLogs({ stateDir, doctorOnlyStateMigrations: true }),
+            stateDir,
+          });
+        } finally {
+          chmodSpy.mockRestore();
+        }
+
+        expect(failed.changes).toEqual([]);
+        expect(failed.warnings.join("\n")).toContain(
+          "Failed securing sanitized system-agent audit log",
+        );
+        expect(
+          detectLegacyAuditLogs({ stateDir, doctorOnlyStateMigrations: true }).sources,
+        ).toMatchObject([{ storage: "raw-archive" }]);
+
+        const recovered = await migrateLegacyAuditLogs({
+          detected: detectLegacyAuditLogs({ stateDir, doctorOnlyStateMigrations: true }),
+          stateDir,
+        });
+        expect(recovered.warnings).toEqual([]);
+        expect(
+          listSystemAgentAuditEntriesForTests({
+            env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
+          }).map((entry) => entry.value.summary),
+        ).toEqual(["before archive", "later row"]);
+        expect(
+          detectLegacyAuditLogs({ stateDir, doctorOnlyStateMigrations: true }).sources,
+        ).toEqual([]);
+      },
+    );
   });
 
   it("keeps identical rows from separate raw archive generations", async () => {
@@ -476,6 +549,64 @@ describe("legacy core audit log migration", () => {
           env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
         }),
       ).toEqual([]);
+    });
+  });
+
+  it("restores the active source when raw archive hardening fails", async () => {
+    await withTempDir({ prefix: "openclaw-audit-migration-permissions-" }, async (stateDir) => {
+      const sourcePath = path.join(stateDir, "logs", "config-audit.jsonl");
+      const record = {
+        ts: "2026-07-01T00:00:00.000Z",
+        source: "config-io",
+        event: "config.write",
+        argv: ["openclaw", "config", "set", "token", "secret-value"],
+        execArgv: [],
+      };
+      await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+      await fs.writeFile(sourcePath, `${JSON.stringify(record)}\n`);
+      const probe = await fs.open(path.join(stateDir, "chmod-probe"), "w");
+      const fileHandlePrototype = Object.getPrototypeOf(probe) as {
+        chmod(mode: number): Promise<void>;
+      };
+      await probe.close();
+      const originalChmod = fileHandlePrototype.chmod;
+      let chmodCalls = 0;
+      const chmodSpy = vi.spyOn(fileHandlePrototype, "chmod").mockImplementation(function (
+        this: typeof fileHandlePrototype,
+        mode: number,
+      ) {
+        chmodCalls += 1;
+        if (chmodCalls === 3) {
+          return Promise.reject(new Error("simulated chmod failure"));
+        }
+        return originalChmod.call(this, mode);
+      });
+
+      let failed: Awaited<ReturnType<typeof migrateLegacyAuditLogs>>;
+      try {
+        failed = await migrateLegacyAuditLogs({
+          detected: detectLegacyAuditLogs({ stateDir, doctorOnlyStateMigrations: true }),
+          stateDir,
+        });
+      } finally {
+        chmodSpy.mockRestore();
+      }
+
+      expect(failed.changes).toEqual([]);
+      expect(failed.warnings.join("\n")).toContain("Failed securing raw archived config audit log");
+      await expect(fs.readFile(sourcePath, "utf8")).resolves.toContain("secret-value");
+      await expect(fs.access(`${sourcePath}.migrated`)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(fs.access(`${sourcePath}.migrated.raw`)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+
+      const recovered = await migrateLegacyAuditLogs({
+        detected: detectLegacyAuditLogs({ stateDir, doctorOnlyStateMigrations: true }),
+        stateDir,
+      });
+      expect(recovered.warnings).toEqual([]);
+      await expect(fs.access(sourcePath)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(fs.access(`${sourcePath}.migrated.raw`)).resolves.toBeUndefined();
     });
   });
 

@@ -506,23 +506,38 @@ async function archiveLegacyAuditClaim(params: {
       await params.root.create(archivePaths.sanitized, params.sanitizedJsonl, { mode: 0o600 });
     }
     sanitizedCreated = true;
-    await secureAuditArchiveFile({
-      root: params.root,
-      relativePath: archivePaths.sanitized,
-      label: `sanitized ${params.source.label}`,
-      warnings: params.warnings,
-    });
+    if (
+      !(await secureAuditArchiveFile({
+        root: params.root,
+        relativePath: archivePaths.sanitized,
+        label: `sanitized ${params.source.label}`,
+        warnings: params.warnings,
+      }))
+    ) {
+      return { moved: false };
+    }
     // Keep the claimed inode intact. A predecessor CLI may already hold an append
     // descriptor across the claim; moving that inode to a named migration backup
     // preserves any late write while the sanitized sibling remains safe to inspect.
     await params.root.move(params.claimRelativePath, archivePaths.raw);
+    if (
+      !(await secureAuditArchiveFile({
+        root: params.root,
+        relativePath: archivePaths.raw,
+        label: `raw archived ${params.source.label}`,
+        warnings: params.warnings,
+      }))
+    ) {
+      try {
+        await params.root.move(archivePaths.raw, params.claimRelativePath);
+      } catch (error) {
+        params.warnings.push(
+          `Failed restoring unsecured ${params.source.label} legacy source: ${String(error)}`,
+        );
+      }
+      return { moved: false };
+    }
     moved = true;
-    await secureAuditArchiveFile({
-      root: params.root,
-      relativePath: archivePaths.raw,
-      label: `raw archived ${params.source.label}`,
-      warnings: params.warnings,
-    });
     params.changes.push(
       `Archived sanitized ${params.source.label} legacy source → ${path.join(path.dirname(params.source.logicalSourcePath), path.basename(archivePaths.sanitized))}; preserved original inode → ${path.join(path.dirname(params.source.logicalSourcePath), path.basename(archivePaths.raw))}`,
     );
@@ -720,12 +735,16 @@ async function migrateLegacyAuditLogSource(params: {
         mkdir: false,
         mode: 0o600,
       });
-      await secureAuditArchiveFile({
-        root,
-        relativePath: sanitizedRelativePath,
-        label: `sanitized ${params.source.label}`,
-        warnings,
-      });
+      if (
+        !(await secureAuditArchiveFile({
+          root,
+          relativePath: sanitizedRelativePath,
+          label: `sanitized ${params.source.label}`,
+          warnings,
+        }))
+      ) {
+        return { changes, warnings };
+      }
       if (missing.length > 0) {
         changes.push(
           `Recovered ${missing.length} later ${params.source.label} row(s) from ${params.source.sourcePath}${retentionNote}`,

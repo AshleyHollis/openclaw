@@ -492,8 +492,8 @@ describe("openclaw agent database", () => {
     expect(registered?.sizeBytes).toBeGreaterThan(0);
   });
 
-  it("folds additive heartbeat storage into schema version 11", () => {
-    expect(OPENCLAW_AGENT_SCHEMA_VERSION).toBe(11);
+  it("keeps additive heartbeat repair while upgrading schema version 11", () => {
+    expect(OPENCLAW_AGENT_SCHEMA_VERSION).toBe(12);
     const stateDir = createTempStateDir();
     const env = { OPENCLAW_STATE_DIR: stateDir };
     const opened = openOpenClawAgentDatabase({ agentId: "worker-1", env });
@@ -515,12 +515,12 @@ describe("openclaw agent database", () => {
         .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = ?")
         .get("heartbeat_outcomes"),
     ).toEqual({ name: "heartbeat_outcomes" });
-    expect(readSqliteNumberPragma(reopened.db, "user_version")).toBe(11);
+    expect(readSqliteNumberPragma(reopened.db, "user_version")).toBe(OPENCLAW_AGENT_SCHEMA_VERSION);
     expect(
       reopened.db
         .prepare("SELECT schema_version FROM schema_meta WHERE meta_key = 'primary'")
         .get(),
-    ).toEqual({ schema_version: 11 });
+    ).toEqual({ schema_version: OPENCLAW_AGENT_SCHEMA_VERSION });
   });
 
   it("upgrades version 10 with agent state intact and adds lease storage", () => {

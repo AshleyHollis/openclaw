@@ -1604,6 +1604,9 @@ async function migrateLegacyMemoryHostEventSource(params: {
         maxEntries: MAX_MEMORY_HOST_EVENT_MIGRATION_CHECKPOINTS,
         overflowPolicy: "reject-new",
       });
+    // Plugin-wide shedding is namespace-local. `reject-new` therefore keeps
+    // retained raw-archive checkpoints out of every sibling namespace's
+    // eviction budget and fails before this namespace can rotate its own rows.
     const checkpointKey = memoryHostMigrationCheckpointKey(source);
     const checkpointValue = await checkpointStore.lookup(checkpointKey);
     const previousCheckpoint = isMemoryHostMigrationCheckpoint(checkpointValue)

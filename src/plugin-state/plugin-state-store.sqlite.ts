@@ -460,7 +460,9 @@ function enforcePostRegisterLimits(params: {
     return;
   }
 
-  // Shed rows from the namespace that grew before failing the plugin write.
+  // Shed only rows from the namespace that grew. Sibling namespaces can hold
+  // durable state; if this namespace cannot cover the overflow, fail so the
+  // surrounding transaction rolls every insertion and deletion back.
   deleteOldestPluginStateNamespaceEntries(params.store.db, {
     pluginId: params.pluginId,
     namespace: params.namespace,
