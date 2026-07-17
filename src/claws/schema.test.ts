@@ -327,7 +327,11 @@ describe("readClawManifestFile", () => {
     const root = await mkdtemp(join(tmpdir(), "openclaw-claw-reader-symlink-"));
     await mkdir(join(root, "workspace"));
     await writeFile(join(root, "workspace", "AGENTS.md"), "# Agent\n", "utf8");
-    await symlink(join(root, "workspace"), join(root, "workspace-link"), "dir");
+    await symlink(
+      join(root, "workspace"),
+      join(root, "workspace-link"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
     const manifestPath = join(root, "demo.claw.json");
     await writeFile(
       manifestPath,
@@ -516,7 +520,7 @@ describe("buildClawAddPlan", () => {
     await symlink(
       join(source.packageRoot, "workspace"),
       join(source.packageRoot, "workspace-link"),
-      "dir",
+      process.platform === "win32" ? "junction" : "dir",
     );
     const plan = await buildClawAddPlan({
       manifest: requireManifest({
