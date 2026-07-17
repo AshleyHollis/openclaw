@@ -159,6 +159,35 @@ export function createSqliteAuditRecordStore<T>(
         });
       }, options);
     },
+    upsert(key: string, value: T, createdAt = Date.now()): void {
+      const record = prepareRecord({ key, value, createdAt });
+      runOpenClawStateWriteTransaction((database) => {
+        executeSqliteQuerySync(
+          database.db,
+          getAuditRecordKysely(database.db)
+            .insertInto("diagnostic_events")
+            .values({
+              scope,
+              event_key: record.event_key,
+              payload_json: record.payload_json,
+              created_at: record.created_at,
+              sequence: nextAuditSequence({ database: database.db, scope, legacy: false }),
+            })
+            .onConflict((conflict) =>
+              conflict.columns(["scope", "event_key"]).doUpdateSet({
+                payload_json: record.payload_json,
+                created_at: record.created_at,
+              }),
+            ),
+        );
+        pruneAuditRecords({
+          database: database.db,
+          scope,
+          maxEntries,
+          protectedKey: key,
+        });
+      }, options);
+    },
     registerLegacyMany(records: readonly SqliteAuditRecordEntry<T>[]): void {
       const prepared = records.map(prepareRecord);
       if (prepared.length === 0) {

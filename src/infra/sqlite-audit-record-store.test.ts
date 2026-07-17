@@ -76,6 +76,26 @@ describe("SQLite audit record store", () => {
     });
   });
 
+  it("updates a retained key without consuming another bounded entry", async () => {
+    await withTempDir({ prefix: "openclaw-audit-store-upsert-" }, async (stateDir) => {
+      const store = createSqliteAuditRecordStore<{ value: number }>({
+        scope: "upsert-test",
+        maxEntries: 2,
+        env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
+      });
+
+      store.register("one", { value: 1 }, 1);
+      store.register("two", { value: 2 }, 2);
+      store.upsert("one", { value: 3 }, 3);
+
+      expect(store.size()).toBe(2);
+      expect(store.entries()).toEqual([
+        { key: "one", value: { value: 3 }, createdAt: 3 },
+        { key: "two", value: { value: 2 }, createdAt: 2 },
+      ]);
+    });
+  });
+
   it("orders legacy batches before existing runtime rows", async () => {
     await withTempDir({ prefix: "openclaw-audit-store-legacy-order-" }, async (stateDir) => {
       const store = createSqliteAuditRecordStore<{ value: number }>({

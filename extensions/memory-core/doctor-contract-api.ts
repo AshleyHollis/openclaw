@@ -1669,14 +1669,16 @@ async function migrateLegacyMemoryHostEventSource(params: {
           value: { ...record.value, sequence: existing.value.sequence },
         };
       }
-      nextSequence += 1;
-      const sequenceKey = (nextSequence - LEGACY_MEMORY_HOST_SEQUENCE_BASE)
+      const sequence = previousCheckpoint
+        ? (nextSequence += 1)
+        : sourceSequenceBase + record.ordinal + 1;
+      const sequenceKey = (sequence - LEGACY_MEMORY_HOST_SEQUENCE_BASE)
         .toString()
         .padStart(16, "0");
       return {
         ...record,
         key: `${legacyKeyPrefix}${sequenceKey}:${identity}`,
-        value: { ...record.value, sequence: nextSequence },
+        value: { ...record.value, sequence },
       };
     });
     const sourceKeys = new Set(sequencedRecords.map((record) => record.key));

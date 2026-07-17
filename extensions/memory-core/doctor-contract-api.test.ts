@@ -894,6 +894,19 @@ describe("memory-core doctor dreaming migration", () => {
     expect(imported).toHaveLength(10_000);
     expect(imported[0]).toMatchObject({ query: "oversized-2" });
     expect(imported.at(-1)).toMatchObject({ query: "oversized-10001" });
+    await context()
+      .openPluginStateKeyedStore({
+        namespace: "memory-host.event-migration-checkpoints",
+        maxEntries: 10_000,
+        overflowPolicy: "reject-new",
+      })
+      .clear();
+    const retriedWithoutCheckpoint =
+      await hostEventsMigration().migrateLegacyState(migrationParams());
+    expect(retriedWithoutCheckpoint.warnings).toEqual([]);
+    const afterCheckpointRetry = await readMemoryHostEventRecords({ workspaceDir, env });
+    expect(afterCheckpointRetry[0]).toMatchObject({ query: "oversized-2" });
+    expect(afterCheckpointRetry.at(-1)).toMatchObject({ query: "oversized-10001" });
     await fs.writeFile(
       eventPath,
       `${JSON.stringify({

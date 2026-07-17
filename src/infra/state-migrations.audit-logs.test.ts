@@ -225,6 +225,13 @@ describe("legacy core audit log migration", () => {
           env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
         }).map((entry) => entry.value.summary),
       ).toEqual(["second", "third", "appended", "runtime"]);
+      const rawCheckpoints = createSqliteAuditRecordStore<{ recordCount: number }>({
+        scope: "migration.legacy-audit-raw",
+        maxEntries: 10_000,
+        env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
+      }).entries();
+      expect(rawCheckpoints).toHaveLength(1);
+      expect(rawCheckpoints[0]?.value.recordCount).toBe(4);
     });
   });
 

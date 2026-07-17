@@ -58,11 +58,7 @@ function legacyAuditClaimPathForArchive(sourcePath: string, sanitizedArchivePath
 }
 
 function legacyAuditRawCheckpointKey(checkpoint: LegacyAuditRawCheckpoint): string {
-  return createHash("sha256")
-    .update(
-      `${checkpoint.generationKey}\0${checkpoint.contentHash}\0${checkpoint.size}\0${checkpoint.recordCount}\0${checkpoint.dev}\0${checkpoint.ino}\0${checkpoint.mtimeMs}`,
-    )
-    .digest("hex");
+  return checkpoint.generationKey;
 }
 
 function legacyAuditSourceGenerationKey(rawArchiveRelativePath: string): string {
@@ -80,6 +76,18 @@ function openLegacyAuditRawCheckpointStore(stateDir: string) {
     maxEntries: LEGACY_AUDIT_RAW_CHECKPOINT_MAX_ENTRIES,
     env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
   });
+}
+
+function hasLegacyAuditRawCheckpointCapacity(
+  stateDir: string,
+  rawArchiveRelativePath: string,
+): boolean {
+  const generationKey = legacyAuditSourceGenerationKey(rawArchiveRelativePath);
+  const entries = openLegacyAuditRawCheckpointStore(stateDir).entries();
+  return (
+    entries.some((entry) => entry.value.generationKey === generationKey) ||
+    entries.length < LEGACY_AUDIT_RAW_CHECKPOINT_MAX_ENTRIES
+  );
 }
 
 function statLegacyAuditRawCheckpoint(sourcePath: string): LegacyAuditFileCheckpoint | undefined {
@@ -376,7 +384,7 @@ async function recordLegacyAuditRawCheckpoint(params: {
       );
       return;
     }
-    openLegacyAuditRawCheckpointStore(params.stateDir).register(
+    openLegacyAuditRawCheckpointStore(params.stateDir).upsert(
       legacyAuditRawCheckpointKey(checkpoint),
       checkpoint,
     );
@@ -632,8 +640,14 @@ async function migrateLegacyAuditLogSource(params: {
     ) {
       return { changes, warnings };
     }
-    const snapshot = await readLegacyAuditSourceSnapshot(root, claimRelativePath);
     const rawArchiveRelativePath = archivePaths?.raw ?? detectedRelativePath;
+    if (!hasLegacyAuditRawCheckpointCapacity(params.stateDir, rawArchiveRelativePath)) {
+      warnings.push(
+        `Skipped ${params.source.label} migration because durable raw-archive checkpoint capacity is exhausted; left the legacy source in place`,
+      );
+      return { changes, warnings };
+    }
+    const snapshot = await readLegacyAuditSourceSnapshot(root, claimRelativePath);
     const prepared = prepareLegacyAuditRecords(
       params.source,
       snapshot.raw,
