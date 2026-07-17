@@ -49,6 +49,11 @@ func chatReaderScrollReleasesFollow(_ phase: ScrollPhase) -> Bool {
     }
 }
 
+private enum ScrollFollowTarget: Equatable {
+    case latest
+    case user(UUID)
+}
+
 @MainActor
 public struct OpenClawChatView: View {
     public enum Style {
@@ -103,11 +108,6 @@ public struct OpenClawChatView: View {
     private let dictationControl: OpenClawChatDictationControl?
     private let voiceNoteControl: OpenClawChatVoiceNoteControl?
     private let speech: OpenClawChatSpeechController?
-
-    private enum ScrollFollowTarget: Equatable {
-        case latest
-        case user(UUID)
-    }
 
     private enum Layout {
         #if os(macOS)
