@@ -273,4 +273,43 @@ describe("runDoctorConfigPreflight", () => {
       await expect(fs.readFile(configPath, "utf-8")).resolves.toBe(lastGoodRaw);
     });
   });
+
+  it("does not let a legacy channel key hide unrelated malformed plugin config", async () => {
+    await withTempHome(async (home) => {
+      const configPath = await writeOpenClawConfig(home, {
+        gateway: { mode: "local", port: 19091 },
+      });
+      await promoteConfigSnapshotToLastKnownGood(await readConfigFileSnapshot());
+      const lastGoodRaw = await fs.readFile(configPath, "utf-8");
+      await fs.writeFile(
+        configPath,
+        `${JSON.stringify(
+          {
+            gateway: { mode: "local", port: 19092 },
+            channels: {
+              imessage: {
+                enabled: true,
+                coalesceSameSenderDms: true,
+                mediaMaxMb: "bad",
+              },
+            },
+          },
+          null,
+          2,
+        )}\n`,
+        "utf-8",
+      );
+
+      const repaired = await runDoctorConfigPreflight({
+        migrateState: false,
+        migrateLegacyConfig: false,
+        repairPrefixedConfig: true,
+        invalidConfigNote: false,
+      });
+
+      expect(repaired.snapshot.valid).toBe(true);
+      expect(repaired.snapshot.config.gateway?.port).toBe(19091);
+      await expect(fs.readFile(configPath, "utf-8")).resolves.toBe(lastGoodRaw);
+    });
+  });
 });

@@ -52,7 +52,7 @@ Rapid consecutive text messages from the same sender can be batched into one age
 - Debounce applies to text-only messages; media/attachments flush immediately.
 - Control commands (stop/abort/status, etc.) bypass debouncing so they dispatch immediately.
 - Disabled by default: `messages.inbound.debounceMs` has no built-in default, so debouncing only activates once you set it (globally or per channel).
-- iMessage follows the same generic inbound debounce policy when `messages.inbound` is configured. Apple URL-preview split-sends are coalesced by `imsg >= 0.11.1` before OpenClaw receives them, so they do not need an OpenClaw debounce exception.
+- iMessage follows the same generic inbound debounce policy when `messages.inbound` is configured. Apple URL-preview split-sends are coalesced by `imsg >= 0.13.1` before OpenClaw receives them, so they do not need an OpenClaw debounce exception.
 
 ## Sessions and devices
 
