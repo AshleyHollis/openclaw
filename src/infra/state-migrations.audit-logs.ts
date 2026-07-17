@@ -54,11 +54,11 @@ function legacyAuditRawCheckpointKey(
     .digest("hex");
 }
 
-function legacyAuditSourceGenerationKey(checkpoint: LegacyAuditRawCheckpoint): string {
-  // The inode survives active -> claim -> raw archive moves. It therefore keeps
-  // retries idempotent while separating identical rows from later generations.
+function legacyAuditSourceGenerationKey(rawArchiveRelativePath: string): string {
+  // The numbered raw archive path is the durable generation identity. Unlike
+  // device/inode metadata, it survives backup restore and cross-device moves.
   return createHash("sha256")
-    .update(`${checkpoint.dev}\0${checkpoint.ino}`)
+    .update(rawArchiveRelativePath.replace(/\\/gu, "/"))
     .digest("hex")
     .slice(0, 16);
 }
@@ -346,12 +346,19 @@ async function recordLegacyAuditRawCheckpoint(params: {
 async function resolveAuditArchiveRelativePaths(
   root: AuditMigrationRoot,
   sourceRelativePath: string,
-): Promise<{ sanitized: string; raw: string }> {
+): Promise<{ sanitized: string; raw: string; resumeSanitized: boolean }> {
   for (let index = 1; ; index += 1) {
     const sanitized = `${sourceRelativePath}.migrated${index === 1 ? "" : `.${index}`}`;
     const raw = `${sanitized}.raw`;
-    if (!(await root.exists(sanitized)) && !(await root.exists(raw))) {
-      return { sanitized, raw };
+    const sanitizedExists = await root.exists(sanitized);
+    const rawExists = await root.exists(raw);
+    if (sanitizedExists && !rawExists) {
+      // A process can die after writing the sanitized sibling but before moving
+      // the claimed inode. Resume that same stable archive generation.
+      return { sanitized, raw, resumeSanitized: true };
+    }
+    if (!sanitizedExists && !rawExists) {
+      return { sanitized, raw, resumeSanitized: false };
     }
   }
 }
@@ -380,7 +387,7 @@ async function secureAuditArchiveFile(params: {
 async function archiveLegacyAuditClaim(params: {
   source: LegacyAuditLogSource;
   claimRelativePath: string;
-  sourceRelativePath: string;
+  archivePaths: { sanitized: string; raw: string; resumeSanitized: boolean };
   sanitizedJsonl: string;
   root: AuditMigrationRoot;
   changes: string[];
@@ -388,10 +395,16 @@ async function archiveLegacyAuditClaim(params: {
 }): Promise<{ moved: boolean; rawRelativePath?: string }> {
   let moved = false;
   let sanitizedCreated = false;
-  let archivePaths: { sanitized: string; raw: string } | undefined;
+  const archivePaths = params.archivePaths;
   try {
-    archivePaths = await resolveAuditArchiveRelativePaths(params.root, params.sourceRelativePath);
-    await params.root.create(archivePaths.sanitized, params.sanitizedJsonl, { mode: 0o600 });
+    if (archivePaths.resumeSanitized) {
+      await params.root.write(archivePaths.sanitized, params.sanitizedJsonl, {
+        mkdir: false,
+        mode: 0o600,
+      });
+    } else {
+      await params.root.create(archivePaths.sanitized, params.sanitizedJsonl, { mode: 0o600 });
+    }
     sanitizedCreated = true;
     await secureAuditArchiveFile({
       root: params.root,
@@ -418,11 +431,11 @@ async function archiveLegacyAuditClaim(params: {
       `Failed archiving ${params.source.label} ${params.source.logicalSourcePath}: ${String(error)}`,
     );
   } finally {
-    if (!moved && sanitizedCreated && archivePaths) {
+    if (!moved && sanitizedCreated) {
       await params.root.remove(archivePaths.sanitized).catch(() => undefined);
     }
   }
-  return { moved, ...(moved && archivePaths ? { rawRelativePath: archivePaths.raw } : {}) };
+  return { moved, ...(moved ? { rawRelativePath: archivePaths.raw } : {}) };
 }
 
 async function restoreOrPreserveLegacyAuditClaim(params: {
@@ -511,10 +524,15 @@ async function migrateLegacyAuditLogSource(params: {
       return { changes, warnings };
     }
     const snapshot = await readLegacyAuditSourceSnapshot(root, claimRelativePath);
+    const archivePaths =
+      params.source.storage === "raw-archive"
+        ? undefined
+        : await resolveAuditArchiveRelativePaths(root, sourceRelativePath);
+    const rawArchiveRelativePath = archivePaths?.raw ?? detectedRelativePath;
     const prepared = prepareLegacyAuditRecords(
       params.source,
       snapshot.raw,
-      legacyAuditSourceGenerationKey(snapshot),
+      legacyAuditSourceGenerationKey(rawArchiveRelativePath),
     );
     if (!prepared.ok) {
       warnings.push(...prepared.warnings);
@@ -572,13 +590,16 @@ async function migrateLegacyAuditLogSource(params: {
       });
       return { changes, warnings };
     }
+    if (!archivePaths) {
+      throw new Error(`Missing archive generation for ${params.source.sourcePath}`);
+    }
     changes.push(
       `Migrated ${params.source.label} -> shared SQLite state (${missing.length} new row(s)${retentionNote})`,
     );
     const archived = await archiveLegacyAuditClaim({
       source: params.source,
       claimRelativePath,
-      sourceRelativePath,
+      archivePaths,
       sanitizedJsonl: prepared.sanitizedJsonl,
       root,
       changes,

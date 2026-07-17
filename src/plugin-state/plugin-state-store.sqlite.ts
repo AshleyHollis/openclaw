@@ -427,6 +427,7 @@ function enforcePostRegisterLimits(params: {
   overflowPolicy: PluginStateOverflowPolicy;
   now: number;
   protectedKey: string;
+  enforcePluginLimit?: boolean;
 }): void {
   if (params.overflowPolicy === "reject-new") {
     return;
@@ -444,6 +445,10 @@ function enforcePostRegisterLimits(params: {
       now: params.now,
       limit: namespaceCount - params.maxEntries,
     });
+  }
+
+  if (params.enforcePluginLimit === false) {
+    return;
   }
 
   const pluginCount = countLivePluginStateEntries(params.store.db, {
@@ -516,7 +521,7 @@ function assertCanInsertPluginStateEntry(params: {
   }
 }
 
-function resolveMaxPluginStateEntriesPerPlugin(): number {
+export function resolveMaxPluginStateEntriesPerPlugin(): number {
   return maxPluginStateEntriesPerPluginForTests ?? MAX_PLUGIN_STATE_ENTRIES_PER_PLUGIN;
 }
 
@@ -527,9 +532,10 @@ export function pluginStateRegister(params: {
   valueJson: string;
   maxEntries: number;
   overflowPolicy: PluginStateOverflowPolicy;
-  createdAt?: number;
-  monotonicCreatedAt?: boolean;
   ttlMs?: number;
+  // Migration-only override: eviction orders rows by created_at, so imported
+  // legacy rows must keep their original age instead of the import time.
+  createdAtMs?: number;
   env?: NodeJS.ProcessEnv;
 }): void {
   try {
@@ -564,14 +570,6 @@ export function pluginStateRegister(params: {
             now,
           });
         }
-        const createdAt =
-          params.createdAt ??
-          (params.monotonicCreatedAt
-            ? allocatePluginStateNamespaceCreatedAt(store.db, {
-                pluginId: params.pluginId,
-                namespace: params.namespace,
-              })
-            : now);
         upsertPluginStateEntry(
           store.db,
           bindPluginStateEntry({
@@ -579,7 +577,7 @@ export function pluginStateRegister(params: {
             namespace: params.namespace,
             key: params.key,
             valueJson: params.valueJson,
-            createdAt,
+            createdAt: params.createdAtMs ?? now,
             expiresAt,
           }),
         );
@@ -601,6 +599,140 @@ export function pluginStateRegister(params: {
       "register",
       "PLUGIN_STATE_WRITE_FAILED",
       "Failed to register plugin state entry.",
+    );
+  }
+}
+
+export function pluginStateRegisterSequencedJournalEntry(params: {
+  pluginId: string;
+  cursorNamespace: string;
+  cursorKey: string;
+  cursorMaxEntries: number;
+  journalNamespace: string;
+  journalMaxEntries: number;
+  initialSequence: number;
+  readCursorSequence: (valueJson: string) => number | undefined;
+  prepareEntry: (sequence: number) => {
+    cursorValueJson: string;
+    journalKey: string;
+    journalValueJson: string;
+  };
+  env?: NodeJS.ProcessEnv;
+}): number {
+  try {
+    return runWriteTransaction(
+      "register",
+      (store) => {
+        const now = Date.now();
+        deleteExpiredPluginStateNamespaceEntries(store.db, {
+          pluginId: params.pluginId,
+          namespace: params.cursorNamespace,
+          now,
+        });
+        deleteExpiredPluginStateNamespaceEntries(store.db, {
+          pluginId: params.pluginId,
+          namespace: params.journalNamespace,
+          now,
+        });
+        const cursor = selectPluginStateEntry(store.db, {
+          pluginId: params.pluginId,
+          namespace: params.cursorNamespace,
+          key: params.cursorKey,
+          now,
+        });
+        const cursorSequence = cursor ? params.readCursorSequence(cursor.value_json) : undefined;
+        const lastSequence = Math.max(params.initialSequence, cursorSequence ?? 0);
+        const sequence = lastSequence + 1;
+        if (!Number.isSafeInteger(sequence)) {
+          throw new RangeError("Plugin state journal sequence exhausted safe integer range");
+        }
+        const prepared = params.prepareEntry(sequence);
+        const existingJournalEntry = selectPluginStateEntry(store.db, {
+          pluginId: params.pluginId,
+          namespace: params.journalNamespace,
+          key: prepared.journalKey,
+          now,
+        });
+        if (existingJournalEntry) {
+          throw createPluginStateError({
+            code: "PLUGIN_STATE_WRITE_FAILED",
+            operation: "register",
+            message: "Plugin state journal sequence already exists.",
+            path: store.path,
+          });
+        }
+        if (!cursor) {
+          assertCanInsertPluginStateEntry({
+            store,
+            pluginId: params.pluginId,
+            namespace: params.cursorNamespace,
+            maxEntries: params.cursorMaxEntries,
+            overflowPolicy: "evict-oldest",
+            now,
+          });
+        }
+        assertCanInsertPluginStateEntry({
+          store,
+          pluginId: params.pluginId,
+          namespace: params.journalNamespace,
+          maxEntries: params.journalMaxEntries,
+          overflowPolicy: "evict-oldest",
+          now,
+        });
+        upsertPluginStateEntry(
+          store.db,
+          bindPluginStateEntry({
+            pluginId: params.pluginId,
+            namespace: params.cursorNamespace,
+            key: params.cursorKey,
+            valueJson: prepared.cursorValueJson,
+            createdAt: now,
+            expiresAt: null,
+          }),
+        );
+        enforcePostRegisterLimits({
+          store,
+          pluginId: params.pluginId,
+          namespace: params.cursorNamespace,
+          maxEntries: params.cursorMaxEntries,
+          overflowPolicy: "evict-oldest",
+          now,
+          protectedKey: params.cursorKey,
+          enforcePluginLimit: false,
+        });
+        upsertPluginStateEntry(
+          store.db,
+          bindPluginStateEntry({
+            pluginId: params.pluginId,
+            namespace: params.journalNamespace,
+            key: prepared.journalKey,
+            valueJson: prepared.journalValueJson,
+            createdAt: allocatePluginStateNamespaceCreatedAt(store.db, {
+              pluginId: params.pluginId,
+              namespace: params.journalNamespace,
+            }),
+            expiresAt: null,
+          }),
+        );
+        enforcePostRegisterLimits({
+          store,
+          pluginId: params.pluginId,
+          namespace: params.journalNamespace,
+          maxEntries: params.journalMaxEntries,
+          overflowPolicy: "evict-oldest",
+          now,
+          protectedKey: prepared.journalKey,
+        });
+        return sequence;
+      },
+      envOptions(params.env),
+    );
+  } catch (error) {
+    throw wrapPluginStateError(
+      error,
+      "register",
+      "PLUGIN_STATE_WRITE_FAILED",
+      "Failed to register sequenced plugin state journal entry.",
     );
   }
 }

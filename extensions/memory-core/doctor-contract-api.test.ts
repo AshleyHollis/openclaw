@@ -538,6 +538,14 @@ describe("memory-core doctor dreaming migration", () => {
     expect(events[0]?.sequence).toBeLessThan(0);
     const migratedEntry = entries.find((entry) => entry.value.sequence < 0);
     expect(migratedEntry?.createdAt).toBe(migratedEntry?.value.sequence);
+    const cursors = await context()
+      .openPluginStateKeyedStore<{ kind: "cursor"; lastSequence: number }>({
+        namespace: "memory-host.event-cursors",
+        maxEntries: 1_000,
+      })
+      .entries();
+    expect(cursors).toHaveLength(1);
+    expect(cursors[0]?.value).toEqual({ kind: "cursor", lastSequence: 1 });
     await expect(fs.access(`${eventPath}.migrated`)).resolves.toBeUndefined();
   });
 
@@ -775,11 +783,45 @@ describe("memory-core doctor dreaming migration", () => {
     const result = await hostEventsMigration().migrateLegacyState(params);
 
     expect(result.changes).toEqual([]);
-    expect(result.warnings).toEqual([
-      expect.stringContaining("SQLite plugin state has room for 0 of 1 missing rows"),
-    ]);
+    expect(result.warnings).toEqual([expect.stringContaining("no room for its workspace cursor")]);
     await expect(fs.access(eventPath)).resolves.toBeUndefined();
     await expect(fs.access(`${eventPath}.migrated`)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("reserves plugin-wide capacity for the migrated workspace cursor", async () => {
+    const eventPath = path.join(workspaceDir, "memory", ".dreams", "events.jsonl");
+    const events = Array.from({ length: 3 }, (_, index) => ({
+      type: "memory.recall.recorded",
+      timestamp: "2026-07-01T00:00:00.000Z",
+      query: `capacity-${index}`,
+      resultCount: 0,
+      results: [],
+    }));
+    await fs.writeFile(eventPath, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`);
+    const params = migrationParams();
+    params.context = {
+      ...params.context,
+      getPluginStateCapacity: () => ({ liveEntries: 49_997, maxEntries: 50_000 }),
+    };
+
+    const result = await hostEventsMigration().migrateLegacyState(params);
+
+    expect(result.warnings).toEqual([]);
+    expect(result.changes).toEqual([
+      "Migrated Memory Core host events -> SQLite plugin state (2 new row(s))",
+      expect.stringContaining("Archived Memory Core host events legacy source"),
+    ]);
+    await expect(readMemoryHostEventRecords({ workspaceDir, env })).resolves.toMatchObject([
+      { query: "capacity-1" },
+      { query: "capacity-2" },
+    ]);
+    const cursors = await context()
+      .openPluginStateKeyedStore<{ kind: "cursor"; lastSequence: number }>({
+        namespace: "memory-host.event-cursors",
+        maxEntries: 1_000,
+      })
+      .entries();
+    expect(cursors).toHaveLength(1);
   });
 
   it("retires an empty legacy memory host event source without claiming an import", async () => {

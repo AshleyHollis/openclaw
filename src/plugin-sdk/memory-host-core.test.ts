@@ -186,12 +186,28 @@ describe("memory-host-core helpers", () => {
       const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "memory-host-export-symlink-"));
       const workspaceDir = path.join(fixtureRoot, "workspace");
       const externalMemoryDir = path.join(fixtureRoot, "external-memory");
-      const externalExport = path.join(externalMemoryDir, "events", "memory-host-events.jsonl");
+      const stateDir = path.join(fixtureRoot, "state");
       try {
-        vi.stubEnv("OPENCLAW_STATE_DIR", path.join(fixtureRoot, "state"));
+        vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
         await fs.mkdir(workspaceDir);
+        await fs.mkdir(stateDir);
+        const stateHash = createHash("sha256")
+          .update(await fs.realpath(stateDir))
+          .digest("hex")
+          .slice(0, 32);
+        const externalExport = path.join(
+          externalMemoryDir,
+          "events",
+          stateHash,
+          "memory-host-events.jsonl",
+        );
+        const externalOwner = path.join(
+          path.dirname(externalExport),
+          ".openclaw-memory-host-events-owner.json",
+        );
         await fs.mkdir(path.dirname(externalExport), { recursive: true });
         await fs.writeFile(externalExport, '{"type":"external"}\n', "utf8");
+        await fs.writeFile(externalOwner, '{"kind":"external"}\n', "utf8");
         await fs.symlink(externalMemoryDir, path.join(workspaceDir, "memory"));
 
         await expect(
@@ -204,6 +220,7 @@ describe("memory-host-core helpers", () => {
           }),
         ).resolves.toEqual([]);
         await expect(fs.readFile(externalExport, "utf8")).resolves.toBe('{"type":"external"}\n');
+        await expect(fs.readFile(externalOwner, "utf8")).resolves.toBe('{"kind":"external"}\n');
       } finally {
         await fs.rm(fixtureRoot, { recursive: true, force: true });
       }

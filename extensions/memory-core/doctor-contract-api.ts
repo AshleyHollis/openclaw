@@ -90,10 +90,17 @@ type StoredMemoryHostEvent = {
   sequence: number;
 };
 
+type StoredMemoryHostCursor = {
+  kind: "cursor";
+  lastSequence: number;
+};
+
 const MEMORY_HOST_EVENTS_NAMESPACE = "memory-host.events";
+const MEMORY_HOST_EVENT_CURSORS_NAMESPACE = "memory-host.event-cursors";
 // Keep migration aligned with event-store.ts retention so legacy import cannot
 // consume memory-core's plugin-wide budget or starve sibling state namespaces.
 const MAX_MEMORY_HOST_EVENTS = 10_000;
+const MAX_MEMORY_HOST_EVENT_CURSORS = 1_000;
 const MAX_LEGACY_MEMORY_HOST_EVENT_VALUE_BYTES = 65_536;
 const LEGACY_MEMORY_HOST_SEQUENCE_BASE = Number.MIN_SAFE_INTEGER;
 
@@ -1419,9 +1426,7 @@ async function migrateLegacyMemoryHostEventSource(params: {
   const sourceRetentionLimit = Math.max(0, MAX_MEMORY_HOST_EVENTS - nonSourceExistingCount);
   // The retired JSONL was unbounded. Keep its newest append-ordered tail while
   // preserving any SQLite-native rows already occupying the namespace budget.
-  const retainedRecords = sourceRetentionLimit === 0 ? [] : records.slice(-sourceRetentionLimit);
-  const retainedKeys = new Set(retainedRecords.map((record) => record.key));
-  const missing = retainedRecords.filter((record) => !existingKeys.has(record.key));
+  let retainedRecords = sourceRetentionLimit === 0 ? [] : records.slice(-sourceRetentionLimit);
   const capacity = params.context.getPluginStateCapacity?.();
   if (!capacity) {
     params.warnings.push(
@@ -1430,12 +1435,16 @@ async function migrateLegacyMemoryHostEventSource(params: {
     return;
   }
   const pluginRemainingCapacity = Math.max(0, capacity.maxEntries - capacity.liveEntries);
-  const replaceableSourceRows = existingEntries.filter(
-    (entry) => sourceKeys.has(entry.key) && !retainedKeys.has(entry.key),
-  ).length;
-  if (missing.length > pluginRemainingCapacity + replaceableSourceRows) {
+  const cursorStore = params.context.openPluginStateKeyedStore<StoredMemoryHostCursor>({
+    namespace: MEMORY_HOST_EVENT_CURSORS_NAMESPACE,
+    maxEntries: MAX_MEMORY_HOST_EVENT_CURSORS,
+  });
+  const cursorKey = `${prefix}:cursor`;
+  const existingCursor = await cursorStore.lookup(cursorKey);
+  const cursorCapacity = existingCursor?.kind === "cursor" ? 0 : 1;
+  if (cursorCapacity > pluginRemainingCapacity) {
     params.warnings.push(
-      `Skipped Memory Core host event migration because SQLite plugin state has room for ${pluginRemainingCapacity + replaceableSourceRows} of ${missing.length} missing rows; left legacy source in place`,
+      "Skipped Memory Core host event migration because SQLite plugin state has no room for its workspace cursor; left legacy source in place",
     );
     return;
   }
@@ -1445,6 +1454,45 @@ async function migrateLegacyMemoryHostEventSource(params: {
       "Skipped Memory Core host event migration because retention-aware SQLite import is unavailable; left legacy source in place",
     );
     return;
+  }
+  let retainedKeys = new Set(retainedRecords.map((record) => record.key));
+  let missing = retainedRecords.filter((record) => !existingKeys.has(record.key));
+  let replaceableSourceRows = existingEntries.filter(
+    (entry) => sourceKeys.has(entry.key) && !retainedKeys.has(entry.key),
+  ).length;
+  const eventCapacity = pluginRemainingCapacity - cursorCapacity + replaceableSourceRows;
+  const retentionDeficit = Math.max(0, missing.length - eventCapacity);
+  if (retentionDeficit > 0) {
+    retainedRecords = retainedRecords.slice(Math.min(retentionDeficit, retainedRecords.length));
+    retainedKeys = new Set(retainedRecords.map((record) => record.key));
+    missing = retainedRecords.filter((record) => !existingKeys.has(record.key));
+    replaceableSourceRows = existingEntries.filter(
+      (entry) => sourceKeys.has(entry.key) && !retainedKeys.has(entry.key),
+    ).length;
+  }
+  const availableEventCapacity = pluginRemainingCapacity - cursorCapacity + replaceableSourceRows;
+  if (missing.length > availableEventCapacity) {
+    params.warnings.push(
+      `Skipped Memory Core host event migration because SQLite plugin state has room for ${availableEventCapacity} of ${missing.length} missing rows after reserving its workspace cursor; left legacy source in place`,
+    );
+    return;
+  }
+  if (cursorCapacity > 0) {
+    const lastSequence = existingEntries.reduce(
+      (maximum, entry) =>
+        Number.isSafeInteger(entry.value.sequence)
+          ? Math.max(maximum, entry.value.sequence)
+          : maximum,
+      0,
+    );
+    await cursorStore.register(cursorKey, { kind: "cursor", lastSequence });
+    const registeredCursor = await cursorStore.lookup(cursorKey);
+    if (registeredCursor?.kind !== "cursor") {
+      params.warnings.push(
+        "Skipped Memory Core host event migration because its workspace cursor could not be verified; left legacy source in place",
+      );
+      return;
+    }
   }
   importEntries(
     { namespace: MEMORY_HOST_EVENTS_NAMESPACE, maxEntries: MAX_MEMORY_HOST_EVENTS },

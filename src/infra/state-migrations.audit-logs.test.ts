@@ -221,6 +221,89 @@ describe("legacy core audit log migration", () => {
     });
   });
 
+  it("keeps restored raw archives idempotent after device and inode changes", async () => {
+    await withTempDir({ prefix: "openclaw-audit-migration-restored-" }, async (rootDir) => {
+      const stateDir = path.join(rootDir, "source-state");
+      const restoredStateDir = path.join(rootDir, "restored-state");
+      const sourcePath = path.join(stateDir, "audit", "system-agent.jsonl");
+      await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+      await fs.writeFile(
+        sourcePath,
+        `${JSON.stringify({
+          timestamp: "2026-07-03T00:00:00.000Z",
+          operation: "gateway.restart",
+          summary: "Restored operation",
+        })}\n`,
+      );
+      await migrateLegacyAuditLogs({
+        detected: detectLegacyAuditLogs({ stateDir, doctorOnlyStateMigrations: true }),
+        stateDir,
+      });
+      resetPluginStateStoreForTests();
+      await fs.cp(stateDir, restoredStateDir, { recursive: true });
+
+      const restored = detectLegacyAuditLogs({
+        stateDir: restoredStateDir,
+        doctorOnlyStateMigrations: true,
+      });
+      expect(restored.sources).toMatchObject([{ storage: "raw-archive" }]);
+      const result = await migrateLegacyAuditLogs({
+        detected: restored,
+        stateDir: restoredStateDir,
+      });
+
+      expect(result.warnings).toEqual([]);
+      expect(
+        listSystemAgentAuditEntriesForTests({
+          env: { ...process.env, OPENCLAW_STATE_DIR: restoredStateDir },
+        }),
+      ).toHaveLength(1);
+      expect(
+        detectLegacyAuditLogs({
+          stateDir: restoredStateDir,
+          doctorOnlyStateMigrations: true,
+        }).hasLegacy,
+      ).toBe(false);
+    });
+  });
+
+  it("resumes the stable generation of an interrupted sanitized archive", async () => {
+    await withTempDir(
+      { prefix: "openclaw-audit-migration-sanitized-resume-" },
+      async (stateDir) => {
+        const sourcePath = path.join(stateDir, "audit", "system-agent.jsonl");
+        const claimPath = path.join(
+          path.dirname(sourcePath),
+          `.${path.basename(sourcePath)}.doctor-importing`,
+        );
+        const record = {
+          timestamp: "2026-07-03T00:00:00.000Z",
+          operation: "gateway.restart",
+          summary: "Interrupted operation",
+        };
+        await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+        await fs.writeFile(claimPath, `${JSON.stringify(record)}\n`);
+        await fs.writeFile(`${sourcePath}.migrated`, `${JSON.stringify(record)}\n`);
+
+        const result = await migrateLegacyAuditLogs({
+          detected: detectLegacyAuditLogs({ stateDir, doctorOnlyStateMigrations: true }),
+          stateDir,
+        });
+
+        expect(result.warnings).toEqual([]);
+        await expect(fs.access(`${sourcePath}.migrated.raw`)).resolves.toBeUndefined();
+        await expect(fs.access(`${sourcePath}.migrated.2.raw`)).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+        expect(
+          listSystemAgentAuditEntriesForTests({
+            env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
+          }),
+        ).toHaveLength(1);
+      },
+    );
+  });
+
   it("leaves malformed audit sources in place without partial imports", async () => {
     await withTempDir({ prefix: "openclaw-audit-migration-invalid-" }, async (stateDir) => {
       const sourcePath = path.join(stateDir, "audit", "system-agent.jsonl");

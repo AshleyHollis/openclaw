@@ -65,6 +65,10 @@ import {
   detectLegacyManagedOutgoingImages,
   migrateLegacyManagedOutgoingImages,
 } from "./state-migrations.managed-outgoing-images.js";
+import {
+  detectLegacyMcpOAuthStores,
+  migrateLegacyMcpOAuthStores,
+} from "./state-migrations.mcp-oauth.js";
 import { mergeNotices } from "./state-migrations.messages.js";
 import {
   detectLegacyNodeHostConfig,
@@ -428,6 +432,10 @@ export async function detectLegacyStateMigrations(params: {
     stateDir,
     doctorOnlyStateMigrations: params.doctorOnlyStateMigrations,
   });
+  const mcpOauth = detectLegacyMcpOAuthStores({
+    stateDir,
+    doctorOnlyStateMigrations: params.doctorOnlyStateMigrations,
+  });
   const workspace = detectLegacyWorkspaceState({
     cfg: params.cfg,
     stateDir,
@@ -610,6 +618,9 @@ export async function detectLegacyStateMigrations(params: {
   if (apns.hasLegacy) {
     preview.push("- APNs registrations: legacy JSON → shared SQLite state");
   }
+  if (mcpOauth.hasLegacy) {
+    preview.push("- MCP OAuth credentials: legacy JSON → shared SQLite state");
+  }
   if (workspace.hasLegacy) {
     preview.push("- Workspace setup and attestations: legacy files → shared SQLite state");
   }
@@ -713,6 +724,7 @@ export async function detectLegacyStateMigrations(params: {
     acpReplayLedger,
     managedOutgoingImages,
     apns,
+    mcpOauth,
     workspace,
     webPush,
     nodeHost,
@@ -973,6 +985,11 @@ export async function runLegacyStateMigrations(params: {
     env,
     stateDir: detected.stateDir,
   });
+  const mcpOauth = await migrateLegacyMcpOAuthStores({
+    detected: detected.mcpOauth,
+    env,
+    stateDir: detected.stateDir,
+  });
   const workspace = await migrateLegacyWorkspaceState({
     detected: detected.workspace,
     env,
@@ -1032,6 +1049,7 @@ export async function runLegacyStateMigrations(params: {
     acpReplayLedger,
     managedOutgoingImages,
     apns,
+    mcpOauth,
     workspace,
     webPush,
     nodeHost,
@@ -1057,6 +1075,7 @@ export async function runLegacyStateMigrations(params: {
       ...acpReplayLedger.changes,
       ...managedOutgoingImages.changes,
       ...apns.changes,
+      ...mcpOauth.changes,
       ...workspace.changes,
       ...webPush.changes,
       ...nodeHost.changes,
@@ -1089,6 +1108,7 @@ export async function runLegacyStateMigrations(params: {
       ...acpReplayLedger.warnings,
       ...managedOutgoingImages.warnings,
       ...apns.warnings,
+      ...mcpOauth.warnings,
       ...workspace.warnings,
       ...webPush.warnings,
       ...nodeHost.warnings,

@@ -213,7 +213,8 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       "OPENCLAW_PLUGIN_SDK_MAX_PUBLIC_ENTRYPOINTS",
       // Registry sweep: 77 packages, zero fetch failures; retired dead channel-ingress facade.
       // +1: speech-settings keeps agent prompt imports off the synthesis/runtime graph.
-      329,
+      // +1: meeting-runtime barrel: browser meeting-bot core behind MeetingPlatformAdapter.
+      330,
       env,
     ),
     // ScopeTree adds six channel-policy exports, mirrored by compat, including three functions.
@@ -260,7 +261,9 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +10: supplemental sender helpers plus host-owned SQLite lease contracts.
       // Harvest: retired dual-field plan payload builder -1.
       // +1: memory host event storage validator for doctor-owned legacy import.
-      8046,
+      // +23: core channel, envelope, direct-DM, feedback, legacy-payload, and memory contracts.
+      // +81: meeting-runtime barrel: browser meeting-bot core behind MeetingPlatformAdapter.
+      8150,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -293,7 +296,9 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +3: supplemental sender helpers plus the PluginStateLeaseRunner callback.
       // Harvest: retired dual-field plan payload builder -1.
       // +1: memory host event storage validator for doctor-owned legacy import.
-      4489,
+      // +13: core channel, envelope, direct-DM, feedback, legacy-payload, and memory operations.
+      // +32: meeting-runtime barrel: browser meeting-bot core behind MeetingPlatformAdapter.
+      4534,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
@@ -319,7 +324,7 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       "OPENCLAW_PLUGIN_SDK_MAX_PUBLIC_WILDCARD_REEXPORTS",
       // Used-union narrowing removes 103 wildcard re-exports.
       // Harvest: freeze the compat config-schema barrel to explicit exports -1.
-      105,
+      104,
       env,
     ),
   };

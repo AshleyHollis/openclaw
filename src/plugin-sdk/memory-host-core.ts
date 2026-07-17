@@ -33,6 +33,19 @@ function isMissingPathError(error: unknown): boolean {
   );
 }
 
+function isRejectedWorkspaceArtifactPath(error: unknown): boolean {
+  if (!(error instanceof FsSafeError)) {
+    return false;
+  }
+  return (
+    error.code === "hardlink" ||
+    error.code === "not-file" ||
+    error.code === "outside-workspace" ||
+    error.code === "path-alias" ||
+    error.code === "symlink"
+  );
+}
+
 function isWorkspaceWriteUnavailable(error: unknown, seen = new Set<unknown>()): boolean {
   if (!error || typeof error !== "object" || seen.has(error)) {
     return false;
@@ -88,8 +101,14 @@ async function readMemoryHostEventExportOwnership(
     if (isMissingPathError(error)) {
       return undefined;
     }
+    if (isRejectedWorkspaceArtifactPath(error)) {
+      return null;
+    }
     throw error;
   });
+  if (content === null) {
+    return "foreign";
+  }
   if (content === undefined) {
     return "missing";
   }
