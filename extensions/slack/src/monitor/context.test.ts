@@ -3,7 +3,7 @@ import type { App } from "@slack/bolt";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearSlackRuntime, setSlackRuntime } from "../runtime.js";
+import { setSlackRuntime } from "../runtime.js";
 import { createSlackMonitorContext } from "./context.js";
 import type { SlackEventScope } from "./event-scope.js";
 
@@ -57,8 +57,8 @@ function createTestContext(params?: {
   });
 }
 
-beforeEach(() => clearSlackRuntime());
-afterEach(() => clearSlackRuntime());
+beforeEach(() => setSlackRuntime(null as never));
+afterEach(() => setSlackRuntime(null as never));
 
 describe("createSlackMonitorContext shouldDropMismatchedSlackEvent", () => {
   it("drops mismatched top-level app/team identifiers", () => {
