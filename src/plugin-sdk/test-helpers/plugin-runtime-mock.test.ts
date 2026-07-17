@@ -5,6 +5,38 @@ import { createPluginRuntimeMock } from "openclaw/plugin-sdk/plugin-test-runtime
 import { describe, expect, it, vi } from "vitest";
 
 describe("createPluginRuntimeMock", () => {
+  it("clones the initializer callback input and applies its final extension patch", async () => {
+    const runtime = createPluginRuntimeMock();
+    const pluginExtensions = { codex: { marker: "original" } };
+    const afterCreate = vi.fn(async (initialized) => {
+      initialized.entry.pluginExtensions = { codex: { marker: "callback mutation" } };
+      return { pluginExtensions: { codex: { marker: "final" } } };
+    });
+
+    const created = await runtime.agent.session.createSessionEntry({
+      cfg: {},
+      key: "agent:main:dashboard:mock-created",
+      initialEntry: {
+        agentHarnessId: "codex",
+        modelSelectionLocked: true,
+        pluginExtensions,
+      },
+      afterCreate,
+    });
+    pluginExtensions.codex.marker = "input mutation";
+
+    expect(afterCreate).toHaveBeenCalledOnce();
+    expect(afterCreate.mock.calls[0]?.[0]).not.toBe(created);
+    expect(afterCreate.mock.calls[0]?.[0]).toMatchObject({
+      key: created.key,
+      agentId: created.agentId,
+      sessionId: created.sessionId,
+      entry: { initializationPending: true },
+    });
+    expect(created.entry.pluginExtensions).toEqual({ codex: { marker: "final" } });
+    expect(created.entry.initializationPending).toBeUndefined();
+  });
+
   it("keeps the inbound debouncer mock aligned with the runtime contract", () => {
     const runtime = createPluginRuntimeMock();
     const debouncer = runtime.channel.debounce.createInboundDebouncer({
@@ -15,6 +47,32 @@ describe("createPluginRuntimeMock", () => {
 
     expect(debouncer.cancelKey("key")).toBe(false);
     expect(vi.isMockFunction(debouncer.cancelKey)).toBe(true);
+  });
+
+  it("tracks channel runtime contexts through the mock registry", () => {
+    const runtime = createPluginRuntimeMock();
+    const key = {
+      channelId: "whatsapp",
+      accountId: "default",
+      capability: "connection-controller",
+    };
+    const context = { getActiveListener: vi.fn() };
+    const onEvent = vi.fn();
+    const unsubscribe = runtime.channel.runtimeContexts.watch({ ...key, onEvent });
+
+    const lease = runtime.channel.runtimeContexts.register({ ...key, context });
+
+    expect(runtime.channel.runtimeContexts.get(key)).toBe(context);
+    expect(onEvent).toHaveBeenCalledWith({ type: "registered", key, context });
+    expect(vi.isMockFunction(runtime.channel.runtimeContexts.register)).toBe(true);
+    expect(vi.isMockFunction(runtime.channel.runtimeContexts.get)).toBe(true);
+    expect(vi.isMockFunction(runtime.channel.runtimeContexts.watch)).toBe(true);
+
+    lease.dispose();
+
+    expect(runtime.channel.runtimeContexts.get(key)).toBeUndefined();
+    expect(onEvent).toHaveBeenLastCalledWith({ type: "unregistered", key });
+    unsubscribe();
   });
 
   it("exposes channel inbound helpers without the removed turn aliases", async () => {
@@ -75,6 +133,150 @@ describe("createPluginRuntimeMock", () => {
     );
     expect(events).toEqual(["record", "afterRecord", "dispatch"]);
     expect(runDispatch).toHaveBeenCalled();
+    expect(result).toEqual(
+      expect.objectContaining({
+        admission: { kind: "dispatch" },
+        dispatched: true,
+      }),
+    );
+  });
+
+  it("uses merged channel overrides when dispatching an inbound turn", async () => {
+    const resolveStorePath = vi.fn(() => "/tmp/override-sessions.json");
+    const recordInboundSession = vi.fn(async () => undefined);
+    const dispatchReplyWithBufferedBlockDispatcher = vi.fn(async () => ({
+      queuedFinal: false,
+      counts: { tool: 0, block: 0, final: 0 },
+    }));
+    const runtime = createPluginRuntimeMock({
+      channel: {
+        session: { resolveStorePath, recordInboundSession },
+        reply: { dispatchReplyWithBufferedBlockDispatcher },
+      },
+    });
+
+    await runtime.channel.inbound.dispatch({
+      cfg: {},
+      channel: "test",
+      route: {
+        agentId: "main",
+        sessionKey: "agent:main:test:direct:u1",
+      },
+      ctxPayload: {
+        Body: "hello",
+        CommandAuthorized: false,
+        SessionKey: "agent:main:test:direct:u1",
+      },
+      replyPipeline: {},
+      delivery: { deliver: vi.fn(async () => undefined) },
+    });
+
+    expect(resolveStorePath).toHaveBeenCalledWith(undefined, { agentId: "main" });
+    expect(recordInboundSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storePath: "/tmp/override-sessions.json",
+        sessionKey: "agent:main:test:direct:u1",
+      }),
+    );
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce();
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dispatcherOptions: expect.objectContaining({
+          responsePrefixContextProvider: expect.any(Function),
+        }),
+        replyOptions: expect.objectContaining({ onModelSelected: expect.any(Function) }),
+      }),
+    );
+  });
+
+  it("assembles routed prepared turns before dispatch", async () => {
+    const resolveStorePath = vi.fn(() => "/tmp/routed-sessions.json");
+    const recordInboundSession = vi.fn(async () => undefined);
+    const runDispatch = vi.fn(async () => ({ visibleReplySent: true }));
+    const runtime = createPluginRuntimeMock({
+      channel: {
+        session: { resolveStorePath, recordInboundSession },
+      },
+    });
+
+    const result = await runtime.channel.inbound.run({
+      channel: "test",
+      raw: { id: "m1" },
+      adapter: {
+        ingest: vi.fn(() => ({ id: "m1", rawText: "hello" })),
+        resolveTurn: vi.fn(() => ({
+          cfg: {},
+          route: {
+            agentId: "main",
+            sessionKey: "agent:main:test:direct:u1",
+          },
+          channel: "test",
+          ctxPayload: {
+            Body: "hello",
+            CommandAuthorized: false,
+            SessionKey: "agent:main:test:direct:u1",
+          },
+          runDispatch,
+        })),
+      },
+    });
+
+    expect(resolveStorePath).toHaveBeenCalledWith(undefined, { agentId: "main" });
+    expect(recordInboundSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storePath: "/tmp/routed-sessions.json",
+        sessionKey: "agent:main:test:direct:u1",
+      }),
+    );
+    expect(runDispatch).toHaveBeenCalledOnce();
+    expect(result).toEqual(
+      expect.objectContaining({
+        admission: { kind: "dispatch" },
+        dispatched: true,
+      }),
+    );
+  });
+
+  it("assembles routed prepared turns before dispatch", async () => {
+    const resolveStorePath = vi.fn(() => "/tmp/routed-sessions.json");
+    const recordInboundSession = vi.fn(async () => undefined);
+    const runDispatch = vi.fn(async () => ({ visibleReplySent: true }));
+    const runtime = createPluginRuntimeMock({
+      channel: {
+        session: { resolveStorePath, recordInboundSession },
+      },
+    });
+
+    const result = await runtime.channel.inbound.run({
+      channel: "test",
+      raw: { id: "m1" },
+      adapter: {
+        ingest: vi.fn(() => ({ id: "m1", rawText: "hello" })),
+        resolveTurn: vi.fn(() => ({
+          cfg: {},
+          route: {
+            agentId: "main",
+            sessionKey: "agent:main:test:direct:u1",
+          },
+          channel: "test",
+          ctxPayload: {
+            Body: "hello",
+            CommandAuthorized: false,
+            SessionKey: "agent:main:test:direct:u1",
+          },
+          runDispatch,
+        })),
+      },
+    });
+
+    expect(resolveStorePath).toHaveBeenCalledWith(undefined, { agentId: "main" });
+    expect(recordInboundSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storePath: "/tmp/routed-sessions.json",
+        sessionKey: "agent:main:test:direct:u1",
+      }),
+    );
+    expect(runDispatch).toHaveBeenCalledOnce();
     expect(result).toEqual(
       expect.objectContaining({
         admission: { kind: "dispatch" },

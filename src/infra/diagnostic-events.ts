@@ -599,6 +599,8 @@ type DiagnosticModelCallBaseEvent = DiagnosticBaseEvent & {
   model: string;
   api?: string;
   transport?: string;
+  /** Defaults to request for emitters created before turn-level CLI diagnostics. */
+  observationUnit?: "request" | "turn";
   contextTokenBudget?: number;
   contextWindowSource?: "model" | "modelsConfig" | "agentContextTokens" | "default";
   contextWindowReferenceTokens?: number;
@@ -1474,3 +1476,4 @@ export function resetDiagnosticEventsForTest(): void {
   state.asyncDroppedUntrustedEvents = 0;
   state.asyncDroppedPriorityEvents = 0;
 }
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

@@ -1,7 +1,6 @@
 // Feishu plugin module implements lifecycle support behavior.
 import { vi, type Mock } from "vitest";
-import { testingHooks as dedupTestingHooks } from "./dedup.js";
-import { testingHooks as processingClaimTestingHooks } from "./processing-claims.js";
+import { feishuDedupeState } from "./dedup-state.js";
 
 type BoundConversation = {
   bindingId: string;
@@ -91,8 +90,7 @@ export function getFeishuLifecycleTestMocks(): FeishuLifecycleTestMocks {
 }
 
 export function resetFeishuLifecycleTestMocks(): void {
-  dedupTestingHooks.resetFeishuDedupForTests();
-  processingClaimTestingHooks.resetFeishuMessageProcessingClaimsForTests();
+  feishuDedupeState.reset();
   for (const mock of Object.values(feishuLifecycleTestMocks)) {
     mock.mockReset();
   }
@@ -128,6 +126,31 @@ const {
   sendMessageFeishuMock,
   sendCardFeishuMock,
 } = feishuLifecycleTestMocks;
+
+vi.mock("openclaw/plugin-sdk/reply-runtime", async () => {
+  const actual = await vi.importActual<typeof import("openclaw/plugin-sdk/reply-runtime")>(
+    "openclaw/plugin-sdk/reply-runtime",
+  );
+  return {
+    ...actual,
+    dispatchInboundMessage: (params: {
+      ctx: DispatchReplyContext;
+      dispatcher: DispatchReplyDispatcher;
+      onSettled?: () => unknown;
+    }) => {
+      const ctx = feishuLifecycleTestMocks.finalizeInboundContextMock(params.ctx);
+      return feishuLifecycleTestMocks.withReplyDispatcherMock({
+        dispatcher: params.dispatcher,
+        onSettled: params.onSettled,
+        run: () =>
+          feishuLifecycleTestMocks.dispatchReplyFromConfigMock({
+            ctx,
+            dispatcher: params.dispatcher,
+          }),
+      });
+    },
+  };
+});
 
 vi.mock("./client.js", () => {
   return {
