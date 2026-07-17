@@ -4,12 +4,8 @@ import { lstat, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { stableStringify } from "../agents/stable-stringify.js";
-import {
-  assertNoSymlinkParents,
-  FsSafeError,
-  root as fsSafeRoot,
-  type Root,
-} from "../infra/fs-safe.js";
+import { assertNoSymlinkParents } from "../infra/fs-safe-advanced.js";
+import { FsSafeError, root as fsSafeRoot, type Root } from "../infra/fs-safe.js";
 import { resolveUserPath } from "../utils.js";
 import { MAX_MANAGED_FILE_BYTES, MAX_MANAGED_WORKSPACE_BYTES } from "./source-limits.js";
 import {

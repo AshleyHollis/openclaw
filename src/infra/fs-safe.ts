@@ -45,7 +45,6 @@ export {
   type Root,
 } from "@openclaw/fs-safe/root";
 export { sanitizeUntrustedFileName } from "@openclaw/fs-safe/advanced";
-export { assertNoSymlinkParents } from "@openclaw/fs-safe/advanced";
 export {
   readSecureFile,
   type SecureFileReadOptions,

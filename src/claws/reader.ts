@@ -2,12 +2,8 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import {
-  assertNoSymlinkParents,
-  FsSafeError,
-  root as fsSafeRoot,
-  type OpenResult,
-} from "../infra/fs-safe.js";
+import { assertNoSymlinkParents } from "../infra/fs-safe-advanced.js";
+import { FsSafeError, root as fsSafeRoot, type OpenResult } from "../infra/fs-safe.js";
 import { isCanonicalClawHubPackageName, isExactSemVer } from "./schema-portability.js";
 import { parseClawManifest } from "./schema.js";
 import { MAX_MANAGED_FILE_BYTES, MAX_MANAGED_WORKSPACE_BYTES } from "./source-limits.js";
