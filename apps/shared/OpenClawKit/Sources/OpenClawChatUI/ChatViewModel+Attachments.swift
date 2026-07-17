@@ -68,6 +68,15 @@ extension OpenClawChatViewModel {
             !attachments.isEmpty
     }
 
+    func canCreateSessionForImmediateSwitch() -> Bool {
+        guard !self.blocksAttachmentOwnerChange else {
+            self.errorText = String(
+                localized: "Remove attachments or wait for delivery to resolve before starting a new chat.")
+            return false
+        }
+        return true
+    }
+
     /// Applies external owner changes once recording or staging releases them.
     public func attachmentOwnerActivityChanged() {
         applyDeferredExternalStateIfReady()

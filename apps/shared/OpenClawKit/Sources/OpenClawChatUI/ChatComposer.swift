@@ -1,15 +1,14 @@
 import Foundation
 import Observation
 import SwiftUI
+import UniformTypeIdentifiers
 
 #if os(macOS)
 import AppKit
-import UniformTypeIdentifiers
 #endif
 
 #if !os(macOS)
 import PhotosUI
-import UniformTypeIdentifiers
 #if canImport(UIKit)
 import UIKit
 
@@ -235,6 +234,8 @@ struct OpenClawChatComposer: View {
                     self.attachmentsStrip
                 }
 
+                self.composerContextRows
+
                 if let voiceNoteControl, voiceNoteControl.recorder.isRecording {
                     OpenClawVoiceNoteRecordingRow(recorder: voiceNoteControl.recorder)
                         .padding(self.editorPadding)
@@ -242,6 +243,19 @@ struct OpenClawChatComposer: View {
                     self.editor
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var composerContextRows: some View {
+        if let replyTarget = self.viewModel.replyTarget {
+            ChatReplyPreview(target: replyTarget) {
+                self.viewModel.clearReplyTarget()
+            }
+        }
+
+        if let talkControl, talkControl.isEnabled {
+            ChatTalkActivityStrip(control: talkControl)
         }
     }
 
@@ -646,6 +660,8 @@ struct OpenClawChatComposer: View {
                 self.attachmentsStrip
             }
 
+            self.composerContextRows
+
             if let voiceNoteControl, voiceNoteControl.recorder.isRecording {
                 OpenClawVoiceNoteRecordingRow(
                     recorder: voiceNoteControl.recorder,
@@ -726,7 +742,7 @@ struct OpenClawChatComposer: View {
             talkControl.toggle(self.viewModel.sessionKey)
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: talkControl.isEnabled ? "stop.fill" : "waveform")
+                ChatTalkButtonGlyph(control: talkControl)
                     .font(OpenClawChatTypography.captionSemiBold)
                 Text(talkControl.isEnabled ? "Stop" : "Talk")
                     .font(OpenClawChatTypography.captionSemiBold)
@@ -750,6 +766,7 @@ struct OpenClawChatComposer: View {
         .accessibilityValue(self.talkAccessibilityValue(talkControl))
         .accessibilityIdentifier("chat-realtime-control")
         .help(self.talkHelpText(talkControl))
+        .chatTalkInputDeviceMenu(talkControl)
     }
 
     private func startDictation(_ control: OpenClawChatDictationControl) {
@@ -779,7 +796,7 @@ struct OpenClawChatComposer: View {
         Button {
             talkControl.toggle(self.viewModel.sessionKey)
         } label: {
-            Image(systemName: talkControl.isEnabled ? "stop.fill" : "waveform")
+            ChatTalkButtonGlyph(control: talkControl)
                 .font(OpenClawChatTypography.body(size: 14, weight: .semibold, relativeTo: .subheadline))
                 .foregroundStyle(.white)
                 .frame(width: self.cleanIconControlSize, height: self.cleanIconControlSize)
@@ -801,6 +818,7 @@ struct OpenClawChatComposer: View {
         .accessibilityValue(self.talkAccessibilityValue(talkControl))
         .accessibilityIdentifier("chat-realtime-control")
         .help(self.talkHelpText(talkControl))
+        .chatTalkInputDeviceMenu(talkControl)
     }
 
     private func talkButtonFill(_ talkControl: OpenClawChatTalkControl) -> AnyShapeStyle {
@@ -881,8 +899,8 @@ struct OpenClawChatComposer: View {
                     guard self.isAttachmentInputEnabled else { return }
                     self.viewModel.addImageAttachment(data: data, fileName: fileName, mimeType: mimeType)
                 },
-                onKeyCommand: { command in
-                    self.handleComposerKeyCommand(command)
+                onKeyCommand: { command, context in
+                    self.handleComposerKeyCommand(command, context: context)
                 })
                 .frame(minHeight: self.textMinHeight, idealHeight: self.textMinHeight, maxHeight: self.textMaxHeight)
                 .padding(.horizontal, 4)
@@ -1139,28 +1157,46 @@ extension OpenClawChatComposer {
     /// Keyboard routing while the slash panel is open: arrows move the
     /// highlight, Tab/Return accept, Escape dismisses. Returning false hands
     /// the key back to the text view (typing, send-on-return).
-    private func handleComposerKeyCommand(_ command: ChatComposerKeyCommand) -> Bool {
-        guard self.isSlashPopoverPresented else { return false }
-        let matches = self.viewModel.slashCommandMatches(query: self.slashQuery ?? "", filter: .all)
+    private func handleComposerKeyCommand(
+        _ command: ChatComposerKeyCommand,
+        context: ChatComposerKeyCommandContext) -> Bool
+    {
+        if self.isSlashPopoverPresented {
+            let matches = self.viewModel.slashCommandMatches(query: self.slashQuery ?? "", filter: .all)
+            switch command {
+            case .escape:
+                self.setSlashPanelPresented(false)
+                return true
+            case .moveUp:
+                guard !matches.isEmpty else { return true }
+                self.slashHighlightIndex = (self.slashHighlightIndex - 1 + matches.count) % matches.count
+                return true
+            case .moveDown:
+                guard !matches.isEmpty else { return true }
+                self.slashHighlightIndex = (self.slashHighlightIndex + 1) % matches.count
+                return true
+            case .tab, .returnKey:
+                guard matches.indices.contains(self.slashHighlightIndex) else {
+                    self.setSlashPanelPresented(false)
+                    return command == .tab
+                }
+                self.selectSlashCommand(matches[self.slashHighlightIndex])
+                return true
+            }
+        }
+
         switch command {
-        case .escape:
-            self.setSlashPanelPresented(false)
-            return true
         case .moveUp:
-            guard !matches.isEmpty else { return true }
-            self.slashHighlightIndex = (self.slashHighlightIndex - 1 + matches.count) % matches.count
-            return true
+            return self.viewModel.recallPreviousInput(caretOnFirstLine: context.caretOnFirstLine)
         case .moveDown:
-            guard !matches.isEmpty else { return true }
-            self.slashHighlightIndex = (self.slashHighlightIndex + 1) % matches.count
+            return self.viewModel.recallNextInput()
+        case .escape:
+            if self.viewModel.cancelInputRecall() { return true }
+            guard self.viewModel.replyTarget != nil else { return false }
+            self.viewModel.clearReplyTarget()
             return true
         case .tab, .returnKey:
-            guard matches.indices.contains(self.slashHighlightIndex) else {
-                self.setSlashPanelPresented(false)
-                return command == .tab
-            }
-            self.selectSlashCommand(matches[self.slashHighlightIndex])
-            return true
+            return false
         }
     }
     #endif

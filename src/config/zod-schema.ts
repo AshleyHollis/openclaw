@@ -15,7 +15,7 @@ import {
 import type { GatewayRemoteConfig } from "./types.gateway.js";
 import { SilentReplyPolicyConfigSchema } from "./zod-schema.agent-defaults.js";
 import { ToolsSchema } from "./zod-schema.agent-runtime.js";
-import { AgentsSchema, AudioSchema, BindingsSchema, BroadcastSchema } from "./zod-schema.agents.js";
+import { AgentsSchema, BindingsSchema, BroadcastSchema } from "./zod-schema.agents.js";
 import { ApprovalsSchema } from "./zod-schema.approvals.js";
 import { ChannelsSchema } from "./zod-schema.channels-config.js";
 import { CloudWorkersConfigSchema } from "./zod-schema.cloud-workers.js";
@@ -666,6 +666,8 @@ export const OpenClawSchema = z
       .optional(),
     wizard: z
       .strictObject({
+        accessMode: z.union([z.literal("full"), z.literal("guarded")]).optional(),
+        appRecommendations: z.boolean().optional(),
         lastRunAt: z.string().optional(),
         lastRunVersion: z.string().optional(),
         lastRunCommit: z.string().optional(),
@@ -963,7 +965,6 @@ export const OpenClawSchema = z
     security: SecuritySchema,
     bindings: BindingsSchema,
     broadcast: BroadcastSchema,
-    audio: AudioSchema,
     media: z
       .strictObject({
         preserveFilenames: z.boolean().optional(),
