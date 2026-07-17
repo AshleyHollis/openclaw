@@ -3,9 +3,9 @@ import type { DatabaseSync } from "node:sqlite";
 import { findOverlappingWorkspaceAgentIds } from "../agents/agent-delete-safety.js";
 import { resolveAgentDir } from "../agents/agent-scope.js";
 import { pruneAgentConfig } from "../commands/agents.config.js";
-import { root as fsSafeRoot, FsSafeError } from "../infra/fs-safe.js";
 import { resolveSessionTranscriptsDirForAgent } from "../config/sessions.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { root as fsSafeRoot, FsSafeError } from "../infra/fs-safe.js";
 import type { RuntimeEnv } from "../runtime.js";
 import {
   openOpenClawStateDatabase,
