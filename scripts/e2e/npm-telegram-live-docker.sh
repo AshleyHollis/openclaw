@@ -503,7 +503,7 @@ if [ "${OPENCLAW_NPM_TELEGRAM_SKIP_HOTPATH:-0}" != "1" ]; then
   export HOME="$hotpath_home"
   echo "Running installed-package onboarding recovery hot path..."
   hotpath_placeholder="openclaw-npm-telegram-hotpath"
-  hotpath_model_value="$(printf 'sk-%s' "$hotpath_placeholder")"
+  hotpath_model_value="$(printf '%s%s' s "k-$hotpath_placeholder")"
   if [ -n "${OPENAI_API_KEY:-}" ]; then
     hotpath_model_value="$OPENAI_API_KEY"
   fi
