@@ -122,6 +122,46 @@ describe("legacy core audit log migration", () => {
     });
   });
 
+  it("rehashes a checkpointed raw archive before treating it as clean", async () => {
+    await withTempDir({ prefix: "openclaw-audit-migration-rehash-" }, async (stateDir) => {
+      const sourcePath = path.join(stateDir, "audit", "system-agent.jsonl");
+      const rawPath = `${sourcePath}.migrated.raw`;
+      const original = {
+        timestamp: "2026-07-03T00:00:00.000Z",
+        operation: "gateway.restart",
+        summary: "original",
+      };
+      const modified = { ...original, summary: "modified" };
+      await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+      await fs.writeFile(sourcePath, `${JSON.stringify(original)}\n`);
+      const stableMtime = new Date("2026-07-03T01:00:00.000Z");
+      await fs.utimes(sourcePath, stableMtime, stableMtime);
+      await migrateLegacyAuditLogs({
+        detected: detectLegacyAuditLogs({ stateDir, doctorOnlyStateMigrations: true }),
+        stateDir,
+      });
+      const checkpointedStat = await fs.stat(rawPath);
+      const modifiedRaw = `${JSON.stringify(modified)}\n`;
+      expect(Buffer.byteLength(modifiedRaw)).toBe(checkpointedStat.size);
+      await fs.writeFile(rawPath, modifiedRaw);
+      await fs.utimes(rawPath, checkpointedStat.atime, checkpointedStat.mtime);
+      const rewrittenStat = await fs.stat(rawPath);
+      expect(rewrittenStat.mtimeMs).toBe(checkpointedStat.mtimeMs);
+      expect(rewrittenStat.size).toBe(checkpointedStat.size);
+
+      const detected = detectLegacyAuditLogs({ stateDir, doctorOnlyStateMigrations: true });
+      expect(detected.sources).toMatchObject([{ sourcePath: rawPath, storage: "raw-archive" }]);
+      const result = await migrateLegacyAuditLogs({ detected, stateDir });
+
+      expect(result.warnings.join("\n")).toContain("changed other than by append");
+      expect(
+        listSystemAgentAuditEntriesForTests({
+          env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
+        }).map((entry) => entry.value.summary),
+      ).toEqual(["original"]);
+    });
+  });
+
   it("resumes a deterministic audit claim left by an interrupted Doctor", async () => {
     await withTempDir({ prefix: "openclaw-audit-migration-resume-" }, async (stateDir) => {
       const sourcePath = path.join(stateDir, "audit", "system-agent.jsonl");

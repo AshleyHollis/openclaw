@@ -116,6 +116,61 @@ function legacyAuditRawCheckpointsMatch(
   );
 }
 
+function legacyAuditRawCheckpointIsCurrent(
+  sourcePath: string,
+  checkpoint: LegacyAuditRawCheckpoint,
+): boolean {
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(sourcePath, "r");
+    const beforeStat = fs.fstatSync(fd);
+    const before = {
+      dev: beforeStat.dev,
+      ino: beforeStat.ino,
+      mtimeMs: beforeStat.mtimeMs,
+      size: beforeStat.size,
+    };
+    if (!beforeStat.isFile() || !legacyAuditRawCheckpointsMatch(checkpoint, before)) {
+      return false;
+    }
+    const hash = createHash("sha256");
+    const chunk = Buffer.allocUnsafe(64 * 1024);
+    let offset = 0;
+    while (offset < checkpoint.size) {
+      const bytesRead = fs.readSync(
+        fd,
+        chunk,
+        0,
+        Math.min(chunk.byteLength, checkpoint.size - offset),
+        offset,
+      );
+      if (bytesRead === 0) {
+        return false;
+      }
+      hash.update(chunk.subarray(0, bytesRead));
+      offset += bytesRead;
+    }
+    const afterStat = fs.fstatSync(fd);
+    const after = {
+      dev: afterStat.dev,
+      ino: afterStat.ino,
+      mtimeMs: afterStat.mtimeMs,
+      size: afterStat.size,
+    };
+    return (
+      legacyAuditRawCheckpointsMatch(before, after) &&
+      offset === checkpoint.size &&
+      hash.digest("hex") === checkpoint.contentHash
+    );
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) {
+      fs.closeSync(fd);
+    }
+  }
+}
+
 function legacyAuditRecordCreatedAt(
   source: LegacyAuditLogSource,
   value: ConfigAuditRecord | SystemAgentAuditEntry,
@@ -208,7 +263,8 @@ export function detectLegacyAuditLogs(params: {
         loadCheckpoints().some(
           (candidate) =>
             candidate.generationKey === generationKey &&
-            legacyAuditRawCheckpointsMatch(candidate, checkpoint),
+            legacyAuditRawCheckpointsMatch(candidate, checkpoint) &&
+            legacyAuditRawCheckpointIsCurrent(rawPath, candidate),
         )
       ) {
         continue;

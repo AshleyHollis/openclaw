@@ -211,6 +211,7 @@ async function collectPluginDoctorStateMigrationPlans(params: {
   env: NodeJS.ProcessEnv;
   stateDir: string;
   oauthDir: string;
+  includeDoctorOnly?: boolean;
   warnings?: string[];
 }): Promise<DetectedPluginDoctorStateMigrationPlan[]> {
   const plans: DetectedPluginDoctorStateMigrationPlan[] = [];
@@ -219,6 +220,9 @@ async function collectPluginDoctorStateMigrationPlans(params: {
     config,
     env: params.env,
   })) {
+    if (entry.migration.doctorOnly === true && params.includeDoctorOnly !== true) {
+      continue;
+    }
     let detected: PluginDoctorStateMigrationDetection | null;
     try {
       detected = await entry.migration.detectLegacyState({
@@ -540,6 +544,7 @@ export async function detectLegacyStateMigrations(params: {
           env,
           stateDir,
           oauthDir,
+          includeDoctorOnly: params.doctorOnlyStateMigrations === true,
           warnings: pluginPlanWarnings,
         });
 
@@ -655,6 +660,7 @@ export async function detectLegacyStateMigrations(params: {
   }
 
   return {
+    doctorOnlyStateMigrations: params.doctorOnlyStateMigrations === true,
     targetAgentId,
     targetMainKey,
     targetScope,
@@ -759,6 +765,7 @@ async function runPluginDoctorStateMigrationPlans(params: {
     env: params.env,
     stateDir: params.detected.stateDir,
     oauthDir: params.detected.oauthDir,
+    includeDoctorOnly: params.detected.doctorOnlyStateMigrations,
     warnings,
   });
   const hasDetectorFailure = warnings.length > 0;

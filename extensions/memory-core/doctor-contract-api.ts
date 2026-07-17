@@ -1875,6 +1875,7 @@ export const stateMigrations: PluginDoctorStateMigration[] = [
   {
     id: "memory-core-host-events-jsonl-to-sqlite",
     label: "Memory Core host events",
+    doctorOnly: true,
     async detectLegacyState(params) {
       const sources = await collectLegacyMemoryHostEventSources(params.config, params.env);
       const pending: LegacyMemoryHostEventSource[] = [];
