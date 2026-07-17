@@ -12,7 +12,17 @@ export function listSlackMessageActions(
 ): ChannelMessageActionName[] {
   const accounts = (
     accountId ? [resolveSlackAccount({ cfg, accountId })] : listEnabledSlackAccounts(cfg)
-  ).filter((account) => account.enabled && account.botTokenSource !== "none");
+  ).filter((account) => {
+    if (!account.enabled) {
+      return false;
+    }
+    // User identity writes/reacts with the user token, which is only writable when
+    // userTokenReadOnly is explicitly false (mirrors resolveSlackOperationToken); otherwise the
+    // account has no actionable identity credential and must not advertise mutation actions.
+    return account.config.identityMode === "user"
+      ? account.userTokenSource !== "none" && account.config.userTokenReadOnly === false
+      : account.botTokenSource !== "none";
+  });
   if (accounts.length === 0) {
     return [];
   }

@@ -1215,6 +1215,32 @@ Second paragraph should still reach the agent after Slack's preview cutoff.`;
     expect(prepared.ctxPayload.RawBody).toContain("[Slack file: file]");
   });
 
+  it("drops user-identity echoes without bot_id", async () => {
+    const slackCtx = createDefaultSlackCtx();
+    slackCtx.botUserId = "U_AUTH";
+
+    const prepared = await prepareMessageWith(
+      slackCtx,
+      createSlackAccount({ identityMode: "user" }),
+      createSlackMessage({ user: "U_AUTH" }),
+    );
+
+    expect(prepared).toBeNull();
+  });
+
+  it("allows user-identity messages from a different Slack user", async () => {
+    const slackCtx = createDefaultSlackCtx();
+    slackCtx.botUserId = "U_AUTH";
+
+    const prepared = await prepareMessageWith(
+      slackCtx,
+      createSlackAccount({ identityMode: "user" }),
+      createSlackMessage({ user: "U_COUNTERPARTY" }),
+    );
+
+    assertPrepared(prepared);
+  });
+
   it("extracts attachment text for bot messages with empty text when allowBots is true (#27616)", async () => {
     const slackCtx = createInboundSlackCtx({
       cfg: {

@@ -559,14 +559,15 @@ async function authorizeSlackInboundMessage(params: {
   const { isDirectMessage, channelName, resolvedChannelType, isBotMessage, allowBotsMode } =
     conversation;
 
-  if (isBotMessage) {
-    if (message.user && ctx.botUserId && message.user === ctx.botUserId) {
-      return null;
-    }
-    if (allowBotsMode === "off") {
-      logVerbose(`slack: drop bot message ${message.bot_id ?? "unknown"} (allowBots=false)`);
-      return null;
-    }
+  // Never process a message authored by our own identity. In bot mode this is the bot's echo;
+  // in identityMode="user" the agent's own reply comes back as an ordinary user message with no
+  // bot_id, so gating this on isBotMessage would let user-mode self-posts loop.
+  if (message.user && ctx.botUserId && message.user === ctx.botUserId) {
+    return null;
+  }
+  if (isBotMessage && allowBotsMode === "off") {
+    logVerbose(`slack: drop bot message ${message.bot_id ?? "unknown"} (allowBots=false)`);
+    return null;
   }
 
   if (isDirectMessage && !message.user) {

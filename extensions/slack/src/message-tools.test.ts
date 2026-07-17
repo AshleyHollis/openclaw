@@ -219,6 +219,59 @@ describe("Slack message tools", () => {
     ]);
   });
 
+  it("lists default actions for a user-identity account without a bot token", () => {
+    const cfg = {
+      channels: {
+        slack: {
+          accounts: {
+            user: {
+              identityMode: "user",
+              userToken: "test",
+              userTokenReadOnly: false,
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const actions = listSlackMessageActions(cfg, "user");
+
+    expect(actions).not.toHaveLength(0);
+    expect(actions).toEqual(expect.arrayContaining(["send", "react"]));
+  });
+
+  it("omits actions for a read-only user-identity account", () => {
+    const cfg = {
+      channels: {
+        slack: {
+          accounts: {
+            user: {
+              identityMode: "user",
+              userToken: "test",
+              userTokenReadOnly: true,
+            },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    expect(listSlackMessageActions(cfg, "user")).toEqual([]);
+  });
+
+  it("omits actions for an account without an identity token", () => {
+    const cfg = {
+      channels: {
+        slack: {
+          accounts: {
+            empty: {},
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    expect(listSlackMessageActions(cfg, "empty")).toEqual([]);
+  });
+
   it("honors the selected Slack account during discovery", () => {
     const cfg = {
       channels: {
