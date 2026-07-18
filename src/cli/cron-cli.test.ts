@@ -59,6 +59,7 @@ vi.mock("../runtime.js", () => ({
 
 type CronUpdatePatch = {
   patch?: {
+    deleteAfterRun?: boolean;
     schedule?: { kind?: string; expr?: string; tz?: string; staggerMs?: number };
     payload?: {
       kind?: string;

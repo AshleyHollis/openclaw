@@ -73,11 +73,11 @@ describe("applyJobPatch schedule retention", () => {
     {
       label: "at to on-exit",
       previous: { kind: "at" as const, at: "2026-07-19T09:00:00.000Z" },
-      next: { kind: "on-exit" as const },
+      next: { kind: "on-exit" as const, command: "true" },
     },
     {
       label: "on-exit to at",
-      previous: { kind: "on-exit" as const },
+      previous: { kind: "on-exit" as const, command: "true" },
       next: { kind: "at" as const, at: "2026-07-20T09:00:00.000Z" },
     },
   ])("preserves one-shot retention for $label", ({ previous, next }) => {
