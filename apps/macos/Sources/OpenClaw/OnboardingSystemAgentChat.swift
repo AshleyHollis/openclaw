@@ -7,7 +7,7 @@ enum SystemAgentDraft: String, Decodable {
 
     var composerValue: String {
         switch self {
-        case .hatch: "Wake up, my friend!"
+        case .hatch: String(localized: "Wake up, my friend!")
         }
     }
 }

@@ -32162,6 +32162,14 @@
       "id": "native.apple.2070bf43a67680ee"
     },
     {
+      "kind": "ui-localized-call",
+      "line": 10,
+      "path": "apps/macos/Sources/OpenClaw/OnboardingSystemAgentChat.swift",
+      "source": "Wake up, my friend!",
+      "surface": "apple",
+      "id": "native.apple.ba758aa97c24ffe6"
+    },
+    {
       "kind": "conditional-branch",
       "line": 129,
       "path": "apps/macos/Sources/OpenClaw/OnboardingSystemAgentChat.swift",
