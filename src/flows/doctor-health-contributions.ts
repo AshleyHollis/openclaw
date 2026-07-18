@@ -518,9 +518,10 @@ async function runLegacyStateHealth(ctx: DoctorHealthFlowContext): Promise<void>
   const { detectLegacyStateMigrations, runLegacyStateMigrations } =
     await import("../commands/doctor-state-migrations.js");
   const { note } = await loadNoteModule();
+  const doctorOnlyStateMigrations = ctx.options.repair === true || ctx.options.yes === true;
   const legacyState = await detectLegacyStateMigrations({
     cfg: ctx.cfg,
-    doctorOnlyStateMigrations: true,
+    ...(doctorOnlyStateMigrations ? { doctorOnlyStateMigrations: true } : {}),
   });
   if (legacyState.warnings.length > 0) {
     note(legacyState.warnings.join("\n"), "Doctor warnings");
@@ -545,7 +546,7 @@ async function runLegacyStateHealth(ctx: DoctorHealthFlowContext): Promise<void>
   const migrated = await runLegacyStateMigrations({
     detected: legacyState,
     config: ctx.cfg,
-    doctorOnlyStateMigrations: true,
+    ...(doctorOnlyStateMigrations ? { doctorOnlyStateMigrations: true } : {}),
     recoverCorruptTargetStore: ctx.options.repair === true || ctx.options.yes === true,
   });
   if (migrated.changes.length > 0) {
