@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "releaseId": "2026.7.1-2+nas.1",
+  "releaseId": "2026.7.1-2+nas.2",
   "status": "blocked",
   "blockingIssues": [
-    "The exact artifact fails Codex CLI-metadata registration because @openclaw/codex opens plugin state against the base registration runtime.",
-    "The original qualification did not exercise external-plugin registration or a scoped loopback gateway RPC."
+    "The broad workspace shrinkwrap audit reports pre-existing stale metadata in extensions/llama-cpp and extensions/twitch; regenerating it changes dependency deduplication and requires dependency review.",
+    "npm 10.9.8 invoked the package prepare lifecycle even with --ignore-scripts; qualification requires a packaging path that proves lifecycle scripts are disabled."
   ],
   "npm": {
     "version": "2026.7.1-2",
@@ -15,9 +15,9 @@
   "source": {
     "ref": "refs/heads/release/2026.7.1",
     "baseCommit": "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c",
-    "commit": "7371082dbe4dbcaa06685f7960c95d234ce1fb4a",
-    "stableDivergence": { "ahead": 1, "behind": 0 },
-    "mainDivergence": { "ahead": 2, "behind": 43 }
+    "commit": "774c25437f1208a76b57baca485df12140f43284",
+    "stableDivergence": { "ahead": 2, "behind": 0 },
+    "mainDivergence": { "ahead": 3, "behind": 206 }
   },
   "node": {
     "buildVersion": "22.23.1",
@@ -30,7 +30,11 @@
       "version": "2026.7.1-1",
       "integrity": "sha512-fRQITjqjC4Q/M6WmkR9XPWPuL+7vcvyVUWIDztB08X2G/mhzSwCYwQp4hugxAtuKmO3yx/7ULMK3nyeKsg5zGw==",
       "tarball": "https://registry.npmjs.org/@openclaw/codex/-/codex-2026.7.1-1.tgz",
-      "artifact": null
+      "artifact": {
+        "filename": "openclaw-codex-2026.7.1-1-nas.2.tgz",
+        "url": "https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.2/openclaw-codex-2026.7.1-1-nas.2.tgz",
+        "sha256": "50012c9b4e53a13f06b3092632aff1285a9f015118f18a5d2fb1fe7da89edb7f"
+      }
     }
   ],
   "patches": [
@@ -75,36 +79,43 @@
       "sha256": "abe6078c4ab0825fa9f2b616954e6bf0ec3e4f5bea3ea980074b0aad93114ca2",
       "status": "required",
       "tests": ["src/commands/channels/status.test.ts"]
+    },
+    {
+      "id": "codex-lazy-plugin-state",
+      "file": "downstream/patches/2026.7.1-2/0007-fix-codex-defer-plugin-state-until-runtime-use.patch",
+      "sha256": "11d5df26868aab81356919cff284cbd177d2d7508fea12711ec8706a1b3ca706",
+      "status": "required",
+      "tests": ["extensions/codex/index.test.ts", "downstream/scripts/smoke-external-plugin.sh"]
     }
   ],
   "artifact": {
-    "filename": "openclaw-2026.7.1-2.tgz",
-    "url": "https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.1/openclaw-2026.7.1-2.tgz",
-    "sha256": "f009fb7f3d0869084c7da9c5044850aa15dd233ce8ee24272a0dcd1da23022d6",
+    "filename": "openclaw-2026.7.1-2-nas.2.tgz",
+    "url": "https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.2/openclaw-2026.7.1-2-nas.2.tgz",
+    "sha256": "870ec3b68ae7dd7acbe31afb467bfe865d09d6c99f265016eee61654b339e8c2",
     "validation": {
       "fullBuild": true,
-      "focusedAssertions": 888,
+      "focusedAssertions": 376,
       "packageSmoke": true,
-      "externalPluginRegistration": false,
-      "scopedLoopbackRpc": false,
-      "dependencyMetadataCheck": true,
+      "externalPluginRegistration": true,
+      "scopedLoopbackRpc": true,
+      "dependencyMetadataCheck": false,
       "discordRuntimeFiles": 61,
       "patchTests": true,
-      "imageSmoke": true,
-      "imageScan": true
+      "imageSmoke": false,
+      "imageScan": false
     }
   },
   "image": {
     "repository": "ghcr.io/ashleyhollis/openclaw",
-    "tag": "nas-2026.7.1-2-nas.1",
-    "digest": "sha256:4681868fceb01c44f3d076d6b185a7e83373044f872b14c6ff100c8532e995a4",
-    "attestationDigest": "sha256:40a98490bbf0c23d72adbbabad160542b367f073404ca04076d09a918f49612b",
-    "sbomDigest": "sha256:6e86d2f7b8e6bdd1a9b7f549768d5b93dc466337c17591ca467dc387dceff70e",
-    "provenanceDigest": "sha256:e5c7566c31e855f84e824a0c4b2b777d8a561555f14c79c7f72cf68912191492"
+    "tag": "nas-2026.7.1-2-nas.2",
+    "digest": null,
+    "attestationDigest": null,
+    "sbomDigest": null,
+    "provenanceDigest": null
   },
   "testResults": {
-    "downstreamGuard": "https://github.com/AshleyHollis/openclaw/actions/runs/29635441629",
-    "dryRun": "https://github.com/AshleyHollis/openclaw/actions/runs/29636037605",
-    "publish": "https://github.com/AshleyHollis/openclaw/actions/runs/29636176082"
+    "downstreamGuard": null,
+    "dryRun": null,
+    "publish": null
   }
 }

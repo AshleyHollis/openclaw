@@ -2,11 +2,11 @@
 set -euo pipefail
 
 artifact="${1:-}"
-plugin_package="${2:-}"
-plugin_version="${3:-}"
+plugin_artifact="${2:-}"
+plugin_id="${3:-}"
 expected_version="${4:-}"
-if [[ -z "$artifact" || -z "$plugin_package" || -z "$plugin_version" || -z "$expected_version" ]]; then
-  echo "Usage: smoke-external-plugin.sh <openclaw.tgz> <plugin-package> <plugin-version> <openclaw-version>" >&2
+if [[ -z "$artifact" || -z "$plugin_artifact" || -z "$plugin_id" || -z "$expected_version" ]]; then
+  echo "Usage: smoke-external-plugin.sh <openclaw.tgz> <plugin.tgz> <plugin-id> <openclaw-version>" >&2
   exit 2
 fi
 
@@ -50,8 +50,8 @@ fs.writeFileSync(process.env.OPENCLAW_CONFIG_PATH, `${JSON.stringify(config, nul
 });
 NODE
 
-"$cli" plugins install "$plugin_package@$plugin_version" --pin
-"$cli" plugins enable codex
+"$cli" plugins install "$plugin_artifact" --pin
+"$cli" plugins enable "$plugin_id"
 
 # `export` reaches CLI-metadata registration before this stable CLI rejects the
 # unavailable command. This catches plugins that access proxied-only runtime
@@ -59,7 +59,7 @@ NODE
 set +e
 "$cli" export >"$root/cli-metadata.log" 2>&1
 set -e
-plugin_error_pattern='(\[plugins\].*(failed|error)|codex.*(failed|error)|TypeError:.*openSyncKeyedStore)'
+plugin_error_pattern="(\\[plugins\\].*(failed|error)|${plugin_id}.*(failed|error)|TypeError:.*openSyncKeyedStore)"
 if grep -Eqi "$plugin_error_pattern" "$root/cli-metadata.log"; then
   sed -E 's/[0-9a-f]{64}/<redacted-token>/g' "$root/cli-metadata.log" >&2
   echo "External plugin failed CLI-metadata registration" >&2

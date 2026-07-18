@@ -71,11 +71,16 @@ test("rejects a repair that changes a package manifest", async () => {
 test("validates the release manifest and patch hashes", () => {
   const result = spawnSync(
     process.execPath,
-    [validateScript, "downstream/releases/2026.7.1-2.json"],
+    [
+      validateScript,
+      "downstream/releases/2026.7.1-2.json",
+      "downstream/releases/2026.7.1-2-nas.2.json",
+    ],
     { cwd: repositoryRoot, encoding: "utf8" },
   );
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.1 \(blocked\)/u);
+  assert.match(result.stdout, /2026\.7\.1-2\+nas\.2 \(blocked\)/u);
 });
 
 test("keeps the latest pointer aligned with the selected manifest", async () => {
@@ -89,6 +94,8 @@ test("keeps the latest pointer aligned with the selected manifest", async () => 
   assert.equal(pointer.status, manifest.status);
   assert.equal(manifest.status, "blocked");
   assert.ok(manifest.blockingIssues.length > 0);
-  assert.equal(manifest.artifact.validation.externalPluginRegistration, false);
-  assert.equal(manifest.artifact.validation.scopedLoopbackRpc, false);
+  assert.equal(manifest.artifact.validation.externalPluginRegistration, true);
+  assert.equal(manifest.artifact.validation.scopedLoopbackRpc, true);
+  assert.equal(manifest.artifact.validation.dependencyMetadataCheck, false);
+  assert.match(manifest.externalPlugins[0].artifact.url, /nas-v2026\.7\.1-2\.2/u);
 });

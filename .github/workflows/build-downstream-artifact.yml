@@ -43,9 +43,12 @@ jobs:
           if (manifest.status === "blocked") throw new Error("blocked releases cannot be built or published");
           const codex = manifest.externalPlugins.find((plugin) => plugin.id === "codex");
           if (!codex) throw new Error("release manifest must freeze the Codex external plugin");
+          if (!codex.artifact) throw new Error("release manifest must pin a patched Codex artifact");
           const values = {
             artifact_sha256: manifest.artifact.sha256,
             artifact_url: manifest.artifact.url,
+            codex_artifact_sha256: codex.artifact.sha256,
+            codex_artifact_url: codex.artifact.url,
             codex_integrity: codex.integrity,
             codex_package: codex.package,
             codex_tarball: codex.tarball,
@@ -94,6 +97,18 @@ jobs:
           ! grep -Eq '"(workspace|link|file):' /tmp/openclaw-package.json
           grep -q '^package/dist/extensions/discord/' /tmp/openclaw-tar-files.txt
 
+      - name: Download and verify exact Codex plugin tarball
+        env:
+          CODEX_ARTIFACT_SHA256: ${{ steps.release.outputs.codex_artifact_sha256 }}
+          CODEX_ARTIFACT_URL: ${{ steps.release.outputs.codex_artifact_url }}
+          CODEX_VERSION: ${{ steps.release.outputs.codex_version }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --proto '=https' --tlsv1.2 "$CODEX_ARTIFACT_URL" --output codex-current.tgz
+          printf '%s  %s\n' "$CODEX_ARTIFACT_SHA256" codex-current.tgz | sha256sum -c -
+          tar -xOf codex-current.tgz package/package.json > /tmp/codex-package.json
+          test "$(node -p 'require("/tmp/codex-package.json").version')" = "$CODEX_VERSION"
+
       - name: Smoke-test exact tarball
         env:
           VERSION: ${{ steps.release.outputs.version }}
@@ -115,15 +130,13 @@ jobs:
 
       - name: Smoke-test external Codex plugin and scoped RPC
         env:
-          CODEX_PACKAGE: ${{ steps.release.outputs.codex_package }}
-          CODEX_VERSION: ${{ steps.release.outputs.codex_version }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
           bash downstream/scripts/smoke-external-plugin.sh \
             "$GITHUB_WORKSPACE/openclaw-current.tgz" \
-            "$CODEX_PACKAGE" \
-            "$CODEX_VERSION" \
+            "$GITHUB_WORKSPACE/codex-current.tgz" \
+            codex \
             "$VERSION"
 
       - name: Set up Docker Buildx
