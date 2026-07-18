@@ -79,6 +79,8 @@ type SystemAgentChatReplyAction = "none" | "exit" | "open-tui" | "open-setup";
 type SystemAgentChatReply = {
   text: string;
   action: SystemAgentChatReplyAction;
+  /** Client-localized draft intent for the destination agent chat. */
+  agentDraft?: "hatch";
   /** The next hosted-wizard reply contains a secret and must be masked/redacted by hosts. */
   sensitive?: boolean;
   /** Present when the host must leave chat for an interactive handoff. */
@@ -639,6 +641,7 @@ export class SystemAgentChatEngine {
           "Your agent is hatching — handing you over now. You can always find me in Settings → Ask OpenClaw.",
         ].join("\n\n"),
         action: "open-tui",
+        agentDraft: "hatch",
         handoff: {
           kind: "open-tui",
           ...(operation.workspace ? { workspace: operation.workspace } : {}),

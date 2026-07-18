@@ -625,6 +625,7 @@ describe("custodian page", () => {
       sessionId: "control-ui-onboarding-00000000-0000-4000-8000-000000000001",
       reply: "Your agent is hatching — handing you over now.",
       action: "open-agent",
+      agentDraft: "hatch",
     });
     const { context } = createContext(request);
     const { page } = await mountPage(context);
@@ -632,8 +633,21 @@ describe("custodian page", () => {
     await page.updateComplete;
 
     expect(context.navigate).toHaveBeenCalledWith("chat", {
-      search: `?draft=${encodeURIComponent("Wake up, my friend!")}`,
+      search: `?session=main&draft=${encodeURIComponent("Wake up, my friend!")}`,
     });
+  });
+
+  it("hands off to normal agent chat without the hatch draft", async () => {
+    const request = vi.fn().mockResolvedValue({
+      sessionId: "control-ui-onboarding-00000000-0000-4000-8000-000000000001",
+      reply: "Setup here is done — continue with your agent.",
+      action: "open-agent",
+    });
+    const { context } = createContext(request);
+    await mountPage(context);
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+
+    expect(context.navigate).toHaveBeenCalledWith("chat");
   });
 
   it("exits setup through normal chat navigation", async () => {

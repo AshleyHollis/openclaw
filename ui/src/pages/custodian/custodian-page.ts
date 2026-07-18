@@ -9,6 +9,7 @@ import "../../components/option-card.ts";
 import { toSanitizedMarkdownHtml } from "../../components/markdown.ts";
 import { t } from "../../i18n/index.ts";
 import { isGatewayMethodAdvertised } from "../../lib/gateway-methods.ts";
+import { searchForSession } from "../../lib/sessions/navigation.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import "../../styles/custodian.css";
@@ -199,11 +200,16 @@ export class CustodianPage extends OpenClawLightDomElement {
       this.retryParams = null;
       this.appendAssistant(result.reply, parseCustodianQuestion(result.question));
       if (result.action === "open-agent") {
-        // Hatch handoff: land in the agent chat with the birth-sequence opener
-        // prefilled so one Send wakes the freshly seeded BOOTSTRAP.
-        this.context.navigate("chat", {
-          search: `?draft=${encodeURIComponent(t("custodian.hatchDraft"))}`,
-        });
+        const sessionKey = this.context.gateway.snapshot.sessionKey?.trim();
+        if (result.agentDraft === "hatch" && sessionKey) {
+          // Preserve the destination session while preloading the localized
+          // birth-sequence opener; draft-only chat routes are intentionally invalid.
+          this.context.navigate("chat", {
+            search: `${searchForSession(sessionKey)}&draft=${encodeURIComponent(t("custodian.hatchDraft"))}`,
+          });
+        } else {
+          this.exitSetup();
+        }
       } else if (result.action === "exit") {
         this.exitSetup();
       }

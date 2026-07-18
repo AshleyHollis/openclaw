@@ -414,6 +414,7 @@ describe("SystemAgentChatEngine", () => {
 
     expect(applySetup).toHaveBeenCalledOnce();
     expect(reply.action).toBe("open-tui");
+    expect(reply.agentDraft).toBe("hatch");
     expect(reply.handoff).toMatchObject({ kind: "open-tui", workspace: "/tmp/hatch-work" });
     expect(reply.text).toContain("Your agent is hatching");
     expect(reply.text).toContain("Settings → Ask OpenClaw");
@@ -466,6 +467,7 @@ describe("SystemAgentChatEngine", () => {
 
     expect(applySetup).toHaveBeenCalledOnce();
     expect(reply.action).toBe("none");
+    expect(reply.agentDraft).toBeUndefined();
     expect(reply.handoff).toBeUndefined();
     expect(reply.text).not.toContain("Your agent is hatching");
   });
@@ -479,6 +481,7 @@ describe("SystemAgentChatEngine", () => {
     const reply = await engine.handle("yes");
 
     expect(reply.action).toBe("none");
+    expect(reply.agentDraft).toBeUndefined();
     expect(reply.handoff).toBeUndefined();
   });
 
