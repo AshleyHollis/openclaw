@@ -3,7 +3,7 @@
   "$id": "https://github.com/AshleyHollis/openclaw/blob/main/downstream/release.schema.json",
   "title": "OpenClaw NAS downstream release",
   "type": "object",
-  "required": ["schemaVersion", "releaseId", "status", "npm", "source", "node", "patches", "artifact", "image"],
+  "required": ["schemaVersion", "releaseId", "status", "npm", "source", "node", "patches", "artifact", "image", "testResults"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "releaseId": { "type": "string", "pattern": "^[0-9]{4}\\.[0-9]+\\.[0-9]+(?:-[0-9]+)?\\+nas\\.[0-9]+$" },
@@ -65,12 +65,15 @@
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "validation": {
           "type": "object",
-          "required": ["fullBuild", "focusedAssertions", "packageSmoke", "discordRuntimeFiles"],
+          "required": ["fullBuild", "focusedAssertions", "packageSmoke", "discordRuntimeFiles", "patchTests", "imageSmoke", "imageScan"],
           "properties": {
             "fullBuild": { "type": "boolean" },
             "focusedAssertions": { "type": "integer", "minimum": 0 },
             "packageSmoke": { "type": "boolean" },
-            "discordRuntimeFiles": { "type": "integer", "minimum": 0 }
+            "discordRuntimeFiles": { "type": "integer", "minimum": 0 },
+            "patchTests": { "type": "boolean" },
+            "imageSmoke": { "type": "boolean" },
+            "imageScan": { "type": "boolean" }
           },
           "additionalProperties": false
         }
@@ -79,12 +82,24 @@
     },
     "image": {
       "type": "object",
-      "required": ["repository", "tag", "digest", "sbomDigest"],
+      "required": ["repository", "tag", "digest", "attestationDigest", "sbomDigest", "provenanceDigest"],
       "properties": {
         "repository": { "const": "ghcr.io/ashleyhollis/openclaw" },
         "tag": { "type": ["string", "null"] },
         "digest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
-        "sbomDigest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" }
+        "attestationDigest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+        "sbomDigest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+        "provenanceDigest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "testResults": {
+      "type": "object",
+      "required": ["downstreamGuard", "dryRun", "publish"],
+      "properties": {
+        "downstreamGuard": { "type": "string", "pattern": "^https://github\\.com/AshleyHollis/openclaw/actions/runs/" },
+        "dryRun": { "type": "string", "pattern": "^https://github\\.com/AshleyHollis/openclaw/actions/runs/" },
+        "publish": { "type": "string", "pattern": "^https://github\\.com/AshleyHollis/openclaw/actions/runs/" }
       },
       "additionalProperties": false
     }
