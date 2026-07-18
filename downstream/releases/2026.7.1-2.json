@@ -1,7 +1,11 @@
 {
   "schemaVersion": 1,
   "releaseId": "2026.7.1-2+nas.1",
-  "status": "qualified",
+  "status": "blocked",
+  "blockingIssues": [
+    "The exact artifact fails Codex CLI-metadata registration because @openclaw/codex opens plugin state against the base registration runtime.",
+    "The original qualification did not exercise external-plugin registration or a scoped loopback gateway RPC."
+  ],
   "npm": {
     "version": "2026.7.1-2",
     "distTag": "latest",
@@ -19,6 +23,15 @@
     "buildVersion": "22.23.1",
     "engine": ">=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0"
   },
+  "externalPlugins": [
+    {
+      "id": "codex",
+      "package": "@openclaw/codex",
+      "version": "2026.7.1-1",
+      "integrity": "sha512-fRQITjqjC4Q/M6WmkR9XPWPuL+7vcvyVUWIDztB08X2G/mhzSwCYwQp4hugxAtuKmO3yx/7ULMK3nyeKsg5zGw==",
+      "tarball": "https://registry.npmjs.org/@openclaw/codex/-/codex-2026.7.1-1.tgz"
+    }
+  ],
   "patches": [
     {
       "id": "qmd-gpu-off",
@@ -71,6 +84,8 @@
       "fullBuild": true,
       "focusedAssertions": 888,
       "packageSmoke": true,
+      "externalPluginRegistration": false,
+      "scopedLoopbackRpc": false,
       "discordRuntimeFiles": 61,
       "patchTests": true,
       "imageSmoke": true,

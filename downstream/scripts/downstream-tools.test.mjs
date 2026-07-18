@@ -75,15 +75,20 @@ test("validates the release manifest and patch hashes", () => {
     { cwd: repositoryRoot, encoding: "utf8" },
   );
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /2026\.7\.1-2\+nas\.1 \(qualified\)/u);
+  assert.match(result.stdout, /2026\.7\.1-2\+nas\.1 \(blocked\)/u);
 });
 
-test("keeps the latest pointer aligned with the qualified manifest", async () => {
+test("keeps the latest pointer aligned with the selected manifest", async () => {
   const pointer = JSON.parse(
     await readFile(path.join(repositoryRoot, "downstream/releases/latest.json"), "utf8"),
   );
   assert.match(pointer.releaseManifest, /^downstream\/releases\/[0-9A-Za-z._+-]+\.json$/u);
-  const manifest = JSON.parse(await readFile(path.join(repositoryRoot, pointer.releaseManifest), "utf8"));
+  const manifest = JSON.parse(
+    await readFile(path.join(repositoryRoot, pointer.releaseManifest), "utf8"),
+  );
   assert.equal(pointer.status, manifest.status);
-  assert.equal(manifest.status, "qualified");
+  assert.equal(manifest.status, "blocked");
+  assert.ok(manifest.blockingIssues.length > 0);
+  assert.equal(manifest.artifact.validation.externalPluginRegistration, false);
+  assert.equal(manifest.artifact.validation.scopedLoopbackRpc, false);
 });

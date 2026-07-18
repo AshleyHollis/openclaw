@@ -5,10 +5,10 @@ This directory contains the public, reproducible overlay used to build the OpenC
 The workflow is intentionally split into three trust boundaries:
 
 1. `validate-downstream.yml` validates release manifests and proves that each patch series applies to its frozen source commit.
-2. `build-downstream-artifact.yml` verifies and smoke-tests the exact preserved tarball, builds the runtime image, scans it, and optionally publishes it with an SBOM and provenance attestation.
+2. `build-downstream-artifact.yml` verifies the exact preserved tarball, freezes the external Codex package, proves CLI registration and a scoped loopback RPC, builds the runtime image, scans it, and optionally publishes it with an SBOM and provenance attestation.
 3. `codex-repair.yml` is a manually triggered repair path. Codex receives only an OpenAI API key and a credential-free checkout. A separate job rejects changes outside application source and tests before it can create a pull request.
 
-`releases/latest.json` is a pointer, not a deployment instruction. The private `nas-infra` repository promotes only manifests whose status is `qualified` and whose image reference contains a SHA-256 digest.
+`releases/latest.json` is a pointer, not a deployment instruction. The private `nas-infra` repository promotes only manifests whose status is `qualified` and whose image reference contains a SHA-256 digest. A previously qualified artifact may be changed to `blocked` when a missed acceptance gate is discovered; `blockingIssues` records why it must not be selected.
 
 ## Local validation
 
