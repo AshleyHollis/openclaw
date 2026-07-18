@@ -492,8 +492,8 @@ describe("openclaw agent database", () => {
     expect(registered?.sizeBytes).toBeGreaterThan(0);
   });
 
-  it("folds additive heartbeat storage into schema version 11", () => {
-    expect(OPENCLAW_AGENT_SCHEMA_VERSION).toBe(11);
+  it("folds additive heartbeat storage into schema version 12", () => {
+    expect(OPENCLAW_AGENT_SCHEMA_VERSION).toBe(12);
     const stateDir = createTempStateDir();
     const env = { OPENCLAW_STATE_DIR: stateDir };
     const opened = openOpenClawAgentDatabase({ agentId: "worker-1", env });
@@ -504,8 +504,8 @@ describe("openclaw agent database", () => {
     const existingV11 = new DatabaseSync(databasePath);
     existingV11.exec(`
       DROP TABLE heartbeat_outcomes;
-      PRAGMA user_version = 11;
-      UPDATE schema_meta SET schema_version = 11 WHERE meta_key = 'primary';
+      PRAGMA user_version = 12;
+      UPDATE schema_meta SET schema_version = 12 WHERE meta_key = 'primary';
     `);
     existingV11.close();
 
@@ -515,12 +515,58 @@ describe("openclaw agent database", () => {
         .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = ?")
         .get("heartbeat_outcomes"),
     ).toEqual({ name: "heartbeat_outcomes" });
-    expect(readSqliteNumberPragma(reopened.db, "user_version")).toBe(11);
+    expect(readSqliteNumberPragma(reopened.db, "user_version")).toBe(12);
     expect(
       reopened.db
         .prepare("SELECT schema_version FROM schema_meta WHERE meta_key = 'primary'")
         .get(),
-    ).toEqual({ schema_version: 11 });
+    ).toEqual({ schema_version: 12 });
+  });
+
+  it("backfills one generation per existing transcript when upgrading v11", () => {
+    const stateDir = createTempStateDir();
+    const env = { OPENCLAW_STATE_DIR: stateDir };
+    const opened = openOpenClawAgentDatabase({ agentId: "worker-1", env });
+    const databasePath = opened.path;
+    closeOpenClawAgentDatabasesForTest();
+    closeOpenClawStateDatabaseForTest();
+
+    const { DatabaseSync } = requireNodeSqlite();
+    const legacy = new DatabaseSync(databasePath);
+    legacy.exec(`
+      DROP TABLE IF EXISTS session_transcript_generations;
+      INSERT INTO sessions (session_id, session_key, created_at, updated_at)
+      VALUES
+        ('with-transcript', 'agent:worker-1:with-transcript', 10, 20),
+        ('without-transcript', 'agent:worker-1:without-transcript', 10, 20);
+      INSERT INTO transcript_events (session_id, seq, event_json, created_at)
+      VALUES ('with-transcript', 0, '{"type":"session","id":"with-transcript"}', 10);
+      PRAGMA user_version = 11;
+      UPDATE schema_meta SET schema_version = 11 WHERE meta_key = 'primary';
+    `);
+    legacy.close();
+
+    const migrated = openOpenClawAgentDatabase({ agentId: "worker-1", env });
+    const generations = migrated.db
+      .prepare(
+        "SELECT session_id, generation FROM session_transcript_generations ORDER BY session_id",
+      )
+      .all() as Array<{ generation: string; session_id: string }>;
+
+    expect(generations).toHaveLength(1);
+    expect(generations[0]?.session_id).toBe("with-transcript");
+    expect(generations[0]?.generation).toMatch(/^[0-9a-f]{32}$/);
+    expect(
+      migrated.db
+        .prepare("SELECT strict FROM pragma_table_list WHERE name = ?")
+        .get("session_transcript_generations"),
+    ).toEqual({ strict: 1 });
+    expect(readSqliteNumberPragma(migrated.db, "user_version")).toBe(12);
+    expect(
+      migrated.db
+        .prepare("SELECT schema_version FROM schema_meta WHERE meta_key = 'primary'")
+        .get(),
+    ).toEqual({ schema_version: 12 });
   });
 
   it("upgrades version 10 with agent state intact and adds lease storage", () => {
