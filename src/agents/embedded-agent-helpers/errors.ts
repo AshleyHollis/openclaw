@@ -1795,7 +1795,10 @@ function isCliSessionExpiredErrorMessage(raw: string): boolean {
     lower.includes("no such session") ||
     lower.includes("invalid session") ||
     lower.includes("session id not found") ||
-    lower.includes("conversation id not found")
+    lower.includes("conversation id not found") ||
+    // Thinking block signatures are time-limited; when one expires during
+    // resume, retry with a fresh session instead of treating it as provider failure.
+    lower.includes("invalid signature in thinking")
   );
 }
 

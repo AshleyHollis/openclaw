@@ -783,6 +783,10 @@ describe("classifyFailoverReason HTTP 410 handling", () => {
     );
   });
 
+  it("classifies expired Claude thinking signatures as session_expired", () => {
+    expect(classifyFailoverReason("invalid signature in thinking block")).toBe("session_expired");
+  });
+
   it("keeps explicit billing and auth signals on 410 text", () => {
     expect(classifyFailoverReason("HTTP 410: invalid_api_key")).toBe("auth");
     expect(classifyFailoverReason("HTTP 410: authentication failed")).toBe("auth");

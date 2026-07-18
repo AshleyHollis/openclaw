@@ -1498,7 +1498,12 @@ export function parseCliOutput(params: {
         errorText: CLI_STREAM_JSON_MISSING_RESULT_ERROR,
       };
     }
-    return { text: params.raw.trim(), sessionId: params.fallbackSessionId };
+    return {
+      // JSONL stdout contains structured stream events. If parsing fails,
+      // do not forward those raw event lines as a chat reply.
+      text: "",
+      sessionId: params.fallbackSessionId,
+    };
   }
   return (
     parseCliJson(params.raw, params.backend, params.providerId) ?? {

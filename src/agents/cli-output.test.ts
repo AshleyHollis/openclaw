@@ -1006,6 +1006,27 @@ describe("parseCliOutput", () => {
       errorText: "CLI stream-json output ended without a result event.",
     });
   });
+
+  it("does not expose raw JSONL stream events when parsing fails", () => {
+    const raw = '{"type":"stream_event","event":{"type":"unknown"}}';
+
+    const result = parseCliOutput({
+      raw,
+      backend: {
+        command: "custom-cli",
+        output: "jsonl",
+        sessionIdFields: ["session_id"],
+      },
+      providerId: "custom-cli",
+      outputMode: "jsonl",
+      fallbackSessionId: "session-fallback",
+    });
+
+    expect(result).toEqual({
+      text: "",
+      sessionId: "session-fallback",
+    });
+  });
 });
 
 describe("createCliJsonlStreamingParser", () => {

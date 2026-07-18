@@ -1,6 +1,10 @@
 // Implements `openclaw channels status` with gateway status and config-only fallback.
 import { redactSensitiveUrlLikeString } from "@openclaw/net-policy/redact-sensitive-url";
 import { normalizeOptionalLowercaseString } from "@openclaw/normalization-core/string-coerce";
+import {
+  GATEWAY_CLIENT_MODES,
+  GATEWAY_CLIENT_NAMES,
+} from "../../../packages/gateway-protocol/src/client-info.js";
 import { formatDocsLink } from "../../../packages/terminal-core/src/links.js";
 import { theme } from "../../../packages/terminal-core/src/theme.js";
 import { normalizeChannelId } from "../../channels/plugins/index.js";
@@ -250,6 +254,8 @@ export async function channelsStatusCommand(
           method: "channels.status",
           params,
           timeoutMs,
+          clientName: GATEWAY_CLIENT_NAMES.CLI,
+          mode: GATEWAY_CLIENT_MODES.CLI,
         });
       },
     );

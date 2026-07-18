@@ -508,6 +508,7 @@ export class QmdMemoryManager implements MemorySearchManager {
       // Point it at the nested qmd config directory so per-agent collections are visible.
       QMD_CONFIG_DIR: path.join(this.xdgConfigHome, "qmd"),
       XDG_CACHE_HOME: this.xdgCacheHome,
+      QMD_LLAMA_GPU: process.env.QMD_LLAMA_GPU ?? "off",
       NO_COLOR: "1",
     };
     this.closeSignal = new Promise<void>((resolve) => {
