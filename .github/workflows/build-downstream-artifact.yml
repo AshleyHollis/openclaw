@@ -40,14 +40,43 @@ jobs:
           node downstream/scripts/validate-release.mjs "$RELEASE_MANIFEST"
           node - "$RELEASE_MANIFEST" >> "$GITHUB_OUTPUT" <<'NODE'
           const manifest = require(`./${process.argv[2]}`);
+          if (manifest.status === "blocked") throw new Error("blocked releases cannot be built or published");
+          const codex = manifest.externalPlugins.find((plugin) => plugin.id === "codex");
+          if (!codex) throw new Error("release manifest must freeze the Codex external plugin");
           const values = {
             artifact_sha256: manifest.artifact.sha256,
             artifact_url: manifest.artifact.url,
+            codex_integrity: codex.integrity,
+            codex_package: codex.package,
+            codex_tarball: codex.tarball,
+            codex_version: codex.version,
             image_tag: `nas-${manifest.releaseId.replace("+", "-")}`,
             source_commit: manifest.source.commit,
             version: manifest.npm.version,
           };
           for (const [key, value] of Object.entries(values)) console.log(`${key}=${value}`);
+          NODE
+
+      - name: Freeze external plugin registry state
+        env:
+          CODEX_INTEGRITY: ${{ steps.release.outputs.codex_integrity }}
+          CODEX_PACKAGE: ${{ steps.release.outputs.codex_package }}
+          CODEX_TARBALL: ${{ steps.release.outputs.codex_tarball }}
+          CODEX_VERSION: ${{ steps.release.outputs.codex_version }}
+        run: |
+          set -euo pipefail
+          npm view "$CODEX_PACKAGE@$CODEX_VERSION" version dist.integrity dist.tarball --json > "$RUNNER_TEMP/codex-registry.json"
+          node <<'NODE'
+          const fs = require("node:fs");
+          const current = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/codex-registry.json`, "utf8"));
+          const expected = {
+            version: process.env.CODEX_VERSION,
+            "dist.integrity": process.env.CODEX_INTEGRITY,
+            "dist.tarball": process.env.CODEX_TARBALL,
+          };
+          for (const [field, value] of Object.entries(expected)) {
+            if (current[field] !== value) throw new Error(`Codex registry ${field} changed`);
+          }
           NODE
 
       - name: Download and verify exact tarball
@@ -83,6 +112,19 @@ jobs:
             if (metadata.name !== dependency) throw new Error(`missing ${dependency}`);
           }
           NODE
+
+      - name: Smoke-test external Codex plugin and scoped RPC
+        env:
+          CODEX_PACKAGE: ${{ steps.release.outputs.codex_package }}
+          CODEX_VERSION: ${{ steps.release.outputs.codex_version }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          bash downstream/scripts/smoke-external-plugin.sh \
+            "$GITHUB_WORKSPACE/openclaw-current.tgz" \
+            "$CODEX_PACKAGE" \
+            "$CODEX_VERSION" \
+            "$VERSION"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4

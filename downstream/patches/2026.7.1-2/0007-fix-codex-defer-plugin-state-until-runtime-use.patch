@@ -1,0 +1,90 @@
+From 1111111111111111111111111111111111111111 Mon Sep 17 00:00:00 2001
+From: OpenClaw <openclaw@ashleyhollis.com>
+Date: Sun, 19 Jul 2026 03:00:00 +1000
+Subject: [PATCH 7/7] fix(codex): defer plugin state until runtime use
+
+The CLI metadata loader deliberately supplies a base registration runtime
+that rejects state access. Defer opening the Codex binding store until a
+proxied runtime performs the first binding operation.
+---
+ extensions/codex/index.test.ts | 20 ++++++++++++++++++++
+ extensions/codex/index.ts      | 24 ++++++++++++++++++++----
+ 2 files changed, 40 insertions(+), 4 deletions(-)
+
+diff --git a/extensions/codex/index.test.ts b/extensions/codex/index.test.ts
+index 962e2f02..6d7aea4f 100644
+--- a/extensions/codex/index.test.ts
++++ b/extensions/codex/index.test.ts
+@@ -52,6 +52,26 @@ describe("codex plugin", () => {
+     expect(manifest.enabledByDefault).toBeUndefined();
+   });
+ 
++  it("does not open plugin state while registering with the base runtime", () => {
++    const openSyncKeyedStore = vi.fn(() => {
++      throw new Error("openSyncKeyedStore is only available through the plugin runtime proxy");
++    });
++
++    expect(() =>
++      plugin.register(
++        createTestPluginApi({
++          id: "codex",
++          name: "Codex",
++          source: "test",
++          config: {},
++          pluginConfig: {},
++          runtime: { state: { openSyncKeyedStore } } as never,
++        }),
++      ),
++    ).not.toThrow();
++    expect(openSyncKeyedStore).not.toHaveBeenCalled();
++  });
++
+   it("registers the codex provider, agent harness, native thread tool, and hosted web search", () => {
+     const registerAgentHarness = vi.fn();
+     const registerCommand = vi.fn();
+diff --git a/extensions/codex/index.ts b/extensions/codex/index.ts
+index 852db9b7..ca98f327 100644
+--- a/extensions/codex/index.ts
++++ b/extensions/codex/index.ts
+@@ -6,6 +6,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+ import { mutateConfigFile } from "openclaw/plugin-sdk/config-mutation";
+ import { resolveLivePluginConfigObject } from "openclaw/plugin-sdk/plugin-config-runtime";
+ import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
++import type { PluginStateSyncKeyedStore } from "openclaw/plugin-sdk/plugin-state-runtime";
+ import { createCodexAppServerAgentHarness } from "./harness.js";
+ import { buildCodexMediaUnderstandingProvider } from "./media-understanding-provider.js";
+ import { buildCodexProvider } from "./provider.js";
+@@ -55,13 +56,26 @@ export default definePluginEntry({
+         "codex",
+         api.pluginConfig as Record<string, unknown>,
+       ) ?? api.pluginConfig;
+-    const bindingStore = createLazyCodexAppServerBindingStore(
+-      api.runtime.state.openSyncKeyedStore<StoredCodexAppServerBinding>({
++    let bindingStateStore: PluginStateSyncKeyedStore<StoredCodexAppServerBinding> | undefined;
++    const openBindingStateStore = () =>
++      (bindingStateStore ??= api.runtime.state.openSyncKeyedStore<StoredCodexAppServerBinding>({
+         namespace: CODEX_APP_SERVER_BINDING_NAMESPACE,
+         maxEntries: CODEX_APP_SERVER_BINDING_MAX_ENTRIES,
+         overflowPolicy: "reject-new",
+-      }),
+-    );
++      }));
++    // The base registration runtime deliberately rejects state access. Open the
++    // store only when a proxied runtime performs the first binding operation.
++    const lazyBindingStateStore: Pick<
++      PluginStateSyncKeyedStore<StoredCodexAppServerBinding>,
++      "lookup" | "update"
++    > = {
++      lookup: (key) => openBindingStateStore().lookup(key),
++      get update() {
++        const store = openBindingStateStore();
++        return store.update?.bind(store);
++      },
++    };
++    const bindingStore = createLazyCodexAppServerBindingStore(lazyBindingStateStore);
+     api.registerAgentHarness(
+       createCodexAppServerAgentHarness({
+         bindingStore,
+-- 
+2.43.0
+
