@@ -1170,16 +1170,19 @@ extension OpenClawChatViewModel {
         self.applySessionSwitch(to: sessionKey, intent: .externalSync)
     }
 
+    /// Returns true only when a session switch happened (create or reset
+    /// fallback); callers keep UI like the new-session popover open on failure.
+    @discardableResult
     func performStartNewSession(
         agentID: String? = nil,
         worktree: Bool,
         worktreeBaseRef: String? = nil,
-        routeLease: OpenClawChatNewSessionRouteLease? = nil) async
+        routeLease: OpenClawChatNewSessionRouteLease? = nil) async -> Bool
     {
         guard !self.blocksAttachmentOwnerChange else {
             self.errorText = String(
                 localized: "Remove attachments or wait for delivery to resolve before starting a new chat.")
-            return
+            return false
         }
         let normalizedAgentID = agentID?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1221,16 +1224,16 @@ extension OpenClawChatViewModel {
             if Self.isUnsupportedCreateSessionError(error) {
                 chatUILogger.info("sessions.create unsupported; falling back to sessions.reset")
                 await self.performReset()
-                return
+                return true
             }
             chatUILogger.error("sessions.create failed \(error.localizedDescription, privacy: .public)")
             self.errorText = error.localizedDescription
-            return
+            return false
         }
         guard !self.blocksAttachmentOwnerChange else {
             self.errorText = String(
                 localized: "Remove attachments or wait for delivery to resolve before starting a new chat.")
-            return
+            return false
         }
         self.prepareComposerForSessionSwitch(to: next)
         self.advanceSessionGeneration()
@@ -1240,6 +1243,7 @@ extension OpenClawChatViewModel {
         self.clearSessionOwnedState()
         self.errorText = nil
         self.startBootstrap()
+        return true
     }
 
     /// Clears state owned by the current session/agent before a new identity can consume events.
