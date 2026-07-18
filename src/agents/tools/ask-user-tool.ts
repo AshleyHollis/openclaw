@@ -562,9 +562,12 @@ export function createAskUserTool(params: {
         if (bufferedAnswer) {
           return await finishWait(await answerPromise);
         }
-        if (deliverPrompt) {
+        if (deliverPrompt && !state.claim.isResolving()) {
           // Tool-start reserves the prompt, but only a committed Gateway record opens delivery.
           // This prevents channels from exposing a question ID that cannot accept an answer.
+          // A registration-time claim in flight suppresses delivery entirely: the
+          // user already answered, so a late prompt would be stale and the race
+          // below could stall on a delivery that never happens.
           markAskUserPromptReady(questionId, normalized.questions);
           const promptDeliveryPromise = waitForPromptDelivery(state, signal);
           const first = await Promise.race([

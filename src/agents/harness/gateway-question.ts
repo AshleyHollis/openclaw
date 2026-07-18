@@ -174,12 +174,6 @@ export async function claimPendingAgentQuestionAnswer(params: {
     return false;
   }
   state.resolving = true;
-  try {
-    await params.persist?.();
-  } catch (error) {
-    state.resolving = false;
-    throw error;
-  }
   const answers = buildAgentHarnessUserInputAnswers(state.questions, params.text);
   if (!state.answer) {
     // A consumed claim must be backed by a registered gateway question; if
@@ -194,10 +188,18 @@ export async function claimPendingAgentQuestionAnswer(params: {
       state.resolving = false;
       return false;
     }
-    if (!state.answer) {
-      state.bufferedAnswers = answers;
-      return true;
-    }
+  }
+  // Persist only once this claim is committed to consuming the message;
+  // persisting earlier double-records the turn when the claim falls through.
+  try {
+    await params.persist?.();
+  } catch (error) {
+    state.resolving = false;
+    throw error;
+  }
+  if (!state.answer) {
+    state.bufferedAnswers = answers;
+    return true;
   }
   return await resolvePendingAgentQuestionAnswers(state, answers);
 }

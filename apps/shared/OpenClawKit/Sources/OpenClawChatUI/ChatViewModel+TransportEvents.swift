@@ -57,8 +57,10 @@ extension OpenClawChatViewModel {
             self.updateStreamingAssistantText(nil)
             self.clearPlan()
             let context = self.beginHistoryRequest()
+            // Question refresh is best-effort and must not delay transcript
+            // recovery behind a slow gateway round trip.
+            Task { await self.refreshQuestions() }
             Task {
-                await self.refreshQuestions()
                 await self.refreshHistoryAfterRun(historyRequest: context)
                 await self.pollHealthIfNeeded(force: true, sessionSnapshot: context.session)
             }
