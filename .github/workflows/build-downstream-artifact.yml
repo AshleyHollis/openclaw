@@ -59,9 +59,11 @@ jobs:
           set -euo pipefail
           curl --fail --location --proto '=https' --tlsv1.2 "$ARTIFACT_URL" --output openclaw-current.tgz
           printf '%s  %s\n' "$ARTIFACT_SHA256" openclaw-current.tgz | sha256sum -c -
-          test "$(tar -xOf openclaw-current.tgz package/package.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).version))')" = "$VERSION"
-          ! tar -xOf openclaw-current.tgz package/package.json | grep -Eq '"(?:workspace|link|file):'
-          tar -tf openclaw-current.tgz | grep -q '^package/dist/extensions/discord/'
+          tar -xOf openclaw-current.tgz package/package.json > /tmp/openclaw-package.json
+          tar -tf openclaw-current.tgz > /tmp/openclaw-tar-files.txt
+          test "$(node -p 'require("/tmp/openclaw-package.json").version')" = "$VERSION"
+          ! grep -Eq '"(workspace|link|file):' /tmp/openclaw-package.json
+          grep -q '^package/dist/extensions/discord/' /tmp/openclaw-tar-files.txt
 
       - name: Smoke-test exact tarball
         env:
