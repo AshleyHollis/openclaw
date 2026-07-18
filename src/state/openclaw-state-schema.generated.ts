@@ -167,10 +167,10 @@ CREATE TABLE IF NOT EXISTS session_state_heads (
   PRIMARY KEY (session_key, agent_id)
 ) STRICT;
 
--- Watcher identity is the bare session key, matching the process-local system-event
--- queue it feeds. Producers only create rows for agent-qualified watcher keys;
--- bare keys (session.scope="global") are ambiguous across agents and are excluded
--- from the notice protocol until watcher identity is agent-scoped end-to-end.
+-- Notifiable watcher identity is the bare session key, matching the process-local
+-- system-event queue it feeds. Ambient group watches also own non-notifiable marker
+-- rows. Other bare keys (session.scope="global") are ambiguous across agents and
+-- excluded until watcher identity is agent-scoped end-to-end.
 CREATE TABLE IF NOT EXISTS session_watch_cursors (
   watcher_session_key TEXT NOT NULL,
   target_session_key TEXT NOT NULL,
@@ -390,6 +390,7 @@ CREATE TABLE IF NOT EXISTS device_pairing_pending (
   device_family TEXT,
   client_id TEXT,
   client_mode TEXT,
+  browser_origin TEXT,
   role TEXT,
   roles_json TEXT,
   scopes_json TEXT,
@@ -412,6 +413,7 @@ CREATE TABLE IF NOT EXISTS device_pairing_paired (
   device_family TEXT,
   client_id TEXT,
   client_mode TEXT,
+  browser_origin TEXT,
   role TEXT,
   roles_json TEXT,
   scopes_json TEXT,

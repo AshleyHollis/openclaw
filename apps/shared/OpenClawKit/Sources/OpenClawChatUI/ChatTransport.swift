@@ -280,6 +280,7 @@ public protocol OpenClawChatTransport: Sendable {
         worktree: Bool?) async throws -> OpenClawChatCreateSessionResponse
 
     func requestHistory(sessionKey: String) async throws -> OpenClawChatHistoryPayload
+    func requestFullMessage(sessionKey: String, messageID: String) async throws -> OpenClawChatMessage?
     func listModels() async throws -> [OpenClawChatModelChoice]
     var supportsSlashCommandCatalog: Bool { get }
     func listCommands(sessionKey: String) async throws -> [OpenClawChatCommandChoice]
@@ -357,6 +358,10 @@ extension OpenClawChatTransport {
             domain: "OpenClawChatTransport",
             code: 0,
             userInfo: [NSLocalizedDescriptionKey: "question.resolve not supported by this transport"])
+    }
+
+    public func requestFullMessage(sessionKey _: String, messageID _: String) async throws -> OpenClawChatMessage? {
+        nil
     }
 
     public func resolveInlineWidgetResource(
