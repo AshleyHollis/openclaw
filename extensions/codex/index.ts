@@ -6,6 +6,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { mutateConfigFile } from "openclaw/plugin-sdk/config-mutation";
 import { resolveLivePluginConfigObject } from "openclaw/plugin-sdk/plugin-config-runtime";
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
+import type { PluginStateSyncKeyedStore } from "openclaw/plugin-sdk/plugin-state-runtime";
 import { createCodexAppServerAgentHarness } from "./harness.js";
 import { buildCodexMediaUnderstandingProvider } from "./media-understanding-provider.js";
 import { buildCodexProvider } from "./provider.js";
@@ -55,13 +56,26 @@ export default definePluginEntry({
         "codex",
         api.pluginConfig as Record<string, unknown>,
       ) ?? api.pluginConfig;
-    const bindingStore = createLazyCodexAppServerBindingStore(
-      api.runtime.state.openSyncKeyedStore<StoredCodexAppServerBinding>({
+    let bindingStateStore: PluginStateSyncKeyedStore<StoredCodexAppServerBinding> | undefined;
+    const openBindingStateStore = () =>
+      (bindingStateStore ??= api.runtime.state.openSyncKeyedStore<StoredCodexAppServerBinding>({
         namespace: CODEX_APP_SERVER_BINDING_NAMESPACE,
         maxEntries: CODEX_APP_SERVER_BINDING_MAX_ENTRIES,
         overflowPolicy: "reject-new",
-      }),
-    );
+      }));
+    // The base registration runtime deliberately rejects state access. Open the
+    // store only when a proxied runtime performs the first binding operation.
+    const lazyBindingStateStore: Pick<
+      PluginStateSyncKeyedStore<StoredCodexAppServerBinding>,
+      "lookup" | "update"
+    > = {
+      lookup: (key) => openBindingStateStore().lookup(key),
+      get update() {
+        const store = openBindingStateStore();
+        return store.update?.bind(store);
+      },
+    };
+    const bindingStore = createLazyCodexAppServerBindingStore(lazyBindingStateStore);
     api.registerAgentHarness(
       createCodexAppServerAgentHarness({
         bindingStore,
