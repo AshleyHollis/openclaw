@@ -265,7 +265,8 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +81: meeting-runtime barrel: browser meeting-bot core behind MeetingPlatformAdapter.
       // +3: question-gateway-runtime resolver plus request/result types.
       // +1: async memory prompt preparation registration.
-      8153,
+      // +3: bounded raw transcript cursor request, result, and reader.
+      8156,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -301,7 +302,8 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +32: meeting-runtime barrel: browser meeting-bot core behind MeetingPlatformAdapter.
       // +1: question-gateway-runtime resolver.
       // +1: async memory prompt preparation registration.
-      4535,
+      // +1: bounded raw transcript cursor reader.
+      4536,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
