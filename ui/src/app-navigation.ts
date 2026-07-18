@@ -133,6 +133,7 @@ export const SETTINGS_NAVIGATION_GROUPS = [
     routes: [
       "agents",
       "ai-agents",
+      "labs",
       "sessions",
       "memory-import",
       "model-setup",
@@ -191,6 +192,7 @@ const NAVIGATION_ICONS: NavigationItem = {
   automation: "terminal",
   mcp: "wrench",
   infrastructure: "globe",
+  labs: "spark",
   about: "fileText",
   "ai-agents": "brain",
   "model-setup": "spark",
@@ -289,6 +291,7 @@ const NAVIGATION_COPY: Record<NavigationRouteId, { titleKey: string; subtitleKey
   automation: { titleKey: "tabs.automation", subtitleKey: "subtitles.automation" },
   mcp: { titleKey: "tabs.mcp", subtitleKey: "subtitles.mcp" },
   infrastructure: { titleKey: "tabs.infrastructure", subtitleKey: "subtitles.infrastructure" },
+  labs: { titleKey: "tabs.labs", subtitleKey: "subtitles.labs" },
   about: { titleKey: "tabs.about", subtitleKey: "subtitles.about" },
   "ai-agents": { titleKey: "tabs.aiAgents", subtitleKey: "subtitles.aiAgents" },
   "model-setup": { titleKey: "tabs.modelSetup", subtitleKey: "subtitles.modelSetup" },
