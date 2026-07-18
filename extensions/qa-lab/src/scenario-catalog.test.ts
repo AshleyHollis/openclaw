@@ -422,9 +422,38 @@ describe("qa scenario catalog", () => {
     });
     expect(readQaScenarioById("matrix-voice-preflight-mention").execution).toMatchObject({
       kind: "flow",
-      providerMode: "live-frontier",
+      providerMode: "mock-openai",
       retryCount: 0,
-      timeoutMs: 180_000,
+      timeoutMs: 90_000,
+    });
+    expect(readQaScenarioById("matrix-voice-preflight-mention").gatewayConfigPatch).toMatchObject({
+      tools: {
+        media: {
+          audio: {
+            echoTranscript: true,
+            enabled: true,
+            models: [{ model: "gpt-4o-transcribe", provider: "openai" }],
+            prompt: "MATRIX_QA_VOICE_PREFLIGHT_TRIGGER",
+          },
+        },
+      },
+      messages: {
+        groupChat: {
+          mentionPatterns: ["matrix\\W+qa\\W+voice\\W+pre[ -]?flight\\W+ok(?:ay)?"],
+        },
+      },
+    });
+    expect(readQaScenarioExecutionConfig("matrix-voice-preflight-mention")).toMatchObject({
+      matrixRequireCanary: true,
+      matrixConfigOverrides: {
+        audio: {
+          echoTranscript: true,
+          enabled: true,
+          models: [{ model: "gpt-4o-transcribe", provider: "openai" }],
+          prompt: "MATRIX_QA_VOICE_PREFLIGHT_TRIGGER",
+        },
+        groupMentionPatterns: ["matrix\\W+qa\\W+voice\\W+pre[ -]?flight\\W+ok(?:ay)?"],
+      },
     });
   });
 
