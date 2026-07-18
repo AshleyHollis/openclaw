@@ -3,8 +3,8 @@
   "releaseId": "2026.7.1-2+nas.2",
   "status": "blocked",
   "blockingIssues": [
-    "The broad workspace shrinkwrap audit reports pre-existing stale metadata in extensions/llama-cpp and extensions/twitch; regenerating it changes dependency deduplication and requires dependency review.",
-    "npm 10.9.8 invoked the package prepare lifecycle even with --ignore-scripts; qualification requires a packaging path that proves lifecycle scripts are disabled."
+    "The broad workspace shrinkwrap audit reports pre-existing stale metadata in extensions/llama-cpp and extensions/twitch, but the pinned generator produces invalid replacement trees: npm ci reports missing parse-ms@4 and isexe@4 before it can validate twitch.",
+    "The nas.2 artifacts were packed through npm 10.9.8, which invoked prepare even with --ignore-scripts. A replacement candidate must use the tested lifecycle-free deterministic repacker."
   ],
   "npm": {
     "version": "2026.7.1-2",
