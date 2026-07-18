@@ -4,6 +4,14 @@
 #
 # See https://pre-commit.com for more information
 
+# This fork stores immutable e-mail-format patches whose whitespace and EOF bytes
+# are integrity-checked. Upstream currently also contains historical whitespace
+# that pre-commit.ci rewrites when it scans the whole fork. Keep CI advisory for
+# these two hygiene hooks and never let the service mutate a downstream branch.
+ci:
+  autofix_prs: false
+  skip: [trailing-whitespace, end-of-file-fixer]
+
 repos:
   # Basic file hygiene
   - repo: https://github.com/pre-commit/pre-commit-hooks

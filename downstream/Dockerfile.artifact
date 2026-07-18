@@ -1,0 +1,49 @@
+ARG OPENCLAW_NODE_IMAGE="docker.io/library/node:22.23.1-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3"
+FROM ${OPENCLAW_NODE_IMAGE}
+
+ARG OPENCLAW_TARBALL_SHA256
+ARG OPENCLAW_SOURCE_COMMIT
+ARG OPENCLAW_VERSION
+
+LABEL org.opencontainers.image.source="https://github.com/AshleyHollis/openclaw" \
+  org.opencontainers.image.revision="${OPENCLAW_SOURCE_COMMIT}" \
+  org.opencontainers.image.version="${OPENCLAW_VERSION}" \
+  org.opencontainers.image.title="OpenClaw NAS downstream" \
+  org.opencontainers.image.licenses="MIT"
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ca-certificates curl git hostname lsof openssl procps python3 tini && \
+    update-ca-certificates
+
+WORKDIR /app
+COPY openclaw-current.tgz /tmp/openclaw-current.tgz
+
+RUN test -n "$OPENCLAW_TARBALL_SHA256" && \
+    printf '%s  %s\n' "$OPENCLAW_TARBALL_SHA256" /tmp/openclaw-current.tgz | sha256sum -c - && \
+    tar -xzf /tmp/openclaw-current.tgz --strip-components=1 -C /app && \
+    npm ci --omit=dev --no-audit --no-fund && \
+    test "$(node -p "require('./package.json').version")" = "$OPENCLAW_VERSION" && \
+    node openclaw.mjs --version && \
+    rm -f /tmp/openclaw-current.tgz && \
+    npm cache clean --force
+
+RUN install -d -m 0755 -o node -g node /home/node/.config && \
+    install -d -m 0700 -o node -g node \
+      /home/node/.openclaw \
+      /home/node/.openclaw/workspace \
+      /home/node/.config/openclaw && \
+    chown -R node:node /app
+
+RUN ln -sf /app/openclaw.mjs /usr/local/bin/openclaw && chmod 755 /app/openclaw.mjs
+
+ENV NODE_ENV=production
+USER node
+
+HEALTHCHECK --interval=3m --timeout=10s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+ENTRYPOINT ["tini", "-s", "--"]
+CMD ["node", "openclaw.mjs", "gateway"]

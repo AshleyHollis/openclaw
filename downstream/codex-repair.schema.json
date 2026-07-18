@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["summary", "patch"],
+  "properties": {
+    "summary": { "type": "string", "minLength": 1, "maxLength": 4000 },
+    "patch": { "type": "string", "minLength": 1, "maxLength": 900000 }
+  },
+  "additionalProperties": false
+}

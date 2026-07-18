@@ -1,0 +1,24 @@
+From d237b9898612c0be52d71962f89a162449046707 Mon Sep 17 00:00:00 2001
+From: OpenClaw <openclaw@ashleyhollis.com>
+Date: Sat, 18 Jul 2026 16:33:29 +1000
+Subject: [PATCH 2/6] fix(package): include Discord runtime in distribution
+
+---
+ package.json | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/package.json b/package.json
+index df1205bb347..c9cc04e7227 100644
+--- a/package.json
++++ b/package.json
+@@ -95,7 +95,6 @@
+     "!dist/extensions/diagnostics-prometheus/**",
+     "!dist/extensions/diffs/**",
+     "!dist/extensions/diffs-language-pack/**",
+-    "!dist/extensions/discord/**",
+     "!dist/extensions/exa/**",
+     "!dist/extensions/feishu/**",
+     "!dist/extensions/featherless/**",
+-- 
+2.43.0
+

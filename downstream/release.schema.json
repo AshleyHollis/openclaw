@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AshleyHollis/openclaw/blob/main/downstream/release.schema.json",
+  "title": "OpenClaw NAS downstream release",
+  "type": "object",
+  "required": ["schemaVersion", "releaseId", "status", "npm", "source", "node", "patches", "artifact", "image"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "releaseId": { "type": "string", "pattern": "^[0-9]{4}\\.[0-9]+\\.[0-9]+(?:-[0-9]+)?\\+nas\\.[0-9]+$" },
+    "status": { "enum": ["preserved", "candidate", "blocked", "qualified"] },
+    "npm": {
+      "type": "object",
+      "required": ["version", "distTag", "integrity", "tarball"],
+      "properties": {
+        "version": { "type": "string" },
+        "distTag": { "const": "latest" },
+        "integrity": { "type": "string", "pattern": "^sha512-" },
+        "tarball": { "type": "string", "pattern": "^https://registry\\.npmjs\\.org/" }
+      },
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "required": ["ref", "baseCommit", "commit", "stableDivergence", "mainDivergence"],
+      "properties": {
+        "ref": { "type": "string" },
+        "baseCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "stableDivergence": { "$ref": "#/$defs/divergence" },
+        "mainDivergence": { "$ref": "#/$defs/divergence" }
+      },
+      "additionalProperties": false
+    },
+    "node": {
+      "type": "object",
+      "required": ["buildVersion", "engine"],
+      "properties": {
+        "buildVersion": { "type": "string" },
+        "engine": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "patches": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "file", "sha256", "status", "tests"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "file": { "type": "string", "pattern": "^downstream/patches/" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "status": { "enum": ["required", "superseded", "obsolete", "conflicting"] },
+          "tests": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["filename", "url", "sha256", "validation"],
+      "properties": {
+        "filename": { "type": "string", "pattern": "\\.tgz$" },
+        "url": { "type": "string", "pattern": "^https://github\\.com/AshleyHollis/openclaw/releases/download/" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "validation": {
+          "type": "object",
+          "required": ["fullBuild", "focusedAssertions", "packageSmoke", "discordRuntimeFiles"],
+          "properties": {
+            "fullBuild": { "type": "boolean" },
+            "focusedAssertions": { "type": "integer", "minimum": 0 },
+            "packageSmoke": { "type": "boolean" },
+            "discordRuntimeFiles": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "image": {
+      "type": "object",
+      "required": ["repository", "tag", "digest", "sbomDigest"],
+      "properties": {
+        "repository": { "const": "ghcr.io/ashleyhollis/openclaw" },
+        "tag": { "type": ["string", "null"] },
+        "digest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+        "sbomDigest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "divergence": {
+      "type": "object",
+      "required": ["ahead", "behind"],
+      "properties": {
+        "ahead": { "type": "integer", "minimum": 0 },
+        "behind": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
