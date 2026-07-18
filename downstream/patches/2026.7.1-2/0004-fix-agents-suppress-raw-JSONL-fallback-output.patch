@@ -38,7 +38,7 @@ index 6e1abe6102d..731d18d91ab 100644
 +    });
 +  });
  });
- 
+
  describe("createCliJsonlStreamingParser", () => {
 diff --git a/src/agents/cli-output.ts b/src/agents/cli-output.ts
 index 46571fe9c13..6ba14c5c76f 100644
@@ -58,6 +58,5 @@ index 46571fe9c13..6ba14c5c76f 100644
    }
    return (
      parseCliJson(params.raw, params.backend, params.providerId) ?? {
--- 
+--
 2.43.0
-

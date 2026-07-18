@@ -19,6 +19,5 @@ index bec59487d3f..0bdf527eb12 100644
        NO_COLOR: "1",
      };
      this.closeSignal = new Promise<void>((resolve) => {
--- 
+--
 2.43.0
-
