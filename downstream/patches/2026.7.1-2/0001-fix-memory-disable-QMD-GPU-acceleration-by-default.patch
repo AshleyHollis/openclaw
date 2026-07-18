@@ -1,0 +1,24 @@
+From daa88e07173135bd613beb87a91c8c613b124c05 Mon Sep 17 00:00:00 2001
+From: OpenClaw <openclaw@ashleyhollis.com>
+Date: Sat, 18 Jul 2026 16:33:24 +1000
+Subject: [PATCH 1/6] fix(memory): disable QMD GPU acceleration by default
+
+---
+ extensions/memory-core/src/memory/qmd-manager.ts | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/extensions/memory-core/src/memory/qmd-manager.ts b/extensions/memory-core/src/memory/qmd-manager.ts
+index bec59487d3f..0bdf527eb12 100644
+--- a/extensions/memory-core/src/memory/qmd-manager.ts
++++ b/extensions/memory-core/src/memory/qmd-manager.ts
+@@ -508,6 +508,7 @@ export class QmdMemoryManager implements MemorySearchManager {
+       // Point it at the nested qmd config directory so per-agent collections are visible.
+       QMD_CONFIG_DIR: path.join(this.xdgConfigHome, "qmd"),
+       XDG_CACHE_HOME: this.xdgCacheHome,
++      QMD_LLAMA_GPU: process.env.QMD_LLAMA_GPU ?? "off",
+       NO_COLOR: "1",
+     };
+     this.closeSignal = new Promise<void>((resolve) => {
+-- 
+2.43.0
+

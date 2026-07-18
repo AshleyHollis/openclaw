@@ -1,0 +1,134 @@
+name: Build NAS downstream artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_manifest:
+        description: Release manifest to build
+        required: true
+        default: downstream/releases/2026.7.1-2.json
+        type: string
+      publish:
+        description: Publish the verified image to GHCR
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: build-nas-downstream-${{ inputs.release_manifest }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Resolve and validate release
+        id: release
+        env:
+          RELEASE_MANIFEST: ${{ inputs.release_manifest }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_MANIFEST" =~ ^downstream/releases/[0-9A-Za-z._+-]+\.json$ ]]
+          node downstream/scripts/validate-release.mjs "$RELEASE_MANIFEST"
+          node - "$RELEASE_MANIFEST" >> "$GITHUB_OUTPUT" <<'NODE'
+          const manifest = require(`./${process.argv[2]}`);
+          const values = {
+            artifact_sha256: manifest.artifact.sha256,
+            artifact_url: manifest.artifact.url,
+            image_tag: `nas-${manifest.releaseId.replace("+", "-")}`,
+            source_commit: manifest.source.commit,
+            version: manifest.npm.version,
+          };
+          for (const [key, value] of Object.entries(values)) console.log(`${key}=${value}`);
+          NODE
+
+      - name: Download and verify exact tarball
+        env:
+          ARTIFACT_SHA256: ${{ steps.release.outputs.artifact_sha256 }}
+          ARTIFACT_URL: ${{ steps.release.outputs.artifact_url }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --proto '=https' --tlsv1.2 "$ARTIFACT_URL" --output openclaw-current.tgz
+          printf '%s  %s\n' "$ARTIFACT_SHA256" openclaw-current.tgz | sha256sum -c -
+          test "$(tar -xOf openclaw-current.tgz package/package.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).version))')" = "$VERSION"
+          ! tar -xOf openclaw-current.tgz package/package.json | grep -Eq '"(?:workspace|link|file):'
+          tar -tf openclaw-current.tgz | grep -q '^package/dist/extensions/discord/'
+
+      - name: Smoke-test exact tarball
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          smoke_prefix="$RUNNER_TEMP/openclaw-smoke"
+          npm install --prefix "$smoke_prefix" --ignore-scripts=false ./openclaw-current.tgz
+          "$smoke_prefix/node_modules/.bin/openclaw" --version | grep -F "$VERSION"
+          node -e "for (const dep of ['@discordjs/voice','discord-api-types','opusscript']) require.resolve(dep,{paths:['$smoke_prefix/node_modules/openclaw']})"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Login to GHCR
+        if: inputs.publish
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+
+      - name: Build and optionally publish image
+        id: image
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: downstream/Dockerfile.artifact
+          platforms: linux/amd64
+          build-args: |
+            OPENCLAW_TARBALL_SHA256=${{ steps.release.outputs.artifact_sha256 }}
+            OPENCLAW_SOURCE_COMMIT=${{ steps.release.outputs.source_commit }}
+            OPENCLAW_VERSION=${{ steps.release.outputs.version }}
+          tags: ghcr.io/ashleyhollis/openclaw:${{ steps.release.outputs.image_tag }}
+          push: ${{ inputs.publish }}
+          load: ${{ !inputs.publish }}
+          sbom: ${{ inputs.publish }}
+          provenance: ${{ inputs.publish && 'mode=max' || 'false' }}
+
+      - name: Smoke-test local image
+        if: ${{ !inputs.publish }}
+        env:
+          IMAGE_TAG: ${{ steps.release.outputs.image_tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint openclaw "ghcr.io/ashleyhollis/openclaw:${IMAGE_TAG}" --version | grep -F "$VERSION"
+
+      - name: Scan image for fixable critical vulnerabilities
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: ghcr.io/ashleyhollis/openclaw:${{ steps.release.outputs.image_tag }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL
+          scanners: vuln
+
+      - name: Report immutable image
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          IMAGE_TAG: ${{ steps.release.outputs.image_tag }}
+        run: |
+          {
+            echo "### NAS downstream image"
+            echo
+            echo "- Tag: \`ghcr.io/ashleyhollis/openclaw:${IMAGE_TAG}\`"
+            echo "- Digest: \`${IMAGE_DIGEST}\`"
+            echo "- Published: \`${{ inputs.publish }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

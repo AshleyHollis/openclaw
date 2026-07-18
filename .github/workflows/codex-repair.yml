@@ -1,0 +1,170 @@
+name: Codex repair downstream patch
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_ref:
+        description: Exact 40-character candidate commit SHA
+        required: true
+        type: string
+      candidate_branch:
+        description: Existing downstream candidate branch that the repair PR will target
+        required: true
+        type: string
+      patch_id:
+        description: Logical downstream patch that needs repair
+        required: true
+        type: string
+      failure_summary:
+        description: Sanitized failure summary; never include credentials or raw private logs
+        required: true
+        type: string
+      publish_pr:
+        description: Create a repair PR and enable auto-merge after required checks
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: codex-repair-${{ inputs.candidate_ref }}-${{ inputs.patch_id }}
+  cancel-in-progress: false
+
+jobs:
+  codex:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      repair_json: ${{ steps.codex.outputs.final-message }}
+    steps:
+      - name: Validate trusted inputs
+        env:
+          CANDIDATE_REF: ${{ inputs.candidate_ref }}
+          CANDIDATE_BRANCH: ${{ inputs.candidate_branch }}
+          PATCH_ID: ${{ inputs.patch_id }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_REF" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_BRANCH" =~ ^downstream/candidate/[0-9A-Za-z._+-]+$ ]]
+          [[ "$PATCH_ID" =~ ^[a-z0-9-]+$ ]]
+          git ls-remote --exit-code --heads "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "refs/heads/${CANDIDATE_BRANCH}"
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.candidate_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run Codex as the final step in the credential-bearing job
+        id: codex
+        uses: openai/codex-action@b11346a6fa031e2e164ab4b7c7ea201afffd7d59 # v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ":workspace"
+          safety-strategy: drop-sudo
+          output-schema-file: downstream/codex-repair.schema.json
+          prompt: |
+            Repair the downstream OpenClaw patch `${{ inputs.patch_id }}` on candidate `${{ inputs.candidate_ref }}`.
+            The repair will target the frozen candidate branch `${{ inputs.candidate_branch }}`.
+
+            Sanitized failure summary:
+            ${{ inputs.failure_summary }}
+
+            You may modify only application source or tests under src/, extensions/, or test/.
+            Do not modify dependencies, package manifests, lockfiles, workflows, downstream automation,
+            Dockerfiles, deployment code, infrastructure, security policy, or secrets.
+            Preserve the patch's intended behavior and use existing project conventions.
+            Return JSON matching the supplied schema. The patch field must contain the complete output
+            of `git diff --binary` and the summary must describe the repair and focused validation.
+
+  prepare:
+    needs: codex
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      summary: ${{ steps.metadata.outputs.summary }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.candidate_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Materialize and validate repair
+        id: metadata
+        env:
+          CODEX_REPAIR_JSON: ${{ needs.codex.outputs.repair_json }}
+        run: |
+          set -euo pipefail
+          node downstream/scripts/materialize-repair.mjs | tee repair-metadata.json
+          node -e 'const m=require("./repair-metadata.json"); console.log(`summary=${m.summary.replace(/\n/g," ")}`)' >> "$GITHUB_OUTPUT"
+          git diff --check
+
+      - name: Upload validated repair
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: codex-repair-${{ github.run_id }}
+          path: |
+            codex-repair.patch
+            repair-metadata.json
+          if-no-files-found: error
+
+  publish:
+    if: inputs.publish_pr
+    needs: prepare
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.candidate_ref }}
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: codex-repair-${{ github.run_id }}
+
+      - name: Create repair pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_BRANCH: ${{ inputs.candidate_branch }}
+          PATCH_ID: ${{ inputs.patch_id }}
+          REPAIR_SUMMARY: ${{ needs.prepare.outputs.summary }}
+        run: |
+          set -euo pipefail
+          git apply --check --whitespace=error-all codex-repair.patch
+          git apply --whitespace=error-all codex-repair.patch
+          mapfile -t changed_files < <(git diff --name-only --diff-filter=ACMRT)
+          ((${#changed_files[@]} > 0))
+          for file in "${changed_files[@]}"; do
+            [[ "$file" =~ ^(src|extensions|test)/ ]]
+            [[ ! "$file" =~ (^|/)(package\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|package-lock\.json|Dockerfile[^/]*)$ ]]
+          done
+          git diff --check
+          branch="codex-repair/${PATCH_ID}-${GITHUB_RUN_ID}"
+          git switch -c "$branch"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src extensions test
+          git commit -m "fix(downstream): repair ${PATCH_ID}"
+          git push origin "$branch"
+          body_file="$RUNNER_TEMP/pr-body.md"
+          printf '%s\n' \
+            '## What Problem This Solves' \
+            "Repairs downstream patch \`${PATCH_ID}\` after it failed on a frozen stable candidate." \
+            '' \
+            '## Why This Change Was Made' \
+            "$REPAIR_SUMMARY" \
+            '' \
+            '## User Impact' \
+            'No deployment occurs from this PR. Promotion remains gated by the downstream build and NAS rehearsal.' \
+            '' \
+            '## Evidence' \
+            "Codex repair workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            > "$body_file"
+          pr_url="$(gh pr create --base "$CANDIDATE_BRANCH" --head "$branch" --title "fix(downstream): repair ${PATCH_ID}" --body-file "$body_file")"
+          gh pr merge --auto --squash "$pr_url"

@@ -1,0 +1,42 @@
+name: Validate NAS downstream overlay
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "downstream/**"
+      - ".github/workflows/validate-downstream.yml"
+      - ".github/workflows/build-downstream-artifact.yml"
+      - ".github/workflows/codex-repair.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  downstream-guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate release manifests
+        run: |
+          set -euo pipefail
+          mapfile -t manifests < <(find downstream/releases -maxdepth 1 -type f -name '*.json' ! -name latest.json -print | sort)
+          node downstream/scripts/validate-release.mjs "${manifests[@]}"
+
+      - name: Validate scripts and patch series
+        run: |
+          set -euo pipefail
+          bash -n downstream/scripts/check-patch-series.sh
+          node --check downstream/scripts/validate-release.mjs
+          node --check downstream/scripts/materialize-repair.mjs
+          node --test downstream/scripts/downstream-tools.test.mjs
+          bash downstream/scripts/check-patch-series.sh downstream/patches/2026.7.1-2/series.json
+
+      - name: Reject whitespace errors
+        run: git diff --check HEAD^ HEAD
