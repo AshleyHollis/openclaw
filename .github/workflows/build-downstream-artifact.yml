@@ -73,7 +73,16 @@ jobs:
           smoke_prefix="$RUNNER_TEMP/openclaw-smoke"
           npm install --prefix "$smoke_prefix" --ignore-scripts=false ./openclaw-current.tgz
           "$smoke_prefix/node_modules/.bin/openclaw" --version | grep -F "$VERSION"
-          node -e "for (const dep of ['@discordjs/voice','discord-api-types','opusscript']) require.resolve(dep,{paths:['$smoke_prefix/node_modules/openclaw']})"
+          node - "$smoke_prefix" <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const root = process.argv[2];
+          for (const dependency of ["@discordjs/voice", "discord-api-types", "opusscript"]) {
+            const manifest = path.join(root, "node_modules", dependency, "package.json");
+            const metadata = JSON.parse(fs.readFileSync(manifest, "utf8"));
+            if (metadata.name !== dependency) throw new Error(`missing ${dependency}`);
+          }
+          NODE
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
