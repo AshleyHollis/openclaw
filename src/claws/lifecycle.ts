@@ -30,7 +30,7 @@ const MAX_MANAGED_FILE_BYTES = 1024 * 1024;
 const MAX_MANAGED_WORKSPACE_BYTES = 4 * MAX_MANAGED_FILE_BYTES;
 const AGENT_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
 
-type ClawAddPlanContext = {
+export type ClawAddPlanContext = {
   agentId?: string;
   workspace?: string;
   existingAgentIds?: Iterable<string>;
