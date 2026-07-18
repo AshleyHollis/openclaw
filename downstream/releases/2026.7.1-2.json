@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "releaseId": "2026.7.1-2+nas.1",
-  "status": "preserved",
+  "status": "qualified",
   "npm": {
     "version": "2026.7.1-2",
     "distTag": "latest",
@@ -13,7 +13,7 @@
     "baseCommit": "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c",
     "commit": "7371082dbe4dbcaa06685f7960c95d234ce1fb4a",
     "stableDivergence": { "ahead": 1, "behind": 0 },
-    "mainDivergence": { "ahead": 225, "behind": 4853 }
+    "mainDivergence": { "ahead": 2, "behind": 43 }
   },
   "node": {
     "buildVersion": "22.23.1",
@@ -71,13 +71,23 @@
       "fullBuild": true,
       "focusedAssertions": 888,
       "packageSmoke": true,
-      "discordRuntimeFiles": 61
+      "discordRuntimeFiles": 61,
+      "patchTests": true,
+      "imageSmoke": true,
+      "imageScan": true
     }
   },
   "image": {
     "repository": "ghcr.io/ashleyhollis/openclaw",
-    "tag": null,
-    "digest": null,
-    "sbomDigest": null
+    "tag": "nas-2026.7.1-2-nas.1",
+    "digest": "sha256:4681868fceb01c44f3d076d6b185a7e83373044f872b14c6ff100c8532e995a4",
+    "attestationDigest": "sha256:40a98490bbf0c23d72adbbabad160542b367f073404ca04076d09a918f49612b",
+    "sbomDigest": "sha256:6e86d2f7b8e6bdd1a9b7f549768d5b93dc466337c17591ca467dc387dceff70e",
+    "provenanceDigest": "sha256:e5c7566c31e855f84e824a0c4b2b777d8a561555f14c79c7f72cf68912191492"
+  },
+  "testResults": {
+    "downstreamGuard": "https://github.com/AshleyHollis/openclaw/actions/runs/29635441629",
+    "dryRun": "https://github.com/AshleyHollis/openclaw/actions/runs/29636037605",
+    "publish": "https://github.com/AshleyHollis/openclaw/actions/runs/29636176082"
   }
 }

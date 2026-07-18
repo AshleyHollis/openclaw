@@ -75,5 +75,5 @@ test("validates the preserved release manifest and patch hashes", () => {
     { cwd: repositoryRoot, encoding: "utf8" },
   );
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /2026\.7\.1-2\+nas\.1 \(preserved\)/u);
+  assert.match(result.stdout, /2026\.7\.1-2\+nas\.1 \(qualified\)/u);
 });

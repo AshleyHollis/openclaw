@@ -82,9 +82,20 @@ async function validateRelease(manifestPath) {
   requireCondition(manifest.image?.repository === "ghcr.io/ashleyhollis/openclaw", "image.repository is invalid");
   if (manifest.status === "qualified") {
     requireCondition(imageDigestPattern.test(manifest.image?.digest ?? ""), "qualified release requires image.digest");
+    requireCondition(imageDigestPattern.test(manifest.image?.attestationDigest ?? ""), "qualified release requires image.attestationDigest");
     requireCondition(imageDigestPattern.test(manifest.image?.sbomDigest ?? ""), "qualified release requires image.sbomDigest");
+    requireCondition(imageDigestPattern.test(manifest.image?.provenanceDigest ?? ""), "qualified release requires image.provenanceDigest");
     requireCondition(manifest.artifact?.validation?.fullBuild === true, "qualified release requires full build proof");
     requireCondition(manifest.artifact?.validation?.packageSmoke === true, "qualified release requires package smoke proof");
+    requireCondition(manifest.artifact?.validation?.patchTests === true, "qualified release requires patch tests");
+    requireCondition(manifest.artifact?.validation?.imageSmoke === true, "qualified release requires image smoke proof");
+    requireCondition(manifest.artifact?.validation?.imageScan === true, "qualified release requires image scan proof");
+    for (const result of ["downstreamGuard", "dryRun", "publish"]) {
+      requireCondition(
+        manifest.testResults?.[result]?.startsWith("https://github.com/AshleyHollis/openclaw/actions/runs/"),
+        `qualified release requires testResults.${result}`,
+      );
+    }
   }
   return manifest;
 }
