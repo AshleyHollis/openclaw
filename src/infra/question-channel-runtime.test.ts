@@ -1,7 +1,10 @@
 // Covers question message finalization lifecycle and delivery races.
 import { describe, expect, it, vi } from "vitest";
 import type { QuestionRecord } from "../../packages/gateway-protocol/src/schema/questions.js";
-import { createQuestionChannelRuntime } from "./question-channel-runtime.js";
+import {
+  createQuestionChannelRuntime,
+  formatQuestionTerminalStatusLine,
+} from "./question-channel-runtime.js";
 
 const record: QuestionRecord = {
   id: "ask_0123456789abcdef0123456789abcdef",
@@ -102,5 +105,36 @@ describe("question channel runtime", () => {
     await vi.waitFor(() => expect(onFinalizeError).toHaveBeenCalledOnce());
     expect(onFinalizeError).toHaveBeenCalledWith(error, record.id, "discord:1");
     runtime.clear();
+  });
+});
+
+describe("terminal status labels", () => {
+  it("echoes declared option answers even when free-text input was allowed", () => {
+    const record = {
+      id: "ask_q",
+      questions: [
+        {
+          id: "deploy",
+          header: "Deploy",
+          question: "Where?",
+          options: [{ label: "Staging" }, { label: "Production" }],
+          isOther: true,
+        },
+      ],
+      createdAtMs: 1,
+      expiresAtMs: 2,
+      status: "answered",
+      answers: { answers: { deploy: { answers: ["Staging"] } } },
+    } as never;
+    expect(
+      formatQuestionTerminalStatusLine({
+        record,
+        event: {
+          id: "ask_q",
+          status: "answered",
+          answers: { answers: { deploy: { answers: ["Staging"] } } },
+        },
+      }),
+    ).toBe("Answered: Staging");
   });
 });

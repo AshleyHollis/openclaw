@@ -42,9 +42,10 @@ function collectAnsweredLabels(
   }
   const answers = event.answers.answers;
   return record.questions.flatMap((question) => {
-    // Only declared choices are safe to echo. Free-text and "Other" answers can
-    // contain secrets, mentions, or transport markup supplied by the operator.
-    if (question.isSecret || question.isOther || question.options.length === 0) {
+    // Only declared choices are safe to echo. Free-text answers can contain
+    // secrets, mentions, or transport markup, and the label filter below drops
+    // them; isOther alone must not suppress a declared selection.
+    if (question.isSecret || question.options.length === 0) {
       return [];
     }
     const optionLabels = new Set(question.options.map((option) => option.label));
