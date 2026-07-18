@@ -21,7 +21,9 @@ trap cleanup EXIT
 
 git -C "$repo_root" worktree add --detach "$worktree" "$source_commit" >/dev/null
 for patch in "${patches[@]}"; do
-  git -C "$worktree" am --3way "$patch_root/$patch" >/dev/null
+  git -c user.name="Downstream Patch Validator" \
+    -c user.email="downstream-validator@example.invalid" \
+    -C "$worktree" am --3way "$patch_root/$patch" >/dev/null
 done
 
 git -C "$worktree" status --porcelain=v1 | grep -q . && {
