@@ -68,7 +68,7 @@ test("rejects a repair that changes a package manifest", async () => {
   }
 });
 
-test("validates the preserved release manifest and patch hashes", () => {
+test("validates the release manifest and patch hashes", () => {
   const result = spawnSync(
     process.execPath,
     [validateScript, "downstream/releases/2026.7.1-2.json"],
@@ -76,4 +76,14 @@ test("validates the preserved release manifest and patch hashes", () => {
   );
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.1 \(qualified\)/u);
+});
+
+test("keeps the latest pointer aligned with the qualified manifest", async () => {
+  const pointer = JSON.parse(
+    await readFile(path.join(repositoryRoot, "downstream/releases/latest.json"), "utf8"),
+  );
+  assert.match(pointer.releaseManifest, /^downstream\/releases\/[0-9A-Za-z._+-]+\.json$/u);
+  const manifest = JSON.parse(await readFile(path.join(repositoryRoot, pointer.releaseManifest), "utf8"));
+  assert.equal(pointer.status, manifest.status);
+  assert.equal(manifest.status, "qualified");
 });
