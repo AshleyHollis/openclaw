@@ -396,6 +396,7 @@ describe("SystemAgentChatEngine", () => {
       configPath: "/tmp/openclaw.json",
       configHashBefore: "before",
       configHashAfter: "after",
+      bootstrapPending: true,
       lines: ["Workspace: /tmp/hatch-work"],
     }));
     const engine = new SystemAgentChatEngine({
@@ -424,6 +425,39 @@ describe("SystemAgentChatEngine", () => {
     expect(reply.text).toContain("Settings → Ask OpenClaw");
   });
 
+  it("stays in setup when an established workspace has no bootstrap pending", async () => {
+    useTempStateDir();
+    const applySetup = vi.fn(async () => ({
+      configPath: "/tmp/openclaw.json",
+      configHashBefore: "before",
+      configHashAfter: "after",
+      bootstrapPending: false,
+      lines: ["Workspace: /tmp/established-work"],
+    }));
+    const engine = new SystemAgentChatEngine({
+      runAgentTurn: async () => null,
+      planWithAssistant: async () => null,
+      classifyApproval: async ({ message }) => (message === "yes" ? "approve" : "other"),
+      deps: {
+        applySetup,
+        verifyInferenceConfig: vi.fn(async () => ({
+          ok: true as const,
+          modelRef: "openai/gpt-5.5",
+          latencyMs: 100,
+        })),
+        loadOverview: fakeOverviewLoader({ defaultModel: "openai/gpt-5.5" }),
+      },
+    });
+    engine.propose({ kind: "setup", workspace: "/tmp/established-work" });
+
+    const reply = await engine.handle("yes");
+
+    expect(reply.action).toBe("none");
+    expect(reply.agentDraft).toBeUndefined();
+    expect(reply.handoff).toBeUndefined();
+    expect(reply.text).not.toContain("Your agent is hatching");
+  });
+
   it("stays in setup when post-write verification flags the config", async () => {
     useTempStateDir();
     const verifyInferenceConfig = vi.fn(async () => ({
@@ -438,6 +472,7 @@ describe("SystemAgentChatEngine", () => {
         configPath: "/tmp/openclaw.json",
         configHashBefore: "before",
         configHashAfter: "after",
+        bootstrapPending: true,
         lines: ["Workspace: /tmp/hatch-work"],
       };
     });
@@ -532,6 +567,7 @@ describe("SystemAgentChatEngine", () => {
       configPath: "/tmp/openclaw.json",
       configHashBefore: null,
       configHashAfter: "after",
+      bootstrapPending: false,
       lines: ["Workspace: /tmp/work"],
     }));
     expect(
@@ -1426,6 +1462,7 @@ describe("SystemAgentChatEngine", () => {
       configPath: "/tmp/openclaw.json",
       configHashBefore: "before",
       configHashAfter: "after",
+      bootstrapPending: false,
       lines: ["Workspace: /tmp/new-work"],
     }));
     let pendingOperation = "";

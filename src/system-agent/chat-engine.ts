@@ -634,7 +634,12 @@ export class SystemAgentChatEngine {
     // Only on clean post-write verification: a non-null verify means the
     // written config is suspect, and handing off would bury the warning in an
     // agent session that may not answer — stay in setup to repair it.
-    if (operation.kind === "setup" && result?.applied && verify === null) {
+    if (
+      operation.kind === "setup" &&
+      result?.applied &&
+      result.bootstrapPending === true &&
+      verify === null
+    ) {
       return {
         text: [
           baseText,

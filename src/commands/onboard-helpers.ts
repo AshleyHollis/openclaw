@@ -251,7 +251,7 @@ export async function ensureWorkspaceAndSessions(
     skipOptionalBootstrapFiles?: OptionalBootstrapFileName[];
     agentId?: string;
   },
-) {
+): Promise<{ bootstrapExists: boolean }> {
   const ws = await ensureAgentWorkspace({
     dir: workspaceDir,
     ensureBootstrapFiles: !options?.skipBootstrap,
@@ -261,6 +261,7 @@ export async function ensureWorkspaceAndSessions(
   const sessionsDir = resolveSessionTranscriptsDirForAgent(options?.agentId);
   await fs.mkdir(sessionsDir, { recursive: true });
   runtime.log(`Sessions OK: ${shortenHomePath(sessionsDir)}`);
+  return { bootstrapExists: ws.bootstrapExists === true };
 }
 
 /** Moves a path to Trash when it exists, logging a manual-delete fallback on failure. */

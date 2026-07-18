@@ -126,6 +126,7 @@ function setupDeps(params: {
         configPath: "/tmp/openclaw.json",
         configHashBefore: null,
         configHashAfter: null,
+        bootstrapPending: false,
         lines: [],
       })),
     launchHatchTui: vi.fn(async () => undefined),
@@ -231,6 +232,7 @@ describe("runGuidedOnboarding", () => {
       configPath: "/tmp/openclaw.json",
       configHashBefore: null,
       configHashAfter: null,
+      bootstrapPending: false,
       lines: [],
     }));
     const runAppRecommendations = vi.fn<NonNullable<GuidedOnboardingDeps["runAppRecommendations"]>>(
@@ -279,6 +281,7 @@ describe("runGuidedOnboarding", () => {
       configPath: "/tmp/openclaw.json",
       configHashBefore: null,
       configHashAfter: null,
+      bootstrapPending: false,
       lines: [],
     }));
     const runAppRecommendations = vi.fn<NonNullable<GuidedOnboardingDeps["runAppRecommendations"]>>(
