@@ -72,11 +72,9 @@ export function prepareQuestionReactionPayloadForDelivery(params: {
   }
   const labels: string[] = [];
   for (const button of buttonBlock.buttons) {
-    if (
-      button.action?.type !== "question" ||
-      button.action.questionId !== questionId ||
-      button.action.optionValue !== button.label
-    ) {
+    // Display labels may be formatter-adjusted (e.g. Copilot); resolution uses
+    // the canonical optionValue via question.get, so only identity must match.
+    if (button.action?.type !== "question" || button.action.questionId !== questionId) {
       return null;
     }
     labels.push(button.label);
