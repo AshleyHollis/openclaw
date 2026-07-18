@@ -5,8 +5,10 @@ scenario:
   surface: channel-framework
   category: channel-framework.channel-actions-commands-and-approvals
   coverage:
-    primary: [telemetry.model-usage]
-    secondary: [channels.native-commands]
+    primary:
+      - telemetry-diagnostics-and-observability.model-usage
+    secondary:
+      - channel-framework.channel-native-commands
   objective: Verify WhatsApp usage mode decorates a message-tool-only visible reply.
   successCriteria:
     - The usage command enables token footer mode.

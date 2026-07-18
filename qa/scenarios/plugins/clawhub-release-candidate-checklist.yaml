@@ -6,7 +6,7 @@ scenario:
   category: clawhub-and-external-plugin-distribution.plugin-lifecycle-and-health
   coverage:
     primary:
-      - clawhub.npm-pack-local-release-candidate-installs
+      - clawhub-and-external-plugin-distribution.npm-pack-local-release-candidate-installs
   objective: Verify a release-candidate npm pack installs and updates through real package semantics before publishing.
   successCriteria:
     - The producer resolves an explicit candidate .tgz or an explicitly requested checkout-built tarball.

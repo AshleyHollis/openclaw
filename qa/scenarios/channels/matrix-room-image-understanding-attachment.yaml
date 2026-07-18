@@ -4,9 +4,9 @@ scenario:
   surface: channels
   coverage:
     primary:
-      - media.image-understanding
+      - media-understanding-and-media-generation.inbound-image-summarization-image-understanding
     secondary:
-      - channels.inbound-media-normalization
+      - channel-framework.inbound-media-normalization
   docsRefs:
     - docs/tools/media-overview.md
   execution:

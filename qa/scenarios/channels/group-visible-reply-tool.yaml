@@ -5,10 +5,10 @@ scenario:
   surface: channel
   coverage:
     primary:
-      - channels.group-visible-replies
+      - channel-framework.provider-outbound-adapter-bridge-group-visible-replies
     secondary:
-      - channels.qa-channel
-      - tools.message
+      - channel-framework.provider-outbound-adapter-bridge-qa-channel
+      - channel-framework.provider-outbound-adapter-bridge-message
   objective: Verify a group-sourced QA channel turn replies visibly through message(action=send) in the same room.
   gatewayConfigPatch:
     messages:

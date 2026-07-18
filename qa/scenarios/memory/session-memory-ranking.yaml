@@ -5,9 +5,9 @@ scenario:
   surface: memory
   coverage:
     primary:
-      - memory.ranking
+      - session-memory-and-context-engine.embedding-search-ranking
     secondary:
-      - memory.recall
+      - session-memory-and-context-engine.embedding-search-recall
   objective: Verify session-transcript memory can outrank stale durable notes and drive the final answer toward the newer fact.
   successCriteria:
     - Session memory indexing is enabled for the scenario.

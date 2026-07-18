@@ -5,7 +5,8 @@ scenario:
   surface: channel-framework
   category: channel-framework.channel-actions-commands-and-approvals
   coverage:
-    primary: [channels.native-commands]
+    primary:
+      - channel-framework.channel-native-commands
   regressionRefs:
     - openclaw/openclaw#74698
   objective: Verify Telegram status returns model, session, and activation details.

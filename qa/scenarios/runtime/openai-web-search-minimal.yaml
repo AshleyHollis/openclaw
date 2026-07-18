@@ -5,11 +5,11 @@ scenario:
   surface: model-provider
   coverage:
     secondary:
-      - plugins.web-search-and-fetch
-      - runtime.reasoning-and-cache-controls
-      - web-search.openai-native-web-search
-      - web-search.model-and-filter-routing
-      - tools.web-search
+      - plugin-sdk-and-bundled-plugin-architecture.web-search-and-fetch
+      - agent-runtime-and-provider-execution.reasoning-and-cache-controls
+      - web-search-tools.openai-native-web-search
+      - web-search-tools.model-and-filter-routing
+      - web-search-tools.web-search-exposure
   objective: Verify the OpenAI web_search minimal-reasoning E2E client distinguishes successful grounded turns from provider schema rejection.
   successCriteria:
     - Reject mode accepts the expected raw OpenAI schema rejection and the gateway schema wrapper.

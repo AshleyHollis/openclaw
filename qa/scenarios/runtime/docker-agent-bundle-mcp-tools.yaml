@@ -6,7 +6,7 @@ scenario:
   category: docker-podman-hosting.agent-sandbox-and-tooling
   coverage:
     primary:
-      - docker.backed-agent-sandbox-support
+      - docker-podman-hosting.docker-backed-agent-sandbox-support
   objective: Verify the package-installed Docker image can materialize bundled MCP tools for an agent run and apply tool policy inside the container-hosted runtime.
   successCriteria:
     - The functional Docker E2E image starts with an empty OpenClaw test state.

@@ -5,9 +5,9 @@ scenario:
   surface: channels
   coverage:
     primary:
-      - channels.group-visible-replies
+      - channel-framework.automatic-final-reply-delivery-group-visible-replies
     secondary:
-      - runtime.delivery
+      - channel-framework.automatic-final-reply-delivery
   objective: Verify a top-level group prompt produces a top-level reply without thread or quote relation metadata.
   successCriteria:
     - The reply contains the exact marker.

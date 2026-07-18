@@ -5,8 +5,8 @@ scenario:
   surface: mcp
   coverage:
     primary:
-      - plugins.mcp-tools
-      - tools.invocation
+      - plugin-sdk-and-bundled-plugin-architecture.tool-plugins-mcp-tools
+      - plugin-sdk-and-bundled-plugin-architecture.tool-plugins-invocation
   objective: Verify OpenClaw can expose plugin tools over MCP and a real MCP client can call one successfully.
   successCriteria:
     - Plugin tools MCP server lists memory_search.

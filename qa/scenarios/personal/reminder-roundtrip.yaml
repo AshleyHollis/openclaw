@@ -6,10 +6,10 @@ scenario:
   category: reminders
   coverage:
     primary:
-      - personal.reminders
+      - automation-cron-hooks-tasks-polling.agent-cron-tool-reminders
     secondary:
-      - scheduling.cron
-      - channels.qa-channel
+      - automation-cron-hooks-tasks-polling.agent-cron-tool
+      - channel-framework.automatic-final-reply-delivery-qa-channel
   risk: medium
   capabilities:
     - cron.add

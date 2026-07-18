@@ -5,10 +5,10 @@ scenario:
   surface: channels
   coverage:
     primary:
-      - channels.group-messages
+      - channel-framework.mention-required-group-visible-replies
     secondary:
-      - channels.qa-channel
-      - runtime.delivery
+      - channel-framework.automatic-final-reply-delivery-qa-channel
+      - channel-framework.automatic-final-reply-delivery
   objective: Verify the selected channel transport can deliver one mention-triggered group reply through the canonical QA host.
   successCriteria:
     - One mentioned group message produces one visible reply containing the exact marker.

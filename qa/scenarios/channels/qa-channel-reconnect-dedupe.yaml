@@ -5,10 +5,9 @@ scenario:
   surface: channel
   coverage:
     primary:
-      - channels.reconnect
+      - channel-framework.automatic-final-reply-delivery-dedup
     secondary:
-      - channels.dedup
-      - runtime.delivery
+      - channel-framework.automatic-final-reply-delivery
   objective: Verify qa-channel readiness polling keeps prior delivery stable and does not replay the last outbound message.
   successCriteria:
     - Agent replies once before a reconnect-style readiness cycle.

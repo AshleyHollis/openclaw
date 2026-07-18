@@ -5,7 +5,8 @@ scenario:
   surface: channel-framework
   category: channel-framework.channel-actions-commands-and-approvals
   coverage:
-    primary: [runtime.delivery]
+    primary:
+      - telegram.conversation-routing-and-delivery
   objective: Verify an exact-marker Telegram reply is delivered once without extra visible text.
   successCriteria:
     - The model returns the requested exact marker through the reply path.

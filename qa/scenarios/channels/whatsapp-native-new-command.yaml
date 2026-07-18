@@ -5,7 +5,8 @@ scenario:
   surface: channel-framework
   category: channel-framework.channel-actions-commands-and-approvals
   coverage:
-    primary: [channels.native-commands]
+    primary:
+      - channel-framework.channel-native-commands
   objective: Verify WhatsApp `/new` starts a new session through native command dispatch.
   successCriteria:
     - The `/new` command is accepted in a WhatsApp DM.

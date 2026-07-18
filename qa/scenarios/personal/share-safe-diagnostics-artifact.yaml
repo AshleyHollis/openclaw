@@ -6,10 +6,10 @@ scenario:
   category: diagnostics
   coverage:
     primary:
-      - personal.diagnostics
+      - telemetry-diagnostics-and-observability.support-zip-composition-diagnostics
     secondary:
-      - personal.redaction
-      - qa.artifact-safety
+      - telemetry-diagnostics-and-observability.support-zip-composition-redaction
+      - telemetry-diagnostics-and-observability.support-zip-composition-artifact-safety
   risk: high
   capabilities:
     - tools.read

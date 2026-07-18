@@ -5,7 +5,7 @@ scenario:
   surface: channels
   coverage:
     primary:
-      - channels.access-policy
+      - channel-framework.group-channel-allowlists-access-policy
   objective: Verify groupPolicy disabled rejects group messages.
   successCriteria:
     - The group message produces no outbound reply.

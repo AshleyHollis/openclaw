@@ -6,7 +6,7 @@ scenario:
   category: clawhub-and-external-plugin-distribution.plugin-lifecycle-and-health
   coverage:
     primary:
-      - clawhub.skill-installs
+      - clawhub-and-external-plugin-distribution.clawhub-skill-installs
   objective: Link ClawHub-backed skill install e2e coverage to ClawHub maturity accounting.
   successCriteria:
     - The CLI resolves a ClawHub skill install descriptor.

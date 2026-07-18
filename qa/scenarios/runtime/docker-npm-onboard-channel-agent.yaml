@@ -6,9 +6,9 @@ scenario:
   category: docker-podman-hosting.agent-sandbox-and-tooling
   coverage:
     primary:
-      - docker.backed-agent-sandbox-support
+      - docker-podman-hosting.docker-backed-agent-sandbox-support
     secondary:
-      - docker.first-run-onboarding
+      - docker-podman-hosting.first-run-onboarding
   objective: Verify a package-installed Docker runner can complete non-interactive onboarding, configure a channel, start Gateway-backed agent behavior, and complete a mocked model turn.
   successCriteria:
     - The candidate OpenClaw tarball installs in a clean Docker home.

@@ -5,7 +5,7 @@ scenario:
   surface: channels
   coverage:
     primary:
-      - runtime.delivery
+      - channel-framework.automatic-final-reply-delivery
   objective: Verify Telegram renders transcript-role-looking assistant text as inert authorship-marked content.
   successCriteria:
     - The controlled model reply reaches the real Telegram plugin through Crabline.

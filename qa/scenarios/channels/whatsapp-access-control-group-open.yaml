@@ -5,7 +5,7 @@ scenario:
   surface: channels
   coverage:
     primary:
-      - channels.access-policy
+      - channel-framework.group-channel-allowlists-access-policy
   objective: Verify groupPolicy open accepts a mentioned group message.
   successCriteria:
     - The mentioned group message receives one marker reply.

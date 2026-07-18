@@ -5,9 +5,9 @@ scenario:
   surface: workspace
   coverage:
     primary:
-      - workspace.planning
+      - openai-codex-provider-path.native-codex-app-server-harness-planning
     secondary:
-      - models.codex-cli
+      - openai-codex-provider-path.native-codex-app-server-harness-codex-cli
   plugins:
     - codex
   objective: Verify the Codex app-server harness can plan and build a medium-complex self-contained browser game.

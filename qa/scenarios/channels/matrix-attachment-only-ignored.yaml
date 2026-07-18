@@ -4,9 +4,9 @@ scenario:
   surface: channels
   coverage:
     primary:
-      - channels.mention-gating
+      - matrix.mention-gates
     secondary:
-      - channels.inbound-media-normalization
+      - channel-framework.inbound-media-normalization
   execution:
     profiles: { "matrix:all": 55, "matrix:media": 4 }
     kind: flow

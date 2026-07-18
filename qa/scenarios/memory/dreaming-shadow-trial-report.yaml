@@ -5,10 +5,9 @@ scenario:
   surface: memory
   coverage:
     primary:
-      - memory.dreaming
+      - agent-runtime-and-provider-execution.tool-call-handling-fs-write
     secondary:
-      - memory.promotion
-      - qa.artifact-safety
+      - agent-runtime-and-provider-execution.tool-call-handling-fs-read
   risk: medium
   capabilities:
     - tools.read

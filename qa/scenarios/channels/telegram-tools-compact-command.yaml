@@ -5,7 +5,8 @@ scenario:
   surface: channel-framework
   category: channel-framework.channel-actions-commands-and-approvals
   coverage:
-    primary: [channels.native-commands]
+    primary:
+      - channel-framework.channel-native-commands
   objective: Verify Telegram renders the compact model-tool inventory.
   successCriteria:
     - The compact tools command reaches native command dispatch.

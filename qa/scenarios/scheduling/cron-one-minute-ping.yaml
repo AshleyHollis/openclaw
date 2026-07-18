@@ -5,11 +5,11 @@ scenario:
   surface: cron
   coverage:
     primary:
-      - scheduling.cron
-      - scheduling.cron-rpcs
-      - scheduling.chat-announce-delivery
+      - automation-cron-hooks-tasks-polling.cron-rpcs
+      - automation-cron-hooks-tasks-polling.chat-announce-delivery
+      - automation-cron-hooks-tasks-polling.agent-cron-tool
     secondary:
-      - channels.qa-channel
+      - channel-framework.automatic-final-reply-delivery-qa-channel
   objective: Verify the agent can schedule a cron reminder one minute in the future and receive the follow-up in the QA channel.
   successCriteria:
     - Agent schedules a cron reminder roughly one minute ahead.

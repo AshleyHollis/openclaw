@@ -5,9 +5,9 @@ scenario:
   surface: config
   coverage:
     primary:
-      - config.restart-apply
+      - gateway-runtime.restart-and-stop-restart-apply
     secondary:
-      - plugins.capabilities
+      - plugin-sdk-and-bundled-plugin-architecture.mixed-plugins-capabilities
   objective: Verify a restart-triggering config change flips capability inventory and the same session successfully uses the newly restored tool after wake-up.
   successCriteria:
     - Capability is absent before the restart-triggering patch.

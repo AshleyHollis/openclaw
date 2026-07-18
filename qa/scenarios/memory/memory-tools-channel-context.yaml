@@ -5,9 +5,9 @@ scenario:
   surface: memory
   coverage:
     primary:
-      - memory.tools
+      - session-memory-and-context-engine.memory-search-and-store-tools-tools
     secondary:
-      - channels.group-messages
+      - channel-framework.group-channel-session-isolation-group-messages
   objective: Verify the agent uses memory tools in a shared channel when the answer lives only in memory files, not the live transcript.
   successCriteria:
     - Agent uses memory_search before answering.

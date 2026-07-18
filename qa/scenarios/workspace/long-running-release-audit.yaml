@@ -5,10 +5,9 @@ scenario:
   surface: workspace
   coverage:
     primary:
-      - workspace.long-running-task
+      - agent-runtime-and-provider-execution.tool-call-handling-fs-write
     secondary:
-      - workspace.repo-discovery
-      - workspace.artifacts
+      - agent-runtime-and-provider-execution.tool-call-handling-fs-read
   objective: Verify a model can complete a sustained repo audit that requires reading several scattered files, ignoring stale decoys, writing artifacts, and checking its own output.
   successCriteria:
     - Agent starts from the seeded project README instead of guessing.

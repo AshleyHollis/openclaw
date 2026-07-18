@@ -6,9 +6,9 @@ scenario:
   category: channel-framework.channel-actions-commands-and-approvals
   coverage:
     primary:
-      - channels.native-command-session-target
+      - channel-framework.native-command-session-target
     secondary:
-      - channels.native-commands
+      - channel-framework.channel-native-commands
   objective: Verify a channel-native `/stop` command aborts the active routed conversation session instead of its separate slash-command session.
   successCriteria:
     - A real delayed agent turn is active on the routed channel conversation session.

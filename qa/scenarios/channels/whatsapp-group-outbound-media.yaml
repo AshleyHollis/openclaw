@@ -3,7 +3,8 @@ scenario:
   id: whatsapp-group-outbound-media
   surface: channels
   coverage:
-    primary: [channels.group-messages]
+    primary:
+      - whatsapp.outbound-image
   execution:
     profiles: { "whatsapp:mock-default": 21 }
     kind: flow

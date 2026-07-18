@@ -3,7 +3,8 @@ scenario:
   id: slack-progress-commentary-true
   surface: channels
   coverage:
-    primary: [channels.streaming]
+    primary:
+      - agent-runtime-and-provider-execution.streaming-replies
   execution:
     kind: flow
     channel: slack

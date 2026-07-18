@@ -5,9 +5,9 @@ scenario:
   surface: image-generation
   coverage:
     primary:
-      - media.image-generation
+      - media-understanding-and-media-generation.image-generation-provider-routing
     secondary:
-      - tools.native-image-generation
+      - media-understanding-and-media-generation.image-generation-provider-routing-native-image-generation
   objective: Verify image_generate appears when configured and returns a real saved media artifact.
   successCriteria:
     - image_generate appears in the effective tool inventory.

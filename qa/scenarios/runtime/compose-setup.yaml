@@ -6,7 +6,7 @@ scenario:
   category: docker-podman-hosting.container-setup
   coverage:
     secondary:
-      - docker.compose
+      - docker-podman-hosting.docker-compose-mounts-and-secrets
   objective: Launch the documented Docker Compose topology from the package-backed functional image and record the exact package, image, and service container identities.
   successCriteria:
     - The scheduler builds the real package artifact and package-backed functional image through the canonical Docker planner.

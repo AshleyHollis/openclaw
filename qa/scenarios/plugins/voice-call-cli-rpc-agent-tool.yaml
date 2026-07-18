@@ -6,7 +6,7 @@ scenario:
   category: voice-call-channel.channel-setup-and-operations
   coverage:
     primary:
-      - voice-call.cli-rpc-agent-tool
+      - voice-call-channel.voice-call-cli-rpc-and-agent-tool
   objective: Verify the real Voice Call CLI, Gateway RPC, and Gateway-invoked agent tool share one mock-provider runtime whose realtime media stream reaches embedded-agent consult context.
   successCriteria:
     - The CLI starts an outbound call through its Gateway RPC path.

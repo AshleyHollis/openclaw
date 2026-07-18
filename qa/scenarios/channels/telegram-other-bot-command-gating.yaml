@@ -5,7 +5,8 @@ scenario:
   surface: channel-framework
   category: channel-framework.channel-actions-commands-and-approvals
   coverage:
-    primary: [channels.native-commands]
+    primary:
+      - channel-framework.channel-native-commands
   objective: Verify a command addressed to another Telegram bot does not wake OpenClaw.
   successCriteria:
     - The driver sends a native status command addressed to another bot.

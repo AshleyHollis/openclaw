@@ -5,10 +5,10 @@ scenario:
   surface: subagents
   coverage:
     primary:
-      - agents.subagents
+      - agent-runtime-and-provider-execution.subagent-turns-subagents
     secondary:
-      - runtime.delivery
-      - channels.qa-channel
+      - agent-runtime-and-provider-execution.subagent-turns-delivery
+      - channel-framework.automatic-final-reply-delivery-qa-channel
   objective: Verify a yielded parent still receives a successful subagent result through direct fallback delivery when the dormant announce turn produces no visible reply.
   successCriteria:
     - Parent launches a native subagent.

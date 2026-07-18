@@ -5,9 +5,9 @@ scenario:
   surface: runtime
   coverage:
     primary:
-      - gateway.connect-request
-      - gateway.protocol-version-negotiation
-      - gateway.startup-retry
+      - gateway-runtime.connect-request
+      - gateway-runtime.protocol-version-negotiation
+      - gateway-runtime.startup-retry
   objective: Verify the Gateway client connect frame, protocol range, and retry behavior used by MCP channel bridge clients.
   successCriteria:
     - GatewayClient sends a `connect` request after `connect.challenge`.

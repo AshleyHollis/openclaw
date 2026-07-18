@@ -6,10 +6,10 @@ scenario:
   category: memory
   coverage:
     primary:
-      - personal.memory-recall
+      - session-memory-and-context-engine.memory-search-and-store-tools-personal-memory-recall
     secondary:
-      - memory.recall
-      - channels.qa-channel
+      - session-memory-and-context-engine.memory-search-and-store-tools-recall
+      - channel-framework.inbound-conversation-routing-qa-channel
   risk: medium
   capabilities:
     - memory.recall

@@ -5,10 +5,10 @@ scenario:
   surface: models
   coverage:
     primary:
-      - models.thinking
+      - agent-runtime-and-provider-execution.thinking-and-context-settings
     secondary:
-      - models.switching
-      - runtime.session-continuity
+      - agent-runtime-and-provider-execution.provider-and-runtime-overrides-switching
+      - agent-runtime-and-provider-execution.thinking-and-context-settings-session-continuity
   objective: Verify /think lists provider-owned levels and remaps stored thinking levels when the session model changes provider capabilities.
   plugins:
     - anthropic

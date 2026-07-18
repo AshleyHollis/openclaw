@@ -5,9 +5,9 @@ scenario:
   surface: channels
   coverage:
     primary:
-      - channels.group-messages
+      - channel-framework.group-channel-allowlists
     secondary:
-      - runtime.delivery
+      - channel-framework.automatic-final-reply-delivery
   objective: Verify a blocked secondary actor stays quiet while the configured driver override still triggers a reply.
   successCriteria:
     - A mentioned message from the observer actor produces no reply.

@@ -6,8 +6,8 @@ scenario:
   category: docker-podman-hosting.container-setup
   coverage:
     secondary:
-      - docker.first-run-onboarding
-      - raspberry-pi.first-run-verification
+      - docker-podman-hosting.first-run-onboarding
+      - raspberry-pi-small-linux-devices.first-run-verification
   objective: Verify a fresh package-installed Docker state gates OpenClaw on a tested inference route, then supports planner-backed and typed setup operations without leaking secrets.
   successCriteria:
     - The bare-command routing policy selects onboarding, and the packaged OpenClaw CLI exits with onboarding guidance while inference is unavailable.

@@ -7,7 +7,7 @@ scenario:
   runtimeParityTier: live-only
   coverage:
     primary:
-      - hosted-providers.image-generation-providers
+      - long-tail-hosted-providers.image-generation-providers
   objective: Verify hosted image generation providers can generate real images through the live provider runtime sweep.
   successCriteria:
     - The QA producer runs the canonical live media image harness instead of duplicating provider assertions.

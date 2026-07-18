@@ -5,9 +5,9 @@ scenario:
   surface: runtime
   coverage:
     primary:
-      - anthropic.signed-redacted-thinking-replay
+      - anthropic-provider-path.signed-redacted-thinking-replay
     secondary:
-      - runtime.retry-policy
+      - agent-runtime-and-provider-execution.failure-recovery-retry-policy
   gatewayConfigPatch:
     agents:
       defaults:

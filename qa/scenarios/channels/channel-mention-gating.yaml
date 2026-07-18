@@ -5,9 +5,9 @@ scenario:
   surface: channels
   coverage:
     primary:
-      - channels.group-messages
+      - channel-framework.mention-gating
     secondary:
-      - runtime.delivery
+      - channel-framework.automatic-final-reply-delivery
   objective: Verify required-mention group traffic stays quiet until the bot is explicitly mentioned.
   successCriteria:
     - Unmentioned group traffic produces no outbound reply.

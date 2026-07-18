@@ -34,7 +34,7 @@ scenario:
   surface: memory
   coverage:
     primary:
-      - memory.recall
+      - session-memory-and-context-engine.memory-search-and-store-tools-recall
   objective: Verify the agent can store a fact, switch topics, then recall the fact accurately later.
   successCriteria:
     - Agent acknowledges the seeded fact.

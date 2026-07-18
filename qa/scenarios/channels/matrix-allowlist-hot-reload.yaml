@@ -5,7 +5,7 @@ scenario:
   surface: channels
   coverage:
     primary:
-      - channels.allowlist-hot-reload
+      - channel-framework.group-channel-allowlists-allowlist-hot-reload
   objective: Verify removing the observer from Matrix groupAllowFrom takes effect without restarting the Gateway.
   successCriteria:
     - The observer receives a reply while allowlisted.

@@ -5,7 +5,8 @@ scenario:
   surface: channel-framework
   category: channel-framework.channel-actions-commands-and-approvals
   coverage:
-    primary: [channels.native-commands]
+    primary:
+      - channel-framework.channel-native-commands
   objective: Verify WhatsApp command identity includes channel and allowlist context.
   successCriteria:
     - The whoami command returns an identity block.

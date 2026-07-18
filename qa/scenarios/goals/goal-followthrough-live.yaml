@@ -7,10 +7,9 @@ scenario:
   runtimeParityTier: live-only
   coverage:
     primary:
-      - goals.continuance
+      - session-memory-and-context-engine.goal-continuance-continuance
     secondary:
-      - goals.context-injection
-      - runtime.first-action
+      - session-memory-and-context-engine.goal-continuance-context-injection
   objective: Verify a live model advances the next concrete step of an active multi-step goal on a later bare continue turn.
   successCriteria:
     - The first goal turn acknowledges the staged first step without creating the second-step artifact early.

@@ -6,7 +6,7 @@ scenario:
   category: channel-framework.channel-actions-commands-and-approvals
   coverage:
     primary:
-      - channels.native-commands
+      - channel-framework.channel-native-commands
   objective: Verify the Telegram help command returns the concise command guide.
   successCriteria:
     - The help command is accepted in the Telegram group command path.

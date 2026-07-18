@@ -5,10 +5,11 @@ scenario:
   surface: cron
   coverage:
     primary:
-      - scheduling.cron
+      - automation-cron-hooks-tasks-polling.manual-cron-runs
+      - automation-cron-hooks-tasks-polling.run-history-cron
     secondary:
-      - channels.qa-channel
-      - scheduling.dedup
+      - channel-framework.automatic-final-reply-delivery-qa-channel
+      - automation-cron-hooks-tasks-polling.run-history-dedup
   objective: Verify one forced cron run produces exactly one qa-channel delivery for its marker.
   successCriteria:
     - A single forced cron run completes successfully.

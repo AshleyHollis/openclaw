@@ -5,9 +5,9 @@ scenario:
   surface: discovery
   coverage:
     primary:
-      - workspace.repo-discovery
+      - agent-runtime-and-provider-execution.tool-call-handling-fs-read
     secondary:
-      - docs.discovery
+      - session-memory-and-context-engine.context-visibility-discovery
   objective: Verify the agent can read repo docs and source, expand the QA plan, and publish a worked or did-not-work report.
   successCriteria:
     - Agent reads docs and source before proposing more tests.

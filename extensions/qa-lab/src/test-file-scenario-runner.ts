@@ -192,6 +192,13 @@ function buildScenarioEvidenceTarget(scenario: QaTestFileScenario) {
   };
 }
 
+function coverageForScenario(scenario: QaTestFileScenario) {
+  return [
+    ...(scenario.coverage?.primary ?? []).map((id) => ({ id, role: "primary" as const })),
+    ...(scenario.coverage?.secondary ?? []).map((id) => ({ id, role: "secondary" as const })),
+  ];
+}
+
 async function runScenarioCommandSteps(params: {
   commandTimeoutMs: number;
   env: NodeJS.ProcessEnv;
@@ -341,8 +348,12 @@ function buildTestFileEvidence(params: {
   evidenceMode?: QaScorecardEvidenceMode;
   env?: NodeJS.ProcessEnv;
 }) {
-  const producerEntries = params.results.flatMap(
-    (result) => result.producerEvidence?.entries ?? [],
+  const producerEntries = params.results.flatMap((result) =>
+    // Producer artifacts own execution facts; the scenario catalog remains the
+    // sole owner of which semantic features those facts cover.
+    (result.producerEvidence?.entries ?? []).map((entry) =>
+      Object.assign(entry, { coverage: coverageForScenario(result.scenario) }),
+    ),
   );
   if (producerEntries.length > 0) {
     const definition = testFileRunnerDefinitions[params.kind];

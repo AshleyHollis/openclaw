@@ -6,10 +6,10 @@ scenario:
   category: cli-install-update-onboard-doctor.updates-and-upgrades
   coverage:
     primary:
-      - cli.install-kind-switching
-      - cli.update-status-and-rpc
+      - cli-install-update-onboard-doctor.install-kind-switching
+      - cli-install-update-onboard-doctor.update-status-and-rpc
     secondary:
-      - cli.update-channels
+      - cli-install-update-onboard-doctor.update-channels
   objective: Verify package-to-git and git-to-package update switching plus machine-readable update status in Docker.
   successCriteria:
     - The package install updates to a package-derived git dev fixture.

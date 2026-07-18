@@ -6,7 +6,7 @@ scenario:
   category: voice-and-realtime-talk.realtime-talk-sessions
   coverage:
     primary:
-      - voice.active-talk-agent-run-status
+      - voice-and-realtime-talk.active-talk-agent-run-status
   objective: Verify a real Gateway Talk session drives status, steering, follow-up, and cancellation against one active agent run.
   successCriteria:
     - A registered mock realtime provider creates a browser-owned Talk session with consult and control tools through Gateway RPC.

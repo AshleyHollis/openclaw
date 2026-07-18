@@ -448,8 +448,12 @@ describe("qa test file scenario runner", () => {
       },
       coverage: [
         {
-          id: "ui.control",
+          id: "qa.coverage",
           role: "primary",
+        },
+        {
+          id: "qa.reporting",
+          role: "secondary",
         },
       ],
       execution: {
@@ -742,6 +746,10 @@ describe("qa test file scenario runner", () => {
         kind: "script-producer-check",
         id: "script-producer.web-ui.smoke",
       },
+      coverage: [
+        { id: "qa.coverage", role: "primary" },
+        { id: "qa.reporting", role: "secondary" },
+      ],
       result: {
         status: "fail",
         failure: {

@@ -7,10 +7,10 @@ scenario:
   runtimeParityTier: live-only
   coverage:
     primary:
-      - hosted-providers.video-generation-providers
-      - media.reference-image-video-and-audio-inputs
+      - long-tail-hosted-providers.video-generation-providers
+      - media-understanding-and-media-generation.reference-image-video-and-audio-inputs
     secondary:
-      - media.video-generation-tool-invocation
+      - media-understanding-and-media-generation.video-generation-tool-invocation
   objective: Verify hosted video generation providers can generate real videos and exercise full reference-input modes where supported.
   successCriteria:
     - The QA producer runs the canonical live media video harness instead of duplicating provider assertions.

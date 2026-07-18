@@ -5,9 +5,9 @@ scenario:
   surface: dm
   coverage:
     primary:
-      - channels.dm
+      - channel-framework.inbound-conversation-routing-dm
     secondary:
-      - channels.qa-channel
+      - channel-framework.inbound-conversation-routing-qa-channel
   objective: Verify the QA agent can chat coherently in a DM, explain the QA setup, and stay in character.
   successCriteria:
     - Agent replies in DM without channel routing mistakes.

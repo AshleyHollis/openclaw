@@ -6,10 +6,10 @@ scenario:
   category: clawhub-and-external-plugin-distribution.plugin-lifecycle-and-health
   coverage:
     primary:
-      - clawhub.marketplace-list
+      - clawhub-and-external-plugin-distribution.marketplace-list
     secondary:
-      - clawhub.update-by-plugin-id
-      - clawhub.uninstall-config-index-policy-file-cleanup
+      - clawhub-and-external-plugin-distribution.update-by-plugin-id
+      - clawhub-and-external-plugin-distribution.uninstall-config-index-policy-file-cleanup
   objective: Verify package-installed marketplace listing, install, update, and uninstall behavior through the release plugin marketplace lane.
   successCriteria:
     - A fixture marketplace is written into the package-installed home.

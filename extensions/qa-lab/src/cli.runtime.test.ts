@@ -383,15 +383,15 @@ describe("qa cli runtime", () => {
               {
                 test: {
                   kind: "qa-scenario",
-                  id: "dm-chat-baseline",
-                  title: "DM baseline conversation",
+                  id: "channel-top-level-reply-shape",
+                  title: "Channel top-level reply shape",
                   source: {
-                    path: "qa/scenarios/channels/dm-chat-baseline.yaml",
+                    path: "qa/scenarios/channels/channel-top-level-reply-shape.yaml",
                   },
                 },
                 coverage: [
                   {
-                    id: "channels.dm",
+                    id: "channel-framework.automatic-final-reply-delivery-group-visible-replies",
                     role: "primary",
                   },
                 ],
@@ -439,8 +439,8 @@ describe("qa cli runtime", () => {
         outputDir: ".artifacts/qa-e2e/smoke-ci",
         profile: "smoke-ci",
         surface: "channel-framework",
-        category: "channel-framework.conversation-routing-and-delivery",
-        scenarioIds: ["dm-chat-baseline"],
+        category: "channel-framework.outbound-delivery-and-reply-pipeline",
+        scenarioIds: ["channel-top-level-reply-shape"],
         transportId: "qa-channel",
         fastMode: true,
         concurrency: 2,
@@ -461,7 +461,7 @@ describe("qa cli runtime", () => {
         channel: "telegram",
         channelDriver: "crabline",
       });
-      expect(suiteArgs.scenarioIds).toEqual(["dm-chat-baseline"]);
+      expect(suiteArgs.scenarioIds).toEqual(["channel-top-level-reply-shape"]);
       expect(process.env.OPENCLAW_QA_PROFILE).toBe("release");
       const evidence = JSON.parse(await fs.readFile(suiteEvidencePath, "utf8")) as {
         evidenceMode?: unknown;
@@ -489,13 +489,13 @@ describe("qa cli runtime", () => {
       expect(evidence.scorecard).not.toHaveProperty("profile");
       expect(evidence.scorecard?.coverageIds?.fulfilled).toBe(1);
       expect(evidence.scorecard?.categoryReports?.[0]).toMatchObject({
-        id: "channel-framework.conversation-routing-and-delivery",
+        id: "channel-framework.outbound-delivery-and-reply-pipeline",
         coverageIds: {
           fulfilled: 1,
         },
       });
       expect(evidence.entries?.[0]).not.toHaveProperty("execution");
-      expect(JSON.stringify(evidence.scorecard)).not.toContain("dm-chat-baseline");
+      expect(JSON.stringify(evidence.scorecard)).not.toContain("channel-top-level-reply-shape");
       expectWriteContains(stdoutWrite, "QA run profile: smoke-ci; categories: 1; scenarios:");
       expectWriteContains(stdoutWrite, `QA profile scorecard: ${suiteEvidencePath}`);
     } finally {
@@ -568,12 +568,12 @@ describe("qa cli runtime", () => {
     await runQaProfileCommand({
       repoRoot: "/tmp/openclaw-repo",
       profile: "smoke-ci",
-      scenarioIds: ["dm-chat-baseline", "instruction-followthrough-repo-contract"],
+      scenarioIds: ["channel-top-level-reply-shape", "control-ui-qa-channel-image-roundtrip"],
     });
 
     const suiteArgs = mockFirstObjectArg(runQaSuite);
     expect(suiteArgs.channelDriver).toBe("crabline");
-    expect(suiteArgs.scenarioIds).toEqual(["dm-chat-baseline"]);
+    expect(suiteArgs.scenarioIds).toEqual(["channel-top-level-reply-shape"]);
     expect(suiteArgs.scenarioIds).not.toEqual(
       expect.arrayContaining([
         "instruction-followthrough-repo-contract",
@@ -636,11 +636,11 @@ describe("qa cli runtime", () => {
       runQaProfileCommand({
         repoRoot: "/tmp/openclaw-repo",
         profile: "smoke-ci",
-        category: "channel-framework.conversation-routing-and-delivery",
+        category: "channel-framework.outbound-delivery-and-reply-pipeline",
         scenarioIds: ["not-a-real-scenario"],
       }),
     ).rejects.toThrow(
-      "qa run did not find taxonomy scenarios for --qa-profile smoke-ci --category channel-framework.conversation-routing-and-delivery --scenario not-a-real-scenario.",
+      "qa run did not find taxonomy scenarios for --qa-profile smoke-ci --category channel-framework.outbound-delivery-and-reply-pipeline --scenario not-a-real-scenario.",
     );
     expect(runQaSuite).not.toHaveBeenCalled();
   });
@@ -1673,8 +1673,6 @@ describe("qa cli runtime", () => {
       scenarioIds: [
         "channel-chat-baseline",
         "runtime-tool-bash",
-        "auth-profile-codex-mixed-profiles",
-        "auth-profile-doctor-migration-safety",
         "codex-plugin-cold-install",
         "codex-plugin-pinned-new",
         "codex-plugin-pinned-old",
@@ -2026,7 +2024,7 @@ describe("qa cli runtime", () => {
       await runQaCoverageReportCommand({ repoRoot: process.cwd() });
 
       expectWriteContains(stdoutWrite, "# QA Coverage Inventory");
-      expectWriteContains(stdoutWrite, "memory.recall");
+      expectWriteContains(stdoutWrite, "session-memory-and-context-engine.embedding-search-recall");
     });
   });
 

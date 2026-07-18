@@ -6,9 +6,9 @@ scenario:
   runtimeParityTier: soak
   coverage:
     primary:
-      - runtime.long-run-stability
+      - agent-runtime-and-provider-execution.abort-and-terminal-outcomes-long-run-stability
     secondary:
-      - runtime.long-context
+      - session-memory-and-context-engine.token-pressure-long-context
   objective: Provide an optional long-run soak that can be scheduled or run in Testbox without entering the maintainer default gate.
   successCriteria:
     - The same QA session accepts 100 sequential user turns.

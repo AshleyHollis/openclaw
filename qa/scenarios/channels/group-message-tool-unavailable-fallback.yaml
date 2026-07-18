@@ -5,10 +5,10 @@ scenario:
   surface: channel
   coverage:
     primary:
-      - channels.group-visible-replies
+      - channel-framework.automatic-final-reply-delivery-group-visible-replies
     secondary:
-      - channels.qa-channel
-      - tools.message
+      - channel-framework.automatic-final-reply-delivery-qa-channel
+      - channel-framework.automatic-final-reply-delivery-message
   objective: Reproduce the group-visible-reply bug class where message_tool mode selected tool-only delivery even though group tool policy removed the message tool.
   gatewayConfigPatch:
     messages:

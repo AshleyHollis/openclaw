@@ -5,7 +5,7 @@ scenario:
   surface: channels
   coverage:
     primary:
-      - channels.access-policy
+      - channel-framework.group-channel-allowlists-access-policy
   objective: Verify dmPolicy open accepts a direct message.
   successCriteria:
     - The direct message receives one marker reply.

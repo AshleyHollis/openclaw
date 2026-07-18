@@ -6,7 +6,7 @@ scenario:
   category: docker-podman-hosting.agent-sandbox-and-tooling
   coverage:
     primary:
-      - docker.backed-agent-sandbox-support
+      - docker-podman-hosting.docker-backed-agent-sandbox-support
   objective: Verify Docker-hosted agent workspace deletion keeps shared workspace state safe while running against the package-installed image.
   successCriteria:
     - The Docker lane starts from an empty OpenClaw state.

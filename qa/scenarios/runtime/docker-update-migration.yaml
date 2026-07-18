@@ -6,9 +6,9 @@ scenario:
   category: cli-install-update-onboard-doctor.updates-and-upgrades
   coverage:
     primary:
-      - cli.plugin-convergence
+      - cli-install-update-onboard-doctor.plugin-convergence
     secondary:
-      - cli.update-status-and-rpc
+      - cli-install-update-onboard-doctor.update-status-and-rpc
   objective: Verify published baseline plugin dependency debris is cleaned by the candidate update and post-update doctor flow.
   successCriteria:
     - A published baseline is configured with the plugin-dependency cleanup scenario.

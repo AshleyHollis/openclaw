@@ -5,7 +5,8 @@ scenario:
   surface: channel-framework
   category: channel-framework.conversation-routing-and-delivery
   coverage:
-    primary: [runtime.delivery]
+    primary:
+      - telegram.conversation-routing-and-delivery
   regressionRefs:
     - openclaw/openclaw#39905
   objective: Verify Telegram quiet streaming finalizes one preview without a duplicate reply.

@@ -6,9 +6,9 @@ scenario:
   category: plugin-sdk-and-bundled-plugin-architecture.bundled-plugins
   coverage:
     secondary:
-      - plugins.packaged-bundled-plugins
-      - plugins.bundled-plugin-listing
-      - clawhub.managed-install-records-that-preserve-source
+      - plugin-sdk-and-bundled-plugin-architecture.packaged-bundled-plugins
+      - plugin-sdk-and-bundled-plugin-architecture.bundled-plugin-listing
+      - clawhub-and-external-plugin-distribution.managed-install-records-that-preserve-source
   objective: Verify packaged distributions discover bundled plugins from packaged roots and can install, smoke, and uninstall them.
   successCriteria:
     - The probe selects installable bundled plugins from package dist or dist-runtime roots instead of raw source extension directories.

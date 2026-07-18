@@ -6,7 +6,7 @@ scenario:
   category: cli-install-update-onboard-doctor.plugin-and-channel-setup
   coverage:
     primary:
-      - cli.channel-picker
+      - cli-install-update-onboard-doctor.channel-picker
   objective: Drive the real interactive channel picker in an isolated OpenClaw home and verify its persisted configuration.
   successCriteria:
     - The producer launches the compiled OpenClaw CLI through a real PTY with an isolated OPENCLAW_HOME.

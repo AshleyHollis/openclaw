@@ -6,8 +6,8 @@ scenario:
   category: docker-podman-hosting.image-release-and-validation
   coverage:
     primary:
-      - docker.release-workflow
-      - docker.release-path-install
+      - docker-podman-hosting.docker-release-workflow
+      - docker-podman-hosting.release-path-install
   objective: Verify a published baseline can be configured, upgraded to the candidate tarball, and still complete the core release journey.
   successCriteria:
     - A published baseline installs and is configured with mock provider, plugin, and ClickClack channel state.

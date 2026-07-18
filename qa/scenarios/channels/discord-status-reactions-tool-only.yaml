@@ -3,7 +3,8 @@ scenario:
   id: discord-status-reactions-tool-only
   surface: channels
   coverage:
-    primary: [channels.message-actions]
+    primary:
+      - channel-framework.reply-pipeline-transforms-message-actions
   execution:
     kind: flow
     channel: discord

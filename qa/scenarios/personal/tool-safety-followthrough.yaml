@@ -6,10 +6,10 @@ scenario:
   category: tool-safety
   coverage:
     primary:
-      - personal.tool-safety
+      - agent-runtime-and-provider-execution.tool-safety-controls
     secondary:
-      - tools.followthrough
-      - runtime.approvals
+      - security-auth-pairing-and-secrets.approval-policy-followthrough
+      - security-auth-pairing-and-secrets.approval-policy-approvals
   risk: medium
   capabilities:
     - tools.read

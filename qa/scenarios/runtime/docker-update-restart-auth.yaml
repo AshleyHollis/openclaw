@@ -6,9 +6,9 @@ scenario:
   category: cli-install-update-onboard-doctor.updates-and-upgrades
   coverage:
     primary:
-      - cli.managed-gateway-restart
+      - cli-install-update-onboard-doctor.managed-gateway-restart
     secondary:
-      - cli.update-status-and-rpc
+      - cli-install-update-onboard-doctor.update-status-and-rpc
   objective: Verify update-owned Gateway restart works when the caller lacks service-owned auth environment.
   successCriteria:
     - The lane starts a managed token-auth Gateway.
