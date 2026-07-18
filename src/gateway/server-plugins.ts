@@ -241,6 +241,7 @@ type DispatchGatewayMethodInProcessOptions = {
   expectFinal?: boolean;
   forceSyntheticClient?: boolean;
   internalDeliveryMediaUrls?: string[];
+  internalDeliveryIdempotencyKey?: string;
   internalDeliverySuppressText?: boolean;
   onAccepted?: (payload: unknown) => void;
   pluginRuntimeOwnerId?: string;
@@ -280,6 +281,7 @@ export async function dispatchGatewayMethodInProcessRaw(
     agentRunTracking: options?.agentRunTracking,
     cronRunContinuation: options?.allowSyntheticCronRunContinuation === true,
     internalDeliveryMediaUrls: options?.internalDeliveryMediaUrls,
+    internalDeliveryIdempotencyKey: options?.internalDeliveryIdempotencyKey,
     internalDeliverySuppressText: options?.internalDeliverySuppressText,
     ...(pluginRuntimeOwnerId ? { pluginRuntimeOwnerId } : {}),
     ...(options?.runtimePluginToolGrant
