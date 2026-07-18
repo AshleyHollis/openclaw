@@ -629,7 +629,10 @@ export class SystemAgentChatEngine {
     // The hatch is a ceremony: a fresh-install setup just created the agent,
     // so hand the user straight into it instead of parking them here. The
     // seeded BOOTSTRAP runs the birth sequence on the agent's first turn.
-    if (operation.kind === "setup" && result?.applied) {
+    // Only on clean post-write verification: a non-null verify means the
+    // written config is suspect, and handing off would bury the warning in an
+    // agent session that may not answer — stay in setup to repair it.
+    if (operation.kind === "setup" && result?.applied && verify === null) {
       return {
         text: [
           baseText,

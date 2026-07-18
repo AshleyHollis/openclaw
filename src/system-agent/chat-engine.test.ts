@@ -419,6 +419,57 @@ describe("SystemAgentChatEngine", () => {
     expect(reply.text).toContain("Settings → Ask OpenClaw");
   });
 
+  it("stays in setup when post-write verification flags the config", async () => {
+    useTempStateDir();
+    const verifyInferenceConfig = vi.fn(async () => ({
+      ok: true as const,
+      modelRef: "openai/gpt-5.5",
+      latencyMs: 100,
+    }));
+    let applied = false;
+    const applySetup = vi.fn(async () => {
+      applied = true;
+      return {
+        configPath: "/tmp/openclaw.json",
+        configHashBefore: "before",
+        configHashAfter: "after",
+        lines: ["Workspace: /tmp/hatch-work"],
+      };
+    });
+    // The written config turns out invalid: post-write verification must hold
+    // the user in setup instead of hatching into an agent that cannot answer.
+    // Reads stay valid through preflight/apply and flip only after the write.
+    const validSnapshot = mocks.readConfigFileSnapshot.getMockImplementation()!;
+    mocks.readConfigFileSnapshot.mockImplementation(async () => {
+      const snapshot = await validSnapshot();
+      return applied
+        ? ({
+            ...snapshot,
+            valid: false,
+            issues: [{ path: "agents", message: "broken" }],
+          } as never)
+        : snapshot;
+    });
+    const engine = new SystemAgentChatEngine({
+      runAgentTurn: async () => ({ text: "repair suggestion" }),
+      planWithAssistant: async () => null,
+      classifyApproval: async ({ message }) => (message === "yes" ? "approve" : "other"),
+      deps: {
+        applySetup,
+        verifyInferenceConfig,
+        loadOverview: fakeOverviewLoader({ defaultModel: "openai/gpt-5.5" }),
+      },
+    });
+    engine.propose({ kind: "setup", workspace: "/tmp/hatch-work" });
+
+    const reply = await engine.handle("yes");
+
+    expect(applySetup).toHaveBeenCalledOnce();
+    expect(reply.action).toBe("none");
+    expect(reply.handoff).toBeUndefined();
+    expect(reply.text).not.toContain("Your agent is hatching");
+  });
+
   it("does not hand off when a non-setup persistent operation applies", async () => {
     useTempStateDir();
     const runConfigSet = vi.fn(async () => {});
