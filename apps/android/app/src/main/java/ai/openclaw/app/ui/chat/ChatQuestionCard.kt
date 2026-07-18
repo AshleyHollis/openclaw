@@ -181,6 +181,8 @@ private fun QuestionFooter(
   }
 }
 
+// nativeString is the non-composable resource accessor (nativeStringResource
+// is the @Composable variant), so this helper is safe outside composition.
 private fun questionCountdown(
   expiresAtMs: Long,
   nowMs: Long,

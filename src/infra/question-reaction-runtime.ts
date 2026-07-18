@@ -79,9 +79,13 @@ export function prepareQuestionReactionPayloadForDelivery(params: {
     }
     labels.push(button.label);
   }
+  // Keep only the leading question block: the second text block carries
+  // tap-oriented option guidance that is wrong for reaction channels, and the
+  // reaction hint below re-lists every option.
+  const questionBlock = presentation.blocks.find((block) => block.type === "text");
   const textPresentation: MessagePresentation = {
     ...presentation,
-    blocks: presentation.blocks.filter((block) => block.type !== "buttons"),
+    blocks: questionBlock ? [questionBlock] : [],
   };
   const prompt = renderMessagePresentationFallbackText({ presentation: textPresentation });
   const reactionHint = labels

@@ -346,11 +346,10 @@ describe("handleToolExecutionStart read path checks", () => {
       presentationTextMode: "fallback",
       presentation: {
         blocks: [
+          { type: "text", text: "Where should this deploy?" },
           {
             type: "text",
             text: [
-              "Where should this deploy?",
-              "",
               "- Staging (Recommended): Safer default",
               "- Production",
               "",

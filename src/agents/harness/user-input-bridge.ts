@@ -101,9 +101,9 @@ export function buildAgentHarnessQuestionPresentation(params: {
   if (!question || question.multiSelect || question.isSecret || options.length === 0) {
     return undefined;
   }
-  const presentationText = [
-    formatText(question.question),
-    "",
+  // The question stays in its own leading text block so reaction/native
+  // adapters can keep it while replacing the tap-only guidance below.
+  const optionGuidance = [
     ...options.map(
       (option) =>
         `- ${formatText(option.label)}${option.description ? `: ${formatText(option.description)}` : ""}`,
@@ -115,7 +115,8 @@ export function buildAgentHarnessQuestionPresentation(params: {
   ].join("\n");
   return {
     blocks: [
-      { type: "text", text: presentationText },
+      { type: "text", text: formatText(question.question) },
+      { type: "text", text: optionGuidance },
       {
         type: "buttons",
         buttons: options.map((option) => ({
@@ -138,10 +139,13 @@ export function buildAgentHarnessQuestionPromptPayload(params: {
   options?: AgentHarnessUserInputPromptOptions;
 }): AgentHarnessQuestionPromptPayload {
   const prompt = formatAgentHarnessUserInputPrompt(params.questions, params.options);
-  const presentation = buildAgentHarnessQuestionPresentation({
-    ...params,
-    formatText: params.options?.formatText,
-  });
+  // Callers may supply a fully-authored presentation; only build one otherwise.
+  const presentation =
+    params.options?.presentation ??
+    buildAgentHarnessQuestionPresentation({
+      ...params,
+      formatText: params.options?.formatText,
+    });
   return {
     text: `${prompt}\n\n${questionReplyGuidance(params.questions)}`,
     ...(presentation ? { presentation, presentationTextMode: "fallback" as const } : {}),
