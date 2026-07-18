@@ -57,7 +57,7 @@ function readQuestionErrorReason(error: unknown): string | undefined {
   return typeof reason === "string" ? reason : undefined;
 }
 
-export function isTerminalAgentQuestionError(error: unknown): boolean {
+function isTerminalAgentQuestionError(error: unknown): boolean {
   const reason = readQuestionErrorReason(error);
   return reason !== undefined && TERMINAL_QUESTION_ERROR_REASONS.has(reason);
 }
@@ -260,7 +260,7 @@ export async function cancelPendingAgentQuestionForSession(params: {
   }
 }
 
-export type RunAgentHarnessGatewayQuestionParams = {
+type RunAgentHarnessGatewayQuestionParams = {
   questions: readonly AgentHarnessUserInputQuestion[];
   sessionKey: string;
   agentId?: string;
@@ -452,8 +452,4 @@ export async function runAgentHarnessGatewayQuestion(
     params.signal?.removeEventListener("abort", onAbort);
     claim.dispose();
   }
-}
-
-export function resetPendingAgentQuestionsForTest(): void {
-  pendingAgentQuestions.clear();
 }

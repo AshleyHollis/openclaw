@@ -449,7 +449,10 @@ extension OpenClawChatViewModel {
             self.questionStateRevision &+= 1
             self.markTimelineChanged()
         }
-        guard !model.shouldRetainAfterList(at: date), model.status(at: date) == .expired || model.record.status != .pending else {
+        guard
+            !model.shouldRetainAfterList(at: date),
+            model.status(at: date) == .expired || model.record.status != .pending
+        else {
             self.syncQuestionEvictions(at: date)
             return
         }

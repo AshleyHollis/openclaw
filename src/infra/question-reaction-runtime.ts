@@ -12,7 +12,7 @@ const QUESTION_REACTION_CHANNEL_DATA_KEY = "openclawQuestionReaction";
 
 export const QUESTION_REACTION_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"] as const;
 
-export type QuestionReactionBinding = {
+type QuestionReactionBinding = {
   questionId: string;
   optionValues: string[];
 };

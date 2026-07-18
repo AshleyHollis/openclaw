@@ -166,10 +166,3 @@ export async function maybeResolveSignalQuestionReaction(params: {
   }
   return true;
 }
-
-export function clearSignalQuestionReactionTargetsForTest(): void {
-  for (const target of targets.values()) {
-    clearTimeout(target.cleanupTimer);
-  }
-  targets.clear();
-}

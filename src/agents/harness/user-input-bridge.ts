@@ -28,7 +28,7 @@ export type AgentHarnessUserInputPromptOptions = {
   presentation?: MessagePresentation;
 };
 
-export type AgentHarnessQuestionPromptPayload = {
+type AgentHarnessQuestionPromptPayload = {
   text: string;
   presentation?: MessagePresentation;
   presentationTextMode?: "fallback";
@@ -86,7 +86,7 @@ export async function deliverAgentHarnessUserInputPrompt(
 }
 
 /** Builds the portable one-question presentation shared by tools and harnesses. */
-export function buildAgentHarnessQuestionPresentation(params: {
+function buildAgentHarnessQuestionPresentation(params: {
   questionId: string;
   questions: readonly AgentHarnessUserInputQuestion[];
   formatText?: (text: string) => string;

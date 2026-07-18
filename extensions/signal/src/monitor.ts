@@ -13,7 +13,6 @@ import {
   estimateBase64DecodedBytes,
   saveMediaBuffer,
 } from "openclaw/plugin-sdk/media-runtime";
-import { questionGatewayRuntime } from "openclaw/plugin-sdk/question-gateway-runtime";
 import { DEFAULT_GROUP_HISTORY_LIMIT, type HistoryEntry } from "openclaw/plugin-sdk/reply-history";
 import {
   deliverTextOrMediaReply,
@@ -45,10 +44,7 @@ import { normalizeE164 } from "openclaw/plugin-sdk/text-utility-runtime";
 import { waitForTransportReady } from "openclaw/plugin-sdk/transport-ready-runtime";
 import { resolveSignalAccount, resolveSignalReplyToMode } from "./accounts.js";
 import { isSignalNativeApprovalHandlerConfigured } from "./approval-native.js";
-import {
-  addSignalApprovalReactionHintToStructuredPayload,
-  registerSignalApprovalReactionTargetForDeliveredPayload,
-} from "./approval-reactions.js";
+import { addSignalApprovalReactionHintToStructuredPayload } from "./approval-reactions.js";
 import { signalRpcRequest, signalCheck } from "./client-adapter.js";
 import { formatSignalDaemonExit, spawnSignalDaemon, type SignalDaemonHandle } from "./daemon.js";
 import { isSignalSenderAllowed, type resolveSignalSender } from "./identity.js";
@@ -60,7 +56,7 @@ import type {
   SignalReactionTarget,
 } from "./monitor/event-handler.types.js";
 import { materializeSignalPresentationFallback } from "./presentation-fallback.js";
-import { registerSignalQuestionReactionTargetForDeliveredPayload } from "./question-reactions.js";
+import { registerSignalReactionTargetsForDeliveredPayload } from "./reaction-targets.js";
 import { sendMessageSignal } from "./send.js";
 import { startSignalIngressMonitor, type SignalIngressMonitor } from "./signal-ingress.js";
 import { runSignalSseLoop } from "./sse-reconnect.js";
@@ -371,11 +367,7 @@ export async function deliverReplies(params: {
       messageId: string;
       meta: { signalVisibleText: string };
     }> = [];
-    const presentationPayload =
-      questionGatewayRuntime.prepareReactionPayloadForDelivery({
-        payload,
-        presentation: payload.presentation,
-      }) ?? materializeSignalPresentationFallback(payload);
+    const presentationPayload = materializeSignalPresentationFallback(payload);
     const deliveredPayload =
       addSignalApprovalReactionHintToStructuredPayload({
         cfg: params.cfg,
@@ -441,15 +433,7 @@ export async function deliverReplies(params: {
       },
     });
     if (delivered !== "empty") {
-      registerSignalQuestionReactionTargetForDeliveredPayload({
-        cfg: params.cfg,
-        target: { channel: "signal", to: target, accountId },
-        payload: deliveredPayload,
-        results: deliveryResults,
-        targetAuthor: account,
-        targetAuthorUuid: accountUuid,
-      });
-      registerSignalApprovalReactionTargetForDeliveredPayload({
+      registerSignalReactionTargetsForDeliveredPayload({
         cfg: params.cfg,
         target: {
           channel: "signal",

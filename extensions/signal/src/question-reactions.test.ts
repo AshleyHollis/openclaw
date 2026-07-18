@@ -16,7 +16,6 @@ vi.mock("openclaw/plugin-sdk/question-gateway-runtime", async (importOriginal) =
 
 import { questionGatewayRuntime } from "openclaw/plugin-sdk/question-gateway-runtime";
 import {
-  clearSignalQuestionReactionTargetsForTest,
   maybeResolveSignalQuestionReaction,
   registerSignalQuestionReactionTargetForDeliveredPayload,
 } from "./question-reactions.js";
@@ -44,7 +43,6 @@ function buildPayload() {
 
 describe("Signal question reactions", () => {
   beforeEach(() => {
-    clearSignalQuestionReactionTargetsForTest();
     hoisted.resolve.mockReset().mockResolvedValue({
       status: "answered",
       questionId: "choice",

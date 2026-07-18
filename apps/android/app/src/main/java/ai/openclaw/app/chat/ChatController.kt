@@ -258,7 +258,11 @@ class ChatController internal constructor(
   private val questionStateLock = Any()
   private var questionStateRevision = 0L
   private var questionRefreshGeneration = 0L
-  private data class QuestionEvictionJob(val job: Job, val observedAtMs: Long?)
+
+  private data class QuestionEvictionJob(
+    val job: Job,
+    val observedAtMs: Long?,
+  )
 
   private val questionEvictionJobs = mutableMapOf<String, QuestionEvictionJob>()
 

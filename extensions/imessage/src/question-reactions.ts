@@ -118,12 +118,10 @@ export function hasIMessageQuestionReactionTarget(params: {
   ) {
     return false;
   }
-  return Boolean(
-    reaction.guids.some((guid) => {
-      const key = buildKey(params.accountId, guid);
-      return key ? targets.has(key) : false;
-    }),
-  );
+  return reaction.guids.some((guid) => {
+    const key = buildKey(params.accountId, guid);
+    return key ? targets.has(key) : false;
+  });
 }
 
 export async function maybeResolveIMessageQuestionReaction(params: {

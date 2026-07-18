@@ -1,9 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   cancelPendingAgentQuestionForSession,
   claimPendingAgentQuestionAnswer,
   registerPendingAgentQuestion,
-  resetPendingAgentQuestionsForTest,
   runAgentHarnessGatewayQuestion,
   type AgentHarnessQuestionGatewayCall,
 } from "./gateway-question.js";
@@ -27,10 +26,6 @@ const questions = [
     options: [],
   },
 ] as const;
-
-afterEach(() => {
-  resetPendingAgentQuestionsForTest();
-});
 
 describe("gateway harness questions", () => {
   it("does not request a gateway question when the session reservation conflicts", async () => {
