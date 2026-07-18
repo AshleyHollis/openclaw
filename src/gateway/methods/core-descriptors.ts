@@ -263,7 +263,7 @@ const CORE_GATEWAY_METHOD_SPECS: readonly CoreGatewayMethodSpec[] = [
   { name: "conversations.turn", scope: "operator.admin" },
   { name: "conversations.turn.cancel", scope: "operator.admin" },
   { name: "send", scope: "operator.write" },
-  { name: "agent", scope: "operator.write" },
+  { name: "agent", scope: "operator.write", startup: true },
   { name: "agent.identity.get", scope: "operator.read" },
   { name: "agent.wait", scope: "operator.write", startup: true },
   { name: "chat.history", scope: "operator.read", startup: true },
@@ -271,7 +271,7 @@ const CORE_GATEWAY_METHOD_SPECS: readonly CoreGatewayMethodSpec[] = [
   { name: "chat.metadata", scope: "operator.read", startup: true },
   { name: "chat.message.get", scope: "operator.read", startup: true },
   { name: "chat.abort", scope: "operator.write" },
-  { name: "chat.send", scope: "operator.write" },
+  { name: "chat.send", scope: "operator.write", startup: true },
   // Operator terminal: admin-only PTY surface. Appended to the advertised block
   // so existing advertised method indices stay stable for older clients.
   { name: "terminal.open", scope: "operator.admin" },
