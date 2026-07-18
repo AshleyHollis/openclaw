@@ -15,7 +15,7 @@ index 4fc9e548e35..7aa4055aa78 100644
 @@ -783,6 +783,10 @@ describe("classifyFailoverReason HTTP 410 handling", () => {
      );
    });
- 
+
 +  it("classifies expired Claude thinking signatures as session_expired", () => {
 +    expect(classifyFailoverReason("invalid signature in thinking block")).toBe("session_expired");
 +  });
@@ -38,7 +38,6 @@ index de52c3b5d76..8302f83ae8e 100644
 +    lower.includes("invalid signature in thinking")
    );
  }
- 
--- 
-2.43.0
 
+--
+2.43.0
