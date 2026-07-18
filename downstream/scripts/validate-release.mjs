@@ -122,6 +122,25 @@ async function validateRelease(manifestPath) {
       plugin?.tarball?.startsWith("https://registry.npmjs.org/@openclaw/"),
       `${label}.tarball must be an official OpenClaw registry URL`,
     );
+    if (plugin?.artifact !== null && plugin?.artifact !== undefined) {
+      requireString(plugin.artifact.filename, `${label}.artifact.filename`);
+      requireCondition(
+        plugin.artifact.url?.startsWith(
+          "https://github.com/AshleyHollis/openclaw/releases/download/",
+        ),
+        `${label}.artifact.url must be an AshleyHollis/openclaw release asset`,
+      );
+      requireCondition(
+        sha256Pattern.test(plugin.artifact.sha256 ?? ""),
+        `${label}.artifact.sha256 is invalid`,
+      );
+    }
+    if (manifest.status === "candidate" || manifest.status === "qualified") {
+      requireCondition(
+        plugin?.artifact && typeof plugin.artifact === "object",
+        `${label}.artifact is required for ${manifest.status} releases`,
+      );
+    }
   }
   requireCondition(
     Array.isArray(manifest.patches) && manifest.patches.length > 0,
@@ -175,6 +194,10 @@ async function validateRelease(manifestPath) {
     requireCondition(
       manifest.artifact?.validation?.scopedLoopbackRpc === true,
       "qualified release requires scoped loopback RPC proof",
+    );
+    requireCondition(
+      manifest.artifact?.validation?.dependencyMetadataCheck === true,
+      "qualified release requires dependency metadata proof",
     );
     requireCondition(
       manifest.artifact?.validation?.patchTests === true,

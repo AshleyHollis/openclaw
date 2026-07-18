@@ -50,13 +50,28 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "package", "version", "integrity", "tarball"],
+        "required": ["id", "package", "version", "integrity", "tarball", "artifact"],
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
           "package": { "type": "string", "pattern": "^@openclaw/[a-z0-9-]+$" },
           "version": { "type": "string" },
           "integrity": { "type": "string", "pattern": "^sha512-" },
-          "tarball": { "type": "string", "pattern": "^https://registry\\.npmjs\\.org/@openclaw/" }
+          "tarball": { "type": "string", "pattern": "^https://registry\\.npmjs\\.org/@openclaw/" },
+          "artifact": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "required": ["filename", "url", "sha256"],
+                "properties": {
+                  "filename": { "type": "string", "pattern": "\\.tgz$" },
+                  "url": { "type": "string", "pattern": "^https://github\\.com/AshleyHollis/openclaw/releases/download/" },
+                  "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
         },
         "additionalProperties": false
       }
@@ -86,13 +101,14 @@
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "validation": {
           "type": "object",
-          "required": ["fullBuild", "focusedAssertions", "packageSmoke", "externalPluginRegistration", "scopedLoopbackRpc", "discordRuntimeFiles", "patchTests", "imageSmoke", "imageScan"],
+          "required": ["fullBuild", "focusedAssertions", "packageSmoke", "externalPluginRegistration", "scopedLoopbackRpc", "dependencyMetadataCheck", "discordRuntimeFiles", "patchTests", "imageSmoke", "imageScan"],
           "properties": {
             "fullBuild": { "type": "boolean" },
             "focusedAssertions": { "type": "integer", "minimum": 0 },
             "packageSmoke": { "type": "boolean" },
             "externalPluginRegistration": { "type": "boolean" },
             "scopedLoopbackRpc": { "type": "boolean" },
+            "dependencyMetadataCheck": { "type": "boolean" },
             "discordRuntimeFiles": { "type": "integer", "minimum": 0 },
             "patchTests": { "type": "boolean" },
             "imageSmoke": { "type": "boolean" },
