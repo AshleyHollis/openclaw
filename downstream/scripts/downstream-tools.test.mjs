@@ -209,6 +209,8 @@ test("builds and smokes the exact Codex artifact inside the runtime image", asyn
   assert.match(dockerfile, /ARG CODEX_TARBALL_SHA256/u);
   assert.match(dockerfile, /COPY codex-current\.tgz/u);
   assert.match(dockerfile, /CODEX_TARBALL_SHA256.*sha256sum/u);
+  assert.match(dockerfile, /--install-strategy=nested/u);
+  assert.match(dockerfile, /@openai\/codex.*0\.144\.3/u);
   assert.match(dockerfile, /\/opt\/openclaw-plugin-runtime/u);
   assert.match(workflow, /CODEX_TARBALL_SHA256=.*codex_artifact_sha256/u);
   assert.match(workflow, /smoke-image-runtime\.mjs/u);

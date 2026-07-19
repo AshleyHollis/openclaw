@@ -35,10 +35,10 @@ RUN test -n "$CODEX_TARBALL_SHA256" && \
     test -n "$CODEX_VERSION" && \
     printf '%s  %s\n' "$CODEX_TARBALL_SHA256" /tmp/codex-current.tgz | sha256sum -c - && \
     npm install --prefix /opt/openclaw-plugin-runtime \
-      --omit=dev --ignore-scripts=false --no-audit --no-fund \
+      --install-strategy=nested --omit=dev --ignore-scripts=false --no-audit --no-fund \
       /tmp/codex-current.tgz && \
     test "$(node -p "require('/opt/openclaw-plugin-runtime/node_modules/@openclaw/codex/package.json').version")" = "$CODEX_VERSION" && \
-    node -e "const {createRequire}=require('node:module');const r=createRequire('/opt/openclaw-plugin-runtime/node_modules/@openclaw/codex/package.json');for(const name of ['@openai/codex','typebox','ws','zod'])r.resolve(name)" && \
+    node -e "const fs=require('node:fs');const path=require('node:path');const root='/opt/openclaw-plugin-runtime/node_modules/@openclaw/codex/node_modules';const expected={\"@openai/codex\":\"0.144.3\",typebox:\"1.3.3\",ws:\"8.21.0\",zod:\"4.4.3\"};for(const [name,version] of Object.entries(expected)){const actual=JSON.parse(fs.readFileSync(path.join(root,name,'package.json'),'utf8')).version;if(actual!==version)throw new Error(name+' version '+actual)}" && \
     chmod -R go-w /opt/openclaw-plugin-runtime && \
     rm -f /tmp/codex-current.tgz && \
     npm cache clean --force
