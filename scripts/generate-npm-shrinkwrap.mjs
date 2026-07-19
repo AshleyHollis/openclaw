@@ -1074,6 +1074,56 @@ function restoreCurrentPnpmLockedPackages(
     generatedPackages[lockPath] = currentMetadata;
   }
 
+  // npm 10 can hoist the wrong version and omit the nested package record when
+  // scoped overrides force multiple versions of one dependency (for example
+  // which/isexe and pretty-ms/parse-ms). Restore only records that a generated
+  // dependency edge requires and that are already proven by both the current
+  // shrinkwrap and canonical pnpm lock. Iterate because a restored record may
+  // itself expose a required transitive edge.
+  let restoredMissingPackage;
+  do {
+    restoredMissingPackage = false;
+    for (const [parentLockPath, metadata] of Object.entries(generatedPackages)) {
+      if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+        continue;
+      }
+      const dependencies = {
+        ...(metadata.dependencies ?? {}),
+        ...(metadata.optionalDependencies ?? {}),
+      };
+      for (const [dependencyName, dependencySpec] of Object.entries(dependencies)) {
+        const generatedResolved = resolveShrinkwrapDependency(
+          generatedPackages,
+          parentLockPath,
+          dependencyName,
+        );
+        if (
+          generatedResolved &&
+          versionSatisfiesSimpleSpec(generatedResolved.version, dependencySpec)
+        ) {
+          continue;
+        }
+        const currentResolved = resolveShrinkwrapDependency(
+          currentPackages,
+          parentLockPath,
+          dependencyName,
+        );
+        const currentMetadata = currentResolved ? currentPackages[currentResolved.path] : undefined;
+        if (
+          !currentResolved ||
+          !currentMetadata ||
+          generatedPackages[currentResolved.path]?.version === currentResolved.version ||
+          !versionSatisfiesSimpleSpec(currentResolved.version, dependencySpec) ||
+          !pnpmLockPackages.has(`${dependencyName}@${currentResolved.version}`)
+        ) {
+          continue;
+        }
+        generatedPackages[currentResolved.path] = currentMetadata;
+        restoredMissingPackage = true;
+      }
+    }
+  } while (restoredMissingPackage);
+
   return generated;
 }
 
