@@ -30,7 +30,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Resolve and validate release
+      - name: Resolve release and enforce fail-fast dependency evidence
         id: release
         env:
           RELEASE_MANIFEST: ${{ inputs.release_manifest }}

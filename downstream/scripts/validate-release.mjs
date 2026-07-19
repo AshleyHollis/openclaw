@@ -162,6 +162,16 @@ async function validateRelease(manifestPath) {
     manifest.image?.repository === "ghcr.io/ashleyhollis/openclaw",
     "image.repository is invalid",
   );
+  if (manifest.status === "candidate" || manifest.status === "qualified") {
+    requireCondition(
+      manifest.artifact?.validation?.dependencyMetadataCheck === true,
+      `${manifest.status} release requires shrinkwrap metadata proof before build`,
+    );
+    requireCondition(
+      manifest.artifact?.validation?.dependencyInstallProofs === true,
+      `${manifest.status} release requires affected clean-install proofs before build`,
+    );
+  }
   if (manifest.status === "qualified") {
     requireCondition(
       imageDigestPattern.test(manifest.image?.digest ?? ""),
@@ -194,10 +204,6 @@ async function validateRelease(manifestPath) {
     requireCondition(
       manifest.artifact?.validation?.scopedLoopbackRpc === true,
       "qualified release requires scoped loopback RPC proof",
-    );
-    requireCondition(
-      manifest.artifact?.validation?.dependencyMetadataCheck === true,
-      "qualified release requires dependency metadata proof",
     );
     requireCondition(
       manifest.artifact?.validation?.patchTests === true,

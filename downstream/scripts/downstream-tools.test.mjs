@@ -217,6 +217,29 @@ test("builds and smokes the exact Codex artifact inside the runtime image", asyn
   assert.doesNotMatch(workflow, /name: Smoke-test local image\n\s+if:/u);
 });
 
+test("rejects a candidate before build without affected clean-install proofs", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "openclaw-release-evidence-test-"));
+  try {
+    const manifest = JSON.parse(
+      await readFile(
+        path.join(repositoryRoot, "downstream/releases/2026.7.1-2-nas.4.json"),
+        "utf8",
+      ),
+    );
+    delete manifest.artifact.validation.dependencyInstallProofs;
+    const candidate = path.join(directory, "candidate.json");
+    await writeFile(candidate, JSON.stringify(manifest));
+    const result = spawnSync(process.execPath, [validateScript, candidate], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /affected clean-install proofs before build/u);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("keeps the latest pointer aligned with the selected manifest", async () => {
   const pointer = JSON.parse(
     await readFile(path.join(repositoryRoot, "downstream/releases/latest.json"), "utf8"),
@@ -230,6 +253,7 @@ test("keeps the latest pointer aligned with the selected manifest", async () => 
   assert.equal(manifest.artifact.validation.externalPluginRegistration, true);
   assert.equal(manifest.artifact.validation.scopedLoopbackRpc, true);
   assert.equal(manifest.artifact.validation.dependencyMetadataCheck, true);
+  assert.equal(manifest.artifact.validation.dependencyInstallProofs, true);
   assert.equal(manifest.artifact.validation.imageSmoke, false);
   assert.equal(manifest.artifact.validation.imageScan, false);
   assert.match(manifest.externalPlugins[0].artifact.url, /nas-v2026\.7\.1-2\.4/u);

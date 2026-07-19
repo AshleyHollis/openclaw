@@ -102,6 +102,7 @@
       "externalPluginRegistration": true,
       "scopedLoopbackRpc": true,
       "dependencyMetadataCheck": true,
+      "dependencyInstallProofs": true,
       "discordRuntimeFiles": 61,
       "patchTests": true,
       "imageSmoke": false,
