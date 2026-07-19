@@ -345,6 +345,7 @@ test("keeps the latest pointer aligned with the selected manifest", async () => 
     await readFile(path.join(repositoryRoot, "downstream/releases/latest.json"), "utf8"),
   );
   assert.match(pointer.releaseManifest, /^downstream\/releases\/[0-9A-Za-z._+-]+\.json$/u);
+  assert.equal(pointer.releaseManifest, "downstream/releases/2026.7.1-2-nas.6.json");
   const manifest = JSON.parse(
     await readFile(path.join(repositoryRoot, pointer.releaseManifest), "utf8"),
   );
@@ -354,6 +355,22 @@ test("keeps the latest pointer aligned with the selected manifest", async () => 
   assert.equal(manifest.artifact.validation.scopedLoopbackRpc, true);
   assert.equal(manifest.artifact.validation.dependencyMetadataCheck, true);
   assert.equal(manifest.artifact.validation.dependencyInstallProofs, true);
+  assert.equal(manifest.artifact.validation.qmdRuntime, true);
+  assert.deepEqual(manifest.runtimeTools, [
+    {
+      id: "qmd",
+      package: "@tobilu/qmd",
+      version: "2.1.0",
+      integrity:
+        "sha512-oOuCoiWL9R2urgj0C336Qpv8qpq1SHhx80Vg5cQo+QRB26XPXqy7MTg/CWS6WAe6ruvVul7kEv21M5YhRzreAw==",
+      tarball: "https://registry.npmjs.org/@tobilu/qmd/-/qmd-2.1.0.tgz",
+      artifact: {
+        filename: "openclaw-qmd-2.1.0-nas.6.tgz",
+        url: "https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-qmd-2.1.0-nas.6.tgz",
+        sha256: "4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a",
+      },
+    },
+  ]);
   assert.equal(manifest.artifact.validation.imageSmoke, true);
   assert.equal(manifest.artifact.validation.imageScan, true);
   assert.match(manifest.externalPlugins[0].artifact.url, /nas-v2026\.7\.1-2\.5/u);
