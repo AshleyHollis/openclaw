@@ -373,21 +373,21 @@ test("keeps the latest pointer aligned with the selected manifest", async () => 
   ]);
   assert.equal(manifest.artifact.validation.imageSmoke, true);
   assert.equal(manifest.artifact.validation.imageScan, true);
-  assert.match(manifest.externalPlugins[0].artifact.url, /nas-v2026\.7\.1-2\.5/u);
+  assert.match(manifest.externalPlugins[0].artifact.url, /nas-v2026\.7\.1-2\.6/u);
   assert.equal(
     manifest.image.digest,
-    "sha256:b3a3e09e8e9aa5b44cacf1e28e2e06697e8385827c0a4d9ca0f18cb646bf7cb2",
+    "sha256:a6c056dc2c86b2b61d3952713915a1e030b8010625514180284978c7bc1036e9",
   );
   assert.equal(
     manifest.image.attestationDigest,
-    "sha256:c20d05a7e32a5e5db5c67196a87a4eb5a3b81fdf91c1547da31aedccaa6df571",
+    "sha256:5b909dbd4ec7aaceb2260be2136c51d9c2e3c39e2def68ca9da5b90106798c24",
   );
   assert.equal(
     manifest.image.sbomDigest,
-    "sha256:9a57aff43cb4494e440f0fc7442ceb511473c38d31e8914ae13f657dc70d53cb",
+    "sha256:4f05686dd0e55fa0b09c53fc29cdadde5353e8de6aa3e6b25073dd631169b60f",
   );
   assert.equal(
     manifest.image.provenanceDigest,
-    "sha256:aaa6b993b4454b43c8ac552518afecfa512195388a6377e2a008331b0a46c580",
+    "sha256:7f34d5bdbf43f7c42eac6acbe1cb04e344fd7ec4fe3d1d6c5c93c77fee012873",
   );
 });
