@@ -11,6 +11,7 @@ import {
   disableShrinkwrappedOverrideConflictSources,
   exactOverrideRulesFromOverrides,
   exactVersionFromOverrideSpec,
+  mergeOverrides,
   normalizeNpmVersionDrift,
   normalizeOverrides,
   packageJsonForShrinkwrap,
@@ -88,6 +89,28 @@ describe("generate-npm-shrinkwrap", () => {
       },
       tar: "7.5",
     });
+  });
+
+  it("prefers authoritative lock policy over stale shrinkwrap stabilization hints", () => {
+    const current = {
+      ora: {
+        ".": "9.4.1",
+        "string-width": { ".": "8.2.1", "strip-ansi": { ".": "6.0.1" } },
+      },
+    };
+    const authoritative = {
+      ora: {
+        ".": "9.4.1",
+        "string-width": { ".": "8.2.1", "strip-ansi": { ".": "7.2.0" } },
+      },
+    };
+
+    expect(() => mergeOverrides(current, authoritative, {})).toThrow(
+      "overrides.ora>string-width>strip-ansi>. conflicts",
+    );
+    expect(mergeOverrides(current, authoritative, {}, { preferIncoming: true })).toEqual(
+      authoritative,
+    );
   });
 
   it("rejects short flag package selectors before resolving shrinkwrap targets", () => {
