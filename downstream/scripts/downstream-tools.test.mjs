@@ -198,7 +198,7 @@ test("validates the release manifest and patch hashes", () => {
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.1 \(blocked\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.2 \(blocked\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.3 \(blocked\)/u);
-  assert.match(result.stdout, /2026\.7\.1-2\+nas\.4 \(qualified\)/u);
+  assert.match(result.stdout, /2026\.7\.1-2\+nas\.4 \(blocked\)/u);
 });
 
 test("validates packed runtime metadata before dependency installation", async () => {
@@ -331,7 +331,8 @@ test("keeps the latest pointer aligned with the selected manifest", async () => 
     await readFile(path.join(repositoryRoot, pointer.releaseManifest), "utf8"),
   );
   assert.equal(pointer.status, manifest.status);
-  assert.equal(manifest.status, "qualified");
+  assert.equal(manifest.status, "blocked");
+  assert.match(manifest.blockingIssues.join("\n"), /network-disabled startup smoke/u);
   assert.equal(manifest.artifact.validation.externalPluginRegistration, true);
   assert.equal(manifest.artifact.validation.scopedLoopbackRpc, true);
   assert.equal(manifest.artifact.validation.dependencyMetadataCheck, true);
