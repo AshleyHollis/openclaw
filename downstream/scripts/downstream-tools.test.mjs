@@ -195,6 +195,24 @@ test("validates the release manifest and patch hashes", () => {
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.3 \(blocked\)/u);
 });
 
+test("builds and smokes the exact Codex artifact inside the runtime image", async () => {
+  const dockerfile = await readFile(
+    path.join(repositoryRoot, "downstream/Dockerfile.artifact"),
+    "utf8",
+  );
+  const workflow = await readFile(
+    path.join(repositoryRoot, ".github/workflows/build-downstream-artifact.yml"),
+    "utf8",
+  );
+  assert.match(dockerfile, /ARG CODEX_TARBALL_SHA256/u);
+  assert.match(dockerfile, /COPY codex-current\.tgz/u);
+  assert.match(dockerfile, /CODEX_TARBALL_SHA256.*sha256sum/u);
+  assert.match(dockerfile, /\/opt\/openclaw-plugin-runtime/u);
+  assert.match(workflow, /CODEX_TARBALL_SHA256=.*codex_artifact_sha256/u);
+  assert.match(workflow, /smoke-image-runtime\.mjs/u);
+  assert.doesNotMatch(workflow, /name: Smoke-test local image\n\s+if:/u);
+});
+
 test("keeps the latest pointer aligned with the selected manifest", async () => {
   const pointer = JSON.parse(
     await readFile(path.join(repositoryRoot, "downstream/releases/latest.json"), "utf8"),
