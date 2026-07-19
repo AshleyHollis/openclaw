@@ -92,9 +92,13 @@ jobs:
           curl --fail --location --proto '=https' --tlsv1.2 "$ARTIFACT_URL" --output openclaw-current.tgz
           printf '%s  %s\n' "$ARTIFACT_SHA256" openclaw-current.tgz | sha256sum -c -
           tar -xOf openclaw-current.tgz package/package.json > /tmp/openclaw-package.json
+          tar -xOf openclaw-current.tgz package/npm-shrinkwrap.json > /tmp/openclaw-shrinkwrap.json
           tar -tf openclaw-current.tgz > /tmp/openclaw-tar-files.txt
-          test "$(node -p 'require("/tmp/openclaw-package.json").version')" = "$VERSION"
-          ! grep -Eq '"(workspace|link|file):' /tmp/openclaw-package.json
+          node downstream/scripts/validate-packed-metadata.mjs \
+            /tmp/openclaw-package.json \
+            /tmp/openclaw-shrinkwrap.json \
+            openclaw \
+            "$VERSION"
           grep -q '^package/dist/extensions/discord/' /tmp/openclaw-tar-files.txt
 
       - name: Download and verify exact Codex plugin tarball
@@ -107,7 +111,12 @@ jobs:
           curl --fail --location --proto '=https' --tlsv1.2 "$CODEX_ARTIFACT_URL" --output codex-current.tgz
           printf '%s  %s\n' "$CODEX_ARTIFACT_SHA256" codex-current.tgz | sha256sum -c -
           tar -xOf codex-current.tgz package/package.json > /tmp/codex-package.json
-          test "$(node -p 'require("/tmp/codex-package.json").version')" = "$CODEX_VERSION"
+          tar -xOf codex-current.tgz package/npm-shrinkwrap.json > /tmp/codex-shrinkwrap.json
+          node downstream/scripts/validate-packed-metadata.mjs \
+            /tmp/codex-package.json \
+            /tmp/codex-shrinkwrap.json \
+            @openclaw/codex \
+            "$CODEX_VERSION"
 
       - name: Smoke-test exact tarball
         env:
@@ -181,6 +190,7 @@ jobs:
             docker pull "$image"
           fi
           docker run --rm \
+            --network none \
             --volume "$GITHUB_WORKSPACE/downstream/scripts/smoke-image-runtime.mjs:/tmp/smoke-image-runtime.mjs:ro" \
             --env EXPECTED_CODEX_VERSION="$CODEX_VERSION" \
             --env EXPECTED_OPENCLAW_VERSION="$VERSION" \

@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { closeSync, openSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -12,9 +12,14 @@ if (!expectedOpenClawVersion || !expectedCodexVersion) {
   throw new Error("expected OpenClaw and Codex versions are required");
 }
 
-const pluginPath = "/opt/openclaw-plugin-runtime/node_modules/@openclaw/codex";
+const imagePluginRuntimeRoot = "/opt/openclaw-plugin-runtime";
 const root = await mkdtemp(path.join(os.tmpdir(), "openclaw-image-smoke-"));
 const stateDir = path.join(root, "state");
+const managedPluginRuntimeRoot = path.join(stateDir, "npm");
+const managedPluginPath = path.join(
+  managedPluginRuntimeRoot,
+  "node_modules/@openclaw/codex",
+);
 const configPath = path.join(stateDir, "openclaw.json");
 const gatewayLog = path.join(root, "gateway.log");
 const environment = {
@@ -31,6 +36,7 @@ let gatewayLogFd;
 try {
   await mkdir(environment.HOME, { recursive: true });
   await mkdir(stateDir, { recursive: true });
+  await validateAndHydrateImagePluginRuntime();
   const port = await reserveLoopbackPort();
   const token = randomBytes(32).toString("hex");
   await writeFile(
@@ -45,7 +51,6 @@ try {
         },
         plugins: {
           allow: ["codex"],
-          load: { paths: [pluginPath] },
           entries: { codex: { enabled: true } },
         },
       },
@@ -68,7 +73,7 @@ try {
   if (inspection.plugin?.version !== expectedCodexVersion) {
     throw new Error(`unexpected Codex version: ${inspection.plugin?.version ?? "missing"}`);
   }
-  if (inspection.plugin?.rootDir !== pluginPath) {
+  if (inspection.plugin?.rootDir !== managedPluginPath) {
     throw new Error(`Codex plugin loaded from unexpected path: ${inspection.plugin?.rootDir}`);
   }
   if (inspection.plugin?.dependencyStatus?.requiredInstalled !== true) {
@@ -127,6 +132,38 @@ try {
     closeSync(gatewayLogFd);
   }
   await rm(root, { recursive: true, force: true });
+}
+
+async function validateAndHydrateImagePluginRuntime() {
+  const imagePluginPath = path.join(imagePluginRuntimeRoot, "node_modules/@openclaw/codex");
+  const [manifest, shrinkwrap] = await Promise.all(
+    ["package.json", "npm-shrinkwrap.json"].map(async (fileName) =>
+      JSON.parse(await readFile(path.join(imagePluginPath, fileName), "utf8")),
+    ),
+  );
+  if (
+    manifest.name !== "@openclaw/codex" ||
+    manifest.version !== expectedCodexVersion ||
+    shrinkwrap.name !== manifest.name ||
+    shrinkwrap.version !== manifest.version ||
+    shrinkwrap.packages?.[""]?.version !== manifest.version
+  ) {
+    throw new Error("image Codex package and shrinkwrap metadata disagree");
+  }
+  await cp(imagePluginRuntimeRoot, managedPluginRuntimeRoot, {
+    recursive: true,
+    errorOnExist: true,
+    force: false,
+  });
+  const rootManifestPath = path.join(managedPluginRuntimeRoot, "package.json");
+  const rootManifest = JSON.parse(await readFile(rootManifestPath, "utf8"));
+  rootManifest.dependencies = {
+    ...(rootManifest.dependencies ?? {}),
+    "@openclaw/codex": manifest.version,
+  };
+  await writeFile(rootManifestPath, `${JSON.stringify(rootManifest, null, 2)}\n`, {
+    mode: 0o600,
+  });
 }
 
 function runOpenClaw(args, env) {
