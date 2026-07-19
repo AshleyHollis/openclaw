@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { closeSync, openSync } from "node:fs";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -20,12 +20,14 @@ const managedPluginPath = path.join(
   managedPluginRuntimeRoot,
   "node_modules/@openclaw/codex",
 );
+const managedHostPeerPath = path.join(managedPluginPath, "node_modules/openclaw");
 const configPath = path.join(stateDir, "openclaw.json");
 const gatewayLog = path.join(root, "gateway.log");
 const environment = {
   ...process.env,
   HOME: path.join(root, "home"),
   OPENCLAW_CONFIG_PATH: configPath,
+  OPENCLAW_DEBUG: "1",
   OPENCLAW_SKIP_CHANNELS: "1",
   OPENCLAW_SKIP_CRON: "1",
   OPENCLAW_STATE_DIR: stateDir,
@@ -95,7 +97,7 @@ try {
 
   let rpcPassed = false;
   let lastRpcError = "";
-  for (let attempt = 0; attempt < 40; attempt += 1) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
     const rpc = spawnSync(
       "openclaw",
       ["cron", "status", "--json", "--url", `ws://127.0.0.1:${port}`, "--token", token],
@@ -114,7 +116,9 @@ try {
   const log = await readFile(gatewayLog, "utf8");
   assertNoPluginLoadError(log);
   if (!rpcPassed) {
-    throw new Error(`scoped loopback RPC failed: ${redact(lastRpcError)}\n${redact(log)}`);
+    throw new Error(
+      `scoped loopback RPC failed (gateway exit=${String(gateway.exitCode)}, signal=${String(gateway.signalCode)}): ${redact(lastRpcError)}\n${redact(log)}`,
+    );
   }
   console.log("Exact image, baked Codex plugin, and scoped loopback RPC passed");
 } finally {
@@ -155,6 +159,7 @@ async function validateAndHydrateImagePluginRuntime() {
     errorOnExist: true,
     force: false,
   });
+  await symlink("/app/node_modules/openclaw", managedHostPeerPath, "dir");
   const rootManifestPath = path.join(managedPluginRuntimeRoot, "package.json");
   const rootManifest = JSON.parse(await readFile(rootManifestPath, "utf8"));
   rootManifest.dependencies = {

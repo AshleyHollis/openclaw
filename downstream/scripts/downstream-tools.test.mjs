@@ -289,8 +289,14 @@ test("builds and smokes the exact Codex artifact inside the runtime image", asyn
   assert.match(workflow, /docker run --rm[\s\S]*--network none/u);
   assert.doesNotMatch(workflow, /name: Smoke-test local image\n\s+if:/u);
   assert.match(imageSmoke, /cp\(imagePluginRuntimeRoot, managedPluginRuntimeRoot/u);
+  assert.match(
+    imageSmoke,
+    /symlink\("\/app\/node_modules\/openclaw", managedHostPeerPath/u,
+  );
+  assert.match(imageSmoke, /path\.join\(managedPluginPath, "node_modules\/openclaw"\)/u);
   assert.doesNotMatch(imageSmoke, /load:\s*\{ paths:/u);
   assert.match(imageSmoke, /rootDir !== managedPluginPath/u);
+  assert.match(imageSmoke, /attempt < 120/u);
 });
 
 test("rejects a candidate before build without affected clean-install proofs", async () => {

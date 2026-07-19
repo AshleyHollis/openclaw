@@ -112,6 +112,8 @@ const REPAIRABLE_PACKAGE_ENTRY_DIAGNOSTIC_MARKERS = [
 const OPENCLAW_BETA_COMPANION_VERSION_RE = /^(\d{4}\.[1-9]\d?\.[1-9]\d?)-beta\.[1-9]\d*$/;
 const OPENCLAW_STABLE_OR_BETA_COMPANION_VERSION_RE =
   /^(\d{4}\.[1-9]\d?\.[1-9]\d?)(?:-beta\.[1-9]\d*)?$/;
+const OPENCLAW_STABLE_CORRECTION_VERSION_RE =
+  /^(\d{4}\.[1-9]\d?\.[1-9]\d?)(?:-[1-9]\d*)?$/;
 
 function shouldFallbackClawHubToNpm(params: {
   result: { ok: false; code?: string };
@@ -695,8 +697,25 @@ function installedRuntimePackageVersionIsStale(params: {
   ) {
     return false;
   }
+  if (
+    stableCorrectionCompanionMatchesCurrentVersion({
+      installedVersion: params.installedVersion,
+      currentVersion: params.currentVersion,
+    })
+  ) {
+    return false;
+  }
   const comparison = compareOpenClawReleaseVersions(params.installedVersion, params.currentVersion);
   return comparison === null ? params.installedVersion !== params.currentVersion : comparison < 0;
+}
+
+function stableCorrectionCompanionMatchesCurrentVersion(params: {
+  installedVersion: string;
+  currentVersion: string;
+}): boolean {
+  const installedBase = OPENCLAW_STABLE_CORRECTION_VERSION_RE.exec(params.installedVersion)?.[1];
+  const currentBase = OPENCLAW_STABLE_CORRECTION_VERSION_RE.exec(params.currentVersion)?.[1];
+  return Boolean(installedBase && currentBase && installedBase === currentBase);
 }
 
 function betaCompanionMatchesCurrentStableVersion(params: {
@@ -713,9 +732,10 @@ function collectInstalledPluginIdsWithStaleVersionBoundRuntimePackages(params: {
   installRecords: Record<string, PluginInstallRecord>;
   configuredPluginIds: ReadonlySet<string>;
   updateChannel: UpdateChannel;
+  currentVersion: string;
 }): Set<string> {
   const pluginIds = new Set<string>();
-  const currentVersion = normalizeOptionalLowercaseString(VERSION);
+  const currentVersion = normalizeOptionalLowercaseString(params.currentVersion);
   if (!currentVersion) {
     return pluginIds;
   }
@@ -1480,6 +1500,7 @@ export async function detectConfiguredPluginInstallHealthIssues(params: {
       installRecords: records,
       configuredPluginIds: pluginIds,
       updateChannel,
+      currentVersion: resolveCompatibilityHostVersion(env),
     });
   const repairableInstalledPluginIds = new Set([
     ...repairablePackageDiagnosticPluginIds,
@@ -1926,6 +1947,7 @@ async function repairMissingPluginInstalls(params: {
       installRecords: records,
       configuredPluginIds: params.pluginIds,
       updateChannel,
+      currentVersion: resolveCompatibilityHostVersion(env),
     });
   const installedPluginIdsWithRepairablePackages = new Set([
     ...installedPluginIdsWithRepairablePackageDiagnostics,
