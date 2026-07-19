@@ -17,6 +17,7 @@
     "0005-fix-agents-expire-invalid-thinking-signature-session.patch",
     "0006-fix-channels-use-CLI-identity-for-status-RPC.patch",
     "0007-fix-codex-defer-plugin-state-until-runtime-use.patch",
-    "0008-fix-deps-restore-shrinkwrap-dependency-forks.patch"
+    "0008-fix-deps-restore-shrinkwrap-dependency-forks.patch",
+    "0009-fix-codex-accept-stable-correction-cohort-runtime.patch"
   ]
 }

@@ -1,0 +1,151 @@
+From 201d22b0085cdb543f2c84c0573cea97eb299c22 Mon Sep 17 00:00:00 2001
+From: Ashley Hollis <AshleyHollis@users.noreply.github.com>
+Date: Sun, 19 Jul 2026 16:24:01 +1000
+Subject: [PATCH] fix(codex): accept stable correction cohort runtime
+
+---
+ .../missing-configured-plugin-install.test.ts | 58 +++++++++++++++++++
+ .../missing-configured-plugin-install.ts      | 24 +++++++-
+ 2 files changed, 81 insertions(+), 1 deletion(-)
+
+diff --git a/src/commands/doctor/shared/missing-configured-plugin-install.test.ts b/src/commands/doctor/shared/missing-configured-plugin-install.test.ts
+index 3407d944..b132c667 100644
+--- a/src/commands/doctor/shared/missing-configured-plugin-install.test.ts
++++ b/src/commands/doctor/shared/missing-configured-plugin-install.test.ts
+@@ -2404,6 +2404,64 @@ describe("repairMissingConfiguredPluginInstalls", () => {
+     });
+   });
+ 
++  it("keeps a Codex runtime from the same stable correction cohort", async () => {
++    const installDir = makeTempDir();
++    fs.writeFileSync(
++      path.join(installDir, "package.json"),
++      JSON.stringify({ name: "@openclaw/codex", version: "2026.7.1-1" }),
++    );
++    const records = {
++      codex: {
++        source: "npm",
++        spec: "@openclaw/codex@2026.7.1-1",
++        resolvedName: "@openclaw/codex",
++        resolvedSpec: "@openclaw/codex@2026.7.1-1",
++        resolvedVersion: "2026.7.1-1",
++        version: "2026.7.1-1",
++        installPath: installDir,
++      },
++    };
++    mocks.loadInstalledPluginIndexInstallRecords.mockResolvedValue(records);
++    mocks.loadPluginMetadataSnapshot.mockReturnValue({
++      plugins: [
++        {
++          id: "codex",
++          packageVersion: "2026.7.1-1",
++          providers: ["codex"],
++        },
++      ],
++      diagnostics: [],
++      byPluginId: new Map([
++        [
++          "codex",
++          {
++            id: "codex",
++            packageVersion: "2026.7.1-1",
++            providers: ["codex"],
++          },
++        ],
++      ]),
++    });
++
++    const { repairMissingConfiguredPluginInstalls } =
++      await import("./missing-configured-plugin-install.js");
++    const result = await repairMissingConfiguredPluginInstalls({
++      cfg: {
++        agents: {
++          defaults: {
++            model: "openai/gpt-5.5",
++          },
++        },
++      },
++      env: { OPENCLAW_COMPATIBILITY_HOST_VERSION: "2026.7.1-2" },
++    });
++
++    expect(mocks.installPluginFromNpmSpec).not.toHaveBeenCalled();
++    expect(mocks.updateNpmInstalledPlugins).not.toHaveBeenCalled();
++    expect(mocks.writePersistedInstalledPluginIndexInstallRecords).not.toHaveBeenCalled();
++    expect(result).toEqual({ changes: [], warnings: [], records });
++  });
++
+   it("does not refresh a converged beta Codex runtime plugin on the second doctor pass", async () => {
+     const codexBetaVersion = `${currentOpenClawReleaseBase()}-beta.4`;
+     const installDir = makeTempDir();
+diff --git a/src/commands/doctor/shared/missing-configured-plugin-install.ts b/src/commands/doctor/shared/missing-configured-plugin-install.ts
+index 460cfd91..873ec14d 100644
+--- a/src/commands/doctor/shared/missing-configured-plugin-install.ts
++++ b/src/commands/doctor/shared/missing-configured-plugin-install.ts
+@@ -112,6 +112,8 @@ const VERSION_BOUND_RUNTIME_PLUGIN_IDS = new Set(["codex"]);
+ const OPENCLAW_BETA_COMPANION_VERSION_RE = /^(\d{4}\.[1-9]\d?\.[1-9]\d?)-beta\.[1-9]\d*$/;
+ const OPENCLAW_STABLE_OR_BETA_COMPANION_VERSION_RE =
+   /^(\d{4}\.[1-9]\d?\.[1-9]\d?)(?:-beta\.[1-9]\d*)?$/;
++const OPENCLAW_STABLE_CORRECTION_VERSION_RE =
++  /^(\d{4}\.[1-9]\d?\.[1-9]\d?)(?:-[1-9]\d*)?$/;
+ 
+ function shouldFallbackClawHubToNpm(params: {
+   result: { ok: false; code?: string };
+@@ -695,10 +697,27 @@ function installedRuntimePackageVersionIsStale(params: {
+   ) {
+     return false;
+   }
++  if (
++    stableCorrectionCompanionMatchesCurrentVersion({
++      installedVersion: params.installedVersion,
++      currentVersion: params.currentVersion,
++    })
++  ) {
++    return false;
++  }
+   const comparison = compareOpenClawReleaseVersions(params.installedVersion, params.currentVersion);
+   return comparison === null ? params.installedVersion !== params.currentVersion : comparison < 0;
+ }
+ 
++function stableCorrectionCompanionMatchesCurrentVersion(params: {
++  installedVersion: string;
++  currentVersion: string;
++}): boolean {
++  const installedBase = OPENCLAW_STABLE_CORRECTION_VERSION_RE.exec(params.installedVersion)?.[1];
++  const currentBase = OPENCLAW_STABLE_CORRECTION_VERSION_RE.exec(params.currentVersion)?.[1];
++  return Boolean(installedBase && currentBase && installedBase === currentBase);
++}
++
+ function betaCompanionMatchesCurrentStableVersion(params: {
+   installedVersion: string;
+   currentVersion: string;
+@@ -713,9 +732,10 @@ function collectInstalledPluginIdsWithStaleVersionBoundRuntimePackages(params: {
+   installRecords: Record<string, PluginInstallRecord>;
+   configuredPluginIds: ReadonlySet<string>;
+   updateChannel: UpdateChannel;
++  currentVersion: string;
+ }): Set<string> {
+   const pluginIds = new Set<string>();
+-  const currentVersion = normalizeOptionalLowercaseString(VERSION);
++  const currentVersion = normalizeOptionalLowercaseString(params.currentVersion);
+   if (!currentVersion) {
+     return pluginIds;
+   }
+@@ -1480,6 +1500,7 @@ export async function detectConfiguredPluginInstallHealthIssues(params: {
+       installRecords: records,
+       configuredPluginIds: pluginIds,
+       updateChannel,
++      currentVersion: resolveCompatibilityHostVersion(env),
+     });
+   const repairableInstalledPluginIds = new Set([
+     ...repairablePackageDiagnosticPluginIds,
+@@ -1926,6 +1947,7 @@ async function repairMissingPluginInstalls(params: {
+       installRecords: records,
+       configuredPluginIds: params.pluginIds,
+       updateChannel,
++      currentVersion: resolveCompatibilityHostVersion(env),
+     });
+   const installedPluginIdsWithRepairablePackages = new Set([
+     ...installedPluginIdsWithRepairablePackageDiagnostics,
+-- 
+2.53.0.windows.2
+
