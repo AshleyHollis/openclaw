@@ -202,7 +202,7 @@ test("validates the release manifest and patch hashes", () => {
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.3 \(blocked\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.4 \(blocked\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.5 \(qualified\)/u);
-  assert.match(result.stdout, /2026\.7\.1-2\+nas\.6 \(candidate\)/u);
+  assert.match(result.stdout, /2026\.7\.1-2\+nas\.6 \(qualified\)/u);
 });
 
 test("validates packed runtime metadata before dependency installation", async () => {
