@@ -18,3 +18,16 @@ bash downstream/scripts/check-patch-series.sh downstream/patches/2026.7.1-2/seri
 ```
 
 The patch-series check uses a temporary worktree and never modifies the caller's checkout.
+
+## Lifecycle-free correction packaging
+
+Correction releases start from the verified official npm tarball extracted as a `package/` directory. After replacing only the qualified build output and approved package metadata, repack it without invoking npm lifecycle scripts:
+
+```bash
+bash downstream/scripts/repack-official-tarball.sh \
+  /absolute/stage/package \
+  /absolute/output/openclaw.tgz \
+  "$SOURCE_DATE_EPOCH"
+```
+
+The repacker requires GNU tar, fixes ordering, timestamps, ownership, and portable modes, and uses timestamp-free gzip output. It rejects links, special files, hard-linked files, output inside the staged tree, and `workspace:`, `link:`, or `file:` runtime dependencies. Run it twice from the same staged tree and require identical SHA-256 values before exact-tarball install and smoke testing.

@@ -33,6 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           bash -n downstream/scripts/check-patch-series.sh
+          bash -n downstream/scripts/repack-official-tarball.sh
           bash -n downstream/scripts/smoke-external-plugin.sh
           node --check downstream/scripts/validate-release.mjs
           node --check downstream/scripts/materialize-repair.mjs
