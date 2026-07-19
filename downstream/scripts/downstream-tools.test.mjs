@@ -308,6 +308,8 @@ test("rejects a candidate before build without affected clean-install proofs", a
         "utf8",
       ),
     );
+    manifest.status = "candidate";
+    delete manifest.blockingIssues;
     delete manifest.artifact.validation.dependencyInstallProofs;
     const candidate = path.join(directory, "candidate.json");
     await writeFile(candidate, JSON.stringify(manifest));
