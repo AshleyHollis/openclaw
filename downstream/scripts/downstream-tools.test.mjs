@@ -198,7 +198,7 @@ test("validates the release manifest and patch hashes", () => {
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.1 \(blocked\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.2 \(blocked\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.3 \(blocked\)/u);
-  assert.match(result.stdout, /2026\.7\.1-2\+nas\.4 \(qualified\)/u);
+  assert.match(result.stdout, /2026\.7\.1-2\+nas\.4 \(blocked\)/u);
 });
 
 test("validates packed runtime metadata before dependency installation", async () => {
@@ -289,8 +289,14 @@ test("builds and smokes the exact Codex artifact inside the runtime image", asyn
   assert.match(workflow, /docker run --rm[\s\S]*--network none/u);
   assert.doesNotMatch(workflow, /name: Smoke-test local image\n\s+if:/u);
   assert.match(imageSmoke, /cp\(imagePluginRuntimeRoot, managedPluginRuntimeRoot/u);
+  assert.match(
+    imageSmoke,
+    /symlink\("\/app\/node_modules\/openclaw", managedHostPeerPath/u,
+  );
+  assert.match(imageSmoke, /path\.join\(managedPluginPath, "node_modules\/openclaw"\)/u);
   assert.doesNotMatch(imageSmoke, /load:\s*\{ paths:/u);
   assert.match(imageSmoke, /rootDir !== managedPluginPath/u);
+  assert.match(imageSmoke, /attempt < 120/u);
 });
 
 test("rejects a candidate before build without affected clean-install proofs", async () => {
@@ -302,6 +308,8 @@ test("rejects a candidate before build without affected clean-install proofs", a
         "utf8",
       ),
     );
+    manifest.status = "candidate";
+    delete manifest.blockingIssues;
     delete manifest.artifact.validation.dependencyInstallProofs;
     const candidate = path.join(directory, "candidate.json");
     await writeFile(candidate, JSON.stringify(manifest));
@@ -325,7 +333,8 @@ test("keeps the latest pointer aligned with the selected manifest", async () => 
     await readFile(path.join(repositoryRoot, pointer.releaseManifest), "utf8"),
   );
   assert.equal(pointer.status, manifest.status);
-  assert.equal(manifest.status, "qualified");
+  assert.equal(manifest.status, "blocked");
+  assert.match(manifest.blockingIssues.join("\n"), /network-disabled startup smoke/u);
   assert.equal(manifest.artifact.validation.externalPluginRegistration, true);
   assert.equal(manifest.artifact.validation.scopedLoopbackRpc, true);
   assert.equal(manifest.artifact.validation.dependencyMetadataCheck, true);

@@ -313,7 +313,7 @@ function readPnpmLockScopedVersionOverrides() {
   }
   return expandScopedOverrideChildren(overrides);
 }
-function mergeOverrideEntry(merged, name, spec) {
+function mergeOverrideEntry(merged, name, spec, options = {}, path = name) {
   const current = merged[name];
   if (current === undefined) {
     merged[name] = spec;
@@ -321,7 +321,7 @@ function mergeOverrideEntry(merged, name, spec) {
   }
   if (isPlainObject(current) && isPlainObject(spec)) {
     for (const [nestedName, nestedSpec] of Object.entries(spec)) {
-      mergeOverrideEntry(current, nestedName, nestedSpec);
+      mergeOverrideEntry(current, nestedName, nestedSpec, options, `${path}>${nestedName}`);
     }
     return;
   }
@@ -336,7 +336,7 @@ function mergeOverrideEntry(merged, name, spec) {
       if (nestedName === ".") {
         continue;
       }
-      mergeOverrideEntry(merged[name], nestedName, nestedSpec);
+      mergeOverrideEntry(merged[name], nestedName, nestedSpec, options, `${path}>${nestedName}`);
     }
     return;
   }
@@ -350,7 +350,14 @@ function mergeOverrideEntry(merged, name, spec) {
     return;
   }
   if (JSON.stringify(current) !== JSON.stringify(spec)) {
-    throw new Error(`package.json overrides.${name} conflicts with pnpm lock policy for ${name}`);
+    if (options.preferIncoming === true) {
+      merged[name] = spec;
+      return;
+    }
+    throw new Error(
+      `package.json overrides.${path} conflicts with pnpm lock policy: ` +
+        `${JSON.stringify(current)} !== ${JSON.stringify(spec)}`,
+    );
   }
 }
 
@@ -379,13 +386,13 @@ function parseNpmAliasOverrideSpec(spec) {
   return { name: spec.slice("npm:".length, versionIndex) };
 }
 
-function mergeOverrides(packageOverrides, workspaceOverrides, pnpmLockOverrides) {
+function mergeOverrides(packageOverrides, workspaceOverrides, pnpmLockOverrides, options = {}) {
   const merged = normalizeOverrides(packageOverrides);
   for (const [name, spec] of [
     ...Object.entries(workspaceOverrides),
     ...Object.entries(pnpmLockOverrides),
   ]) {
-    mergeOverrideEntry(merged, name, spec);
+    mergeOverrideEntry(merged, name, spec, options);
   }
   return Object.keys(merged).length > 0 ? merged : undefined;
 }
@@ -743,6 +750,7 @@ function generateShrinkwrap(packageDir, options = {}) {
         : {},
       readShrinkwrapOverrides(),
       {},
+      { preferIncoming: true },
     );
     const peerResolutionArgs = shouldUseLegacyPeerDepsForShrinkwrap(packageJson)
       ? ["--legacy-peer-deps"]

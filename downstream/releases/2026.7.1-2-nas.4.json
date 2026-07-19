@@ -1,7 +1,10 @@
 {
   "schemaVersion": 1,
   "releaseId": "2026.7.1-2+nas.4",
-  "status": "qualified",
+  "status": "blocked",
+  "blockingIssues": [
+    "The registry-network-disabled startup smoke added after qualification proves that OpenClaw 2026.7.1-2 treats the verified Codex 2026.7.1-1 companion as stale and attempts an unavailable npm repair. The image was never promoted; replace it immutably with the correction-cohort compatibility patch and rerun the complete gate."
+  ],
   "npm": {
     "version": "2026.7.1-2",
     "distTag": "latest",
