@@ -194,7 +194,7 @@ test("validates the release manifest and patch hashes", () => {
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.1 \(blocked\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.2 \(blocked\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.3 \(blocked\)/u);
-  assert.match(result.stdout, /2026\.7\.1-2\+nas\.4 \(candidate\)/u);
+  assert.match(result.stdout, /2026\.7\.1-2\+nas\.4 \(qualified\)/u);
 });
 
 test("builds and smokes the exact Codex artifact inside the runtime image", async () => {
@@ -249,13 +249,20 @@ test("keeps the latest pointer aligned with the selected manifest", async () => 
     await readFile(path.join(repositoryRoot, pointer.releaseManifest), "utf8"),
   );
   assert.equal(pointer.status, manifest.status);
-  assert.equal(manifest.status, "candidate");
+  assert.equal(manifest.status, "qualified");
   assert.equal(manifest.artifact.validation.externalPluginRegistration, true);
   assert.equal(manifest.artifact.validation.scopedLoopbackRpc, true);
   assert.equal(manifest.artifact.validation.dependencyMetadataCheck, true);
   assert.equal(manifest.artifact.validation.dependencyInstallProofs, true);
-  assert.equal(manifest.artifact.validation.imageSmoke, false);
-  assert.equal(manifest.artifact.validation.imageScan, false);
+  assert.equal(manifest.artifact.validation.imageSmoke, true);
+  assert.equal(manifest.artifact.validation.imageScan, true);
   assert.match(manifest.externalPlugins[0].artifact.url, /nas-v2026\.7\.1-2\.4/u);
-  assert.equal(manifest.image.digest, undefined);
+  assert.equal(
+    manifest.image.digest,
+    "sha256:da05aea138491e1de725cc6d2d990f4bf0930e88a6bc637f4500d06b2672c334",
+  );
+  assert.equal(
+    manifest.image.attestationDigest,
+    "sha256:fc4b0293c9f488ad5b55997be63866f9eb66016929e8b22cba90e83ca119fafa",
+  );
 });
