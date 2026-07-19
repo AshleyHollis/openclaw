@@ -23,10 +23,9 @@ COPY openclaw-current.tgz /tmp/openclaw-current.tgz
 
 RUN test -n "$OPENCLAW_TARBALL_SHA256" && \
     printf '%s  %s\n' "$OPENCLAW_TARBALL_SHA256" /tmp/openclaw-current.tgz | sha256sum -c - && \
-    tar -xzf /tmp/openclaw-current.tgz --strip-components=1 -C /app && \
-    npm ci --omit=dev --no-audit --no-fund && \
-    test "$(node -p "require('./package.json').version")" = "$OPENCLAW_VERSION" && \
-    node openclaw.mjs --version && \
+    npm install --omit=dev --ignore-scripts=false --no-audit --no-fund /tmp/openclaw-current.tgz && \
+    test "$(node -p "require('/app/node_modules/openclaw/package.json').version")" = "$OPENCLAW_VERSION" && \
+    node /app/node_modules/openclaw/openclaw.mjs --version && \
     rm -f /tmp/openclaw-current.tgz && \
     npm cache clean --force
 
@@ -37,10 +36,12 @@ RUN install -d -m 0755 -o node -g node /home/node/.config && \
       /home/node/.config/openclaw && \
     chown -R node:node /app
 
-RUN ln -sf /app/openclaw.mjs /usr/local/bin/openclaw && chmod 755 /app/openclaw.mjs
+RUN ln -sf /app/node_modules/openclaw/openclaw.mjs /usr/local/bin/openclaw && \
+    chmod 755 /app/node_modules/openclaw/openclaw.mjs
 
 ENV NODE_ENV=production
 USER node
+WORKDIR /app/node_modules/openclaw
 
 HEALTHCHECK --interval=3m --timeout=10s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
