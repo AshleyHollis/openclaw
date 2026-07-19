@@ -1,7 +1,10 @@
 {
   "schemaVersion": 1,
   "releaseId": "2026.7.1-2+nas.3",
-  "status": "qualified",
+  "status": "blocked",
+  "blockingIssues": [
+    "The hosted image installed only the OpenClaw host tarball. It did not install the separately qualified Codex plugin artifact, while restored state intentionally excludes nested plugin node_modules. The never-activated image cannot satisfy the external-plugin runtime acceptance gate; replace it immutably rather than mutating its tag."
+  ],
   "npm": {
     "version": "2026.7.1-2",
     "distTag": "latest",
