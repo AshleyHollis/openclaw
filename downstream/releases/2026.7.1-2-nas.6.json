@@ -138,11 +138,11 @@
       "scopedLoopbackRpc": true,
       "dependencyMetadataCheck": true,
       "dependencyInstallProofs": true,
-      "qmdRuntime": false,
+      "qmdRuntime": true,
       "discordRuntimeFiles": 61,
       "patchTests": true,
-      "imageSmoke": false,
-      "imageScan": false
+      "imageSmoke": true,
+      "imageScan": true
     }
   },
   "image": {
@@ -154,8 +154,8 @@
     "provenanceDigest": null
   },
   "testResults": {
-    "downstreamGuard": "https://github.com/AshleyHollis/openclaw/actions/runs/29682830947",
-    "dryRun": null,
+    "downstreamGuard": "https://github.com/AshleyHollis/openclaw/actions/runs/29683022883",
+    "dryRun": "https://github.com/AshleyHollis/openclaw/actions/runs/29683152614",
     "publish": null
   }
 }
