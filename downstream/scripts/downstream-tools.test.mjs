@@ -9,6 +9,10 @@ import { fileURLToPath } from "node:url";
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const materializeScript = path.join(repositoryRoot, "downstream/scripts/materialize-repair.mjs");
 const repackScript = path.join(repositoryRoot, "downstream/scripts/repack-official-tarball.sh");
+const validatePackedMetadataScript = path.join(
+  repositoryRoot,
+  "downstream/scripts/validate-packed-metadata.mjs",
+);
 const validateScript = path.join(repositoryRoot, "downstream/scripts/validate-release.mjs");
 
 function git(cwd, ...args) {
@@ -197,6 +201,65 @@ test("validates the release manifest and patch hashes", () => {
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.4 \(qualified\)/u);
 });
 
+test("validates packed runtime metadata before dependency installation", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "openclaw-packed-metadata-test-"));
+  try {
+    const packagePath = path.join(directory, "package.json");
+    const shrinkwrapPath = path.join(directory, "npm-shrinkwrap.json");
+    await writeFile(
+      packagePath,
+      JSON.stringify({
+        name: "@openclaw/codex",
+        version: "1.2.3",
+        dependencies: { zod: "4.4.3" },
+      }),
+    );
+    await writeFile(
+      shrinkwrapPath,
+      JSON.stringify({
+        name: "@openclaw/codex",
+        version: "1.2.3",
+        lockfileVersion: 3,
+        packages: {
+          "": {
+            name: "@openclaw/codex",
+            version: "1.2.3",
+            dependencies: { zod: "4.4.3" },
+          },
+          "node_modules/zod": {
+            version: "4.4.3",
+            resolved: "https://registry.npmjs.org/zod/-/zod-4.4.3.tgz",
+            integrity: "sha512-test",
+          },
+        },
+      }),
+    );
+    const result = spawnSync(
+      process.execPath,
+      [validatePackedMetadataScript, packagePath, shrinkwrapPath, "@openclaw/codex", "1.2.3"],
+      { encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /packed metadata valid/u);
+
+    const invalidManifest = JSON.parse(await readFile(packagePath, "utf8"));
+    const invalidShrinkwrap = JSON.parse(await readFile(shrinkwrapPath, "utf8"));
+    invalidManifest.dependencies.zod = "file:../zod";
+    invalidShrinkwrap.packages[""].dependencies.zod = "file:../zod";
+    await writeFile(packagePath, JSON.stringify(invalidManifest));
+    await writeFile(shrinkwrapPath, JSON.stringify(invalidShrinkwrap));
+    const rejected = spawnSync(
+      process.execPath,
+      [validatePackedMetadataScript, packagePath, shrinkwrapPath, "@openclaw/codex", "1.2.3"],
+      { encoding: "utf8" },
+    );
+    assert.notEqual(rejected.status, 0);
+    assert.match(rejected.stderr, /forbidden local dependency/u);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("builds and smokes the exact Codex artifact inside the runtime image", async () => {
   const dockerfile = await readFile(
     path.join(repositoryRoot, "downstream/Dockerfile.artifact"),
@@ -206,6 +269,10 @@ test("builds and smokes the exact Codex artifact inside the runtime image", asyn
     path.join(repositoryRoot, ".github/workflows/build-downstream-artifact.yml"),
     "utf8",
   );
+  const imageSmoke = await readFile(
+    path.join(repositoryRoot, "downstream/scripts/smoke-image-runtime.mjs"),
+    "utf8",
+  );
   assert.match(dockerfile, /ARG CODEX_TARBALL_SHA256/u);
   assert.match(dockerfile, /COPY codex-current\.tgz/u);
   assert.match(dockerfile, /CODEX_TARBALL_SHA256.*sha256sum/u);
@@ -213,8 +280,17 @@ test("builds and smokes the exact Codex artifact inside the runtime image", asyn
   assert.match(dockerfile, /@openai\/codex.*0\.144\.3/u);
   assert.match(dockerfile, /\/opt\/openclaw-plugin-runtime/u);
   assert.match(workflow, /CODEX_TARBALL_SHA256=.*codex_artifact_sha256/u);
+  assert.match(workflow, /validate-packed-metadata\.mjs[\s\S]*openclaw[\s\S]*\$VERSION/u);
+  assert.match(
+    workflow,
+    /validate-packed-metadata\.mjs[\s\S]*@openclaw\/codex[\s\S]*\$CODEX_VERSION/u,
+  );
   assert.match(workflow, /smoke-image-runtime\.mjs/u);
+  assert.match(workflow, /docker run --rm[\s\S]*--network none/u);
   assert.doesNotMatch(workflow, /name: Smoke-test local image\n\s+if:/u);
+  assert.match(imageSmoke, /cp\(imagePluginRuntimeRoot, managedPluginRuntimeRoot/u);
+  assert.doesNotMatch(imageSmoke, /load:\s*\{ paths:/u);
+  assert.match(imageSmoke, /rootDir !== managedPluginPath/u);
 });
 
 test("rejects a candidate before build without affected clean-install proofs", async () => {
