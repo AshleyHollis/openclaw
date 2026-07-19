@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "releaseId": "2026.7.1-2+nas.5",
-  "status": "candidate",
+  "status": "qualified",
   "npm": {
     "version": "2026.7.1-2",
     "distTag": "latest",
@@ -126,21 +126,21 @@
       "dependencyInstallProofs": true,
       "discordRuntimeFiles": 61,
       "patchTests": true,
-      "imageSmoke": false,
-      "imageScan": false
+      "imageSmoke": true,
+      "imageScan": true
     }
   },
   "image": {
     "repository": "ghcr.io/ashleyhollis/openclaw",
     "tag": "nas-2026.7.1-2-nas.5",
-    "digest": null,
-    "attestationDigest": null,
-    "sbomDigest": null,
-    "provenanceDigest": null
+    "digest": "sha256:b3a3e09e8e9aa5b44cacf1e28e2e06697e8385827c0a4d9ca0f18cb646bf7cb2",
+    "attestationDigest": "sha256:c20d05a7e32a5e5db5c67196a87a4eb5a3b81fdf91c1547da31aedccaa6df571",
+    "sbomDigest": "sha256:9a57aff43cb4494e440f0fc7442ceb511473c38d31e8914ae13f657dc70d53cb",
+    "provenanceDigest": "sha256:aaa6b993b4454b43c8ac552518afecfa512195388a6377e2a008331b0a46c580"
   },
   "testResults": {
     "downstreamGuard": "https://github.com/AshleyHollis/openclaw/actions/runs/29678336291",
     "dryRun": "https://github.com/AshleyHollis/openclaw/actions/runs/29679302272",
-    "publish": null
+    "publish": "https://github.com/AshleyHollis/openclaw/actions/runs/29679628031"
   }
 }

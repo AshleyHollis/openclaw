@@ -191,6 +191,7 @@ test("validates the release manifest and patch hashes", () => {
       "downstream/releases/2026.7.1-2-nas.2.json",
       "downstream/releases/2026.7.1-2-nas.3.json",
       "downstream/releases/2026.7.1-2-nas.4.json",
+      "downstream/releases/2026.7.1-2-nas.5.json",
     ],
     { cwd: repositoryRoot, encoding: "utf8" },
   );
@@ -199,6 +200,7 @@ test("validates the release manifest and patch hashes", () => {
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.2 \(blocked\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.3 \(blocked\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.4 \(blocked\)/u);
+  assert.match(result.stdout, /2026\.7\.1-2\+nas\.5 \(qualified\)/u);
 });
 
 test("validates packed runtime metadata before dependency installation", async () => {
@@ -333,21 +335,28 @@ test("keeps the latest pointer aligned with the selected manifest", async () => 
     await readFile(path.join(repositoryRoot, pointer.releaseManifest), "utf8"),
   );
   assert.equal(pointer.status, manifest.status);
-  assert.equal(manifest.status, "blocked");
-  assert.match(manifest.blockingIssues.join("\n"), /network-disabled startup smoke/u);
+  assert.equal(manifest.status, "qualified");
   assert.equal(manifest.artifact.validation.externalPluginRegistration, true);
   assert.equal(manifest.artifact.validation.scopedLoopbackRpc, true);
   assert.equal(manifest.artifact.validation.dependencyMetadataCheck, true);
   assert.equal(manifest.artifact.validation.dependencyInstallProofs, true);
   assert.equal(manifest.artifact.validation.imageSmoke, true);
   assert.equal(manifest.artifact.validation.imageScan, true);
-  assert.match(manifest.externalPlugins[0].artifact.url, /nas-v2026\.7\.1-2\.4/u);
+  assert.match(manifest.externalPlugins[0].artifact.url, /nas-v2026\.7\.1-2\.5/u);
   assert.equal(
     manifest.image.digest,
-    "sha256:da05aea138491e1de725cc6d2d990f4bf0930e88a6bc637f4500d06b2672c334",
+    "sha256:b3a3e09e8e9aa5b44cacf1e28e2e06697e8385827c0a4d9ca0f18cb646bf7cb2",
   );
   assert.equal(
     manifest.image.attestationDigest,
-    "sha256:fc4b0293c9f488ad5b55997be63866f9eb66016929e8b22cba90e83ca119fafa",
+    "sha256:c20d05a7e32a5e5db5c67196a87a4eb5a3b81fdf91c1547da31aedccaa6df571",
+  );
+  assert.equal(
+    manifest.image.sbomDigest,
+    "sha256:9a57aff43cb4494e440f0fc7442ceb511473c38d31e8914ae13f657dc70d53cb",
+  );
+  assert.equal(
+    manifest.image.provenanceDigest,
+    "sha256:aaa6b993b4454b43c8ac552518afecfa512195388a6377e2a008331b0a46c580",
   );
 });
