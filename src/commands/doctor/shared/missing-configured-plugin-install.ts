@@ -112,8 +112,7 @@ const REPAIRABLE_PACKAGE_ENTRY_DIAGNOSTIC_MARKERS = [
 const OPENCLAW_BETA_COMPANION_VERSION_RE = /^(\d{4}\.[1-9]\d?\.[1-9]\d?)-beta\.[1-9]\d*$/;
 const OPENCLAW_STABLE_OR_BETA_COMPANION_VERSION_RE =
   /^(\d{4}\.[1-9]\d?\.[1-9]\d?)(?:-beta\.[1-9]\d*)?$/;
-const OPENCLAW_STABLE_CORRECTION_VERSION_RE =
-  /^(\d{4}\.[1-9]\d?\.[1-9]\d?)(?:-[1-9]\d*)?$/;
+const OPENCLAW_STABLE_CORRECTION_VERSION_RE = /^(\d{4}\.[1-9]\d?\.[1-9]\d?)(?:-[1-9]\d*)?$/;
 
 function shouldFallbackClawHubToNpm(params: {
   result: { ok: false; code?: string };

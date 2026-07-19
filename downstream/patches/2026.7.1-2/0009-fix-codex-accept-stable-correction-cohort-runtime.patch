@@ -1,15 +1,15 @@
-From 201d22b0085cdb543f2c84c0573cea97eb299c22 Mon Sep 17 00:00:00 2001
+From 77216d3acaf389a6632df16c28ef9ad889cdf030 Mon Sep 17 00:00:00 2001
 From: Ashley Hollis <AshleyHollis@users.noreply.github.com>
 Date: Sun, 19 Jul 2026 16:24:01 +1000
 Subject: [PATCH] fix(codex): accept stable correction cohort runtime
 
 ---
  .../missing-configured-plugin-install.test.ts | 58 +++++++++++++++++++
- .../missing-configured-plugin-install.ts      | 24 +++++++-
- 2 files changed, 81 insertions(+), 1 deletion(-)
+ .../missing-configured-plugin-install.ts      | 23 +++++++-
+ 2 files changed, 80 insertions(+), 1 deletion(-)
 
 diff --git a/src/commands/doctor/shared/missing-configured-plugin-install.test.ts b/src/commands/doctor/shared/missing-configured-plugin-install.test.ts
-index 3407d944..b132c667 100644
+index 3407d9448e..b132c66773 100644
 --- a/src/commands/doctor/shared/missing-configured-plugin-install.test.ts
 +++ b/src/commands/doctor/shared/missing-configured-plugin-install.test.ts
 @@ -2404,6 +2404,64 @@ describe("repairMissingConfiguredPluginInstalls", () => {
@@ -78,19 +78,18 @@ index 3407d944..b132c667 100644
      const codexBetaVersion = `${currentOpenClawReleaseBase()}-beta.4`;
      const installDir = makeTempDir();
 diff --git a/src/commands/doctor/shared/missing-configured-plugin-install.ts b/src/commands/doctor/shared/missing-configured-plugin-install.ts
-index 460cfd91..873ec14d 100644
+index 460cfd9113..7810e6516d 100644
 --- a/src/commands/doctor/shared/missing-configured-plugin-install.ts
 +++ b/src/commands/doctor/shared/missing-configured-plugin-install.ts
-@@ -112,6 +112,8 @@ const VERSION_BOUND_RUNTIME_PLUGIN_IDS = new Set(["codex"]);
+@@ -112,6 +112,7 @@ const VERSION_BOUND_RUNTIME_PLUGIN_IDS = new Set(["codex"]);
  const OPENCLAW_BETA_COMPANION_VERSION_RE = /^(\d{4}\.[1-9]\d?\.[1-9]\d?)-beta\.[1-9]\d*$/;
  const OPENCLAW_STABLE_OR_BETA_COMPANION_VERSION_RE =
    /^(\d{4}\.[1-9]\d?\.[1-9]\d?)(?:-beta\.[1-9]\d*)?$/;
-+const OPENCLAW_STABLE_CORRECTION_VERSION_RE =
-+  /^(\d{4}\.[1-9]\d?\.[1-9]\d?)(?:-[1-9]\d*)?$/;
++const OPENCLAW_STABLE_CORRECTION_VERSION_RE = /^(\d{4}\.[1-9]\d?\.[1-9]\d?)(?:-[1-9]\d*)?$/;
  
  function shouldFallbackClawHubToNpm(params: {
    result: { ok: false; code?: string };
-@@ -695,10 +697,27 @@ function installedRuntimePackageVersionIsStale(params: {
+@@ -695,10 +696,27 @@ function installedRuntimePackageVersionIsStale(params: {
    ) {
      return false;
    }
@@ -118,7 +117,7 @@ index 460cfd91..873ec14d 100644
  function betaCompanionMatchesCurrentStableVersion(params: {
    installedVersion: string;
    currentVersion: string;
-@@ -713,9 +732,10 @@ function collectInstalledPluginIdsWithStaleVersionBoundRuntimePackages(params: {
+@@ -713,9 +731,10 @@ function collectInstalledPluginIdsWithStaleVersionBoundRuntimePackages(params: {
    installRecords: Record<string, PluginInstallRecord>;
    configuredPluginIds: ReadonlySet<string>;
    updateChannel: UpdateChannel;
@@ -130,7 +129,7 @@ index 460cfd91..873ec14d 100644
    if (!currentVersion) {
      return pluginIds;
    }
-@@ -1480,6 +1500,7 @@ export async function detectConfiguredPluginInstallHealthIssues(params: {
+@@ -1480,6 +1499,7 @@ export async function detectConfiguredPluginInstallHealthIssues(params: {
        installRecords: records,
        configuredPluginIds: pluginIds,
        updateChannel,
@@ -138,7 +137,7 @@ index 460cfd91..873ec14d 100644
      });
    const repairableInstalledPluginIds = new Set([
      ...repairablePackageDiagnosticPluginIds,
-@@ -1926,6 +1947,7 @@ async function repairMissingPluginInstalls(params: {
+@@ -1926,6 +1946,7 @@ async function repairMissingPluginInstalls(params: {
        installRecords: records,
        configuredPluginIds: params.pluginIds,
        updateChannel,
@@ -147,5 +146,4 @@ index 460cfd91..873ec14d 100644
    const installedPluginIdsWithRepairablePackages = new Set([
      ...installedPluginIdsWithRepairablePackageDiagnostics,
 -- 
-2.53.0.windows.2
-
+2.43.0
