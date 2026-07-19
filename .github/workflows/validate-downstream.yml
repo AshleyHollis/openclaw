@@ -37,6 +37,7 @@ jobs:
           bash -n downstream/scripts/smoke-external-plugin.sh
           node --check downstream/scripts/validate-release.mjs
           node --check downstream/scripts/materialize-repair.mjs
+          node --check downstream/scripts/smoke-image-runtime.mjs
           node --test downstream/scripts/downstream-tools.test.mjs
           bash downstream/scripts/check-patch-series.sh downstream/patches/2026.7.1-2/series.json
 

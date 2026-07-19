@@ -158,6 +158,8 @@ jobs:
           file: downstream/Dockerfile.artifact
           platforms: linux/amd64
           build-args: |
+            CODEX_TARBALL_SHA256=${{ steps.release.outputs.codex_artifact_sha256 }}
+            CODEX_VERSION=${{ steps.release.outputs.codex_version }}
             OPENCLAW_TARBALL_SHA256=${{ steps.release.outputs.artifact_sha256 }}
             OPENCLAW_SOURCE_COMMIT=${{ steps.release.outputs.source_commit }}
             OPENCLAW_VERSION=${{ steps.release.outputs.version }}
@@ -167,14 +169,24 @@ jobs:
           sbom: ${{ inputs.publish }}
           provenance: ${{ inputs.publish && 'mode=max' || 'false' }}
 
-      - name: Smoke-test local image
-        if: ${{ !inputs.publish }}
+      - name: Smoke-test built image and baked Codex plugin
         env:
           IMAGE_TAG: ${{ steps.release.outputs.image_tag }}
+          CODEX_VERSION: ${{ steps.release.outputs.codex_version }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
-          docker run --rm --entrypoint openclaw "ghcr.io/ashleyhollis/openclaw:${IMAGE_TAG}" --version | grep -F "$VERSION"
+          image="ghcr.io/ashleyhollis/openclaw:${IMAGE_TAG}"
+          if [[ "${{ inputs.publish }}" == "true" ]]; then
+            docker pull "$image"
+          fi
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE/downstream/scripts/smoke-image-runtime.mjs:/tmp/smoke-image-runtime.mjs:ro" \
+            --env EXPECTED_CODEX_VERSION="$CODEX_VERSION" \
+            --env EXPECTED_OPENCLAW_VERSION="$VERSION" \
+            --entrypoint node \
+            "$image" \
+            /tmp/smoke-image-runtime.mjs
 
       - name: Scan image for fixable critical vulnerabilities
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
