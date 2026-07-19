@@ -262,7 +262,7 @@ test("validates packed runtime metadata before dependency installation", async (
   }
 });
 
-test("builds and smokes the exact Codex artifact inside the runtime image", async () => {
+test("builds and smokes the exact Codex and QMD artifacts inside the runtime image", async () => {
   const dockerfile = await readFile(
     path.join(repositoryRoot, "downstream/Dockerfile.artifact"),
     "utf8",
@@ -278,14 +278,24 @@ test("builds and smokes the exact Codex artifact inside the runtime image", asyn
   assert.match(dockerfile, /ARG CODEX_TARBALL_SHA256/u);
   assert.match(dockerfile, /COPY codex-current\.tgz/u);
   assert.match(dockerfile, /CODEX_TARBALL_SHA256.*sha256sum/u);
+  assert.match(dockerfile, /ARG QMD_TARBALL_SHA256/u);
+  assert.match(dockerfile, /COPY qmd-current\.tgz/u);
+  assert.match(dockerfile, /QMD_TARBALL_SHA256.*sha256sum/u);
+  assert.match(dockerfile, /npm install --prefix \/opt\/qmd-runtime/u);
+  assert.match(dockerfile, /\/opt\/qmd-runtime\/node_modules\/\.bin\/qmd/u);
   assert.match(dockerfile, /--install-strategy=nested/u);
   assert.match(dockerfile, /@openai\/codex.*0\.144\.3/u);
   assert.match(dockerfile, /\/opt\/openclaw-plugin-runtime/u);
   assert.match(workflow, /CODEX_TARBALL_SHA256=.*codex_artifact_sha256/u);
+  assert.match(workflow, /QMD_TARBALL_SHA256=.*qmd_artifact_sha256/u);
   assert.match(workflow, /validate-packed-metadata\.mjs[\s\S]*openclaw[\s\S]*\$VERSION/u);
   assert.match(
     workflow,
     /validate-packed-metadata\.mjs[\s\S]*@openclaw\/codex[\s\S]*\$CODEX_VERSION/u,
+  );
+  assert.match(
+    workflow,
+    /validate-packed-metadata\.mjs[\s\S]*@tobilu\/qmd[\s\S]*\$QMD_VERSION/u,
   );
   assert.match(workflow, /smoke-image-runtime\.mjs/u);
   assert.match(workflow, /docker run --rm[\s\S]*--network none/u);
@@ -299,6 +309,8 @@ test("builds and smokes the exact Codex artifact inside the runtime image", asyn
   assert.doesNotMatch(imageSmoke, /load:\s*\{ paths:/u);
   assert.match(imageSmoke, /rootDir !== managedPluginPath/u);
   assert.match(imageSmoke, /attempt < 120/u);
+  assert.match(imageSmoke, /EXPECTED_QMD_VERSION/u);
+  assert.match(imageSmoke, /qmd["], \["--version"\]/u);
 });
 
 test("rejects a candidate before build without affected clean-install proofs", async () => {

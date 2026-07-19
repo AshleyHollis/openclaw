@@ -8,8 +8,9 @@ import { spawn, spawnSync } from "node:child_process";
 
 const expectedOpenClawVersion = process.env.EXPECTED_OPENCLAW_VERSION;
 const expectedCodexVersion = process.env.EXPECTED_CODEX_VERSION;
-if (!expectedOpenClawVersion || !expectedCodexVersion) {
-  throw new Error("expected OpenClaw and Codex versions are required");
+const expectedQmdVersion = process.env.EXPECTED_QMD_VERSION;
+if (!expectedOpenClawVersion || !expectedCodexVersion || !expectedQmdVersion) {
+  throw new Error("expected OpenClaw, Codex, and QMD versions are required");
 }
 
 const imagePluginRuntimeRoot = "/opt/openclaw-plugin-runtime";
@@ -67,6 +68,25 @@ try {
     throw new Error(`unexpected OpenClaw version: ${version.trim()}`);
   }
 
+  const qmd = spawnSync("qmd", ["--version"], { encoding: "utf8", env: environment });
+  if (qmd.status !== 0 || !qmd.stdout.includes(`qmd ${expectedQmdVersion}`)) {
+    throw new Error(`unexpected QMD version: ${(qmd.stdout || qmd.stderr).trim()}`);
+  }
+  const qmdRoot = "/opt/qmd-runtime/node_modules/@tobilu/qmd";
+  const qmdManifest = JSON.parse(await readFile(path.join(qmdRoot, "package.json"), "utf8"));
+  const qmdShrinkwrap = JSON.parse(
+    await readFile(path.join(qmdRoot, "npm-shrinkwrap.json"), "utf8"),
+  );
+  if (
+    qmdManifest.name !== "@tobilu/qmd" ||
+    qmdManifest.version !== expectedQmdVersion ||
+    qmdShrinkwrap.name !== qmdManifest.name ||
+    qmdShrinkwrap.version !== qmdManifest.version ||
+    qmdShrinkwrap.packages?.[""]?.version !== qmdManifest.version
+  ) {
+    throw new Error("QMD image runtime metadata disagrees");
+  }
+
   const inspected = runOpenClaw(["plugins", "inspect", "codex", "--json"], environment);
   const inspection = JSON.parse(inspected.stdout);
   if (inspection.plugin?.status !== "loaded") {
@@ -120,7 +140,7 @@ try {
       `scoped loopback RPC failed (gateway exit=${String(gateway.exitCode)}, signal=${String(gateway.signalCode)}): ${redact(lastRpcError)}\n${redact(log)}`,
     );
   }
-  console.log("Exact image, baked Codex plugin, and scoped loopback RPC passed");
+  console.log("Exact image, baked Codex plugin, QMD runtime, and scoped loopback RPC passed");
 } finally {
   if (gateway?.exitCode === null) {
     gateway.kill("SIGTERM");

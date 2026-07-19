@@ -44,6 +44,9 @@ jobs:
           const codex = manifest.externalPlugins.find((plugin) => plugin.id === "codex");
           if (!codex) throw new Error("release manifest must freeze the Codex external plugin");
           if (!codex.artifact) throw new Error("release manifest must pin a patched Codex artifact");
+          const qmd = manifest.runtimeTools?.find((tool) => tool.id === "qmd");
+          if (!qmd) throw new Error("release manifest must freeze the QMD runtime");
+          if (!qmd.artifact) throw new Error("release manifest must pin a QMD artifact");
           const values = {
             artifact_sha256: manifest.artifact.sha256,
             artifact_url: manifest.artifact.url,
@@ -54,6 +57,12 @@ jobs:
             codex_tarball: codex.tarball,
             codex_version: codex.version,
             image_tag: `nas-${manifest.releaseId.replace("+", "-")}`,
+            qmd_artifact_sha256: qmd.artifact.sha256,
+            qmd_artifact_url: qmd.artifact.url,
+            qmd_integrity: qmd.integrity,
+            qmd_package: qmd.package,
+            qmd_tarball: qmd.tarball,
+            qmd_version: qmd.version,
             source_commit: manifest.source.commit,
             version: manifest.npm.version,
           };
@@ -66,19 +75,29 @@ jobs:
           CODEX_PACKAGE: ${{ steps.release.outputs.codex_package }}
           CODEX_TARBALL: ${{ steps.release.outputs.codex_tarball }}
           CODEX_VERSION: ${{ steps.release.outputs.codex_version }}
+          QMD_INTEGRITY: ${{ steps.release.outputs.qmd_integrity }}
+          QMD_PACKAGE: ${{ steps.release.outputs.qmd_package }}
+          QMD_TARBALL: ${{ steps.release.outputs.qmd_tarball }}
+          QMD_VERSION: ${{ steps.release.outputs.qmd_version }}
         run: |
           set -euo pipefail
           npm view "$CODEX_PACKAGE@$CODEX_VERSION" version dist.integrity dist.tarball --json > "$RUNNER_TEMP/codex-registry.json"
+          npm view "$QMD_PACKAGE@$QMD_VERSION" version dist.integrity dist.tarball --json > "$RUNNER_TEMP/qmd-registry.json"
           node <<'NODE'
           const fs = require("node:fs");
-          const current = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/codex-registry.json`, "utf8"));
-          const expected = {
-            version: process.env.CODEX_VERSION,
-            "dist.integrity": process.env.CODEX_INTEGRITY,
-            "dist.tarball": process.env.CODEX_TARBALL,
-          };
-          for (const [field, value] of Object.entries(expected)) {
-            if (current[field] !== value) throw new Error(`Codex registry ${field} changed`);
+          for (const runtime of [
+            { id: "Codex", file: "codex-registry.json", prefix: "CODEX" },
+            { id: "QMD", file: "qmd-registry.json", prefix: "QMD" },
+          ]) {
+            const current = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/${runtime.file}`, "utf8"));
+            const expected = {
+              version: process.env[`${runtime.prefix}_VERSION`],
+              "dist.integrity": process.env[`${runtime.prefix}_INTEGRITY`],
+              "dist.tarball": process.env[`${runtime.prefix}_TARBALL`],
+            };
+            for (const [field, value] of Object.entries(expected)) {
+              if (current[field] !== value) throw new Error(`${runtime.id} registry ${field} changed`);
+            }
           }
           NODE
 
@@ -117,6 +136,23 @@ jobs:
             /tmp/codex-shrinkwrap.json \
             @openclaw/codex \
             "$CODEX_VERSION"
+
+      - name: Download and verify exact QMD runtime tarball
+        env:
+          QMD_ARTIFACT_SHA256: ${{ steps.release.outputs.qmd_artifact_sha256 }}
+          QMD_ARTIFACT_URL: ${{ steps.release.outputs.qmd_artifact_url }}
+          QMD_VERSION: ${{ steps.release.outputs.qmd_version }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --proto '=https' --tlsv1.2 "$QMD_ARTIFACT_URL" --output qmd-current.tgz
+          printf '%s  %s\n' "$QMD_ARTIFACT_SHA256" qmd-current.tgz | sha256sum -c -
+          tar -xOf qmd-current.tgz package/package.json > /tmp/qmd-package.json
+          tar -xOf qmd-current.tgz package/npm-shrinkwrap.json > /tmp/qmd-shrinkwrap.json
+          node downstream/scripts/validate-packed-metadata.mjs \
+            /tmp/qmd-package.json \
+            /tmp/qmd-shrinkwrap.json \
+            @tobilu/qmd \
+            "$QMD_VERSION"
 
       - name: Smoke-test exact tarball
         env:
@@ -172,6 +208,8 @@ jobs:
             OPENCLAW_TARBALL_SHA256=${{ steps.release.outputs.artifact_sha256 }}
             OPENCLAW_SOURCE_COMMIT=${{ steps.release.outputs.source_commit }}
             OPENCLAW_VERSION=${{ steps.release.outputs.version }}
+            QMD_TARBALL_SHA256=${{ steps.release.outputs.qmd_artifact_sha256 }}
+            QMD_VERSION=${{ steps.release.outputs.qmd_version }}
           tags: ghcr.io/ashleyhollis/openclaw:${{ steps.release.outputs.image_tag }}
           push: ${{ inputs.publish }}
           load: ${{ !inputs.publish }}
@@ -182,6 +220,7 @@ jobs:
         env:
           IMAGE_TAG: ${{ steps.release.outputs.image_tag }}
           CODEX_VERSION: ${{ steps.release.outputs.codex_version }}
+          QMD_VERSION: ${{ steps.release.outputs.qmd_version }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
@@ -194,6 +233,7 @@ jobs:
             --volume "$GITHUB_WORKSPACE/downstream/scripts/smoke-image-runtime.mjs:/tmp/smoke-image-runtime.mjs:ro" \
             --env EXPECTED_CODEX_VERSION="$CODEX_VERSION" \
             --env EXPECTED_OPENCLAW_VERSION="$VERSION" \
+            --env EXPECTED_QMD_VERSION="$QMD_VERSION" \
             --entrypoint node \
             "$image" \
             /tmp/smoke-image-runtime.mjs

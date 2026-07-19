@@ -6,6 +6,8 @@ ARG CODEX_TARBALL_SHA256
 ARG CODEX_VERSION
 ARG OPENCLAW_SOURCE_COMMIT
 ARG OPENCLAW_VERSION
+ARG QMD_TARBALL_SHA256
+ARG QMD_VERSION
 
 LABEL org.opencontainers.image.source="https://github.com/AshleyHollis/openclaw" \
   org.opencontainers.image.revision="${OPENCLAW_SOURCE_COMMIT}" \
@@ -23,6 +25,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 WORKDIR /app
 COPY openclaw-current.tgz /tmp/openclaw-current.tgz
 COPY codex-current.tgz /tmp/codex-current.tgz
+COPY qmd-current.tgz /tmp/qmd-current.tgz
 
 RUN test -n "$OPENCLAW_TARBALL_SHA256" && \
     printf '%s  %s\n' "$OPENCLAW_TARBALL_SHA256" /tmp/openclaw-current.tgz | sha256sum -c - && \
@@ -43,10 +46,25 @@ RUN test -n "$CODEX_TARBALL_SHA256" && \
     rm -f /tmp/codex-current.tgz && \
     npm cache clean --force
 
+RUN test -n "$QMD_TARBALL_SHA256" && \
+    test -n "$QMD_VERSION" && \
+    printf '%s  %s\n' "$QMD_TARBALL_SHA256" /tmp/qmd-current.tgz | sha256sum -c - && \
+    npm install --prefix /opt/qmd-runtime \
+      --install-strategy=nested --omit=dev --ignore-scripts=false --no-audit --no-fund \
+      /tmp/qmd-current.tgz && \
+    test "$(node -p "require('/opt/qmd-runtime/node_modules/@tobilu/qmd/package.json').version")" = "$QMD_VERSION" && \
+    node -e "const fs=require('node:fs');const root='/opt/qmd-runtime/node_modules/@tobilu/qmd';const manifest=JSON.parse(fs.readFileSync(root+'/package.json','utf8'));const shrinkwrap=JSON.parse(fs.readFileSync(root+'/npm-shrinkwrap.json','utf8'));if(manifest.name!=='@tobilu/qmd'||manifest.version!==process.env.QMD_VERSION||shrinkwrap.name!==manifest.name||shrinkwrap.version!==manifest.version||shrinkwrap.packages?.['']?.version!==manifest.version)throw new Error('QMD runtime metadata mismatch')" && \
+    /opt/qmd-runtime/node_modules/.bin/qmd --version | grep -F "qmd $QMD_VERSION" && \
+    ln -s /opt/qmd-runtime/node_modules/.bin/qmd /usr/local/bin/qmd && \
+    chmod -R go-w /opt/qmd-runtime && \
+    rm -f /tmp/qmd-current.tgz && \
+    npm cache clean --force
+
 RUN install -d -m 0755 -o node -g node /home/node/.config && \
     install -d -m 0700 -o node -g node \
       /home/node/.openclaw \
       /home/node/.openclaw/workspace \
+      /home/node/.cache/qmd/models \
       /home/node/.config/openclaw && \
     chown -R node:node /app
 
