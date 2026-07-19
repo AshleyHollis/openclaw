@@ -186,6 +186,7 @@ test("validates the release manifest and patch hashes", () => {
       "downstream/releases/2026.7.1-2.json",
       "downstream/releases/2026.7.1-2-nas.2.json",
       "downstream/releases/2026.7.1-2-nas.3.json",
+      "downstream/releases/2026.7.1-2-nas.4.json",
     ],
     { cwd: repositoryRoot, encoding: "utf8" },
   );
@@ -193,6 +194,7 @@ test("validates the release manifest and patch hashes", () => {
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.1 \(blocked\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.2 \(blocked\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.3 \(blocked\)/u);
+  assert.match(result.stdout, /2026\.7\.1-2\+nas\.4 \(candidate\)/u);
 });
 
 test("builds and smokes the exact Codex artifact inside the runtime image", async () => {
@@ -222,15 +224,12 @@ test("keeps the latest pointer aligned with the selected manifest", async () => 
     await readFile(path.join(repositoryRoot, pointer.releaseManifest), "utf8"),
   );
   assert.equal(pointer.status, manifest.status);
-  assert.equal(manifest.status, "blocked");
-  assert.match(manifest.blockingIssues[0], /did not install.*Codex plugin artifact/u);
+  assert.equal(manifest.status, "candidate");
   assert.equal(manifest.artifact.validation.externalPluginRegistration, true);
   assert.equal(manifest.artifact.validation.scopedLoopbackRpc, true);
   assert.equal(manifest.artifact.validation.dependencyMetadataCheck, true);
-  assert.equal(manifest.artifact.validation.imageSmoke, true);
-  assert.equal(manifest.artifact.validation.imageScan, true);
-  assert.match(manifest.externalPlugins[0].artifact.url, /nas-v2026\.7\.1-2\.3/u);
-  for (const field of ["digest", "attestationDigest", "sbomDigest", "provenanceDigest"]) {
-    assert.match(manifest.image[field], /^sha256:[0-9a-f]{64}$/u);
-  }
+  assert.equal(manifest.artifact.validation.imageSmoke, false);
+  assert.equal(manifest.artifact.validation.imageScan, false);
+  assert.match(manifest.externalPlugins[0].artifact.url, /nas-v2026\.7\.1-2\.4/u);
+  assert.equal(manifest.image.digest, undefined);
 });
