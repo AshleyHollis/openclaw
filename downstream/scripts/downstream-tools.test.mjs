@@ -185,12 +185,14 @@ test("validates the release manifest and patch hashes", () => {
       validateScript,
       "downstream/releases/2026.7.1-2.json",
       "downstream/releases/2026.7.1-2-nas.2.json",
+      "downstream/releases/2026.7.1-2-nas.3.json",
     ],
     { cwd: repositoryRoot, encoding: "utf8" },
   );
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.1 \(blocked\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.2 \(blocked\)/u);
+  assert.match(result.stdout, /2026\.7\.1-2\+nas\.3 \(qualified\)/u);
 });
 
 test("keeps the latest pointer aligned with the selected manifest", async () => {
@@ -202,10 +204,14 @@ test("keeps the latest pointer aligned with the selected manifest", async () => 
     await readFile(path.join(repositoryRoot, pointer.releaseManifest), "utf8"),
   );
   assert.equal(pointer.status, manifest.status);
-  assert.equal(manifest.status, "blocked");
-  assert.ok(manifest.blockingIssues.length > 0);
+  assert.equal(manifest.status, "qualified");
   assert.equal(manifest.artifact.validation.externalPluginRegistration, true);
   assert.equal(manifest.artifact.validation.scopedLoopbackRpc, true);
-  assert.equal(manifest.artifact.validation.dependencyMetadataCheck, false);
-  assert.match(manifest.externalPlugins[0].artifact.url, /nas-v2026\.7\.1-2\.2/u);
+  assert.equal(manifest.artifact.validation.dependencyMetadataCheck, true);
+  assert.equal(manifest.artifact.validation.imageSmoke, true);
+  assert.equal(manifest.artifact.validation.imageScan, true);
+  assert.match(manifest.externalPlugins[0].artifact.url, /nas-v2026\.7\.1-2\.3/u);
+  for (const field of ["digest", "attestationDigest", "sbomDigest", "provenanceDigest"]) {
+    assert.match(manifest.image[field], /^sha256:[0-9a-f]{64}$/u);
+  }
 });
