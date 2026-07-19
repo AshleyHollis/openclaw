@@ -287,6 +287,68 @@ describe("generate-npm-shrinkwrap", () => {
     });
   });
 
+  it("restores dependency-required entries misresolved by npm when they remain pnpm locked", () => {
+    const generated = {
+      packages: {
+        "": {},
+        "node_modules/cross-spawn/node_modules/which": {
+          version: "2.0.2",
+          dependencies: {
+            isexe: "^2.0.0",
+          },
+        },
+        "node_modules/isexe": {
+          version: "2.0.0",
+        },
+        "node_modules/which": {
+          version: "6.0.1",
+          dependencies: {
+            isexe: "^4.0.0",
+          },
+        },
+      },
+    };
+    const current = {
+      packages: {
+        "": {},
+        "node_modules/cross-spawn/node_modules/isexe": {
+          version: "2.0.0",
+          resolved: "https://registry.npmjs.org/isexe/-/isexe-2.0.0.tgz",
+          integrity: "sha512-nested-current",
+        },
+        "node_modules/cross-spawn/node_modules/which":
+          generated.packages["node_modules/cross-spawn/node_modules/which"],
+        "node_modules/which": generated.packages["node_modules/which"],
+        "node_modules/isexe": {
+          version: "4.0.0",
+          resolved: "https://registry.npmjs.org/isexe/-/isexe-4.0.0.tgz",
+          integrity: "sha512-current",
+        },
+        "node_modules/orphan": {
+          version: "1.0.0",
+        },
+      },
+    };
+
+    expect(
+      restoreCurrentPnpmLockedPackages(
+        generated,
+        current,
+        new Set(["which@2.0.2", "which@6.0.1", "isexe@2.0.0", "isexe@4.0.0", "orphan@1.0.0"]),
+      ),
+    ).toEqual({
+      packages: {
+        "": {},
+        "node_modules/cross-spawn/node_modules/isexe":
+          current.packages["node_modules/cross-spawn/node_modules/isexe"],
+        "node_modules/cross-spawn/node_modules/which":
+          generated.packages["node_modules/cross-spawn/node_modules/which"],
+        "node_modules/which": generated.packages["node_modules/which"],
+        "node_modules/isexe": current.packages["node_modules/isexe"],
+      },
+    });
+  });
+
   it("does not restore versions that no longer satisfy the dependency edge", () => {
     const generated = {
       packages: {
