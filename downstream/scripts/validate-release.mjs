@@ -142,6 +142,44 @@ async function validateRelease(manifestPath) {
       );
     }
   }
+  if (manifest.runtimeTools !== undefined) {
+    requireCondition(
+      Array.isArray(manifest.runtimeTools) && manifest.runtimeTools.length > 0,
+      "runtimeTools must not be empty when present",
+    );
+    const runtimeToolIds = new Set();
+    for (const [index, tool] of manifest.runtimeTools.entries()) {
+      const label = `runtimeTools[${index}]`;
+      requireString(tool?.id, `${label}.id`);
+      requireCondition(!runtimeToolIds.has(tool.id), `${label}.id must be unique`);
+      runtimeToolIds.add(tool.id);
+      requireCondition(
+        /^@[a-z0-9-]+\/[a-z0-9-]+$/u.test(tool?.package ?? ""),
+        `${label}.package is invalid`,
+      );
+      requireString(tool?.version, `${label}.version`);
+      requireCondition(
+        tool?.integrity?.startsWith("sha512-"),
+        `${label}.integrity must be sha512 SRI`,
+      );
+      requireCondition(
+        tool?.tarball?.startsWith("https://registry.npmjs.org/"),
+        `${label}.tarball must be an official npm registry URL`,
+      );
+      requireCondition(tool?.artifact && typeof tool.artifact === "object", `${label}.artifact is required`);
+      requireString(tool.artifact.filename, `${label}.artifact.filename`);
+      requireCondition(
+        tool.artifact.url?.startsWith(
+          "https://github.com/AshleyHollis/openclaw/releases/download/",
+        ),
+        `${label}.artifact.url must be an AshleyHollis/openclaw release asset`,
+      );
+      requireCondition(
+        sha256Pattern.test(tool.artifact.sha256 ?? ""),
+        `${label}.artifact.sha256 is invalid`,
+      );
+    }
+  }
   requireCondition(
     Array.isArray(manifest.patches) && manifest.patches.length > 0,
     "patches must not be empty",
@@ -217,6 +255,12 @@ async function validateRelease(manifestPath) {
       manifest.artifact?.validation?.imageScan === true,
       "qualified release requires image scan proof",
     );
+    if (manifest.runtimeTools?.some((tool) => tool.id === "qmd")) {
+      requireCondition(
+        manifest.artifact?.validation?.qmdRuntime === true,
+        "qualified release with QMD requires QMD runtime proof",
+      );
+    }
     for (const result of ["downstreamGuard", "dryRun", "publish"]) {
       requireCondition(
         manifest.testResults?.[result]?.startsWith(
