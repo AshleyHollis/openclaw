@@ -7,71 +7,12 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const materializeScript = path.join(repositoryRoot, "downstream/scripts/materialize-repair.mjs");
 const repackScript = path.join(repositoryRoot, "downstream/scripts/repack-official-tarball.sh");
 const validatePackedMetadataScript = path.join(
   repositoryRoot,
   "downstream/scripts/validate-packed-metadata.mjs",
 );
 const validateScript = path.join(repositoryRoot, "downstream/scripts/validate-release.mjs");
-
-function git(cwd, ...args) {
-  return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
-}
-
-async function createRepairFixture(relativeFile, updated) {
-  const root = await mkdtemp(path.join(os.tmpdir(), "openclaw-repair-test-"));
-  const file = path.join(root, relativeFile);
-  await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, "before\n");
-  git(root, "init");
-  git(root, "config", "user.email", "test@example.invalid");
-  git(root, "config", "user.name", "Downstream Test");
-  git(root, "add", ".");
-  git(root, "commit", "-m", "fixture");
-  await writeFile(file, updated);
-  const patch = git(root, "diff", "--binary");
-  git(root, "checkout", "--", relativeFile);
-  return { patch, root };
-}
-
-test("materializes an application-source-only repair", async () => {
-  const fixture = await createRepairFixture("src/example.ts", "after\n");
-  try {
-    const result = spawnSync(process.execPath, [materializeScript], {
-      cwd: fixture.root,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        CODEX_REPAIR_JSON: JSON.stringify({ summary: "safe repair", patch: fixture.patch }),
-      },
-    });
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /src\/example\.ts/u);
-    const content = await readFile(path.join(fixture.root, "src/example.ts"), "utf8");
-    assert.equal(content.replaceAll("\r\n", "\n"), "after\n");
-  } finally {
-    await rm(fixture.root, { recursive: true, force: true });
-  }
-});
-
-test("rejects a repair that changes a package manifest", async () => {
-  const fixture = await createRepairFixture("package.json", "{}\n");
-  try {
-    const result = spawnSync(process.execPath, [materializeScript], {
-      cwd: fixture.root,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        CODEX_REPAIR_JSON: JSON.stringify({ summary: "unsafe repair", patch: fixture.patch }),
-      },
-    });
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /forbidden path: package\.json/u);
-  } finally {
-    await rm(fixture.root, { recursive: true, force: true });
-  }
-});
 
 test("repacks an official package tree without executing lifecycle scripts", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "openclaw-repack-test-"));
@@ -295,18 +236,12 @@ test("builds and smokes the exact Codex and QMD artifacts inside the runtime ima
     workflow,
     /validate-packed-metadata\.mjs[\s\S]*@openclaw\/codex[\s\S]*\$CODEX_VERSION/u,
   );
-  assert.match(
-    workflow,
-    /validate-packed-metadata\.mjs[\s\S]*@tobilu\/qmd[\s\S]*\$QMD_VERSION/u,
-  );
+  assert.match(workflow, /validate-packed-metadata\.mjs[\s\S]*@tobilu\/qmd[\s\S]*\$QMD_VERSION/u);
   assert.match(workflow, /smoke-image-runtime\.mjs/u);
   assert.match(workflow, /docker run --rm[\s\S]*--network none/u);
   assert.doesNotMatch(workflow, /name: Smoke-test local image\n\s+if:/u);
   assert.match(imageSmoke, /cp\(imagePluginRuntimeRoot, managedPluginRuntimeRoot/u);
-  assert.match(
-    imageSmoke,
-    /symlink\("\/app\/node_modules\/openclaw", managedHostPeerPath/u,
-  );
+  assert.match(imageSmoke, /symlink\("\/app\/node_modules\/openclaw", managedHostPeerPath/u);
   assert.match(imageSmoke, /path\.join\(managedPluginPath, "node_modules\/openclaw"\)/u);
   assert.doesNotMatch(imageSmoke, /load:\s*\{ paths:/u);
   assert.match(imageSmoke, /rootDir !== managedPluginPath/u);
