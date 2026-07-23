@@ -134,6 +134,7 @@ test("validates the release manifest and patch hashes", () => {
       "downstream/releases/2026.7.1-2-nas.4.json",
       "downstream/releases/2026.7.1-2-nas.5.json",
       "downstream/releases/2026.7.1-2-nas.6.json",
+      "downstream/releases/2026.7.1-2-nas.7.json",
     ],
     { cwd: repositoryRoot, encoding: "utf8" },
   );
@@ -144,6 +145,7 @@ test("validates the release manifest and patch hashes", () => {
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.4 \(blocked\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.5 \(qualified\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.6 \(qualified\)/u);
+  assert.match(result.stdout, /2026\.7\.1-2\+nas\.7 \(qualified\)/u);
 });
 
 test("validates packed runtime metadata before dependency installation", async () => {
@@ -229,6 +231,14 @@ test("builds and smokes the exact Codex and QMD artifacts inside the runtime ima
   assert.match(dockerfile, /--install-strategy=nested/u);
   assert.match(dockerfile, /@openai\/codex.*0\.144\.3/u);
   assert.match(dockerfile, /\/opt\/openclaw-plugin-runtime/u);
+  assert.match(dockerfile, /python3-requests/u);
+  assert.match(dockerfile, /chromium/u);
+  assert.match(dockerfile, /npm install --global npm@12\.0\.1/u);
+  assert.match(dockerfile, /npm\/node_modules\/tar\/package\.json/u);
+  assert.match(
+    dockerfile,
+    /ln -s \/app\/node_modules\/openclaw \/opt\/openclaw-plugin-runtime\/node_modules\/@openclaw\/codex\/node_modules\/openclaw/u,
+  );
   assert.match(workflow, /CODEX_TARBALL_SHA256=.*codex_artifact_sha256/u);
   assert.match(workflow, /QMD_TARBALL_SHA256=.*qmd_artifact_sha256/u);
   assert.match(workflow, /validate-packed-metadata\.mjs[\s\S]*openclaw[\s\S]*\$VERSION/u);
@@ -241,8 +251,14 @@ test("builds and smokes the exact Codex and QMD artifacts inside the runtime ima
   assert.match(workflow, /docker run --rm[\s\S]*--network none/u);
   assert.doesNotMatch(workflow, /name: Smoke-test local image\n\s+if:/u);
   assert.match(imageSmoke, /cp\(imagePluginRuntimeRoot, managedPluginRuntimeRoot/u);
-  assert.match(imageSmoke, /symlink\("\/app\/node_modules\/openclaw", managedHostPeerPath/u);
   assert.match(imageSmoke, /path\.join\(managedPluginPath, "node_modules\/openclaw"\)/u);
+  assert.match(imageSmoke, /lstat\(managedHostPeerPath\)/u);
+  assert.match(imageSmoke, /python3["], \["-c", "import requests"\]/u);
+  assert.match(imageSmoke, /npm["], \["--version"\]/u);
+  assert.match(imageSmoke, /npm\/node_modules\/tar\/package\.json/u);
+  assert.match(imageSmoke, /chromium["], \["--version"\]/u);
+  assert.match(imageSmoke, /--dump-dom/u);
+  assert.match(imageSmoke, /OpenClawBrowserSmoke/u);
   assert.doesNotMatch(imageSmoke, /load:\s*\{ paths:/u);
   assert.match(imageSmoke, /rootDir !== managedPluginPath/u);
   assert.match(imageSmoke, /attempt < 120/u);
@@ -280,7 +296,7 @@ test("keeps the latest pointer aligned with the selected manifest", async () => 
     await readFile(path.join(repositoryRoot, "downstream/releases/latest.json"), "utf8"),
   );
   assert.match(pointer.releaseManifest, /^downstream\/releases\/[0-9A-Za-z._+-]+\.json$/u);
-  assert.equal(pointer.releaseManifest, "downstream/releases/2026.7.1-2-nas.6.json");
+  assert.equal(pointer.releaseManifest, "downstream/releases/2026.7.1-2-nas.7.json");
   const manifest = JSON.parse(
     await readFile(path.join(repositoryRoot, pointer.releaseManifest), "utf8"),
   );
@@ -311,18 +327,18 @@ test("keeps the latest pointer aligned with the selected manifest", async () => 
   assert.match(manifest.externalPlugins[0].artifact.url, /nas-v2026\.7\.1-2\.6/u);
   assert.equal(
     manifest.image.digest,
-    "sha256:a6c056dc2c86b2b61d3952713915a1e030b8010625514180284978c7bc1036e9",
+    "sha256:4a10348b997381fc294281375c1f208fbd6208abd7fb6b274053d572c93b8e79",
   );
   assert.equal(
     manifest.image.attestationDigest,
-    "sha256:5b909dbd4ec7aaceb2260be2136c51d9c2e3c39e2def68ca9da5b90106798c24",
+    "sha256:1173f4685910667c5e679dd35d2f717918a5c25d64b7d9292104345b01faf18d",
   );
   assert.equal(
     manifest.image.sbomDigest,
-    "sha256:4f05686dd0e55fa0b09c53fc29cdadde5353e8de6aa3e6b25073dd631169b60f",
+    "sha256:88fe75e5f48d244101dff4250cb0116ba70a8a480240885ac7391211278d95d9",
   );
   assert.equal(
     manifest.image.provenanceDigest,
-    "sha256:7f34d5bdbf43f7c42eac6acbe1cb04e344fd7ec4fe3d1d6c5c93c77fee012873",
+    "sha256:e9c4fe3a118eec55fd477f1807d7e5f9f247093f72e369ea8ed087a2777dcb4e",
   );
 });

@@ -1,10 +1,10 @@
+import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { closeSync, openSync } from "node:fs";
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { spawn, spawnSync } from "node:child_process";
 
 const expectedOpenClawVersion = process.env.EXPECTED_OPENCLAW_VERSION;
 const expectedCodexVersion = process.env.EXPECTED_CODEX_VERSION;
@@ -17,10 +17,7 @@ const imagePluginRuntimeRoot = "/opt/openclaw-plugin-runtime";
 const root = await mkdtemp(path.join(os.tmpdir(), "openclaw-image-smoke-"));
 const stateDir = path.join(root, "state");
 const managedPluginRuntimeRoot = path.join(stateDir, "npm");
-const managedPluginPath = path.join(
-  managedPluginRuntimeRoot,
-  "node_modules/@openclaw/codex",
-);
+const managedPluginPath = path.join(managedPluginRuntimeRoot, "node_modules/@openclaw/codex");
 const managedHostPeerPath = path.join(managedPluginPath, "node_modules/openclaw");
 const configPath = path.join(stateDir, "openclaw.json");
 const gatewayLog = path.join(root, "gateway.log");
@@ -38,6 +35,9 @@ let gateway;
 let gatewayLogFd;
 try {
   await mkdir(environment.HOME, { recursive: true });
+  await mkdir(path.join(environment.HOME, ".config/chromium/Crash Reports/pending"), {
+    recursive: true,
+  });
   await mkdir(stateDir, { recursive: true });
   await validateAndHydrateImagePluginRuntime();
   const port = await reserveLoopbackPort();
@@ -71,6 +71,54 @@ try {
   const qmd = spawnSync("qmd", ["--version"], { encoding: "utf8", env: environment });
   if (qmd.status !== 0 || !qmd.stdout.includes(`qmd ${expectedQmdVersion}`)) {
     throw new Error(`unexpected QMD version: ${(qmd.stdout || qmd.stderr).trim()}`);
+  }
+  const pythonRequests = spawnSync("python3", ["-c", "import requests"], {
+    encoding: "utf8",
+    env: environment,
+  });
+  if (pythonRequests.status !== 0) {
+    throw new Error(`Python requests import failed: ${pythonRequests.stderr.trim()}`);
+  }
+  const npm = spawnSync("npm", ["--version"], {
+    encoding: "utf8",
+    env: environment,
+  });
+  if (npm.status !== 0 || npm.stdout.trim() !== "12.0.1") {
+    throw new Error(`unexpected npm runtime: ${(npm.stdout || npm.stderr).trim()}`);
+  }
+  const npmTar = JSON.parse(
+    await readFile("/usr/local/lib/node_modules/npm/node_modules/tar/package.json", "utf8"),
+  );
+  if (npmTar.version !== "7.5.19") {
+    throw new Error(`vulnerable npm tar runtime: ${npmTar.version}`);
+  }
+  const chromium = spawnSync("chromium", ["--version"], {
+    encoding: "utf8",
+    env: environment,
+  });
+  if (chromium.status !== 0 || !chromium.stdout.includes("Chromium")) {
+    throw new Error(
+      `Chromium runtime is unavailable: ${(chromium.stdout || chromium.stderr).trim()}`,
+    );
+  }
+  const chromiumLaunch = spawnSync(
+    "chromium",
+    [
+      "--headless=new",
+      "--no-sandbox",
+      "--disable-gpu",
+      "--disable-dev-shm-usage",
+      `--user-data-dir=${path.join(root, "chromium")}`,
+      "--dump-dom",
+      "data:text/html,%3Ctitle%3EOpenClawBrowserSmoke%3C/title%3E",
+    ],
+    { encoding: "utf8", env: environment },
+  );
+  if (
+    chromiumLaunch.status !== 0 ||
+    !chromiumLaunch.stdout.includes("<title>OpenClawBrowserSmoke</title>")
+  ) {
+    throw new Error(`Chromium headless launch failed: ${chromiumLaunch.stderr.trim()}`);
   }
   const qmdRoot = "/opt/qmd-runtime/node_modules/@tobilu/qmd";
   const qmdManifest = JSON.parse(await readFile(path.join(qmdRoot, "package.json"), "utf8"));
@@ -179,7 +227,13 @@ async function validateAndHydrateImagePluginRuntime() {
     errorOnExist: true,
     force: false,
   });
-  await symlink("/app/node_modules/openclaw", managedHostPeerPath, "dir");
+  const hostPeerMetadata = await lstat(managedHostPeerPath);
+  if (!hostPeerMetadata.isSymbolicLink()) {
+    throw new Error("Codex host peer is not an image-owned symbolic link");
+  }
+  if ((await readlink(managedHostPeerPath)) !== "/app/node_modules/openclaw") {
+    throw new Error("Codex host peer points outside the packaged OpenClaw runtime");
+  }
   const rootManifestPath = path.join(managedPluginRuntimeRoot, "package.json");
   const rootManifest = JSON.parse(await readFile(rootManifestPath, "utf8"));
   rootManifest.dependencies = {
@@ -200,7 +254,11 @@ function runOpenClaw(args, env) {
 }
 
 function assertNoPluginLoadError(output) {
-  if (/(\[plugins\].*(failed|error)|codex.*(failed|error)|TypeError:.*openSyncKeyedStore)/iu.test(output)) {
+  if (
+    /(\[plugins\].*(failed|error)|codex.*(failed|error)|TypeError:.*openSyncKeyedStore)/iu.test(
+      output,
+    )
+  ) {
     throw new Error(`Codex plugin registration failed: ${redact(output)}`);
   }
 }
@@ -220,6 +278,8 @@ async function reserveLoopbackPort() {
     server.close();
     throw new Error("failed to reserve a loopback port");
   }
-  await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  await new Promise((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
   return address.port;
 }
