@@ -79,6 +79,19 @@ try {
   if (pythonRequests.status !== 0) {
     throw new Error(`Python requests import failed: ${pythonRequests.stderr.trim()}`);
   }
+  const npm = spawnSync("npm", ["--version"], {
+    encoding: "utf8",
+    env: environment,
+  });
+  if (npm.status !== 0 || npm.stdout.trim() !== "12.0.1") {
+    throw new Error(`unexpected npm runtime: ${(npm.stdout || npm.stderr).trim()}`);
+  }
+  const npmTar = JSON.parse(
+    await readFile("/usr/local/lib/node_modules/npm/node_modules/tar/package.json", "utf8"),
+  );
+  if (npmTar.version !== "7.5.19") {
+    throw new Error(`vulnerable npm tar runtime: ${npmTar.version}`);
+  }
   const chromium = spawnSync("chromium", ["--version"], {
     encoding: "utf8",
     env: environment,

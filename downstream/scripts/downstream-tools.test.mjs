@@ -233,6 +233,8 @@ test("builds and smokes the exact Codex and QMD artifacts inside the runtime ima
   assert.match(dockerfile, /\/opt\/openclaw-plugin-runtime/u);
   assert.match(dockerfile, /python3-requests/u);
   assert.match(dockerfile, /chromium/u);
+  assert.match(dockerfile, /npm install --global npm@12\.0\.1/u);
+  assert.match(dockerfile, /npm\/node_modules\/tar\/package\.json/u);
   assert.match(
     dockerfile,
     /ln -s \/app\/node_modules\/openclaw \/opt\/openclaw-plugin-runtime\/node_modules\/@openclaw\/codex\/node_modules\/openclaw/u,
@@ -252,6 +254,8 @@ test("builds and smokes the exact Codex and QMD artifacts inside the runtime ima
   assert.match(imageSmoke, /path\.join\(managedPluginPath, "node_modules\/openclaw"\)/u);
   assert.match(imageSmoke, /lstat\(managedHostPeerPath\)/u);
   assert.match(imageSmoke, /python3["], \["-c", "import requests"\]/u);
+  assert.match(imageSmoke, /npm["], \["--version"\]/u);
+  assert.match(imageSmoke, /npm\/node_modules\/tar\/package\.json/u);
   assert.match(imageSmoke, /chromium["], \["--version"\]/u);
   assert.match(imageSmoke, /--dump-dom/u);
   assert.match(imageSmoke, /OpenClawBrowserSmoke/u);
