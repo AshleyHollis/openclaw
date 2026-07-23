@@ -6,7 +6,7 @@ on:
       release_manifest:
         description: Release manifest to build
         required: true
-        default: downstream/releases/2026.7.1-2-nas.6.json
+        default: downstream/releases/2026.7.1-2-nas.7.json
         type: string
       publish:
         description: Publish the verified image to GHCR

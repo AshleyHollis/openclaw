@@ -134,6 +134,7 @@ test("validates the release manifest and patch hashes", () => {
       "downstream/releases/2026.7.1-2-nas.4.json",
       "downstream/releases/2026.7.1-2-nas.5.json",
       "downstream/releases/2026.7.1-2-nas.6.json",
+      "downstream/releases/2026.7.1-2-nas.7.json",
     ],
     { cwd: repositoryRoot, encoding: "utf8" },
   );
@@ -144,6 +145,7 @@ test("validates the release manifest and patch hashes", () => {
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.4 \(blocked\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.5 \(qualified\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.6 \(qualified\)/u);
+  assert.match(result.stdout, /2026\.7\.1-2\+nas\.7 \(candidate\)/u);
 });
 
 test("validates packed runtime metadata before dependency installation", async () => {
@@ -229,6 +231,12 @@ test("builds and smokes the exact Codex and QMD artifacts inside the runtime ima
   assert.match(dockerfile, /--install-strategy=nested/u);
   assert.match(dockerfile, /@openai\/codex.*0\.144\.3/u);
   assert.match(dockerfile, /\/opt\/openclaw-plugin-runtime/u);
+  assert.match(dockerfile, /python3-requests/u);
+  assert.match(dockerfile, /chromium/u);
+  assert.match(
+    dockerfile,
+    /ln -s \/app\/node_modules\/openclaw \/opt\/openclaw-plugin-runtime\/node_modules\/@openclaw\/codex\/node_modules\/openclaw/u,
+  );
   assert.match(workflow, /CODEX_TARBALL_SHA256=.*codex_artifact_sha256/u);
   assert.match(workflow, /QMD_TARBALL_SHA256=.*qmd_artifact_sha256/u);
   assert.match(workflow, /validate-packed-metadata\.mjs[\s\S]*openclaw[\s\S]*\$VERSION/u);
@@ -241,8 +249,12 @@ test("builds and smokes the exact Codex and QMD artifacts inside the runtime ima
   assert.match(workflow, /docker run --rm[\s\S]*--network none/u);
   assert.doesNotMatch(workflow, /name: Smoke-test local image\n\s+if:/u);
   assert.match(imageSmoke, /cp\(imagePluginRuntimeRoot, managedPluginRuntimeRoot/u);
-  assert.match(imageSmoke, /symlink\("\/app\/node_modules\/openclaw", managedHostPeerPath/u);
   assert.match(imageSmoke, /path\.join\(managedPluginPath, "node_modules\/openclaw"\)/u);
+  assert.match(imageSmoke, /lstat\(managedHostPeerPath\)/u);
+  assert.match(imageSmoke, /python3["], \["-c", "import requests"\]/u);
+  assert.match(imageSmoke, /chromium["], \["--version"\]/u);
+  assert.match(imageSmoke, /--dump-dom/u);
+  assert.match(imageSmoke, /OpenClawBrowserSmoke/u);
   assert.doesNotMatch(imageSmoke, /load:\s*\{ paths:/u);
   assert.match(imageSmoke, /rootDir !== managedPluginPath/u);
   assert.match(imageSmoke, /attempt < 120/u);
