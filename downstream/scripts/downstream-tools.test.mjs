@@ -145,7 +145,7 @@ test("validates the release manifest and patch hashes", () => {
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.4 \(blocked\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.5 \(qualified\)/u);
   assert.match(result.stdout, /2026\.7\.1-2\+nas\.6 \(qualified\)/u);
-  assert.match(result.stdout, /2026\.7\.1-2\+nas\.7 \(candidate\)/u);
+  assert.match(result.stdout, /2026\.7\.1-2\+nas\.7 \(qualified\)/u);
 });
 
 test("validates packed runtime metadata before dependency installation", async () => {
@@ -296,7 +296,7 @@ test("keeps the latest pointer aligned with the selected manifest", async () => 
     await readFile(path.join(repositoryRoot, "downstream/releases/latest.json"), "utf8"),
   );
   assert.match(pointer.releaseManifest, /^downstream\/releases\/[0-9A-Za-z._+-]+\.json$/u);
-  assert.equal(pointer.releaseManifest, "downstream/releases/2026.7.1-2-nas.6.json");
+  assert.equal(pointer.releaseManifest, "downstream/releases/2026.7.1-2-nas.7.json");
   const manifest = JSON.parse(
     await readFile(path.join(repositoryRoot, pointer.releaseManifest), "utf8"),
   );
@@ -327,18 +327,18 @@ test("keeps the latest pointer aligned with the selected manifest", async () => 
   assert.match(manifest.externalPlugins[0].artifact.url, /nas-v2026\.7\.1-2\.6/u);
   assert.equal(
     manifest.image.digest,
-    "sha256:a6c056dc2c86b2b61d3952713915a1e030b8010625514180284978c7bc1036e9",
+    "sha256:4a10348b997381fc294281375c1f208fbd6208abd7fb6b274053d572c93b8e79",
   );
   assert.equal(
     manifest.image.attestationDigest,
-    "sha256:5b909dbd4ec7aaceb2260be2136c51d9c2e3c39e2def68ca9da5b90106798c24",
+    "sha256:1173f4685910667c5e679dd35d2f717918a5c25d64b7d9292104345b01faf18d",
   );
   assert.equal(
     manifest.image.sbomDigest,
-    "sha256:4f05686dd0e55fa0b09c53fc29cdadde5353e8de6aa3e6b25073dd631169b60f",
+    "sha256:88fe75e5f48d244101dff4250cb0116ba70a8a480240885ac7391211278d95d9",
   );
   assert.equal(
     manifest.image.provenanceDigest,
-    "sha256:7f34d5bdbf43f7c42eac6acbe1cb04e344fd7ec4fe3d1d6c5c93c77fee012873",
+    "sha256:e9c4fe3a118eec55fd477f1807d7e5f9f247093f72e369ea8ed087a2777dcb4e",
   );
 });
