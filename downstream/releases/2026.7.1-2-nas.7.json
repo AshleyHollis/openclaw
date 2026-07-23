@@ -154,8 +154,8 @@
     "provenanceDigest": null
   },
   "testResults": {
-    "downstreamGuard": null,
-    "dryRun": null,
+    "downstreamGuard": "https://github.com/AshleyHollis/openclaw/actions/runs/30003967117",
+    "dryRun": "https://github.com/AshleyHollis/openclaw/actions/runs/30004134557",
     "publish": null
   }
 }
