@@ -229,7 +229,7 @@ test("builds and smokes the exact Codex and QMD artifacts inside the runtime ima
   assert.match(dockerfile, /npm install --prefix \/opt\/qmd-runtime/u);
   assert.match(
     dockerfile,
-    /npm rebuild --prefix \/opt\/qmd-runtime\/node_modules\/@tobilu\/qmd better-sqlite3/u,
+    /npm --prefix \/opt\/qmd-runtime\/node_modules\/@tobilu\/qmd\/node_modules\/better-sqlite3 run install/u,
   );
   assert.match(dockerfile, /\/opt\/qmd-runtime\/node_modules\/\.bin\/qmd/u);
   assert.match(dockerfile, /--install-strategy=nested/u);
