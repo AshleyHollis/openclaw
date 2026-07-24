@@ -72,6 +72,12 @@ try {
   if (qmd.status !== 0 || !qmd.stdout.includes(`qmd ${expectedQmdVersion}`)) {
     throw new Error(`unexpected QMD version: ${(qmd.stdout || qmd.stderr).trim()}`);
   }
+  const qmdStatus = spawnSync("qmd", ["status"], { encoding: "utf8", env: environment });
+  if (qmdStatus.status !== 0) {
+    throw new Error(
+      `QMD failed to open its database runtime: ${(qmdStatus.stdout || qmdStatus.stderr).trim()}`,
+    );
+  }
   const pythonRequests = spawnSync("python3", ["-c", "import requests"], {
     encoding: "utf8",
     env: environment,

@@ -227,6 +227,10 @@ test("builds and smokes the exact Codex and QMD artifacts inside the runtime ima
   assert.match(dockerfile, /COPY qmd-current\.tgz/u);
   assert.match(dockerfile, /QMD_TARBALL_SHA256.*sha256sum/u);
   assert.match(dockerfile, /npm install --prefix \/opt\/qmd-runtime/u);
+  assert.match(
+    dockerfile,
+    /npm rebuild --prefix \/opt\/qmd-runtime\/node_modules\/@tobilu\/qmd better-sqlite3/u,
+  );
   assert.match(dockerfile, /\/opt\/qmd-runtime\/node_modules\/\.bin\/qmd/u);
   assert.match(dockerfile, /--install-strategy=nested/u);
   assert.match(dockerfile, /@openai\/codex.*0\.144\.3/u);
@@ -252,6 +256,7 @@ test("builds and smokes the exact Codex and QMD artifacts inside the runtime ima
   assert.doesNotMatch(workflow, /name: Smoke-test local image\n\s+if:/u);
   assert.match(imageSmoke, /cp\(imagePluginRuntimeRoot, managedPluginRuntimeRoot/u);
   assert.match(imageSmoke, /path\.join\(managedPluginPath, "node_modules\/openclaw"\)/u);
+  assert.match(imageSmoke, /spawnSync\("qmd", \["status"\]/u);
   assert.match(imageSmoke, /lstat\(managedHostPeerPath\)/u);
   assert.match(imageSmoke, /python3["], \["-c", "import requests"\]/u);
   assert.match(imageSmoke, /npm["], \["--version"\]/u);
