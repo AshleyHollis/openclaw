@@ -58,7 +58,7 @@ RUN test -n "$QMD_TARBALL_SHA256" && \
     npm install --prefix /opt/qmd-runtime \
       --install-strategy=nested --omit=dev --ignore-scripts=false --no-audit --no-fund \
       /tmp/qmd-current.tgz && \
-    npm rebuild --prefix /opt/qmd-runtime/node_modules/@tobilu/qmd better-sqlite3 && \
+    npm --prefix /opt/qmd-runtime/node_modules/@tobilu/qmd/node_modules/better-sqlite3 run install && \
     test "$(node -p "require('/opt/qmd-runtime/node_modules/@tobilu/qmd/package.json').version")" = "$QMD_VERSION" && \
     node -e "const fs=require('node:fs');const root='/opt/qmd-runtime/node_modules/@tobilu/qmd';const manifest=JSON.parse(fs.readFileSync(root+'/package.json','utf8'));const shrinkwrap=JSON.parse(fs.readFileSync(root+'/npm-shrinkwrap.json','utf8'));if(manifest.name!=='@tobilu/qmd'||manifest.version!==process.env.QMD_VERSION||shrinkwrap.name!==manifest.name||shrinkwrap.version!==manifest.version||shrinkwrap.packages?.['']?.version!==manifest.version)throw new Error('QMD runtime metadata mismatch')" && \
     /opt/qmd-runtime/node_modules/.bin/qmd --version | grep -F "qmd $QMD_VERSION" && \
