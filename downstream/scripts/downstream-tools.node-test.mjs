@@ -1,3 +1,4 @@
+// Node's built-in runner owns these downstream tests; Vitest must not inventory them.
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";

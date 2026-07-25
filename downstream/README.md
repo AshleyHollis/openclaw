@@ -15,6 +15,7 @@ For a headless or remote checkout, authenticate the CLI once with `codex login -
 ## Local validation
 
 ```bash
+node --test downstream/scripts/downstream-tools.node-test.mjs
 node downstream/scripts/validate-release.mjs downstream/releases/2026.7.1-2.json
 bash downstream/scripts/check-patch-series.sh downstream/patches/2026.7.1-2/series.json
 ```
