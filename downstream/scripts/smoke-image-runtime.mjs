@@ -8,6 +8,7 @@ import path from "node:path";
 
 const expectedOpenClawVersion = process.env.EXPECTED_OPENCLAW_VERSION;
 const expectedCodexVersion = process.env.EXPECTED_CODEX_VERSION;
+const expectedDiscordVersion = process.env.EXPECTED_DISCORD_VERSION ?? "2026.7.1";
 const expectedQmdVersion = process.env.EXPECTED_QMD_VERSION;
 if (!expectedOpenClawVersion || !expectedCodexVersion || !expectedQmdVersion) {
   throw new Error("expected OpenClaw, Codex, and QMD versions are required");
@@ -18,6 +19,10 @@ const root = await mkdtemp(path.join(os.tmpdir(), "openclaw-image-smoke-"));
 const stateDir = path.join(root, "state");
 const managedPluginRuntimeRoot = path.join(stateDir, "npm");
 const managedPluginPath = path.join(managedPluginRuntimeRoot, "node_modules/@openclaw/codex");
+const managedDiscordPluginPath = path.join(
+  managedPluginRuntimeRoot,
+  "node_modules/@openclaw/discord",
+);
 const managedHostPeerPath = path.join(managedPluginPath, "node_modules/openclaw");
 const configPath = path.join(stateDir, "openclaw.json");
 const gatewayLog = path.join(root, "gateway.log");
@@ -53,8 +58,8 @@ try {
           auth: { mode: "token", token },
         },
         plugins: {
-          allow: ["codex"],
-          entries: { codex: { enabled: true } },
+          allow: ["codex", "discord"],
+          entries: { codex: { enabled: true }, discord: { enabled: true } },
         },
       },
       null,
@@ -156,6 +161,25 @@ try {
     throw new Error("Codex plugin runtime dependencies are incomplete");
   }
 
+  const discordInspected = runOpenClaw(["plugins", "inspect", "discord", "--json"], environment);
+  const discordInspection = JSON.parse(discordInspected.stdout);
+  if (discordInspection.plugin?.status !== "loaded") {
+    throw new Error(`Discord plugin status is ${discordInspection.plugin?.status ?? "missing"}`);
+  }
+  if (discordInspection.plugin?.version !== expectedDiscordVersion) {
+    throw new Error(
+      `unexpected Discord version: ${discordInspection.plugin?.version ?? "missing"}`,
+    );
+  }
+  if (discordInspection.plugin?.rootDir !== managedDiscordPluginPath) {
+    throw new Error(
+      `Discord plugin loaded from unexpected path: ${discordInspection.plugin?.rootDir}`,
+    );
+  }
+  if (!discordInspection.plugin?.channelIds?.includes("discord")) {
+    throw new Error("Discord plugin did not register the Discord channel");
+  }
+
   const metadata = spawnSync("openclaw", ["export"], {
     encoding: "utf8",
     env: environment,
@@ -242,9 +266,19 @@ async function validateAndHydrateImagePluginRuntime() {
   }
   const rootManifestPath = path.join(managedPluginRuntimeRoot, "package.json");
   const rootManifest = JSON.parse(await readFile(rootManifestPath, "utf8"));
+  const discordManifest = JSON.parse(
+    await readFile(path.join(managedDiscordPluginPath, "package.json"), "utf8"),
+  );
+  if (
+    discordManifest.name !== "@openclaw/discord" ||
+    discordManifest.version !== expectedDiscordVersion
+  ) {
+    throw new Error("image Discord package metadata disagrees");
+  }
   rootManifest.dependencies = {
     ...(rootManifest.dependencies ?? {}),
     "@openclaw/codex": manifest.version,
+    "@openclaw/discord": discordManifest.version,
   };
   await writeFile(rootManifestPath, `${JSON.stringify(rootManifest, null, 2)}\n`, {
     mode: 0o600,

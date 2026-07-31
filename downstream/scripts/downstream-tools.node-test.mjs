@@ -222,6 +222,9 @@ test("builds and smokes the exact Codex and QMD artifacts inside the runtime ima
     "utf8",
   );
   assert.match(dockerfile, /ARG CODEX_TARBALL_SHA256/u);
+  assert.match(dockerfile, /ARG DISCORD_TARBALL_SHA256/u);
+  assert.match(dockerfile, /discord-2026\.7\.1\.tgz/u);
+  assert.match(dockerfile, /@openclaw\/discord\/package\.json/u);
   assert.match(dockerfile, /COPY codex-current\.tgz/u);
   assert.match(dockerfile, /CODEX_TARBALL_SHA256.*sha256sum/u);
   assert.match(dockerfile, /ARG QMD_TARBALL_SHA256/u);
@@ -267,6 +270,8 @@ test("builds and smokes the exact Codex and QMD artifacts inside the runtime ima
   assert.match(imageSmoke, /OpenClawBrowserSmoke/u);
   assert.doesNotMatch(imageSmoke, /load:\s*\{ paths:/u);
   assert.match(imageSmoke, /rootDir !== managedPluginPath/u);
+  assert.match(imageSmoke, /plugins", "inspect", "discord"/u);
+  assert.match(imageSmoke, /Discord plugin did not register the Discord channel/u);
   assert.match(imageSmoke, /attempt < 120/u);
   assert.match(imageSmoke, /EXPECTED_QMD_VERSION/u);
   assert.match(imageSmoke, /qmd["], \["--version"\]/u);

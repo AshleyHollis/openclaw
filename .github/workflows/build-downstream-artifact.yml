@@ -205,6 +205,9 @@ jobs:
           build-args: |
             CODEX_TARBALL_SHA256=${{ steps.release.outputs.codex_artifact_sha256 }}
             CODEX_VERSION=${{ steps.release.outputs.codex_version }}
+            DISCORD_TARBALL_SHA256=28f1511de04906def70f7ff6950cd2d26f52be0ec93c5efce8f5c07cb46bc521
+            DISCORD_TARBALL_URL=https://registry.npmjs.org/@openclaw/discord/-/discord-2026.7.1.tgz
+            DISCORD_VERSION=2026.7.1
             OPENCLAW_TARBALL_SHA256=${{ steps.release.outputs.artifact_sha256 }}
             OPENCLAW_SOURCE_COMMIT=${{ steps.release.outputs.source_commit }}
             OPENCLAW_VERSION=${{ steps.release.outputs.version }}
@@ -232,6 +235,7 @@ jobs:
             --network none \
             --volume "$GITHUB_WORKSPACE/downstream/scripts/smoke-image-runtime.mjs:/tmp/smoke-image-runtime.mjs:ro" \
             --env EXPECTED_CODEX_VERSION="$CODEX_VERSION" \
+            --env EXPECTED_DISCORD_VERSION="2026.7.1" \
             --env EXPECTED_OPENCLAW_VERSION="$VERSION" \
             --env EXPECTED_QMD_VERSION="$QMD_VERSION" \
             --entrypoint node \

@@ -4,6 +4,9 @@ FROM ${OPENCLAW_NODE_IMAGE}
 ARG OPENCLAW_TARBALL_SHA256
 ARG CODEX_TARBALL_SHA256
 ARG CODEX_VERSION
+ARG DISCORD_TARBALL_SHA256="28f1511de04906def70f7ff6950cd2d26f52be0ec93c5efce8f5c07cb46bc521"
+ARG DISCORD_TARBALL_URL="https://registry.npmjs.org/@openclaw/discord/-/discord-2026.7.1.tgz"
+ARG DISCORD_VERSION="2026.7.1"
 ARG OPENCLAW_SOURCE_COMMIT
 ARG OPENCLAW_VERSION
 ARG QMD_TARBALL_SHA256
@@ -50,6 +53,25 @@ RUN test -n "$CODEX_TARBALL_SHA256" && \
     test "$(readlink /opt/openclaw-plugin-runtime/node_modules/@openclaw/codex/node_modules/openclaw)" = /app/node_modules/openclaw && \
     chmod -R go-w /opt/openclaw-plugin-runtime && \
     rm -f /tmp/codex-current.tgz && \
+    npm cache clean --force
+
+# Discord is an official external plugin in this release line. Keep its source,
+# digest and version controller-owned so a candidate cannot silently omit it or
+# widen the package selected during the authenticated image build.
+RUN test -n "$DISCORD_TARBALL_SHA256" && \
+    test -n "$DISCORD_TARBALL_URL" && \
+    test -n "$DISCORD_VERSION" && \
+    curl --fail --location --proto '=https' --tlsv1.2 \
+      "$DISCORD_TARBALL_URL" --output /tmp/discord-current.tgz && \
+    printf '%s  %s\n' "$DISCORD_TARBALL_SHA256" /tmp/discord-current.tgz | sha256sum -c - && \
+    npm install --prefix /opt/openclaw-plugin-runtime \
+      --install-strategy=nested --omit=dev --ignore-scripts=false --no-audit --no-fund \
+      /tmp/discord-current.tgz && \
+    test "$(node -p "require('/opt/openclaw-plugin-runtime/node_modules/@openclaw/discord/package.json').version")" = "$DISCORD_VERSION" && \
+    ln -s /app/node_modules/openclaw /opt/openclaw-plugin-runtime/node_modules/@openclaw/discord/node_modules/openclaw && \
+    test "$(readlink /opt/openclaw-plugin-runtime/node_modules/@openclaw/discord/node_modules/openclaw)" = /app/node_modules/openclaw && \
+    chmod -R go-w /opt/openclaw-plugin-runtime && \
+    rm -f /tmp/discord-current.tgz && \
     npm cache clean --force
 
 RUN test -n "$QMD_TARBALL_SHA256" && \
