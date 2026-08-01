@@ -2,7 +2,7 @@
 # This personal branch replaces that path temporarily; main remains unchanged.
 name: Manual owner beta image
 
-run-name: OpenClaw 2026.7.2-beta.6 at ${{ inputs.expected_source_commit }}
+run-name: OpenClaw owner beta at ${{ inputs.expected_source_commit }}
 
 on:
   workflow_dispatch:
@@ -44,8 +44,6 @@ jobs:
       DISCORD_VERSION: 2026.7.1
       EXPECTED_VERSION: 2026.7.2-beta.6
       IMAGE_REPOSITORY: ghcr.io/ashleyhollis/openclaw
-      IMAGE_TAG: manual-2026.7.2-beta.6-7788b436
-      LOCAL_IMAGE: openclaw-owner-beta:2026.7.2-beta.6
       QMD_ARTIFACT_SHA256: 4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a
       QMD_ARTIFACT_URL: https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-qmd-2.1.0-nas.6.tgz
       QMD_VERSION: 2.1.0
@@ -76,7 +74,9 @@ jobs:
           git -C candidate archive --format=tar.gz --prefix=openclaw/ \
             --output "$RUNNER_TEMP/openclaw-source.tar.gz" "$EXPECTED_SOURCE_COMMIT"
           source_digest="sha256:$(sha256sum "$RUNNER_TEMP/openclaw-source.tar.gz" | cut -d ' ' -f1)"
-          printf 'source_digest=%s\n' "$source_digest" >> "$GITHUB_OUTPUT"
+          short_commit="${EXPECTED_SOURCE_COMMIT:0:8}"
+          printf 'source_digest=%s\nimage_tag=manual-%s-%s\nlocal_image=openclaw-owner-beta:%s-%s\n' \
+            "$source_digest" "$EXPECTED_VERSION" "$short_commit" "$EXPECTED_VERSION" "$short_commit" >> "$GITHUB_OUTPUT"
 
       - name: Fail-closed source secret scan
         uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
@@ -167,6 +167,8 @@ jobs:
             QMD_VERSION=${{ env.QMD_VERSION }}
 
       - name: Load the exact OCI image for local checks
+        env:
+          LOCAL_IMAGE: ${{ steps.source.outputs.local_image }}
         run: |
           set -euo pipefail
           sudo apt-get update -qq
@@ -174,6 +176,8 @@ jobs:
           skopeo copy "oci-archive:$RUNNER_TEMP/openclaw-beta.oci.tar" "docker-daemon:$LOCAL_IMAGE"
 
       - name: Network-disabled production image smoke
+        env:
+          LOCAL_IMAGE: ${{ steps.source.outputs.local_image }}
         run: |
           set -euo pipefail
           docker run --rm --network none \
@@ -187,7 +191,7 @@ jobs:
       - name: Scan fixable critical vulnerabilities
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
-          image-ref: ${{ env.LOCAL_IMAGE }}
+          image-ref: ${{ steps.source.outputs.local_image }}
           format: table
           exit-code: "1"
           ignore-unfixed: true
@@ -199,6 +203,7 @@ jobs:
         if: inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
+          IMAGE_TAG: ${{ steps.source.outputs.image_tag }}
         run: |
           set -euo pipefail
           printf '%s' "$GH_TOKEN" | skopeo login ghcr.io \
