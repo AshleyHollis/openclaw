@@ -40,6 +40,7 @@ jobs:
       DISCORD_VERSION: 2026.7.2-beta.6
       EXPECTED_VERSION: 2026.7.2-beta.6
       IMAGE_REPOSITORY: ghcr.io/ashleyhollis/openclaw
+      LLAMA_CPP_VERSION: 2026.7.2-beta.6
       QMD_ARTIFACT_SHA256: 4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a
       QMD_ARTIFACT_URL: https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-qmd-2.1.0-nas.6.tgz
       QMD_VERSION: 2.1.0
@@ -121,7 +122,7 @@ jobs:
           package_digest="$(sha256sum "$RUNNER_TEMP/image-context/openclaw-current.tgz" | cut -d ' ' -f1)"
           printf 'package_digest=%s\n' "$package_digest" >> "$GITHUB_OUTPUT"
 
-      - name: Pack matching Codex and Discord plugins from the exact candidate
+      - name: Pack matching Codex, Discord, and llama.cpp plugins from the exact candidate
         id: plugins
         working-directory: candidate
         run: |
@@ -132,24 +133,31 @@ jobs:
             bash scripts/plugin-npm-publish.sh --pack extensions/codex
           OPENCLAW_PLUGIN_NPM_PACK_OUTPUT_DIR="$plugin_output" \
             bash scripts/plugin-npm-publish.sh --pack extensions/discord
+          OPENCLAW_PLUGIN_NPM_PACK_OUTPUT_DIR="$plugin_output" \
+            bash scripts/plugin-npm-publish.sh --pack extensions/llama-cpp
           shopt -s nullglob
           codex_tarballs=("$plugin_output"/openclaw-codex-*.tgz)
           discord_tarballs=("$plugin_output"/openclaw-discord-*.tgz)
+          llama_cpp_tarballs=("$plugin_output"/openclaw-llama-cpp-provider-*.tgz)
           test "${#codex_tarballs[@]}" -eq 1
           test "${#discord_tarballs[@]}" -eq 1
+          test "${#llama_cpp_tarballs[@]}" -eq 1
           mv "${codex_tarballs[0]}" "$RUNNER_TEMP/image-context/codex-current.tgz"
           mv "${discord_tarballs[0]}" "$RUNNER_TEMP/image-context/discord-current.tgz"
-          for package_name in codex discord; do
+          mv "${llama_cpp_tarballs[0]}" "$RUNNER_TEMP/image-context/llama-cpp-current.tgz"
+          for package_name in codex discord llama-cpp; do
             tarball="$RUNNER_TEMP/image-context/$package_name-current.tgz"
             tar -tzf "$tarball" | grep -Fx 'package/dist/index.js'
             tar -xOf "$tarball" package/package.json > "$RUNNER_TEMP/$package_name-package.json"
           done
           node -e "const p=require('$RUNNER_TEMP/codex-package.json');if(p.version!==process.env.CODEX_VERSION||p.openclaw?.build?.openclawVersion!==process.env.EXPECTED_VERSION)throw new Error('Codex package identity mismatch')"
           node -e "const p=require('$RUNNER_TEMP/discord-package.json');if(p.version!==process.env.DISCORD_VERSION||p.openclaw?.build?.openclawVersion!==process.env.EXPECTED_VERSION)throw new Error('Discord package identity mismatch')"
+          node -e "const p=require('$RUNNER_TEMP/llama-cpp-package.json');if(p.version!==process.env.LLAMA_CPP_VERSION||p.openclaw?.build?.openclawVersion!==process.env.EXPECTED_VERSION||p.optionalDependencies?.['node-llama-cpp']!=='3.19.1')throw new Error('llama.cpp package identity mismatch')"
           codex_digest="$(sha256sum "$RUNNER_TEMP/image-context/codex-current.tgz" | cut -d ' ' -f1)"
           discord_digest="$(sha256sum "$RUNNER_TEMP/image-context/discord-current.tgz" | cut -d ' ' -f1)"
-          printf 'codex_digest=%s\ndiscord_digest=%s\n' \
-            "$codex_digest" "$discord_digest" >> "$GITHUB_OUTPUT"
+          llama_cpp_digest="$(sha256sum "$RUNNER_TEMP/image-context/llama-cpp-current.tgz" | cut -d ' ' -f1)"
+          printf 'codex_digest=%s\ndiscord_digest=%s\nllama_cpp_digest=%s\n' \
+            "$codex_digest" "$discord_digest" "$llama_cpp_digest" >> "$GITHUB_OUTPUT"
 
       - name: Assemble the minimal trusted image context
         run: |
@@ -178,6 +186,8 @@ jobs:
             CODEX_VERSION=${{ env.CODEX_VERSION }}
             DISCORD_TARBALL_SHA256=${{ steps.plugins.outputs.discord_digest }}
             DISCORD_VERSION=${{ env.DISCORD_VERSION }}
+            LLAMA_CPP_TARBALL_SHA256=${{ steps.plugins.outputs.llama_cpp_digest }}
+            LLAMA_CPP_VERSION=${{ env.LLAMA_CPP_VERSION }}
             OPENCLAW_TARBALL_SHA256=${{ steps.package.outputs.package_digest }}
             OPENCLAW_SOURCE_COMMIT=${{ env.APPROVED_SOURCE_COMMIT }}
             OPENCLAW_VERSION=${{ env.EXPECTED_VERSION }}
@@ -202,6 +212,7 @@ jobs:
             --volume "$RUNNER_TEMP/image-context/downstream/scripts/smoke-image-runtime.mjs:/tmp/smoke-image-runtime.mjs:ro" \
             --env EXPECTED_CODEX_VERSION="$CODEX_VERSION" \
             --env EXPECTED_DISCORD_VERSION="$DISCORD_VERSION" \
+            --env EXPECTED_LLAMA_CPP_VERSION="$LLAMA_CPP_VERSION" \
             --env EXPECTED_OPENCLAW_VERSION="$EXPECTED_VERSION" \
             --env EXPECTED_QMD_VERSION="$QMD_VERSION" \
             --entrypoint node "$LOCAL_IMAGE" /tmp/smoke-image-runtime.mjs
@@ -237,6 +248,7 @@ jobs:
         env:
           CODEX_PACKAGE_DIGEST: sha256:${{ steps.plugins.outputs.codex_digest }}
           DISCORD_PACKAGE_DIGEST: sha256:${{ steps.plugins.outputs.discord_digest }}
+          LLAMA_CPP_PACKAGE_DIGEST: sha256:${{ steps.plugins.outputs.llama_cpp_digest }}
           IMAGE: ${{ steps.publish.outputs.image }}
           IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
           PACKAGE_DIGEST: sha256:${{ steps.package.outputs.package_digest }}
@@ -256,11 +268,12 @@ jobs:
             packageDigest: process.env.PACKAGE_DIGEST,
             codexPackageDigest: process.env.CODEX_PACKAGE_DIGEST,
             discordPackageDigest: process.env.DISCORD_PACKAGE_DIGEST,
+            llamaCppPackageDigest: process.env.LLAMA_CPP_PACKAGE_DIGEST,
             image: process.env.IMAGE,
             imageDigest: process.env.IMAGE_DIGEST,
             sbom: true,
             provenance: true,
-            focusedChecks: ["control-ui-unit", "gateway-browser-socket-unit", "login-gate-unit", "approval-component-unit", "terminal-file-upload-unit", "session-create-validator-unit", "exec-approval-validator-unit", "image-runtime-smoke", "critical-vulnerability-scan"],
+            focusedChecks: ["control-ui-unit", "gateway-browser-socket-unit", "login-gate-unit", "approval-component-unit", "terminal-file-upload-unit", "session-create-validator-unit", "exec-approval-validator-unit", "llama-cpp-plugin-runtime", "configured-local-memory-provider-startup", "image-runtime-smoke", "critical-vulnerability-scan"],
           };
           fs.writeFileSync(process.argv[2], `${JSON.stringify(evidence, null, 2)}\n`);
           NODE

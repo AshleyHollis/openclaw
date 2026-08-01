@@ -2,16 +2,24 @@ import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { closeSync, openSync } from "node:fs";
 import { cp, lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const expectedOpenClawVersion = process.env.EXPECTED_OPENCLAW_VERSION;
 const expectedCodexVersion = process.env.EXPECTED_CODEX_VERSION;
 const expectedDiscordVersion = process.env.EXPECTED_DISCORD_VERSION ?? "2026.7.1";
+const expectedLlamaCppVersion = process.env.EXPECTED_LLAMA_CPP_VERSION;
 const expectedQmdVersion = process.env.EXPECTED_QMD_VERSION;
-if (!expectedOpenClawVersion || !expectedCodexVersion || !expectedQmdVersion) {
-  throw new Error("expected OpenClaw, Codex, and QMD versions are required");
+if (
+  !expectedOpenClawVersion ||
+  !expectedCodexVersion ||
+  !expectedLlamaCppVersion ||
+  !expectedQmdVersion
+) {
+  throw new Error("expected OpenClaw, Codex, llama.cpp, and QMD versions are required");
 }
 
 const imagePluginRuntimeRoot = "/opt/openclaw-plugin-runtime";
@@ -23,7 +31,12 @@ const managedDiscordPluginPath = path.join(
   managedPluginRuntimeRoot,
   "node_modules/@openclaw/discord",
 );
+const managedLlamaCppPluginPath = path.join(
+  managedPluginRuntimeRoot,
+  "node_modules/@openclaw/llama-cpp-provider",
+);
 const managedHostPeerPath = path.join(managedPluginPath, "node_modules/openclaw");
+const managedLlamaCppHostPeerPath = path.join(managedLlamaCppPluginPath, "node_modules/openclaw");
 const configPath = path.join(stateDir, "openclaw.json");
 const gatewayLog = path.join(root, "gateway.log");
 const environment = {
@@ -45,6 +58,7 @@ try {
   });
   await mkdir(stateDir, { recursive: true });
   await validateAndHydrateImagePluginRuntime();
+  await verifyLlamaCppNativeRuntime();
   const port = await reserveLoopbackPort();
   const token = randomBytes(32).toString("hex");
   await writeFile(
@@ -58,9 +72,14 @@ try {
           auth: { mode: "token", token },
         },
         plugins: {
-          allow: ["codex", "discord"],
-          entries: { codex: { enabled: true }, discord: { enabled: true } },
+          allow: ["codex", "discord", "llama-cpp"],
+          entries: {
+            codex: { enabled: true },
+            discord: { enabled: true },
+            "llama-cpp": { enabled: true },
+          },
         },
+        memory: { search: { provider: "local", fallback: "none" } },
       },
       null,
       2,
@@ -180,6 +199,25 @@ try {
     throw new Error("Discord plugin did not register the Discord channel");
   }
 
+  const llamaCppInspected = runOpenClaw(["plugins", "inspect", "llama-cpp", "--json"], environment);
+  const llamaCppInspection = JSON.parse(llamaCppInspected.stdout);
+  if (llamaCppInspection.plugin?.status !== "loaded") {
+    throw new Error(`llama.cpp plugin status is ${llamaCppInspection.plugin?.status ?? "missing"}`);
+  }
+  if (llamaCppInspection.plugin?.version !== expectedLlamaCppVersion) {
+    throw new Error(
+      `unexpected llama.cpp version: ${llamaCppInspection.plugin?.version ?? "missing"}`,
+    );
+  }
+  if (llamaCppInspection.plugin?.rootDir !== managedLlamaCppPluginPath) {
+    throw new Error(
+      `llama.cpp plugin loaded from unexpected path: ${llamaCppInspection.plugin?.rootDir}`,
+    );
+  }
+  if (llamaCppInspection.plugin?.dependencyStatus?.requiredInstalled !== true) {
+    throw new Error("llama.cpp plugin runtime dependencies are incomplete");
+  }
+
   const metadata = spawnSync("openclaw", ["export"], {
     encoding: "utf8",
     env: environment,
@@ -254,6 +292,12 @@ async function validateAndHydrateImagePluginRuntime() {
     throw new Error("image Codex package runtime metadata disagrees");
   }
   await assertImageOwnedHostPeer(imageHostPeerPath);
+  await assertImageOwnedHostPeer(
+    path.join(
+      imagePluginRuntimeRoot,
+      "node_modules/@openclaw/llama-cpp-provider/node_modules/openclaw",
+    ),
+  );
   await cp(imagePluginRuntimeRoot, managedPluginRuntimeRoot, {
     recursive: true,
     errorOnExist: true,
@@ -261,10 +305,14 @@ async function validateAndHydrateImagePluginRuntime() {
     verbatimSymlinks: true,
   });
   await assertImageOwnedHostPeer(managedHostPeerPath);
+  await assertImageOwnedHostPeer(managedLlamaCppHostPeerPath);
   const rootManifestPath = path.join(managedPluginRuntimeRoot, "package.json");
   const rootManifest = JSON.parse(await readFile(rootManifestPath, "utf8"));
   const discordManifest = JSON.parse(
     await readFile(path.join(managedDiscordPluginPath, "package.json"), "utf8"),
+  );
+  const llamaCppManifest = JSON.parse(
+    await readFile(path.join(managedLlamaCppPluginPath, "package.json"), "utf8"),
   );
   if (
     discordManifest.name !== "@openclaw/discord" ||
@@ -272,10 +320,18 @@ async function validateAndHydrateImagePluginRuntime() {
   ) {
     throw new Error("image Discord package metadata disagrees");
   }
+  if (
+    llamaCppManifest.name !== "@openclaw/llama-cpp-provider" ||
+    llamaCppManifest.version !== expectedLlamaCppVersion ||
+    llamaCppManifest.optionalDependencies?.["node-llama-cpp"] !== "3.19.1"
+  ) {
+    throw new Error("image llama.cpp package metadata disagrees");
+  }
   rootManifest.dependencies = {
     ...(rootManifest.dependencies ?? {}),
     "@openclaw/codex": manifest.version,
     "@openclaw/discord": discordManifest.version,
+    "@openclaw/llama-cpp-provider": llamaCppManifest.version,
   };
   await writeFile(rootManifestPath, `${JSON.stringify(rootManifest, null, 2)}\n`, {
     mode: 0o600,
@@ -290,6 +346,32 @@ async function assertImageOwnedHostPeer(hostPeerPath) {
   if ((await readlink(hostPeerPath)) !== "/app/node_modules/openclaw") {
     throw new Error("Codex host peer points outside the packaged OpenClaw runtime");
   }
+}
+
+async function verifyLlamaCppNativeRuntime() {
+  const nodeLlamaRoot = path.join(managedLlamaCppPluginPath, "node_modules/node-llama-cpp");
+  const nodeLlamaManifest = JSON.parse(
+    await readFile(path.join(nodeLlamaRoot, "package.json"), "utf8"),
+  );
+  if (nodeLlamaManifest.version !== "3.19.1") {
+    throw new Error(`unexpected node-llama-cpp version: ${nodeLlamaManifest.version ?? "missing"}`);
+  }
+  const requireFromNodeLlama = createRequire(path.join(nodeLlamaRoot, "package.json"));
+  const nativeManifestPath = requireFromNodeLlama.resolve("@node-llama-cpp/linux-x64/package.json");
+  const nativeManifest = JSON.parse(await readFile(nativeManifestPath, "utf8"));
+  if (nativeManifest.version !== "3.19.1") {
+    throw new Error(
+      `unexpected linux-x64 llama.cpp binary: ${nativeManifest.version ?? "missing"}`,
+    );
+  }
+  const { getLlama } = await import(pathToFileURL(path.join(nodeLlamaRoot, "dist/index.js")).href);
+  const llama = await getLlama({
+    gpu: false,
+    build: "never",
+    skipDownload: true,
+    logLevel: "error",
+  });
+  await llama.dispose();
 }
 
 function runOpenClaw(args, env) {

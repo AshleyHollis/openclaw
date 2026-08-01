@@ -6,6 +6,8 @@ ARG CODEX_TARBALL_SHA256
 ARG CODEX_VERSION
 ARG DISCORD_TARBALL_SHA256
 ARG DISCORD_VERSION
+ARG LLAMA_CPP_TARBALL_SHA256
+ARG LLAMA_CPP_VERSION
 ARG OPENCLAW_SOURCE_COMMIT
 ARG OPENCLAW_VERSION
 ARG QMD_TARBALL_SHA256
@@ -32,6 +34,7 @@ WORKDIR /app
 COPY openclaw-current.tgz /tmp/openclaw-current.tgz
 COPY codex-current.tgz /tmp/codex-current.tgz
 COPY discord-current.tgz /tmp/discord-current.tgz
+COPY llama-cpp-current.tgz /tmp/llama-cpp-current.tgz
 COPY qmd-current.tgz /tmp/qmd-current.tgz
 
 RUN test -n "$OPENCLAW_TARBALL_SHA256" && \
@@ -64,6 +67,20 @@ RUN test -n "$DISCORD_TARBALL_SHA256" && \
     chmod -R go-w /opt/openclaw-plugin-runtime && \
     rm -f /tmp/discord-current.tgz
 
+# The approved beta config uses local semantic embeddings. Package its exact
+# source-matched provider because beta.6 was tagged before that package reached npm.
+RUN test -n "$LLAMA_CPP_TARBALL_SHA256" && \
+    test -n "$LLAMA_CPP_VERSION" && \
+    printf '%s  %s\n' "$LLAMA_CPP_TARBALL_SHA256" /tmp/llama-cpp-current.tgz | sha256sum -c - && \
+    npm install --prefix /opt/openclaw-plugin-runtime \
+      --install-strategy=nested --omit=dev --ignore-scripts=false --no-audit --no-fund \
+      /tmp/llama-cpp-current.tgz && \
+    test "$(node -p "require('/opt/openclaw-plugin-runtime/node_modules/@openclaw/llama-cpp-provider/package.json').version")" = "$LLAMA_CPP_VERSION" && \
+    test "$(node -p "require('/opt/openclaw-plugin-runtime/node_modules/@openclaw/llama-cpp-provider/node_modules/node-llama-cpp/package.json').version")" = "3.19.1" && \
+    test "$(node -p "require('/opt/openclaw-plugin-runtime/node_modules/@openclaw/llama-cpp-provider/node_modules/node-llama-cpp/node_modules/@node-llama-cpp/linux-x64/package.json').version")" = "3.19.1" && \
+    chmod -R go-w /opt/openclaw-plugin-runtime && \
+    rm -f /tmp/llama-cpp-current.tgz
+
 # Generate the published-runtime lock only after the last install into the
 # shared plugin prefix, then bind it to the exact final Codex dependency tree.
 RUN install -d -m 0700 /tmp/codex-runtime-lock && \
@@ -81,8 +98,10 @@ RUN install -d -m 0700 /tmp/codex-runtime-lock && \
 # prune links inside an earlier package's nested node_modules tree.
 RUN ln -s /app/node_modules/openclaw /opt/openclaw-plugin-runtime/node_modules/@openclaw/codex/node_modules/openclaw && \
     ln -s /app/node_modules/openclaw /opt/openclaw-plugin-runtime/node_modules/@openclaw/discord/node_modules/openclaw && \
+    ln -s /app/node_modules/openclaw /opt/openclaw-plugin-runtime/node_modules/@openclaw/llama-cpp-provider/node_modules/openclaw && \
     test "$(readlink /opt/openclaw-plugin-runtime/node_modules/@openclaw/codex/node_modules/openclaw)" = /app/node_modules/openclaw && \
-    test "$(readlink /opt/openclaw-plugin-runtime/node_modules/@openclaw/discord/node_modules/openclaw)" = /app/node_modules/openclaw
+    test "$(readlink /opt/openclaw-plugin-runtime/node_modules/@openclaw/discord/node_modules/openclaw)" = /app/node_modules/openclaw && \
+    test "$(readlink /opt/openclaw-plugin-runtime/node_modules/@openclaw/llama-cpp-provider/node_modules/openclaw)" = /app/node_modules/openclaw
 
 RUN test -n "$QMD_TARBALL_SHA256" && \
     test -n "$QMD_VERSION" && \
