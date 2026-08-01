@@ -8,7 +8,7 @@ on:
       expected_source_commit:
         description: Exact approved upstream source commit
         required: true
-        default: ce54f156f08983683a7d9cfb942fb4a457c566de
+        default: 7788b436754c3a1e849e14705572bbbc8e68cd58
         type: string
       publish:
         description: Publish the verified OCI image to GHCR
@@ -31,7 +31,7 @@ jobs:
       contents: read
       packages: write
     env:
-      APPROVED_SOURCE_COMMIT: ce54f156f08983683a7d9cfb942fb4a457c566de
+      APPROVED_SOURCE_COMMIT: 7788b436754c3a1e849e14705572bbbc8e68cd58
       CANDIDATE_REF: refs/heads/release-2026.7.2-beta6-latest-main
       CANDIDATE_REPOSITORY: https://github.com/openclaw/openclaw.git
       EXPECTED_VERSION: 2026.7.2-beta.6
@@ -196,7 +196,7 @@ jobs:
         if: inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
-          IMAGE_TAG: manual-2026.7.2-beta.6-ce54f156
+          IMAGE_TAG: manual-2026.7.2-beta.6-7788b436
         run: |
           set -euo pipefail
           printf '%s' "$GH_TOKEN" | skopeo login ghcr.io \
