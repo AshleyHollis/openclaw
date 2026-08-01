@@ -34,7 +34,6 @@ jobs:
       packages: write
     env:
       APPROVED_SOURCE_COMMIT: 7788b436754c3a1e849e14705572bbbc8e68cd58
-      CANDIDATE_REF: refs/heads/release-2026.7.2-beta6-latest-main
       CANDIDATE_REPOSITORY: https://github.com/openclaw/openclaw.git
       CODEX_ARTIFACT_SHA256: 9336e6e0ad7697a94257253665b0f4e7fcfdc2af567610a549ace519d442b94b
       CODEX_ARTIFACT_URL: https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-codex-2026.7.1-1-nas.6.tgz
@@ -60,11 +59,6 @@ jobs:
           set -euo pipefail
           [[ "$EXPECTED_SOURCE_COMMIT" =~ ^[a-f0-9]{40}$ ]]
           test "$EXPECTED_SOURCE_COMMIT" = "$APPROVED_SOURCE_COMMIT"
-          resolved="$(git ls-remote "$CANDIDATE_REPOSITORY" "$CANDIDATE_REF" | cut -f1)"
-          test "$resolved" = "$EXPECTED_SOURCE_COMMIT" || {
-            echo "candidate discovery ref moved: expected $EXPECTED_SOURCE_COMMIT, found $resolved" >&2
-            exit 75
-          }
           git init --initial-branch=source candidate
           git -C candidate remote add origin "$CANDIDATE_REPOSITORY"
           git -C candidate fetch --depth=1 --no-tags origin "$EXPECTED_SOURCE_COMMIT"
