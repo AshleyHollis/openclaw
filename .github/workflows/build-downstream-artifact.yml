@@ -39,9 +39,9 @@ jobs:
       CODEX_ARTIFACT_SHA256: 9336e6e0ad7697a94257253665b0f4e7fcfdc2af567610a549ace519d442b94b
       CODEX_ARTIFACT_URL: https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-codex-2026.7.1-1-nas.6.tgz
       CODEX_VERSION: 2026.7.1-1
-      DISCORD_TARBALL_SHA256: 28f1511de04906def70f7ff6950cd2d26f52be0ec93c5efce8f5c07cb46bc521
-      DISCORD_TARBALL_URL: https://registry.npmjs.org/@openclaw/discord/-/discord-2026.7.1.tgz
-      DISCORD_VERSION: 2026.7.1
+      DISCORD_TARBALL_SHA256: 8028848f392a60f014fa86013295bd3089ed1df4f4cff0b0381b4ab3c48ea32b
+      DISCORD_TARBALL_URL: https://registry.npmjs.org/@openclaw/discord/-/discord-2026.7.2-beta.5.tgz
+      DISCORD_VERSION: 2026.7.2-beta.5
       EXPECTED_VERSION: 2026.7.2-beta.6
       IMAGE_REPOSITORY: ghcr.io/ashleyhollis/openclaw
       QMD_ARTIFACT_SHA256: 4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a
