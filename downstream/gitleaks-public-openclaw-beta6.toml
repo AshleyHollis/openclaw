@@ -1,0 +1,44 @@
+title = "OpenClaw 2026.7.2-beta.6 public-source fixture allowlist"
+
+[extend]
+useDefault = true
+
+# The approved source is locked to 7788b436754c3a1e849e14705572bbbc8e68cd58.
+# These paths contain generated translation memory, public documentation
+# examples, or credential-shaped test/QA identifiers reviewed for that commit.
+# This profile is not suitable for private repositories or another source SHA.
+[allowlist]
+description = "Reviewed public OpenClaw generated, documentation, test, and QA fixtures"
+paths = [
+  '''(^|/)ui/src/i18n/\.i18n/.*\.tm\.jsonl$''',
+  '''(^|/)docs(?:/|$)''',
+  '''(?i)(^|/)(?:test|tests|__tests__|test-fixtures)(?:/|$)''',
+  '''\.(?:test|spec)\.[^/]+$''',
+  '''(^|/)apps/linux/src-tauri/src/gateway_ws\.rs$''',
+  '''(^|/)extensions/discord/src/monitor/message-handler\.ts$''',
+  '''(^|/)extensions/mattermost/src/mattermost/monitor-websocket\.ts$''',
+  '''(^|/)extensions/nostr/src/test-fixtures\.ts$''',
+  '''(^|/)extensions/qa-lab/src/live-transports/discord/discord-live\.runtime\.ts$''',
+  '''(^|/)extensions/qa-lab/src/live-transports/matrix/scenarios/scenario-contract\.ts$''',
+  '''(^|/)extensions/qa-matrix/src/runners/contract/scenario-catalog\.ts$''',
+  '''(^|/)extensions/xai/xai-oauth\.ts$''',
+  '''(^|/)qa/scenarios/channels/matrix-e2ee-dm-sas-verification\.yaml$''',
+  '''(^|/)src/agents/sandbox/novnc-auth\.ts$''',
+  '''(^|/)src/commands/doctor-session-incognito-key-repair-state\.ts$''',
+  '''(^|/)src/gateway/server-methods/agent\.media-and-routing\.test-utils\.ts$''',
+  '''(^|/)src/plugins/interactive-contract\.test-helpers\.ts$''',
+]
+
+# The release image pins the public Discord plugin tarball by SHA-256. The
+# default discord-api-token rule also accepts high-entropy 64-character hex
+# strings, so constrain the exception by field name and checksum-only syntax.
+[[rules]]
+id = "discord-api-token"
+
+  [rules.allowlist]
+  description = "Public Discord package integrity digest, not an API token"
+  regexTarget = "match"
+  regexes = [
+    '''DISCORD_TARBALL_SHA256(?:"[ \t]*)?=[ \t]*"[0-9a-f]{64}"''',
+  ]
+
