@@ -2,7 +2,6 @@ import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { closeSync, openSync } from "node:fs";
 import { cp, lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -356,8 +355,10 @@ async function verifyLlamaCppNativeRuntime() {
   if (nodeLlamaManifest.version !== "3.19.1") {
     throw new Error(`unexpected node-llama-cpp version: ${nodeLlamaManifest.version ?? "missing"}`);
   }
-  const requireFromNodeLlama = createRequire(path.join(nodeLlamaRoot, "package.json"));
-  const nativeManifestPath = requireFromNodeLlama.resolve("@node-llama-cpp/linux-x64/package.json");
+  const nativeManifestPath = path.join(
+    nodeLlamaRoot,
+    "node_modules/@node-llama-cpp/linux-x64/package.json",
+  );
   const nativeManifest = JSON.parse(await readFile(nativeManifestPath, "utf8"));
   if (nativeManifest.version !== "3.19.1") {
     throw new Error(
