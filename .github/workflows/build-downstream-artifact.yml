@@ -39,7 +39,7 @@ jobs:
       CODEX_VERSION: 2026.7.2-beta.6
       DISCORD_VERSION: 2026.7.2-beta.6
       EXPECTED_VERSION: 2026.7.2-beta.6
-      IMAGE_REPOSITORY: ghcr.io/ashleyhollis/openclaw
+      IMAGE_REPOSITORY: ghcr.io/ashleyhollis/openclaw-upgrade-control
       QMD_ARTIFACT_SHA256: 4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a
       QMD_ARTIFACT_URL: https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-qmd-2.1.0-nas.6.tgz
       QMD_VERSION: 2.1.0

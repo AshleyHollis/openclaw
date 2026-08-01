@@ -240,10 +240,16 @@ async function validateAndHydrateImagePluginRuntime() {
   const imagePluginPath = path.join(imagePluginRuntimeRoot, "node_modules/@openclaw/codex");
   const imageHostPeerPath = path.join(imagePluginPath, "node_modules/openclaw");
   const manifest = JSON.parse(await readFile(path.join(imagePluginPath, "package.json"), "utf8"));
+  const shrinkwrap = JSON.parse(
+    await readFile(path.join(imagePluginPath, "npm-shrinkwrap.json"), "utf8"),
+  );
   if (
     manifest.name !== "@openclaw/codex" ||
     manifest.version !== expectedCodexVersion ||
-    !manifest.openclaw?.runtimeExtensions?.includes("./dist/index.js")
+    !manifest.openclaw?.runtimeExtensions?.includes("./dist/index.js") ||
+    shrinkwrap.name !== manifest.name ||
+    shrinkwrap.version !== manifest.version ||
+    shrinkwrap.packages?.[""]?.version !== manifest.version
   ) {
     throw new Error("image Codex package runtime metadata disagrees");
   }
