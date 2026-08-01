@@ -36,12 +36,8 @@ jobs:
       APPROVED_SOURCE_COMMIT: 4d6bdbdbf33fe3ece3c53853fab9931882ff3f3c
       APPROVED_SOURCE_TAG: v2026.7.2-beta.6
       CANDIDATE_REPOSITORY: https://github.com/openclaw/openclaw.git
-      CODEX_ARTIFACT_SHA256: 9336e6e0ad7697a94257253665b0f4e7fcfdc2af567610a549ace519d442b94b
-      CODEX_ARTIFACT_URL: https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-codex-2026.7.1-1-nas.6.tgz
-      CODEX_VERSION: 2026.7.1-1
-      DISCORD_TARBALL_SHA256: 8028848f392a60f014fa86013295bd3089ed1df4f4cff0b0381b4ab3c48ea32b
-      DISCORD_TARBALL_URL: https://registry.npmjs.org/@openclaw/discord/-/discord-2026.7.2-beta.5.tgz
-      DISCORD_VERSION: 2026.7.2-beta.5
+      CODEX_VERSION: 2026.7.2-beta.6
+      DISCORD_VERSION: 2026.7.2-beta.6
       EXPECTED_VERSION: 2026.7.2-beta.6
       IMAGE_REPOSITORY: ghcr.io/ashleyhollis/openclaw
       QMD_ARTIFACT_SHA256: 4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a
@@ -125,13 +121,40 @@ jobs:
           package_digest="$(sha256sum "$RUNNER_TEMP/image-context/openclaw-current.tgz" | cut -d ' ' -f1)"
           printf 'package_digest=%s\n' "$package_digest" >> "$GITHUB_OUTPUT"
 
+      - name: Pack matching Codex and Discord plugins from the exact candidate
+        id: plugins
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          plugin_output="$RUNNER_TEMP/plugin-pack"
+          mkdir -p "$plugin_output"
+          OPENCLAW_PLUGIN_NPM_PACK_OUTPUT_DIR="$plugin_output" \
+            bash scripts/plugin-npm-publish.sh --pack extensions/codex
+          OPENCLAW_PLUGIN_NPM_PACK_OUTPUT_DIR="$plugin_output" \
+            bash scripts/plugin-npm-publish.sh --pack extensions/discord
+          shopt -s nullglob
+          codex_tarballs=("$plugin_output"/openclaw-codex-*.tgz)
+          discord_tarballs=("$plugin_output"/openclaw-discord-*.tgz)
+          test "${#codex_tarballs[@]}" -eq 1
+          test "${#discord_tarballs[@]}" -eq 1
+          mv "${codex_tarballs[0]}" "$RUNNER_TEMP/image-context/codex-current.tgz"
+          mv "${discord_tarballs[0]}" "$RUNNER_TEMP/image-context/discord-current.tgz"
+          for package_name in codex discord; do
+            tarball="$RUNNER_TEMP/image-context/$package_name-current.tgz"
+            tar -tzf "$tarball" | grep -Fx 'package/dist/index.js'
+            tar -xOf "$tarball" package/package.json > "$RUNNER_TEMP/$package_name-package.json"
+          done
+          node -e "const p=require('$RUNNER_TEMP/codex-package.json');if(p.version!==process.env.CODEX_VERSION||p.openclaw?.build?.openclawVersion!==process.env.EXPECTED_VERSION)throw new Error('Codex package identity mismatch')"
+          node -e "const p=require('$RUNNER_TEMP/discord-package.json');if(p.version!==process.env.DISCORD_VERSION||p.openclaw?.build?.openclawVersion!==process.env.EXPECTED_VERSION)throw new Error('Discord package identity mismatch')"
+          codex_digest="$(sha256sum "$RUNNER_TEMP/image-context/codex-current.tgz" | cut -d ' ' -f1)"
+          discord_digest="$(sha256sum "$RUNNER_TEMP/image-context/discord-current.tgz" | cut -d ' ' -f1)"
+          printf 'codex_digest=%s\ndiscord_digest=%s\n' \
+            "$codex_digest" "$discord_digest" >> "$GITHUB_OUTPUT"
+
       - name: Assemble the minimal trusted image context
         run: |
           set -euo pipefail
           context="$RUNNER_TEMP/image-context"
-          curl --fail --location --proto '=https' --tlsv1.2 \
-            "$CODEX_ARTIFACT_URL" --output "$context/codex-current.tgz"
-          printf '%s  %s\n' "$CODEX_ARTIFACT_SHA256" "$context/codex-current.tgz" | sha256sum -c -
           curl --fail --location --proto '=https' --tlsv1.2 \
             "$QMD_ARTIFACT_URL" --output "$context/qmd-current.tgz"
           printf '%s  %s\n' "$QMD_ARTIFACT_SHA256" "$context/qmd-current.tgz" | sha256sum -c -
@@ -151,10 +174,9 @@ jobs:
           sbom: true
           provenance: mode=max
           build-args: |
-            CODEX_TARBALL_SHA256=${{ env.CODEX_ARTIFACT_SHA256 }}
+            CODEX_TARBALL_SHA256=${{ steps.plugins.outputs.codex_digest }}
             CODEX_VERSION=${{ env.CODEX_VERSION }}
-            DISCORD_TARBALL_SHA256=${{ env.DISCORD_TARBALL_SHA256 }}
-            DISCORD_TARBALL_URL=${{ env.DISCORD_TARBALL_URL }}
+            DISCORD_TARBALL_SHA256=${{ steps.plugins.outputs.discord_digest }}
             DISCORD_VERSION=${{ env.DISCORD_VERSION }}
             OPENCLAW_TARBALL_SHA256=${{ steps.package.outputs.package_digest }}
             OPENCLAW_SOURCE_COMMIT=${{ env.APPROVED_SOURCE_COMMIT }}
@@ -213,6 +235,8 @@ jobs:
       - name: Record separate owner-override evidence
         if: inputs.publish
         env:
+          CODEX_PACKAGE_DIGEST: sha256:${{ steps.plugins.outputs.codex_digest }}
+          DISCORD_PACKAGE_DIGEST: sha256:${{ steps.plugins.outputs.discord_digest }}
           IMAGE: ${{ steps.publish.outputs.image }}
           IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
           PACKAGE_DIGEST: sha256:${{ steps.package.outputs.package_digest }}
@@ -230,6 +254,8 @@ jobs:
             version: process.env.EXPECTED_VERSION,
             sourceBundleDigest: process.env.SOURCE_DIGEST,
             packageDigest: process.env.PACKAGE_DIGEST,
+            codexPackageDigest: process.env.CODEX_PACKAGE_DIGEST,
+            discordPackageDigest: process.env.DISCORD_PACKAGE_DIGEST,
             image: process.env.IMAGE,
             imageDigest: process.env.IMAGE_DIGEST,
             sbom: true,

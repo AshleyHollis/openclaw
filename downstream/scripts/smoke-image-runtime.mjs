@@ -239,19 +239,13 @@ try {
 async function validateAndHydrateImagePluginRuntime() {
   const imagePluginPath = path.join(imagePluginRuntimeRoot, "node_modules/@openclaw/codex");
   const imageHostPeerPath = path.join(imagePluginPath, "node_modules/openclaw");
-  const [manifest, shrinkwrap] = await Promise.all(
-    ["package.json", "npm-shrinkwrap.json"].map(async (fileName) =>
-      JSON.parse(await readFile(path.join(imagePluginPath, fileName), "utf8")),
-    ),
-  );
+  const manifest = JSON.parse(await readFile(path.join(imagePluginPath, "package.json"), "utf8"));
   if (
     manifest.name !== "@openclaw/codex" ||
     manifest.version !== expectedCodexVersion ||
-    shrinkwrap.name !== manifest.name ||
-    shrinkwrap.version !== manifest.version ||
-    shrinkwrap.packages?.[""]?.version !== manifest.version
+    !manifest.openclaw?.runtimeExtensions?.includes("./dist/index.js")
   ) {
-    throw new Error("image Codex package and shrinkwrap metadata disagree");
+    throw new Error("image Codex package runtime metadata disagrees");
   }
   await assertImageOwnedHostPeer(imageHostPeerPath);
   await cp(imagePluginRuntimeRoot, managedPluginRuntimeRoot, {
