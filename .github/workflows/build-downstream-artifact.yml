@@ -1,266 +1,260 @@
-name: Build NAS downstream artifact
+name: Manual owner beta image
+
+run-name: OpenClaw 2026.7.2-beta.6 at ${{ inputs.expected_source_commit }}
 
 on:
   workflow_dispatch:
     inputs:
-      release_manifest:
-        description: Release manifest to build
+      expected_source_commit:
+        description: Exact approved upstream source commit
         required: true
-        default: downstream/releases/2026.7.1-2-nas.7.json
+        default: ce54f156f08983683a7d9cfb942fb4a457c566de
         type: string
       publish:
-        description: Publish the verified image to GHCR
+        description: Publish the verified OCI image to GHCR
         required: true
         default: false
         type: boolean
 
+permissions: {}
+
 concurrency:
-  group: build-nas-downstream-${{ inputs.release_manifest }}
+  group: manual-owner-beta-${{ inputs.expected_source_commit }}
   cancel-in-progress: false
 
 jobs:
   build:
     if: github.actor == github.repository_owner
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: write
+    env:
+      APPROVED_SOURCE_COMMIT: ce54f156f08983683a7d9cfb942fb4a457c566de
+      CANDIDATE_REF: refs/heads/release-2026.7.2-beta6-latest-main
+      CANDIDATE_REPOSITORY: https://github.com/openclaw/openclaw.git
+      EXPECTED_VERSION: 2026.7.2-beta.6
+      IMAGE_REPOSITORY: ghcr.io/ashleyhollis/openclaw
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
 
-      - name: Resolve release and enforce fail-fast dependency evidence
-        id: release
+      - name: Resolve and fetch the exact approved source
+        id: source
         env:
-          RELEASE_MANIFEST: ${{ inputs.release_manifest }}
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
         run: |
           set -euo pipefail
-          [[ "$RELEASE_MANIFEST" =~ ^downstream/releases/[0-9A-Za-z._+-]+\.json$ ]]
-          node downstream/scripts/validate-release.mjs "$RELEASE_MANIFEST"
-          node - "$RELEASE_MANIFEST" >> "$GITHUB_OUTPUT" <<'NODE'
-          const manifest = require(`./${process.argv[2]}`);
-          if (manifest.status === "blocked") throw new Error("blocked releases cannot be built or published");
-          const codex = manifest.externalPlugins.find((plugin) => plugin.id === "codex");
-          if (!codex) throw new Error("release manifest must freeze the Codex external plugin");
-          if (!codex.artifact) throw new Error("release manifest must pin a patched Codex artifact");
-          const qmd = manifest.runtimeTools?.find((tool) => tool.id === "qmd");
-          if (!qmd) throw new Error("release manifest must freeze the QMD runtime");
-          if (!qmd.artifact) throw new Error("release manifest must pin a QMD artifact");
-          const values = {
-            artifact_sha256: manifest.artifact.sha256,
-            artifact_url: manifest.artifact.url,
-            codex_artifact_sha256: codex.artifact.sha256,
-            codex_artifact_url: codex.artifact.url,
-            codex_integrity: codex.integrity,
-            codex_package: codex.package,
-            codex_tarball: codex.tarball,
-            codex_version: codex.version,
-            image_tag: `nas-${manifest.releaseId.replace("+", "-")}`,
-            qmd_artifact_sha256: qmd.artifact.sha256,
-            qmd_artifact_url: qmd.artifact.url,
-            qmd_integrity: qmd.integrity,
-            qmd_package: qmd.package,
-            qmd_tarball: qmd.tarball,
-            qmd_version: qmd.version,
-            source_commit: manifest.source.commit,
-            version: manifest.npm.version,
-          };
-          for (const [key, value] of Object.entries(values)) console.log(`${key}=${value}`);
-          NODE
-
-      - name: Freeze external plugin registry state
-        env:
-          CODEX_INTEGRITY: ${{ steps.release.outputs.codex_integrity }}
-          CODEX_PACKAGE: ${{ steps.release.outputs.codex_package }}
-          CODEX_TARBALL: ${{ steps.release.outputs.codex_tarball }}
-          CODEX_VERSION: ${{ steps.release.outputs.codex_version }}
-          QMD_INTEGRITY: ${{ steps.release.outputs.qmd_integrity }}
-          QMD_PACKAGE: ${{ steps.release.outputs.qmd_package }}
-          QMD_TARBALL: ${{ steps.release.outputs.qmd_tarball }}
-          QMD_VERSION: ${{ steps.release.outputs.qmd_version }}
-        run: |
-          set -euo pipefail
-          npm view "$CODEX_PACKAGE@$CODEX_VERSION" version dist.integrity dist.tarball --json > "$RUNNER_TEMP/codex-registry.json"
-          npm view "$QMD_PACKAGE@$QMD_VERSION" version dist.integrity dist.tarball --json > "$RUNNER_TEMP/qmd-registry.json"
-          node <<'NODE'
-          const fs = require("node:fs");
-          for (const runtime of [
-            { id: "Codex", file: "codex-registry.json", prefix: "CODEX" },
-            { id: "QMD", file: "qmd-registry.json", prefix: "QMD" },
-          ]) {
-            const current = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/${runtime.file}`, "utf8"));
-            const expected = {
-              version: process.env[`${runtime.prefix}_VERSION`],
-              "dist.integrity": process.env[`${runtime.prefix}_INTEGRITY`],
-              "dist.tarball": process.env[`${runtime.prefix}_TARBALL`],
-            };
-            for (const [field, value] of Object.entries(expected)) {
-              if (current[field] !== value) throw new Error(`${runtime.id} registry ${field} changed`);
-            }
+          [[ "$EXPECTED_SOURCE_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+          test "$EXPECTED_SOURCE_COMMIT" = "$APPROVED_SOURCE_COMMIT"
+          resolved="$(git ls-remote "$CANDIDATE_REPOSITORY" "$CANDIDATE_REF" | cut -f1)"
+          test "$resolved" = "$EXPECTED_SOURCE_COMMIT" || {
+            echo "candidate discovery ref moved: expected $EXPECTED_SOURCE_COMMIT, found $resolved" >&2
+            exit 75
           }
-          NODE
+          git init --initial-branch=source candidate
+          git -C candidate remote add origin "$CANDIDATE_REPOSITORY"
+          git -C candidate fetch --depth=1 --no-tags origin "$EXPECTED_SOURCE_COMMIT"
+          git -C candidate checkout --detach FETCH_HEAD
+          test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_SOURCE_COMMIT"
+          test "$(node -p "require('./candidate/package.json').version")" = "$EXPECTED_VERSION"
+          git -C candidate archive --format=tar.gz --prefix=openclaw/ \
+            --output "$RUNNER_TEMP/openclaw-source.tar.gz" "$EXPECTED_SOURCE_COMMIT"
+          source_digest="sha256:$(sha256sum "$RUNNER_TEMP/openclaw-source.tar.gz" | cut -d ' ' -f1)"
+          printf 'source_digest=%s\n' "$source_digest" >> "$GITHUB_OUTPUT"
 
-      - name: Download and verify exact tarball
+      - name: Fail-closed source secret scan
+        uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
         env:
-          ARTIFACT_SHA256: ${{ steps.release.outputs.artifact_sha256 }}
-          ARTIFACT_URL: ${{ steps.release.outputs.artifact_url }}
-          VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          set -euo pipefail
-          curl --fail --location --proto '=https' --tlsv1.2 "$ARTIFACT_URL" --output openclaw-current.tgz
-          printf '%s  %s\n' "$ARTIFACT_SHA256" openclaw-current.tgz | sha256sum -c -
-          tar -xOf openclaw-current.tgz package/package.json > /tmp/openclaw-package.json
-          tar -xOf openclaw-current.tgz package/npm-shrinkwrap.json > /tmp/openclaw-shrinkwrap.json
-          tar -tf openclaw-current.tgz > /tmp/openclaw-tar-files.txt
-          node downstream/scripts/validate-packed-metadata.mjs \
-            /tmp/openclaw-package.json \
-            /tmp/openclaw-shrinkwrap.json \
-            openclaw \
-            "$VERSION"
-          grep -q '^package/dist/extensions/discord/' /tmp/openclaw-tar-files.txt
+          GITHUB_TOKEN: ${{ github.token }}
+          GIT_DIR: ${{ github.workspace }}/candidate/.git
+          GIT_WORK_TREE: ${{ github.workspace }}/candidate
+          GITLEAKS_ENABLE_SUMMARY: "false"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
 
-      - name: Download and verify exact Codex plugin tarball
-        env:
-          CODEX_ARTIFACT_SHA256: ${{ steps.release.outputs.codex_artifact_sha256 }}
-          CODEX_ARTIFACT_URL: ${{ steps.release.outputs.codex_artifact_url }}
-          CODEX_VERSION: ${{ steps.release.outputs.codex_version }}
-        run: |
-          set -euo pipefail
-          curl --fail --location --proto '=https' --tlsv1.2 "$CODEX_ARTIFACT_URL" --output codex-current.tgz
-          printf '%s  %s\n' "$CODEX_ARTIFACT_SHA256" codex-current.tgz | sha256sum -c -
-          tar -xOf codex-current.tgz package/package.json > /tmp/codex-package.json
-          tar -xOf codex-current.tgz package/npm-shrinkwrap.json > /tmp/codex-shrinkwrap.json
-          node downstream/scripts/validate-packed-metadata.mjs \
-            /tmp/codex-package.json \
-            /tmp/codex-shrinkwrap.json \
-            @openclaw/codex \
-            "$CODEX_VERSION"
-
-      - name: Download and verify exact QMD runtime tarball
-        env:
-          QMD_ARTIFACT_SHA256: ${{ steps.release.outputs.qmd_artifact_sha256 }}
-          QMD_ARTIFACT_URL: ${{ steps.release.outputs.qmd_artifact_url }}
-          QMD_VERSION: ${{ steps.release.outputs.qmd_version }}
-        run: |
-          set -euo pipefail
-          curl --fail --location --proto '=https' --tlsv1.2 "$QMD_ARTIFACT_URL" --output qmd-current.tgz
-          printf '%s  %s\n' "$QMD_ARTIFACT_SHA256" qmd-current.tgz | sha256sum -c -
-          tar -xOf qmd-current.tgz package/package.json > /tmp/qmd-package.json
-          tar -xOf qmd-current.tgz package/npm-shrinkwrap.json > /tmp/qmd-shrinkwrap.json
-          node downstream/scripts/validate-packed-metadata.mjs \
-            /tmp/qmd-package.json \
-            /tmp/qmd-shrinkwrap.json \
-            @tobilu/qmd \
-            "$QMD_VERSION"
-
-      - name: Smoke-test exact tarball
-        env:
-          VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          set -euo pipefail
-          smoke_prefix="$RUNNER_TEMP/openclaw-smoke"
-          npm install --prefix "$smoke_prefix" --ignore-scripts=false ./openclaw-current.tgz
-          "$smoke_prefix/node_modules/.bin/openclaw" --version | grep -F "$VERSION"
-          node - "$smoke_prefix" <<'NODE'
-          const fs = require("node:fs");
-          const path = require("node:path");
-          const root = process.argv[2];
-          for (const dependency of ["@discordjs/voice", "discord-api-types", "opusscript"]) {
-            const manifest = path.join(root, "node_modules", dependency, "package.json");
-            const metadata = JSON.parse(fs.readFileSync(manifest, "utf8"));
-            if (metadata.name !== dependency) throw new Error(`missing ${dependency}`);
-          }
-          NODE
-
-      - name: Smoke-test external Codex plugin and scoped RPC
-        env:
-          VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          set -euo pipefail
-          bash downstream/scripts/smoke-external-plugin.sh \
-            "$GITHUB_WORKSPACE/openclaw-current.tgz" \
-            "$GITHUB_WORKSPACE/codex-current.tgz" \
-            codex \
-            "$VERSION"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
-
-      - name: Login to GHCR
-        if: inputs.publish
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
+          node-version: 22.23.1
+          cache: pnpm
+          cache-dependency-path: candidate/pnpm-lock.yaml
 
-      - name: Build and optionally publish image
-        id: image
+      - name: Install without package lifecycle scripts
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Run focused Control UI and protocol checks
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          corepack pnpm --dir ui exec vitest run \
+            src/api/gateway-browser-socket.test.ts \
+            src/components/login-gate.test.ts \
+            src/components/exec-approval.test.ts \
+            src/components/terminal/terminal-file-upload.test.ts
+          corepack pnpm exec vitest run \
+            packages/gateway-protocol/src/sessions-create.test.ts \
+            packages/gateway-protocol/src/exec-approvals-validators.test.ts
+
+      - name: Build and package the exact candidate
+        id: package
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/image-context"
+          node scripts/package-openclaw-for-docker.mjs \
+            --allow-unreleased-changelog \
+            --output-dir "$RUNNER_TEMP/image-context" \
+            --output-name openclaw-current.tgz
+          tar -xOf "$RUNNER_TEMP/image-context/openclaw-current.tgz" package/package.json \
+            > "$RUNNER_TEMP/openclaw-package.json"
+          test "$(node -p "require('$RUNNER_TEMP/openclaw-package.json').version")" = "$EXPECTED_VERSION"
+          package_digest="$(sha256sum "$RUNNER_TEMP/image-context/openclaw-current.tgz" | cut -d ' ' -f1)"
+          printf 'package_digest=%s\n' "$package_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble the minimal trusted image context
+        env:
+          CODEX_ARTIFACT_SHA256: 9336e6e0ad7697a94257253665b0f4e7fcfdc2af567610a549ace519d442b94b
+          CODEX_ARTIFACT_URL: https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-codex-2026.7.1-1-nas.6.tgz
+          QMD_ARTIFACT_SHA256: 4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a
+          QMD_ARTIFACT_URL: https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-qmd-2.1.0-nas.6.tgz
+        run: |
+          set -euo pipefail
+          context="$RUNNER_TEMP/image-context"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            "$CODEX_ARTIFACT_URL" --output "$context/codex-current.tgz"
+          printf '%s  %s\n' "$CODEX_ARTIFACT_SHA256" "$context/codex-current.tgz" | sha256sum -c -
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            "$QMD_ARTIFACT_URL" --output "$context/qmd-current.tgz"
+          printf '%s  %s\n' "$QMD_ARTIFACT_SHA256" "$context/qmd-current.tgz" | sha256sum -c -
+          mkdir -p "$context/downstream/scripts"
+          cp downstream/Dockerfile.artifact "$context/downstream/Dockerfile.artifact"
+          cp downstream/scripts/smoke-image-runtime.mjs "$context/downstream/scripts/smoke-image-runtime.mjs"
+
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Build the OCI image once with SBOM and provenance
+        id: oci
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
-          context: .
-          file: downstream/Dockerfile.artifact
+          context: ${{ runner.temp }}/image-context
+          file: ${{ runner.temp }}/image-context/downstream/Dockerfile.artifact
           platforms: linux/amd64
+          outputs: type=oci,dest=${{ runner.temp }}/openclaw-beta.oci.tar
+          sbom: true
+          provenance: mode=max
           build-args: |
-            CODEX_TARBALL_SHA256=${{ steps.release.outputs.codex_artifact_sha256 }}
-            CODEX_VERSION=${{ steps.release.outputs.codex_version }}
+            CODEX_TARBALL_SHA256=9336e6e0ad7697a94257253665b0f4e7fcfdc2af567610a549ace519d442b94b
+            CODEX_VERSION=2026.7.1-1
             DISCORD_TARBALL_SHA256=28f1511de04906def70f7ff6950cd2d26f52be0ec93c5efce8f5c07cb46bc521
             DISCORD_TARBALL_URL=https://registry.npmjs.org/@openclaw/discord/-/discord-2026.7.1.tgz
             DISCORD_VERSION=2026.7.1
-            OPENCLAW_TARBALL_SHA256=${{ steps.release.outputs.artifact_sha256 }}
-            OPENCLAW_SOURCE_COMMIT=${{ steps.release.outputs.source_commit }}
-            OPENCLAW_VERSION=${{ steps.release.outputs.version }}
-            QMD_TARBALL_SHA256=${{ steps.release.outputs.qmd_artifact_sha256 }}
-            QMD_VERSION=${{ steps.release.outputs.qmd_version }}
-          tags: ghcr.io/ashleyhollis/openclaw:${{ steps.release.outputs.image_tag }}
-          push: ${{ inputs.publish }}
-          load: ${{ !inputs.publish }}
-          sbom: ${{ inputs.publish }}
-          provenance: ${{ inputs.publish && 'mode=max' || 'false' }}
+            OPENCLAW_TARBALL_SHA256=${{ steps.package.outputs.package_digest }}
+            OPENCLAW_SOURCE_COMMIT=${{ inputs.expected_source_commit }}
+            OPENCLAW_VERSION=2026.7.2-beta.6
+            QMD_TARBALL_SHA256=4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a
+            QMD_VERSION=2.1.0
 
-      - name: Smoke-test built image and baked Codex plugin
+      - name: Load the exact OCI image for local checks
         env:
-          IMAGE_TAG: ${{ steps.release.outputs.image_tag }}
-          CODEX_VERSION: ${{ steps.release.outputs.codex_version }}
-          QMD_VERSION: ${{ steps.release.outputs.qmd_version }}
-          VERSION: ${{ steps.release.outputs.version }}
+          LOCAL_IMAGE: openclaw-owner-beta:2026.7.2-beta.6
         run: |
           set -euo pipefail
-          image="ghcr.io/ashleyhollis/openclaw:${IMAGE_TAG}"
-          if [[ "${{ inputs.publish }}" == "true" ]]; then
-            docker pull "$image"
-          fi
-          docker run --rm \
-            --network none \
-            --volume "$GITHUB_WORKSPACE/downstream/scripts/smoke-image-runtime.mjs:/tmp/smoke-image-runtime.mjs:ro" \
-            --env EXPECTED_CODEX_VERSION="$CODEX_VERSION" \
-            --env EXPECTED_DISCORD_VERSION="2026.7.1" \
-            --env EXPECTED_OPENCLAW_VERSION="$VERSION" \
-            --env EXPECTED_QMD_VERSION="$QMD_VERSION" \
-            --entrypoint node \
-            "$image" \
-            /tmp/smoke-image-runtime.mjs
+          sudo apt-get update -qq
+          sudo apt-get install --yes --no-install-recommends skopeo
+          skopeo copy "oci-archive:$RUNNER_TEMP/openclaw-beta.oci.tar" "docker-daemon:$LOCAL_IMAGE"
 
-      - name: Scan image for fixable critical vulnerabilities
+      - name: Network-disabled production image smoke
+        env:
+          LOCAL_IMAGE: openclaw-owner-beta:2026.7.2-beta.6
+        run: |
+          set -euo pipefail
+          docker run --rm --network none \
+            --volume "$RUNNER_TEMP/image-context/downstream/scripts/smoke-image-runtime.mjs:/tmp/smoke-image-runtime.mjs:ro" \
+            --env EXPECTED_CODEX_VERSION=2026.7.1-1 \
+            --env EXPECTED_DISCORD_VERSION=2026.7.1 \
+            --env EXPECTED_OPENCLAW_VERSION="$EXPECTED_VERSION" \
+            --env EXPECTED_QMD_VERSION=2.1.0 \
+            --entrypoint node "$LOCAL_IMAGE" /tmp/smoke-image-runtime.mjs
+
+      - name: Scan fixable critical vulnerabilities
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
-          image-ref: ghcr.io/ashleyhollis/openclaw:${{ steps.release.outputs.image_tag }}
+          image-ref: openclaw-owner-beta:2026.7.2-beta.6
           format: table
           exit-code: "1"
           ignore-unfixed: true
           severity: CRITICAL
           scanners: vuln
 
-      - name: Report immutable image
+      - name: Publish the already-verified OCI image
+        id: publish
+        if: inputs.publish
         env:
-          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
-          IMAGE_TAG: ${{ steps.release.outputs.image_tag }}
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_TAG: manual-2026.7.2-beta.6-ce54f156
+        run: |
+          set -euo pipefail
+          printf '%s' "$GH_TOKEN" | skopeo login ghcr.io \
+            --username "${{ github.repository_owner }}" --password-stdin
+          destination="$IMAGE_REPOSITORY:$IMAGE_TAG"
+          skopeo copy --all "oci-archive:$RUNNER_TEMP/openclaw-beta.oci.tar" "docker://$destination"
+          digest="$(skopeo inspect "docker://$destination" --format '{{.Digest}}')"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          printf 'digest=%s\nimage=%s@%s\n' "$digest" "$IMAGE_REPOSITORY" "$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Record separate owner-override evidence
+        if: inputs.publish
+        env:
+          IMAGE: ${{ steps.publish.outputs.image }}
+          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+          PACKAGE_DIGEST: sha256:${{ steps.package.outputs.package_digest }}
+          SOURCE_DIGEST: ${{ steps.source.outputs.source_digest }}
+        run: |
+          set -euo pipefail
+          node - "$RUNNER_TEMP/manual-beta-owner-override.json" <<'NODE'
+          const fs = require("node:fs");
+          const evidence = {
+            schemaVersion: 1,
+            ownerOverride: true,
+            normalReleaseReceipt: false,
+            discoveryRef: "openclaw/openclaw:release-2026.7.2-beta6-latest-main",
+            sourceCommit: process.env.APPROVED_SOURCE_COMMIT,
+            version: process.env.EXPECTED_VERSION,
+            sourceBundleDigest: process.env.SOURCE_DIGEST,
+            packageDigest: process.env.PACKAGE_DIGEST,
+            image: process.env.IMAGE,
+            imageDigest: process.env.IMAGE_DIGEST,
+            sbom: true,
+            provenance: true,
+            focusedChecks: ["control-ui", "gateway-browser-socket", "login", "approvals", "attachments", "session-create", "image-smoke", "critical-vulnerability-scan"],
+          };
+          fs.writeFileSync(process.argv[2], `${JSON.stringify(evidence, null, 2)}\n`);
+          NODE
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: inputs.publish
+        with:
+          name: manual-beta-owner-override-${{ inputs.expected_source_commit }}
+          path: ${{ runner.temp }}/manual-beta-owner-override.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Report immutable owner-override image
+        if: inputs.publish
+        env:
+          IMAGE: ${{ steps.publish.outputs.image }}
+          SOURCE_DIGEST: ${{ steps.source.outputs.source_digest }}
         run: |
           {
-            echo "### NAS downstream image"
+            echo '### Manual owner beta image'
             echo
-            echo "- Tag: \`ghcr.io/ashleyhollis/openclaw:${IMAGE_TAG}\`"
-            echo "- Digest: \`${IMAGE_DIGEST}\`"
-            echo "- Published: \`${{ inputs.publish }}\`"
+            echo "- Source commit: \`$APPROVED_SOURCE_COMMIT\`"
+            echo "- Source bundle: \`$SOURCE_DIGEST\`"
+            echo "- Image: \`$IMAGE\`"
+            echo '- Normal release receipts: `not created`'
           } >> "$GITHUB_STEP_SUMMARY"
