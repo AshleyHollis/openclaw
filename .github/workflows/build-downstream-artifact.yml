@@ -1,3 +1,5 @@
+# GitHub dispatches only workflow paths that also exist on the default branch.
+# This personal branch replaces that path temporarily; main remains unchanged.
 name: Manual owner beta image
 
 run-name: OpenClaw 2026.7.2-beta.6 at ${{ inputs.expected_source_commit }}
@@ -34,8 +36,19 @@ jobs:
       APPROVED_SOURCE_COMMIT: 7788b436754c3a1e849e14705572bbbc8e68cd58
       CANDIDATE_REF: refs/heads/release-2026.7.2-beta6-latest-main
       CANDIDATE_REPOSITORY: https://github.com/openclaw/openclaw.git
+      CODEX_ARTIFACT_SHA256: 9336e6e0ad7697a94257253665b0f4e7fcfdc2af567610a549ace519d442b94b
+      CODEX_ARTIFACT_URL: https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-codex-2026.7.1-1-nas.6.tgz
+      CODEX_VERSION: 2026.7.1-1
+      DISCORD_TARBALL_SHA256: 28f1511de04906def70f7ff6950cd2d26f52be0ec93c5efce8f5c07cb46bc521
+      DISCORD_TARBALL_URL: https://registry.npmjs.org/@openclaw/discord/-/discord-2026.7.1.tgz
+      DISCORD_VERSION: 2026.7.1
       EXPECTED_VERSION: 2026.7.2-beta.6
       IMAGE_REPOSITORY: ghcr.io/ashleyhollis/openclaw
+      IMAGE_TAG: manual-2026.7.2-beta.6-7788b436
+      LOCAL_IMAGE: openclaw-owner-beta:2026.7.2-beta.6
+      QMD_ARTIFACT_SHA256: 4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a
+      QMD_ARTIFACT_URL: https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-qmd-2.1.0-nas.6.tgz
+      QMD_VERSION: 2.1.0
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -97,7 +110,7 @@ jobs:
             src/components/exec-approval.test.ts \
             src/components/terminal/terminal-file-upload.test.ts
           corepack pnpm exec vitest run \
-            packages/gateway-protocol/src/sessions-create.test.ts \
+            packages/gateway-protocol/src/schema/sessions-create.test.ts \
             packages/gateway-protocol/src/exec-approvals-validators.test.ts
 
       - name: Build and package the exact candidate
@@ -117,11 +130,6 @@ jobs:
           printf 'package_digest=%s\n' "$package_digest" >> "$GITHUB_OUTPUT"
 
       - name: Assemble the minimal trusted image context
-        env:
-          CODEX_ARTIFACT_SHA256: 9336e6e0ad7697a94257253665b0f4e7fcfdc2af567610a549ace519d442b94b
-          CODEX_ARTIFACT_URL: https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-codex-2026.7.1-1-nas.6.tgz
-          QMD_ARTIFACT_SHA256: 4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a
-          QMD_ARTIFACT_URL: https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-qmd-2.1.0-nas.6.tgz
         run: |
           set -euo pipefail
           context="$RUNNER_TEMP/image-context"
@@ -138,7 +146,6 @@ jobs:
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
       - name: Build the OCI image once with SBOM and provenance
-        id: oci
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: ${{ runner.temp }}/image-context
@@ -148,20 +155,18 @@ jobs:
           sbom: true
           provenance: mode=max
           build-args: |
-            CODEX_TARBALL_SHA256=9336e6e0ad7697a94257253665b0f4e7fcfdc2af567610a549ace519d442b94b
-            CODEX_VERSION=2026.7.1-1
-            DISCORD_TARBALL_SHA256=28f1511de04906def70f7ff6950cd2d26f52be0ec93c5efce8f5c07cb46bc521
-            DISCORD_TARBALL_URL=https://registry.npmjs.org/@openclaw/discord/-/discord-2026.7.1.tgz
-            DISCORD_VERSION=2026.7.1
+            CODEX_TARBALL_SHA256=${{ env.CODEX_ARTIFACT_SHA256 }}
+            CODEX_VERSION=${{ env.CODEX_VERSION }}
+            DISCORD_TARBALL_SHA256=${{ env.DISCORD_TARBALL_SHA256 }}
+            DISCORD_TARBALL_URL=${{ env.DISCORD_TARBALL_URL }}
+            DISCORD_VERSION=${{ env.DISCORD_VERSION }}
             OPENCLAW_TARBALL_SHA256=${{ steps.package.outputs.package_digest }}
-            OPENCLAW_SOURCE_COMMIT=${{ inputs.expected_source_commit }}
-            OPENCLAW_VERSION=2026.7.2-beta.6
-            QMD_TARBALL_SHA256=4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a
-            QMD_VERSION=2.1.0
+            OPENCLAW_SOURCE_COMMIT=${{ env.APPROVED_SOURCE_COMMIT }}
+            OPENCLAW_VERSION=${{ env.EXPECTED_VERSION }}
+            QMD_TARBALL_SHA256=${{ env.QMD_ARTIFACT_SHA256 }}
+            QMD_VERSION=${{ env.QMD_VERSION }}
 
       - name: Load the exact OCI image for local checks
-        env:
-          LOCAL_IMAGE: openclaw-owner-beta:2026.7.2-beta.6
         run: |
           set -euo pipefail
           sudo apt-get update -qq
@@ -169,22 +174,20 @@ jobs:
           skopeo copy "oci-archive:$RUNNER_TEMP/openclaw-beta.oci.tar" "docker-daemon:$LOCAL_IMAGE"
 
       - name: Network-disabled production image smoke
-        env:
-          LOCAL_IMAGE: openclaw-owner-beta:2026.7.2-beta.6
         run: |
           set -euo pipefail
           docker run --rm --network none \
             --volume "$RUNNER_TEMP/image-context/downstream/scripts/smoke-image-runtime.mjs:/tmp/smoke-image-runtime.mjs:ro" \
-            --env EXPECTED_CODEX_VERSION=2026.7.1-1 \
-            --env EXPECTED_DISCORD_VERSION=2026.7.1 \
+            --env EXPECTED_CODEX_VERSION="$CODEX_VERSION" \
+            --env EXPECTED_DISCORD_VERSION="$DISCORD_VERSION" \
             --env EXPECTED_OPENCLAW_VERSION="$EXPECTED_VERSION" \
-            --env EXPECTED_QMD_VERSION=2.1.0 \
+            --env EXPECTED_QMD_VERSION="$QMD_VERSION" \
             --entrypoint node "$LOCAL_IMAGE" /tmp/smoke-image-runtime.mjs
 
       - name: Scan fixable critical vulnerabilities
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
-          image-ref: openclaw-owner-beta:2026.7.2-beta.6
+          image-ref: ${{ env.LOCAL_IMAGE }}
           format: table
           exit-code: "1"
           ignore-unfixed: true
@@ -196,7 +199,6 @@ jobs:
         if: inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
-          IMAGE_TAG: manual-2026.7.2-beta.6-7788b436
         run: |
           set -euo pipefail
           printf '%s' "$GH_TOKEN" | skopeo login ghcr.io \
@@ -231,7 +233,7 @@ jobs:
             imageDigest: process.env.IMAGE_DIGEST,
             sbom: true,
             provenance: true,
-            focusedChecks: ["control-ui", "gateway-browser-socket", "login", "approvals", "attachments", "session-create", "image-smoke", "critical-vulnerability-scan"],
+            focusedChecks: ["control-ui-unit", "gateway-browser-socket-unit", "login-gate-unit", "approval-component-unit", "terminal-file-upload-unit", "session-create-validator-unit", "exec-approval-validator-unit", "image-runtime-smoke", "critical-vulnerability-scan"],
           };
           fs.writeFileSync(process.argv[2], `${JSON.stringify(evidence, null, 2)}\n`);
           NODE
