@@ -238,6 +238,7 @@ try {
 
 async function validateAndHydrateImagePluginRuntime() {
   const imagePluginPath = path.join(imagePluginRuntimeRoot, "node_modules/@openclaw/codex");
+  const imageHostPeerPath = path.join(imagePluginPath, "node_modules/openclaw");
   const [manifest, shrinkwrap] = await Promise.all(
     ["package.json", "npm-shrinkwrap.json"].map(async (fileName) =>
       JSON.parse(await readFile(path.join(imagePluginPath, fileName), "utf8")),
@@ -252,18 +253,14 @@ async function validateAndHydrateImagePluginRuntime() {
   ) {
     throw new Error("image Codex package and shrinkwrap metadata disagree");
   }
+  await assertImageOwnedHostPeer(imageHostPeerPath);
   await cp(imagePluginRuntimeRoot, managedPluginRuntimeRoot, {
     recursive: true,
     errorOnExist: true,
     force: false,
+    verbatimSymlinks: true,
   });
-  const hostPeerMetadata = await lstat(managedHostPeerPath);
-  if (!hostPeerMetadata.isSymbolicLink()) {
-    throw new Error("Codex host peer is not an image-owned symbolic link");
-  }
-  if ((await readlink(managedHostPeerPath)) !== "/app/node_modules/openclaw") {
-    throw new Error("Codex host peer points outside the packaged OpenClaw runtime");
-  }
+  await assertImageOwnedHostPeer(managedHostPeerPath);
   const rootManifestPath = path.join(managedPluginRuntimeRoot, "package.json");
   const rootManifest = JSON.parse(await readFile(rootManifestPath, "utf8"));
   const discordManifest = JSON.parse(
@@ -283,6 +280,16 @@ async function validateAndHydrateImagePluginRuntime() {
   await writeFile(rootManifestPath, `${JSON.stringify(rootManifest, null, 2)}\n`, {
     mode: 0o600,
   });
+}
+
+async function assertImageOwnedHostPeer(hostPeerPath) {
+  const hostPeerMetadata = await lstat(hostPeerPath);
+  if (!hostPeerMetadata.isSymbolicLink()) {
+    throw new Error("Codex host peer is not an image-owned symbolic link");
+  }
+  if ((await readlink(hostPeerPath)) !== "/app/node_modules/openclaw") {
+    throw new Error("Codex host peer points outside the packaged OpenClaw runtime");
+  }
 }
 
 function runOpenClaw(args, env) {
