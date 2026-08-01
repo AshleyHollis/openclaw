@@ -3,7 +3,8 @@ title = "OpenClaw 2026.7.2-beta.6 public-source fixture allowlist"
 [extend]
 useDefault = true
 
-# The approved source is locked to 7788b436754c3a1e849e14705572bbbc8e68cd58.
+# The approved source is locked to the signed v2026.7.2-beta.6 tag, peeled to
+# 4d6bdbdbf33fe3ece3c53853fab9931882ff3f3c.
 # These paths contain generated translation memory, public documentation
 # examples, or credential-shaped test/QA identifiers reviewed for that commit.
 # This profile is not suitable for private repositories or another source SHA.
