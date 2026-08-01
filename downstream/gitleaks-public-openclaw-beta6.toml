@@ -14,20 +14,31 @@ paths = [
   '''(^|/)docs(?:/|$)''',
   '''(?i)(^|/)(?:test|tests|__tests__|test-fixtures)(?:/|$)''',
   '''\.(?:test|spec)\.[^/]+$''',
-  '''(^|/)apps/linux/src-tauri/src/gateway_ws\.rs$''',
   '''(^|/)extensions/discord/src/monitor/message-handler\.ts$''',
   '''(^|/)extensions/mattermost/src/mattermost/monitor-websocket\.ts$''',
   '''(^|/)extensions/nostr/src/test-fixtures\.ts$''',
   '''(^|/)extensions/qa-lab/src/live-transports/discord/discord-live\.runtime\.ts$''',
-  '''(^|/)extensions/qa-lab/src/live-transports/matrix/scenarios/scenario-contract\.ts$''',
   '''(^|/)extensions/qa-matrix/src/runners/contract/scenario-catalog\.ts$''',
   '''(^|/)extensions/xai/xai-oauth\.ts$''',
-  '''(^|/)qa/scenarios/channels/matrix-e2ee-dm-sas-verification\.yaml$''',
   '''(^|/)src/agents/sandbox/novnc-auth\.ts$''',
-  '''(^|/)src/commands/doctor-session-incognito-key-repair-state\.ts$''',
-  '''(^|/)src/gateway/server-methods/agent\.media-and-routing\.test-utils\.ts$''',
   '''(^|/)src/plugins/interactive-contract\.test-helpers\.ts$''',
 ]
+
+# Gitleaks' generic-api-key heuristic matches these exact public identifiers in
+# unit/QA fixtures and a SQLite repair journal key. Keep the exception scoped to
+# the reviewed match values so the surrounding production files remain scanned.
+[[rules]]
+id = "generic-api-key"
+
+  [rules.allowlist]
+  description = "Reviewed non-secret identifiers in the approved beta source"
+  regexTarget = "match"
+  regexes = [
+    '''idempotency-1''',
+    '''e2ee-verification-dm''',
+    '''reserved-incognito-v1''',
+    '''test-5369-(?:broader|policy|rotation)''',
+  ]
 
 # The release image pins the public Discord plugin tarball by SHA-256. The
 # default discord-api-token rule also accepts high-entropy 64-character hex
@@ -41,4 +52,3 @@ id = "discord-api-token"
   regexes = [
     '''DISCORD_TARBALL_SHA256(?:"[ \t]*)?=[ \t]*"[0-9a-f]{64}"''',
   ]
-
