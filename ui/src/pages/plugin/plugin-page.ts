@@ -23,7 +23,10 @@ import { renderLazyViewError } from "../../components/lazy-view-error.ts";
 import { renderLoadingState } from "../../components/loading-state.ts";
 import { t } from "../../i18n/index.ts";
 import { resolveEmbedSandbox } from "../../lib/chat/tool-display.ts";
-import { ExternalTabCapabilityBridgeController } from "../../lib/external-tab-capability-bridge.ts";
+import {
+  EXTERNAL_TAB_BRIDGE_LIMITS,
+  ExternalTabCapabilityBridgeController,
+} from "../../lib/external-tab-capability-bridge.ts";
 import { sessionNavigationTarget } from "../../lib/sessions/route-navigation.ts";
 import { OpenClawLightDomContentsElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
@@ -93,6 +96,44 @@ function isSameOriginFramePath(path: string): boolean {
 
 const EXTERNAL_AUTH_REFRESH_TIMEOUT_MS = 10_000;
 const EXTERNAL_AUTH_PROBE_TIMEOUT_MS = 5_000;
+const AUTHENTICATED_EXTERNAL_TAB_SANDBOX = "allow-scripts";
+const MAX_CAPABILITY_BRIDGE_DOCUMENT_BYTES = 1024 * 1024;
+const CAPABILITY_BRIDGE_BOOTSTRAP_MESSAGE = "openclaw:capability-bridge-bootstrap";
+const CAPABILITY_BRIDGE_BOOTSTRAP_MOUNTED_MESSAGE = "openclaw:capability-bridge-bootstrap-mounted";
+
+function randomBridgeBootstrapId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
+}
+
+/**
+ * The bootstrap holds the iframe side of the port. It relays opaque local
+ * messages for the plugin document but never transfers the port into a window
+ * that could have navigated away after the source was provenance-checked.
+ */
+function buildCapabilityBridgeDocument(source: URL, markup: string, bootstrapId: string): string {
+  const base = `<base href="${escapeHtmlAttribute(source.href)}">`;
+  const bootstrap = [
+    "<script>(()=>{",
+    `const id=${JSON.stringify(bootstrapId)};`,
+    "const channel=new MessageChannel();const port=channel.port1;",
+    'port.onmessage=(event)=>window.postMessage({type:"openclaw:capability-bridge-receive",payload:event.data},"*");',
+    "port.start();",
+    'window.addEventListener("message",(event)=>{const data=event.data;if(event.source===window&&data?.type==="openclaw:capability-bridge-send")port.postMessage(data.payload)});',
+    `window.addEventListener("load",()=>parent.postMessage({type:"${CAPABILITY_BRIDGE_BOOTSTRAP_MOUNTED_MESSAGE}",id},"*"),{once:true});`,
+    "document.currentScript?.remove();",
+    `parent.postMessage({type:"${CAPABILITY_BRIDGE_BOOTSTRAP_MESSAGE}",id},"*",[channel.port2]);`,
+    "})()</script>",
+  ].join("");
+  // Prefixing rather than locating a <head> means a malformed document cannot
+  // run a redirecting script before the bootstrap owns its channel endpoint.
+  return `<!doctype html><head>${bootstrap}${base}</head>${markup}`;
+}
 
 // Keyed by pluginId/tabId: tab ids are only unique within their plugin.
 const BUNDLED_TAB_VIEWS: Record<string, () => Promise<BundledPluginTabView>> = {
@@ -115,6 +156,9 @@ export class PluginPage extends OpenClawLightDomContentsElement {
   @state() private bundledViewState: BundledPluginTabViewState = { status: "idle" };
   @state() private externalAuthReadyKey: string | null = null;
   @state() private externalAuthUnavailableKey: string | null = null;
+  @state()
+  private capabilityBridgeDocument: { key: string; markup: string; bootstrapId: string } | null =
+    null;
 
   private bundledViewHost: object = {};
   private gatewaySource?: ApplicationContext<RouteId>["gateway"];
@@ -132,7 +176,15 @@ export class PluginPage extends OpenClawLightDomContentsElement {
   private externalAuthRefreshedAt = 0;
   private capabilityBridge: ExternalTabCapabilityBridgeController | null = null;
   private capabilityBridgeFrame: HTMLIFrameElement | null = null;
+  private capabilityBridgeFrameLoadSeen = false;
+  private capabilityBridgeBootstrapMounted = false;
+  private capabilityBridgeBootstrapPort: MessagePort | null = null;
+  private capabilityBridgeBootstrapTimer: ReturnType<typeof setTimeout> | null = null;
+  private capabilityBridgeReconnectRequired = false;
   private capabilityBridgeMountKey: string | null = null;
+  private capabilityBridgeDocumentKey: string | null = null;
+  private capabilityBridgeDocumentAbortController: AbortController | null = null;
+  private stopCapabilityBridgeGatewayEvents: (() => void) | null = null;
   private readonly subscriptions = new SubscriptionsController(this)
     .watch(
       () => this.context?.gateway,
@@ -162,12 +214,16 @@ export class PluginPage extends OpenClawLightDomContentsElement {
   override connectedCallback() {
     super.connectedCallback();
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
+    window.addEventListener("message", this.handleCapabilityBridgeBootstrap);
   }
 
   override disconnectedCallback() {
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    window.removeEventListener("message", this.handleCapabilityBridgeBootstrap);
     this.clearExternalTabAuth();
     this.clearCapabilityBridge();
+    this.stopCapabilityBridgeGatewayEvents?.();
+    this.stopCapabilityBridgeGatewayEvents = null;
     this.subscriptions.clear();
     this.stopBundledView();
     super.disconnectedCallback();
@@ -242,6 +298,7 @@ export class PluginPage extends OpenClawLightDomContentsElement {
       this.startBundledViewLoad(key);
     }
     this.syncExternalTabAuth(info, hasBundledDescriptor);
+    this.syncCapabilityBridgeDocument(info, hasBundledDescriptor);
   }
 
   private externalTabAuthKey(
@@ -577,10 +634,33 @@ export class PluginPage extends OpenClawLightDomContentsElement {
       return;
     }
     const externalAuthTargetKey = this.externalAuthTargetKey;
+    this.clearCapabilityBridge();
+    this.stopCapabilityBridgeGatewayEvents?.();
+    this.stopCapabilityBridgeGatewayEvents = null;
     this.replaceBundledViewHost();
     this.gatewaySource = gateway;
     this.gatewayClient = client;
     this.gatewayConnected = connected;
+    if (connected) {
+      this.capabilityBridgeReconnectRequired = false;
+    }
+    if (client) {
+      this.stopCapabilityBridgeGatewayEvents = client.addEventListener((event) => {
+        if (
+          event.event !== "config.changed" ||
+          this.gatewayClient !== client ||
+          (this.capabilityBridgeMountKey === null && this.capabilityBridgeDocumentKey === null)
+        ) {
+          return;
+        }
+        // Plugin reloads hot-swap the server registry without replacing this
+        // browser client. Drop the port before reconnecting so its old grant
+        // cannot survive a disablement or runtime replacement.
+        this.capabilityBridgeReconnectRequired = true;
+        this.clearCapabilityBridge();
+        client.forceReconnect("plugin runtime changed");
+      });
+    }
     if (externalAuthTargetKey) {
       this.resetExternalTabAuthForGatewayChange(externalAuthTargetKey, connected);
     }
@@ -600,7 +680,6 @@ export class PluginPage extends OpenClawLightDomContentsElement {
       path: info.path,
       grant: info.capabilityBridge,
       conn: this.context?.gateway.snapshot.hello?.server?.connId,
-      sandbox: this.context?.config.current.embedSandboxMode,
     });
   }
 
@@ -611,42 +690,143 @@ export class PluginPage extends OpenClawLightDomContentsElement {
 
   private clearCapabilityBridge() {
     this.revokeCapabilityBridge();
+    if (this.capabilityBridgeBootstrapTimer) {
+      clearTimeout(this.capabilityBridgeBootstrapTimer);
+    }
+    this.capabilityBridgeBootstrapTimer = null;
+    this.capabilityBridgeBootstrapPort?.close();
+    this.capabilityBridgeBootstrapPort = null;
     this.capabilityBridgeFrame = null;
+    this.capabilityBridgeFrameLoadSeen = false;
+    this.capabilityBridgeBootstrapMounted = false;
     this.capabilityBridgeMountKey = null;
+    this.clearCapabilityBridgeDocument();
   }
 
-  private readonly bindCapabilityBridge = (event: Event) => {
-    const frame = event.currentTarget;
-    if (!(frame instanceof HTMLIFrameElement)) {
+  private clearCapabilityBridgeDocument() {
+    this.capabilityBridgeDocumentAbortController?.abort();
+    this.capabilityBridgeDocumentAbortController = null;
+    this.capabilityBridgeDocumentKey = null;
+    this.capabilityBridgeDocument = null;
+  }
+
+  /** Fetches a redirect-free same-origin response before it becomes a bridge target. */
+  protected async loadCapabilityBridgeDocument(
+    path: string,
+    signal: AbortSignal,
+  ): Promise<{ source: URL; markup: string } | null> {
+    if (!isSameOriginFramePath(path)) {
+      return null;
+    }
+    const source = new URL(path, window.location.href);
+    source.hash = "";
+    const response = await fetch(source, {
+      credentials: "same-origin",
+      redirect: "error",
+      signal,
+    });
+    const loaded = new URL(response.url);
+    if (
+      !response.ok ||
+      response.redirected ||
+      loaded.origin !== source.origin ||
+      loaded.pathname !== source.pathname ||
+      loaded.search !== source.search ||
+      !response.headers.get("content-type")?.toLowerCase().includes("text/html")
+    ) {
+      return null;
+    }
+    const declaredLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_CAPABILITY_BRIDGE_DOCUMENT_BYTES) {
+      return null;
+    }
+    const markup = await response.text();
+    if (new TextEncoder().encode(markup).byteLength > MAX_CAPABILITY_BRIDGE_DOCUMENT_BYTES) {
+      return null;
+    }
+    return { source, markup };
+  }
+
+  private syncCapabilityBridgeDocument(
+    info: GatewayControlUiPluginTab | undefined,
+    hasBundledDescriptor: boolean,
+  ) {
+    const key = this.capabilityBridgeIdentity(info);
+    const externalAuthKey = this.externalTabAuthKey(info, hasBundledDescriptor);
+    if (
+      !key ||
+      !info?.path ||
+      info.requiresGatewayAuth !== true ||
+      this.capabilityBridgeReconnectRequired ||
+      this.externalAuthReadyKey !== externalAuthKey
+    ) {
+      if (this.capabilityBridgeFrame || this.capabilityBridgeBootstrapPort || this.capabilityBridge) {
+        // Auth renewal and tab projection changes can remove the iframe before
+        // it loads again; closing the host side prevents that old port surviving.
+        this.clearCapabilityBridge();
+      } else if (this.capabilityBridgeDocumentKey !== null) {
+        this.clearCapabilityBridgeDocument();
+      }
       return;
     }
-    if (this.capabilityBridgeFrame === frame) {
-      // A second load is a navigation of this physical iframe. Its document is
-      // no longer the validated initial mount, so revocation is terminal until
-      // Lit creates a new iframe for a changed authenticated tab identity.
-      this.revokeCapabilityBridge();
+    if (this.capabilityBridgeDocumentKey === key) {
       return;
     }
-    this.clearCapabilityBridge();
-    this.capabilityBridgeFrame = frame;
+    this.clearCapabilityBridgeDocument();
+    const abortController = new AbortController();
+    this.capabilityBridgeDocumentKey = key;
+    this.capabilityBridgeDocumentAbortController = abortController;
+    void this.loadCapabilityBridgeDocument(info.path, abortController.signal)
+      .then((loaded) => {
+        if (
+          !loaded ||
+          this.capabilityBridgeDocumentKey !== key ||
+          this.capabilityBridgeDocumentAbortController !== abortController
+        ) {
+          return;
+        }
+        const bootstrapId = randomBridgeBootstrapId();
+        this.capabilityBridgeDocument = {
+          key,
+          bootstrapId,
+          markup: buildCapabilityBridgeDocument(loaded.source, loaded.markup, bootstrapId),
+        };
+      })
+      .catch(() => {
+        // The existing authenticated frame remains read-only when an exact
+        // bridge source cannot be provenance-bound.
+      });
+  }
+
+  private activateCapabilityBridge() {
+    const frame = this.capabilityBridgeFrame;
+    if (
+      !frame ||
+      !this.capabilityBridgeFrameLoadSeen ||
+      !this.capabilityBridgeBootstrapMounted ||
+      this.capabilityBridgeReconnectRequired ||
+      this.capabilityBridge
+    ) {
+      return;
+    }
     const context = this.context;
     const info = this.tabInfo();
     const grant = info?.capabilityBridge;
-    const expectedPath = info?.path;
+    const document = this.capabilityBridgeDocument;
     const client = context?.gateway.snapshot.client;
+    const port = this.capabilityBridgeBootstrapPort;
     this.capabilityBridgeMountKey = this.capabilityBridgeIdentity(info);
-    const sandbox = resolveEmbedSandbox(context?.config.current.embedSandboxMode ?? "strict");
-    const frameSource = frame.getAttribute("src");
     if (
       !context ||
       !client ||
       !grant ||
-      !expectedPath ||
+      !document ||
+      document.key !== this.capabilityBridgeMountKey ||
+      !port ||
       info?.requiresGatewayAuth !== true ||
       context.gateway.snapshot.phase !== "connected" ||
-      !sandbox.split(/\s+/).includes("allow-scripts") ||
-      frameSource !== expectedPath ||
-      !isSameOriginFramePath(expectedPath)
+      frame.getAttribute("sandbox") !== AUTHENTICATED_EXTERNAL_TAB_SANDBOX ||
+      frame.getAttribute("srcdoc") !== document.markup
     )
       return;
     this.capabilityBridge = new ExternalTabCapabilityBridgeController({
@@ -666,7 +846,73 @@ export class PluginPage extends OpenClawLightDomContentsElement {
         window.location.assign(target.href);
       },
     });
-    this.capabilityBridge.connect();
+    this.capabilityBridgeBootstrapPort = null;
+    if (this.capabilityBridgeBootstrapTimer) {
+      clearTimeout(this.capabilityBridgeBootstrapTimer);
+    }
+    this.capabilityBridgeBootstrapTimer = null;
+    this.capabilityBridge.connect(port);
+  }
+
+  private readonly handleCapabilityBridgeBootstrap = (event: MessageEvent) => {
+    const document = this.capabilityBridgeDocument;
+    const frame = this.renderRoot.querySelector("iframe");
+    if (
+      !document ||
+      !(frame instanceof HTMLIFrameElement) ||
+      event.source !== frame.contentWindow ||
+      event.data?.id !== document.bootstrapId ||
+      frame.getAttribute("srcdoc") !== document.markup
+    ) {
+      return;
+    }
+    if (event.data.type === CAPABILITY_BRIDGE_BOOTSTRAP_MOUNTED_MESSAGE) {
+      if (event.ports.length !== 0 || this.capabilityBridgeFrame !== frame) {
+        return;
+      }
+      this.capabilityBridgeBootstrapMounted = true;
+      this.activateCapabilityBridge();
+      return;
+    }
+    if (event.data.type !== CAPABILITY_BRIDGE_BOOTSTRAP_MESSAGE || event.ports.length !== 1) {
+      return;
+    }
+    if (this.capabilityBridgeFrame && this.capabilityBridgeFrame !== frame) {
+      return;
+    }
+    if (this.capabilityBridge || this.capabilityBridgeBootstrapPort) {
+      event.ports[0]?.close();
+      return;
+    }
+    this.capabilityBridgeFrame = frame;
+    this.capabilityBridgeBootstrapPort = event.ports[0] ?? null;
+    this.capabilityBridgeBootstrapMounted = false;
+    this.capabilityBridgeMountKey = this.capabilityBridgeIdentity(this.tabInfo());
+    this.capabilityBridgeBootstrapTimer = setTimeout(() => {
+      if (!this.capabilityBridgeBootstrapMounted) {
+        this.clearCapabilityBridge();
+      }
+    }, EXTERNAL_TAB_BRIDGE_LIMITS.handshakeTimeoutMs);
+    this.activateCapabilityBridge();
+  };
+
+  private readonly bindCapabilityBridge = (event: Event) => {
+    const frame = event.currentTarget;
+    if (!(frame instanceof HTMLIFrameElement)) {
+      return;
+    }
+    if (this.capabilityBridgeFrame && this.capabilityBridgeFrame !== frame) {
+      return;
+    }
+    if (this.capabilityBridgeFrameLoadSeen) {
+      // A bridge bootstrap gives the host its own port; a later navigation
+      // destroys the iframe peer. Clear the host side synchronously too.
+      this.clearCapabilityBridge();
+      return;
+    }
+    this.capabilityBridgeFrame = frame;
+    this.capabilityBridgeFrameLoadSeen = true;
+    this.activateCapabilityBridge();
   };
 
   override render() {
@@ -713,12 +959,18 @@ export class PluginPage extends OpenClawLightDomContentsElement {
     }
     if (info?.path) {
       const bridge = info.capabilityBridge;
-      const sandbox = resolveEmbedSandbox(context.config.current.embedSandboxMode);
+      const sandbox =
+        info.requiresGatewayAuth === true
+          ? AUTHENTICATED_EXTERNAL_TAB_SANDBOX
+          : resolveEmbedSandbox(context.config.current.embedSandboxMode);
+      const bridgeDocument = this.capabilityBridgeDocument;
+      const bridgeIdentity = this.capabilityBridgeIdentity(info);
       const bridgeEnabled =
         info.requiresGatewayAuth === true &&
         bridge !== undefined &&
-        sandbox.split(/\s+/).includes("allow-scripts");
-      const frameKey = [this.tabKey(), info.path, this.capabilityBridgeIdentity(info) ?? ""].join(
+        !this.capabilityBridgeReconnectRequired &&
+        bridgeDocument?.key === bridgeIdentity;
+      const frameKey = [this.tabKey(), info.path, bridgeIdentity ?? "", bridgeEnabled ? "bridge" : "read"].join(
         "\n",
       );
       if (info.requiresGatewayAuth === true && !this.isExternalTabAuthSupported()) {
@@ -755,7 +1007,8 @@ export class PluginPage extends OpenClawLightDomContentsElement {
             frameKey,
             html`<iframe
               class="plugin-tab-embed__frame"
-              src=${info.path}
+              src=${bridgeEnabled ? nothing : info.path}
+              srcdoc=${bridgeEnabled ? bridgeDocument?.markup ?? nothing : nothing}
               title=${info.label}
               sandbox=${sandbox}
               @load=${bridgeEnabled ? this.bindCapabilityBridge : nothing}

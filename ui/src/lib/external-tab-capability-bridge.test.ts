@@ -162,7 +162,11 @@ describe("ExternalTabCapabilityBridgeController", () => {
       params: { agentId: "work", label: "New" },
     });
     await next(port);
-    expect(request).toHaveBeenCalledWith("sessions.create", { agentId: "work", label: "New" });
+    expect(request).toHaveBeenCalledWith("sessions.create", {
+      agentId: "work",
+      label: "New",
+      key: "agent:work:dashboard:bridge-create",
+    });
     port.postMessage({
       type: "openclaw:capability-bridge-request",
       requestId: "send",
@@ -297,7 +301,7 @@ describe("ExternalTabCapabilityBridgeController", () => {
     expect(request).toHaveBeenCalledOnce();
   });
 
-  it("marks timed-out mutations as an unknown authoritative outcome", async () => {
+  it("reconciles a timed-out session creation by logical operation id without a second write", async () => {
     vi.useFakeTimers();
     const pending = deferred<unknown>();
     const request = vi.fn(() => pending.promise);
@@ -315,6 +319,117 @@ describe("ExternalTabCapabilityBridgeController", () => {
     await vi.advanceTimersByTimeAsync(EXTERNAL_TAB_BRIDGE_LIMITS.requestTimeoutMs);
     expect(await response).toMatchObject({
       error: { code: "MUTATION_OUTCOME_UNKNOWN", retryable: false },
+    });
+    const retry = next(port);
+    port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "timed-create-retry",
+      operationId: "create-operation",
+      method: "sessions.create",
+      params: { agentId: "work" },
+    });
+    pending.resolve({ key: "agent:work:created" });
+    expect(await retry).toMatchObject({ result: { key: "agent:work:created" } });
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it("reuses every granted mutation result across transport request ids", async () => {
+    const { port, request } = makeBridge({
+      methods: ["sessions.create", "plugin.example.write"],
+      reads: [],
+    });
+    await hello(port);
+    port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "create-one",
+      operationId: "create-operation",
+      method: "sessions.create",
+      params: { agentId: "work", label: "Draft" },
+    });
+    expect(await next(port)).toMatchObject({
+      result: {
+        agentId: "work",
+        label: "Draft",
+        key: "agent:work:dashboard:bridge-create-operation",
+      },
+    });
+    port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "create-two",
+      operationId: "create-operation",
+      method: "sessions.create",
+      params: { agentId: "work", label: "Draft" },
+    });
+    expect(await next(port)).toMatchObject({
+      result: {
+        agentId: "work",
+        label: "Draft",
+        key: "agent:work:dashboard:bridge-create-operation",
+      },
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+
+    port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "plugin-one",
+      operationId: "plugin-operation",
+      method: "plugin.example.write",
+      params: { enabled: true },
+    });
+    await next(port);
+    port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "plugin-two",
+      operationId: "plugin-operation",
+      method: "plugin.example.write",
+      params: { enabled: true },
+    });
+    await next(port);
+    expect(request).toHaveBeenCalledTimes(2);
+
+    port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "conflict",
+      operationId: "plugin-operation",
+      method: "plugin.example.write",
+      params: { enabled: false },
+    });
+    expect(await next(port)).toMatchObject({ error: { code: "OPERATION_CONFLICT" } });
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the same authoritative session key when an operation is retried on a new bridge", async () => {
+    const request = vi.fn(async (_method: string, params: unknown) => params);
+    const first = makeBridge({ methods: ["sessions.create"], reads: [], request });
+    await hello(first.port);
+    first.port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "first-request",
+      operationId: "stable-session-create",
+      method: "sessions.create",
+      params: { agentId: "work" },
+    });
+    await next(first.port);
+    first.controller.revoke();
+
+    const second = makeBridge({ methods: ["sessions.create"], reads: [], request });
+    await hello(second.port);
+    second.port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "second-request",
+      operationId: "stable-session-create",
+      method: "sessions.create",
+      params: { agentId: "work" },
+    });
+    await next(second.port);
+
+    expect(request).toHaveBeenNthCalledWith(1, "sessions.create", {
+      agentId: "work",
+      key: "agent:work:dashboard:bridge-stable-session-create",
+    });
+    expect(request).toHaveBeenNthCalledWith(2, "sessions.create", {
+      agentId: "work",
+      key: "agent:work:dashboard:bridge-stable-session-create",
     });
   });
 

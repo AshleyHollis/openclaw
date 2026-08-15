@@ -11,6 +11,13 @@ export const EXTERNAL_TAB_BRIDGE_LIMITS = {
   requestTimeoutMs: 30_000,
 } as const;
 
+// A port is short-lived and rate-limited, so this is a deliberately bounded
+// ledger. Once full, a tab reconnects instead of forgetting an operation and
+// risking a second mutation with the same logical identifier.
+const MAX_MUTATION_OPERATIONS = 1_024;
+const MUTATION_RESULT_RETENTION_MS = 60_000;
+const SESSION_CREATE_OPERATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
 export type ExternalTabBridgeGatewayClient = {
   request: (method: string, params?: unknown) => Promise<unknown>;
 };
@@ -33,6 +40,14 @@ type Request = {
   operationId?: string;
 };
 type PublicError = { code: string; message: string; retryable: boolean; retryAfterMs?: number };
+type MutationOperation = {
+  fingerprint: string;
+  pending: Promise<unknown> | null;
+  outcome:
+    | { ok: true; result: unknown; completedAt: number }
+    | { ok: false; cause: unknown; completedAt: number }
+    | null;
+};
 
 class Failure extends Error {
   constructor(
@@ -95,6 +110,7 @@ export class ExternalTabCapabilityBridgeController {
   private readonly links = new Set<string>();
   private readonly methods: Set<string>;
   private readonly reads: Set<string>;
+  private readonly mutationOperations = new Map<string, MutationOperation>();
 
   constructor(
     private readonly options: {
@@ -114,16 +130,27 @@ export class ExternalTabCapabilityBridgeController {
     }
   }
 
-  connect(): void {
-    const target = this.options.frame.contentWindow;
-    if (!target || this.revoked) return;
-    const channel = new MessageChannel();
-    this.port = channel.port1;
+  connect(port?: MessagePort): void {
+    if (this.revoked) return;
+    if (port) {
+      this.port = port;
+    } else {
+      const target = this.options.frame.contentWindow;
+      if (!target) return;
+      const channel = new MessageChannel();
+      this.port = channel.port1;
+      target.postMessage(
+        {
+          type: "openclaw:capability-bridge-connect",
+          protocolVersion: 1,
+        },
+        "*",
+        [channel.port2],
+      );
+    }
     this.port.onmessage = (event) => this.onMessage(event.data);
+    this.port.start();
     this.timer = setTimeout(() => this.revoke(), EXTERNAL_TAB_BRIDGE_LIMITS.handshakeTimeoutMs);
-    target.postMessage({ type: "openclaw:capability-bridge-connect", protocolVersion: 1 }, "*", [
-      channel.port2,
-    ]);
   }
 
   revoke(): void {
@@ -177,6 +204,14 @@ export class ExternalTabCapabilityBridgeController {
     this.requests = this.requests.filter((at) => now - at < 60_000);
     this.mutations = this.mutations.filter((at) => now - at < 60_000);
     for (const [id, at] of this.requestIds) if (now - at >= 60_000) this.requestIds.delete(id);
+    for (const operation of this.mutationOperations.values()) {
+      if (
+        operation.outcome &&
+        now - operation.outcome.completedAt >= MUTATION_RESULT_RETENTION_MS
+      ) {
+        operation.outcome = null;
+      }
+    }
   }
 
   private respond(requestId: string, result?: unknown, failure?: PublicError): void {
@@ -230,7 +265,26 @@ export class ExternalTabCapabilityBridgeController {
         error("RATE_LIMITED", "Bridge request concurrency limit exceeded", true, 60_000),
       );
     const mutation = !this.reads.has(request.method);
-    if (mutation && this.mutations.length >= EXTERNAL_TAB_BRIDGE_LIMITS.maxMutationsPerMinute)
+    const operationFingerprint = mutation
+      ? JSON.stringify({ method: request.method, params: request.params })
+      : null;
+    const existingOperation = mutation
+      ? this.mutationOperations.get(request.operationId as string)
+      : undefined;
+    if (existingOperation && existingOperation.fingerprint !== operationFingerprint)
+      return this.respond(
+        requestId,
+        undefined,
+        error(
+          "OPERATION_CONFLICT",
+          "Operation id has already been used for a different mutation",
+        ),
+      );
+    if (
+      mutation &&
+      !existingOperation &&
+      this.mutations.length >= EXTERNAL_TAB_BRIDGE_LIMITS.maxMutationsPerMinute
+    )
       return this.respond(
         requestId,
         undefined,
@@ -254,10 +308,13 @@ export class ExternalTabCapabilityBridgeController {
           "Mutation operation identifiers are required and read identifiers are forbidden",
         ),
       );
-    if (mutation) this.mutations.push(now);
+    if (mutation && !existingOperation) this.mutations.push(now);
     this.active += 1;
     try {
-      this.respond(requestId, await this.dispatch(request));
+      const execution = mutation
+        ? this.reconcileMutation(request, operationFingerprint as string)
+        : this.dispatch(request);
+      this.respond(requestId, await this.timed(execution));
     } catch (cause) {
       const timeout = cause instanceof Failure && cause.code === "TIMEOUT";
       const retryable = timeout && (!mutation || request.method === "chat.send");
@@ -311,6 +368,56 @@ export class ExternalTabCapabilityBridgeController {
       throw new Failure("SESSION_NOT_LINKED", "Session is not linked to this tab");
     return value;
   }
+
+  /**
+   * Gateway methods do not all expose an idempotency field. Keep one logical
+   * mutation per port and retain its authoritative completion for retries;
+   * never turn a forgotten bridge timeout into a second write.
+   */
+  private reconcileMutation(request: Request, fingerprint: string): Promise<unknown> {
+    const operationId = request.operationId;
+    if (!operationId) {
+      throw new Failure("INVALID_PARAMS", "Mutation operation identifier is required");
+    }
+    const existing = this.mutationOperations.get(operationId);
+    if (existing) {
+      if (existing.pending) {
+        return existing.pending;
+      }
+      if (existing.outcome?.ok) {
+        return Promise.resolve(existing.outcome.result);
+      }
+      if (existing.outcome && !existing.outcome.ok) {
+        return Promise.reject(existing.outcome.cause);
+      }
+      throw new Failure(
+        "MUTATION_RECONCILIATION_REQUIRED",
+        "Mutation result has expired; reconcile before retrying",
+      );
+    }
+    if (this.mutationOperations.size >= MAX_MUTATION_OPERATIONS) {
+      throw new Failure(
+        "MUTATION_RECONCILIATION_REQUIRED",
+        "Too many logical mutations on this tab; reconnect before sending another",
+      );
+    }
+    const operation: MutationOperation = { fingerprint, pending: null, outcome: null };
+    const pending = this.dispatch(request);
+    operation.pending = pending;
+    this.mutationOperations.set(operationId, operation);
+    void pending.then(
+      (result) => {
+        operation.pending = null;
+        operation.outcome = { ok: true, result, completedAt: this.options.now?.() ?? Date.now() };
+      },
+      (cause) => {
+        operation.pending = null;
+        operation.outcome = { ok: false, cause, completedAt: this.options.now?.() ?? Date.now() };
+      },
+    );
+    return pending;
+  }
+
   private async dispatch(request: Request): Promise<unknown> {
     const params = asRecord(request.params);
     if (!params) throw new Failure("INVALID_PARAMS", "Bridge parameters must be an object");
@@ -319,13 +426,20 @@ export class ExternalTabCapabilityBridgeController {
     if (request.method === "sessions.create") {
       if (
         !this.exact(params, ["agentId", "label", "model", "thinkingLevel"]) ||
-        !isOptionalNonEmptyString(params.agentId) ||
+        !isNonEmptyString(params.agentId) ||
         !isOptionalNonEmptyString(params.label, 512) ||
         !isOptionalNonEmptyString(params.model) ||
-        !isOptionalNonEmptyString(params.thinkingLevel)
+        !isOptionalNonEmptyString(params.thinkingLevel) ||
+        !request.operationId ||
+        !SESSION_CREATE_OPERATION_ID_RE.test(request.operationId)
       )
         throw new Failure("INVALID_PARAMS", "Invalid session creation parameters");
-      allowed = params;
+      // sessions.create already adopts an explicit key atomically. Deriving it
+      // from the logical operation keeps retries safe even after this port ends.
+      allowed = {
+        ...params,
+        key: `agent:${params.agentId}:dashboard:bridge-${request.operationId}`,
+      };
     } else if (request.method === "chat.history") {
       const limit = params.limit;
       const offset = params.offset;
@@ -359,7 +473,7 @@ export class ExternalTabCapabilityBridgeController {
       this.options.navigate(this.linked(params.sessionKey));
       return undefined;
     } else allowed = params;
-    return await this.timed(this.options.client.request(request.method, allowed));
+    return await this.options.client.request(request.method, allowed);
   }
 
   private async search(params: Record<string, unknown>): Promise<unknown> {
@@ -382,14 +496,12 @@ export class ExternalTabCapabilityBridgeController {
       [...byAgent.entries()].map(
         async ([agentId, sessionKeys]) =>
           asRecord(
-            await this.timed(
-              this.options.client.request("sessions.search", {
-                query: params.query,
-                limit,
-                sessionKeys,
-                ...(agentId ? { agentId } : {}),
-              }),
-            ),
+            await this.options.client.request("sessions.search", {
+              query: params.query,
+              limit,
+              sessionKeys,
+              ...(agentId ? { agentId } : {}),
+            }),
           ) ?? { results: [] },
       ),
     );
