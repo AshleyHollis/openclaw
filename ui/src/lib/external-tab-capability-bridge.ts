@@ -106,6 +106,11 @@ function isOptionalNonEmptyString(value: unknown, maxLength?: number): boolean {
   return value === undefined || isNonEmptyString(value, maxLength);
 }
 
+function searchResultNumber(value: unknown, field: "score" | "timestamp"): number {
+  const number = asRecord(value)?.[field];
+  return typeof number === "number" && Number.isFinite(number) ? number : 0;
+}
+
 /**
  * PluginPage validates the iframe document before handing this controller the
  * private port. From here, the port is the only iframe authority and Gateway
@@ -281,35 +286,25 @@ export class ExternalTabCapabilityBridgeController {
           "Operation id has already been used for a different mutation",
         ),
       );
-    let workUnits = 1;
-    if (this.methods.has(request.method)) {
-      try {
-        workUnits = this.workUnits(request);
-      } catch (cause) {
-        return this.respond(
-          requestId,
-          undefined,
-          error(
-            cause instanceof Failure ? cause.code : "INVALID_PARAMS",
-            cause instanceof Failure ? cause.message : "Gateway rejected bridge request",
-          ),
-        );
-      }
-    }
-    if (this.requests.length + workUnits > EXTERNAL_TAB_BRIDGE_LIMITS.maxRequestsPerMinute)
+    // The 200-key link cap and ingress rate cap bound total host work.
+    // Search groups dispatch serially, so they occupy one downstream slot.
+    // Counting groups there would reject valid exact-set searches before Gateway sees them.
+    const rateUnits = 1;
+    const downstreamConcurrencyUnits = 1;
+    if (this.requests.length + rateUnits > EXTERNAL_TAB_BRIDGE_LIMITS.maxRequestsPerMinute)
       return this.respond(
         requestId,
         undefined,
         error("RATE_LIMITED", "Bridge request rate limit exceeded", true, 60_000),
       );
-    if (this.active + workUnits > EXTERNAL_TAB_BRIDGE_LIMITS.maxConcurrentRequests)
+    if (this.active + downstreamConcurrencyUnits > EXTERNAL_TAB_BRIDGE_LIMITS.maxConcurrentRequests)
       return this.respond(
         requestId,
         undefined,
         error("RATE_LIMITED", "Bridge request concurrency limit exceeded", true, 60_000),
       );
     this.requestIds.set(requestId, now);
-    this.requests.push(...Array.from({ length: workUnits }, () => now));
+    this.requests.push(now);
     if (
       mutation &&
       !existingOperation &&
@@ -339,7 +334,7 @@ export class ExternalTabCapabilityBridgeController {
         ),
       );
     if (mutation && !existingOperation) this.mutations.push(now);
-    this.active += workUnits;
+    this.active += downstreamConcurrencyUnits;
     try {
       const execution = mutation
         ? this.reconcileMutation(request, operationFingerprint as string)
@@ -369,7 +364,7 @@ export class ExternalTabCapabilityBridgeController {
         ),
       );
     } finally {
-      this.active -= workUnits;
+      this.active -= downstreamConcurrencyUnits;
     }
   }
 
@@ -514,8 +509,9 @@ export class ExternalTabCapabilityBridgeController {
   private async search(params: Record<string, unknown>): Promise<unknown> {
     const plan = this.searchPlan(params);
     if (plan.groups.length === 0) return { results: [] };
-    const results: unknown[] = [];
+    const candidates: unknown[] = [];
     let indexing = false;
+    let truncated = false;
     let responseBytes = 0;
     for (const group of plan.groups) {
       const response =
@@ -536,23 +532,23 @@ export class ExternalTabCapabilityBridgeController {
       }
       responseBytes += nextResponseBytes;
       indexing ||= response.indexing === true;
+      truncated ||= response.truncated === true;
       if (Array.isArray(response.results)) {
-        for (const result of response.results) {
-          if (results.length === plan.limit) break;
-          results.push(result);
-        }
+        candidates.push(...response.results);
       }
     }
-    return { results, ...(indexing ? { indexing: true } : {}) };
-  }
-
-  private workUnits(request: Request): number {
-    if (request.method !== "sessions.search") return 1;
-    const params = asRecord(request.params);
-    if (!params) throw new Failure("INVALID_PARAMS", "Bridge parameters must be an object");
-    // Every agent-scoped search is charged before dispatch. This avoids a
-    // single iframe request bypassing the port's rate and concurrency limits.
-    return Math.max(1, this.searchPlan(params).groups.length);
+    const results = candidates
+      .toSorted(
+        (left, right) =>
+          searchResultNumber(right, "score") - searchResultNumber(left, "score") ||
+          searchResultNumber(right, "timestamp") - searchResultNumber(left, "timestamp"),
+      )
+      .slice(0, plan.limit);
+    return {
+      results,
+      ...(indexing ? { indexing: true } : {}),
+      ...(truncated || candidates.length > results.length ? { truncated: true } : {}),
+    };
   }
 
   private searchPlan(params: Record<string, unknown>): {

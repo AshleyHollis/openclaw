@@ -553,6 +553,46 @@ describe("PluginPage", () => {
     }
   });
 
+  it("reconnects during auth probing before a stale bridge grant can mount", async () => {
+    const refresh = vi.fn(async () => externalPluginConfig());
+    const probe = deferred<boolean>();
+    let emitGatewayEvent: ((event: { event: string }) => void) | undefined;
+    const client = {
+      request: vi.fn(),
+      addEventListener: vi.fn((listener) => {
+        emitGatewayEvent = listener as (event: { event: string }) => void;
+        return () => undefined;
+      }),
+      forceReconnect: vi.fn(),
+    } as unknown as GatewayBrowserClient;
+    const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
+      capabilityBridge: externalTabBridgeGrant(),
+      client,
+    });
+    page.probeResults = [probe.promise];
+    document.body.append(page);
+    try {
+      await waitForFast(() => {
+        expect(page.probeCalls).toEqual(["/plugins/external/panel"]);
+        expect(emitGatewayEvent).toBeTypeOf("function");
+      });
+      expect(page.querySelector("iframe")).toBeNull();
+
+      emitGatewayEvent?.({ event: "config.changed" });
+      expect(client.forceReconnect).toHaveBeenCalledWith("plugin runtime changed");
+
+      probe.resolve(true);
+      await waitForFast(() =>
+        expect(page.querySelector("iframe")?.getAttribute("src")).toBe(
+          "/plugins/external/panel",
+        ),
+      );
+      expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toBeNull();
+    } finally {
+      page.remove();
+    }
+  });
+
   it("marks the panel unavailable when bootstrap issued no matching grant", async () => {
     const refresh = vi.fn(async () => externalPluginConfig([]));
     const page = createExternalPluginPage(refresh);

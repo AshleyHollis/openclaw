@@ -222,9 +222,18 @@ describe("ExternalTabCapabilityBridgeController", () => {
     );
   });
 
-  it("charges every distinct-agent search before issuing gateway work", async () => {
+  it("searches every linked agent serially without rejecting the declared exact key set", async () => {
     const links = Array.from({ length: 200 }, (_, index) => `agent:agent-${index}:linked`);
-    const { port, request } = makeBridge({ links });
+    let active = 0;
+    let peakActive = 0;
+    const request = vi.fn(async () => {
+      active += 1;
+      peakActive = Math.max(peakActive, active);
+      await Promise.resolve();
+      active -= 1;
+      return { results: [] };
+    });
+    const { port } = makeBridge({ links, request });
     await hello(port);
     port.postMessage({
       type: "openclaw:capability-bridge-request",
@@ -232,8 +241,43 @@ describe("ExternalTabCapabilityBridgeController", () => {
       method: "sessions.search",
       params: { query: "x" },
     });
-    expect(await next(port)).toMatchObject({ error: { code: "RATE_LIMITED" } });
-    expect(request).not.toHaveBeenCalled();
+    expect(await next(port)).toMatchObject({ result: { results: [] } });
+    expect(request).toHaveBeenCalledTimes(200);
+    expect(peakActive).toBe(1);
+    expect(
+      request.mock.calls.flatMap(([, params]) =>
+        ((params as { sessionKeys?: string[] }).sessionKeys ?? []),
+      ),
+    ).toEqual(links);
+  });
+
+  it("globally ranks linked-agent search results and preserves truncation", async () => {
+    const { port, request } = makeBridge({
+      links: ["agent:main:lower", "agent:work:higher"],
+      request: vi
+        .fn()
+        .mockResolvedValueOnce({
+          results: [{ sessionKey: "agent:main:lower", score: 1, timestamp: 100 }],
+        })
+        .mockResolvedValueOnce({
+          results: [{ sessionKey: "agent:work:higher", score: 9, timestamp: 50 }],
+          truncated: true,
+        }),
+    });
+    await hello(port);
+    port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "ranked",
+      method: "sessions.search",
+      params: { query: "x", limit: 1 },
+    });
+    expect(await next(port)).toMatchObject({
+      result: {
+        results: [{ sessionKey: "agent:work:higher", score: 9, timestamp: 50 }],
+        truncated: true,
+      },
+    });
+    expect(request).toHaveBeenCalledTimes(2);
   });
 
   it("bounds total attempts", async () => {

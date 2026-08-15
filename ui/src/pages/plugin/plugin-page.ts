@@ -659,13 +659,15 @@ export class PluginPage extends OpenClawLightDomContentsElement {
         if (
           event.event !== "config.changed" ||
           this.gatewayClient !== client ||
-          (this.capabilityBridgeMountKey === null && this.capabilityBridgeDocumentKey === null)
+          !this.tabInfo()?.capabilityBridge
         ) {
           return;
         }
         // Plugin reloads hot-swap the server registry without replacing this
         // browser client. Drop the port before reconnecting so its old grant
         // cannot survive a disablement or runtime replacement.
+        // This also applies during the auth probe: it must not turn the old
+        // hello grant into a newly mounted port after the runtime changed.
         this.capabilityBridgeReconnectRequired = true;
         this.clearCapabilityBridge();
         client.forceReconnect("plugin runtime changed");
