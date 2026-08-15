@@ -15,6 +15,11 @@ import {
   unschedulePluginSessionTurnsByTag,
 } from "./host-hook-scheduled-turns.js";
 import { enqueuePluginNextTurnInjection } from "./host-hook-state.js";
+import {
+  createPluginNotificationEmitter,
+  PluginNotificationCoordinator,
+  validatePluginNotificationDeclaration,
+} from "./notification-emitter.js";
 import { isPluginRegistryActivated, isPluginRegistryRetired } from "./registry-lifecycle.js";
 import type { PluginRegistrars } from "./registry-registrars.js";
 import type { PluginRuntimeResolver } from "./registry-runtime.js";
@@ -172,6 +177,38 @@ export function createPluginApiFactory(
       pluginConfig: params.pluginConfig,
       runtime: resolvePluginRuntime(record.id),
       logger: normalizeLogger(registryParams.logger),
+      registerNotificationEmitter: (declaration) => {
+        const valid = validatePluginNotificationDeclaration(declaration, {
+          pluginId: record.id,
+          existingCount: 0,
+          resolveTab: (pluginId, tabId) =>
+            registry.controlUiDescriptors.some(
+              (entry) =>
+                entry.pluginId === pluginId &&
+                entry.descriptor.surface === "tab" &&
+                entry.descriptor.id === tabId,
+            ),
+        });
+        if (!valid) {
+          pushDiagnostic({
+            level: "error",
+            pluginId: record.id,
+            source: record.source,
+            message: "invalid notification emitter declaration",
+          });
+          return undefined;
+        }
+        return createPluginNotificationEmitter({
+          declaration,
+          coordinator: new PluginNotificationCoordinator({
+            pluginId: record.id,
+            declaration,
+            targets: () => [],
+            transport: { send: async () => "failed", clear: async () => "failed" },
+          }),
+          isPluginActive: isLoadedRecordInLiveRegistry,
+        });
+      },
       resolvePath: (input: string) => resolvePluginPath(input, record.rootDir),
       handlers: {
         ...(registrationCapabilities.capabilityHandlers
