@@ -1094,6 +1094,14 @@ export interface PluginNotificationClearAttempts {
   updated_at_ms: number;
 }
 
+export interface PluginNotificationClearOperations {
+  created_at_ms: number;
+  logical_operation_id: string;
+  plugin_id: string;
+  principal_key: string;
+  updated_at_ms: number;
+}
+
 export interface PluginNotificationDeliveryAttempts {
   created_at_ms: number;
   emission_id: string;
@@ -1836,6 +1844,7 @@ export interface DB {
   plugin_binding_approvals: PluginBindingApprovals;
   plugin_blob_entries: PluginBlobEntries;
   plugin_notification_clear_attempts: PluginNotificationClearAttempts;
+  plugin_notification_clear_operations: PluginNotificationClearOperations;
   plugin_notification_delivery_attempts: PluginNotificationDeliveryAttempts;
   plugin_notification_device_associations: PluginNotificationDeviceAssociations;
   plugin_notification_emissions: PluginNotificationEmissions;

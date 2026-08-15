@@ -45,6 +45,7 @@ export const LAZY_ADDITIVE_STATE_TABLES = [
   "plugin_notification_emissions",
   "plugin_notification_delivery_attempts",
   "plugin_notification_clear_attempts",
+  "plugin_notification_clear_operations",
   "plugin_notification_device_associations",
 ] as const;
 export const LAZY_ADDITIVE_STATE_INDEXES = [

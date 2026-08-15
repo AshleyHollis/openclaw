@@ -881,6 +881,15 @@ CREATE TABLE IF NOT EXISTS plugin_notification_clear_attempts (
   PRIMARY KEY (principal_key, plugin_id, logical_operation_id, target_id)
 ) STRICT;
 
+CREATE TABLE IF NOT EXISTS plugin_notification_clear_operations (
+  principal_key TEXT NOT NULL,
+  plugin_id TEXT NOT NULL,
+  logical_operation_id TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (principal_key, plugin_id, logical_operation_id)
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS plugin_notification_device_associations (
   target_id TEXT NOT NULL PRIMARY KEY,
   target_kind TEXT NOT NULL,

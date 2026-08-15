@@ -123,6 +123,55 @@ describe("plugin notification emitter", () => {
     ).not.toMatchObject({ status: "rate-limited" });
   });
 
+  it("uses distinct host-owned transport tags for matching operation ids from different owners", async () => {
+    const tags = await Promise.all(
+      [
+        { operatorId: "operator-a", pluginId: "board" },
+        { operatorId: "operator-a", pluginId: "inbox" },
+        { operatorId: "operator-b", pluginId: "board" },
+      ].map(async ({ operatorId, pluginId }) => {
+        let notifyTag: string | undefined;
+        let clearTag: string | undefined;
+        const principal = {
+          operatorId,
+          pluginId,
+          authenticationMethod: "device-token" as const,
+          authenticationGeneration: `auth-${operatorId}`,
+          pairedDeviceId: `device-${operatorId}`,
+          pairingGeneration: `pair-${operatorId}`,
+          scopes: ["operator.read"] as const,
+        };
+        const service = new PluginNotificationCoordinator({
+          pluginId,
+          declaration,
+          now: () => 1_000,
+          targets: () => [{ id: "web" }],
+          transport: {
+            send: async (_target, payload) => {
+              notifyTag = payload.tag;
+              return "accepted" as const;
+            },
+            clear: async (_target, payload) => {
+              clearTag = payload.tag;
+              return "accepted" as const;
+            },
+          },
+        });
+
+        await expect(
+          service.emit(principal, candidate({ emissionId: `event-${pluginId}-${operatorId}` })),
+        ).resolves.toMatchObject({ status: "sent" });
+        await expect(
+          service.clear(principal, { version: 1, logicalOperationId: "operation-1" }),
+        ).resolves.toMatchObject({ status: "cleared" });
+        expect(clearTag).toBe(notifyTag);
+        return notifyTag;
+      }),
+    );
+
+    expect(new Set(tags).size).toBe(3);
+  });
+
   it("rechecks the captured authenticated principal before an emission can reach transport", async () => {
     let current = true;
     const send = vi.fn(async () => "accepted" as const);
@@ -181,7 +230,9 @@ describe("plugin notification emitter", () => {
         clear: async () => "accepted",
       },
     });
-    await expect(service.emit("operator", candidate({ expiresAtMs: now + 15 }))).resolves.toMatchObject({
+    await expect(
+      service.emit("operator", candidate({ expiresAtMs: now + 15 })),
+    ).resolves.toMatchObject({
       status: "ambiguous",
       ambiguous: 1,
     });

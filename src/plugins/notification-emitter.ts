@@ -110,14 +110,15 @@ export type PluginNotificationLedger = {
     | { kind: "replay"; result: PluginNotificationEmitResult }
     | { kind: "conflict" }
     | { kind: "rate-limited"; retryAfterMs: number }
-    | { kind: "in-flight" };
+    | { kind: "in-flight" }
+    | { kind: "cleared" };
   completeEmission(params: {
     principal: PluginNotificationPrincipal;
     emissionId: string;
     result: PluginNotificationEmitResult;
     outcomes: ReadonlyMap<string, PluginNotificationAttemptOutcome>;
     nowMs: number;
-  }): void;
+  }): readonly string[];
   claimClear(params: {
     principal: PluginNotificationPrincipal;
     logicalOperationId: string;
@@ -263,8 +264,21 @@ export function validatePluginNotificationCandidate(
     return false;
   return Buffer.byteLength(canonical(value as PluginNotificationCandidateV1), "utf8") <= 2048;
 }
-export const pluginNotificationOperationTopic = (id: string) =>
-  createHash("sha256").update(id).digest("base64url").slice(0, 32);
+export const pluginNotificationOperationTopic = (
+  principal: Pick<PluginNotificationPrincipal, "operatorId" | "pluginId">,
+  logicalOperationId: string,
+) =>
+  createHash("sha256")
+    .update(
+      JSON.stringify({
+        version: 1,
+        operatorId: principal.operatorId,
+        pluginId: principal.pluginId,
+        logicalOperationId,
+      }),
+    )
+    .digest("base64url")
+    .slice(0, 32);
 const validClear = (value: unknown): value is PluginNotificationClearV1 =>
   plain(value) &&
   keys(value, ["version", "logicalOperationId"]) &&
@@ -378,6 +392,8 @@ export class PluginNotificationCoordinator {
     if (claimed?.kind === "conflict") return failure();
     if (claimed?.kind === "in-flight")
       return { status: "ambiguous", attempted: 0, delivered: 0, failed: 0, ambiguous: 1 };
+    if (claimed?.kind === "cleared")
+      return { status: "suppressed", attempted: 0, delivered: 0, failed: 0, ambiguous: 0 };
     if (claimed?.kind === "rate-limited")
       return {
         status: "rate-limited",
@@ -428,7 +444,7 @@ export class PluginNotificationCoordinator {
     const payload: PluginNotificationTransportPayload = {
       version: 1,
       kind: "notify",
-      tag: pluginNotificationOperationTopic(c.logicalOperationId),
+      tag: pluginNotificationOperationTopic(principal, c.logicalOperationId),
       expiresAtMs: c.expiresAtMs,
       ttlMs: Math.max(0, c.expiresAtMs - now),
       attentionClass: c.attentionClass,
@@ -488,13 +504,18 @@ export class PluginNotificationCoordinator {
       PluginNotificationAttemptOutcome
     >;
     if (this.options.ledger) {
-      this.options.ledger.completeEmission({
+      const reClearTargetIds = this.options.ledger.completeEmission({
         principal,
         emissionId: c.emissionId,
         result,
         outcomes,
         nowMs: this.options.now?.() ?? Date.now(),
       });
+      if (reClearTargetIds.length > 0) {
+        // A clear may win while this send is in flight. Reclaim the durable
+        // clear attempts after recording acceptance so the remote alert cannot survive.
+        await this.clear(principal, { version: 1, logicalOperationId: c.logicalOperationId });
+      }
     } else {
       this.emissions.set(key, { hash, result });
     }
@@ -536,7 +557,7 @@ export class PluginNotificationCoordinator {
     const payload: PluginNotificationTransportPayload = {
       version: 1,
       kind: "clear",
-      tag: pluginNotificationOperationTopic(request.logicalOperationId),
+      tag: pluginNotificationOperationTopic(principal, request.logicalOperationId),
       expiresAtMs: this.options.now?.() ?? Date.now(),
       ttlMs: 0,
     };

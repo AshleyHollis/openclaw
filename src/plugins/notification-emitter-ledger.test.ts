@@ -396,4 +396,114 @@ describe("plugin notification SQLite ledger", () => {
     ).resolves.toEqual(cleared);
     expect(clearedTargets).toEqual(["apns:phone", "web:browser", "apns:phone"]);
   });
+
+  it("suppresses emissions created after a durable clear tombstone", async () => {
+    const dir = await stateDir();
+    const sends: string[] = [];
+    const clears: string[] = [];
+    const coordinator = new PluginNotificationCoordinator({
+      pluginId: "board",
+      declaration: {
+        version: 1,
+        id: "ready",
+        requiredScopes: ["operator.read"],
+        destinations: [{ id: "item", tabId: "board" }],
+      },
+      targets: () => [{ id: "web:browser" }],
+      transport: {
+        send: async (target) => {
+          sends.push(target.id);
+          return "accepted" as const;
+        },
+        clear: async (target) => {
+          clears.push(target.id);
+          return "accepted" as const;
+        },
+      },
+      ledger: new SqlitePluginNotificationLedger({ stateDir: dir }),
+      now: () => 10_000,
+    });
+    const first = {
+      version: 1 as const,
+      emissionId: "event-before-clear",
+      logicalOperationId: "operation-cleared",
+      attentionClass: "active" as const,
+      preview: { title: "Ready", body: "One item" },
+      deepLink: { kind: "plugin-detail" as const, destinationId: "item", recordId: "record-1" },
+      expiresAtMs: 70_000,
+    };
+
+    await expect(coordinator.emit(principal, first)).resolves.toMatchObject({ status: "sent" });
+    await expect(
+      coordinator.clear(principal, { version: 1, logicalOperationId: first.logicalOperationId }),
+    ).resolves.toMatchObject({ status: "cleared" });
+    await expect(
+      coordinator.emit(principal, { ...first, emissionId: "event-after-clear" }),
+    ).resolves.toEqual({
+      status: "suppressed",
+      attempted: 0,
+      delivered: 0,
+      failed: 0,
+      ambiguous: 0,
+    });
+    expect(sends).toEqual(["web:browser"]);
+    expect(clears).toEqual(["web:browser"]);
+  });
+
+  it("re-clears a send that completes after its logical operation was cleared", async () => {
+    const dir = await stateDir();
+    let releaseSend: ((outcome: "accepted") => void) | undefined;
+    let markSendStarted: (() => void) | undefined;
+    const sendStarted = new Promise<void>((resolve) => {
+      markSendStarted = resolve;
+    });
+    const clears: string[] = [];
+    const coordinator = new PluginNotificationCoordinator({
+      pluginId: "board",
+      declaration: {
+        version: 1,
+        id: "ready",
+        requiredScopes: ["operator.read"],
+        destinations: [{ id: "item", tabId: "board" }],
+      },
+      targets: () => [{ id: "web:browser" }],
+      transport: {
+        send: async () => {
+          markSendStarted?.();
+          return await new Promise<"accepted">((resolve) => {
+            releaseSend = resolve;
+          });
+        },
+        clear: async (target) => {
+          clears.push(target.id);
+          return "accepted" as const;
+        },
+      },
+      ledger: new SqlitePluginNotificationLedger({ stateDir: dir }),
+      now: () => 10_000,
+    });
+    const emission = {
+      version: 1 as const,
+      emissionId: "event-race",
+      logicalOperationId: "operation-race",
+      attentionClass: "active" as const,
+      preview: { title: "Ready", body: "One item" },
+      deepLink: { kind: "plugin-detail" as const, destinationId: "item", recordId: "record-1" },
+      expiresAtMs: 70_000,
+    };
+
+    const inFlight = coordinator.emit(principal, emission);
+    await sendStarted;
+    await expect(
+      coordinator.clear(principal, { version: 1, logicalOperationId: emission.logicalOperationId }),
+    ).resolves.toMatchObject({ status: "cleared" });
+    if (!releaseSend) throw new Error("expected send release");
+    releaseSend("accepted");
+    await expect(inFlight).resolves.toMatchObject({ status: "sent" });
+    expect(clears).toEqual(["web:browser", "web:browser"]);
+    await expect(
+      coordinator.clear(principal, { version: 1, logicalOperationId: emission.logicalOperationId }),
+    ).resolves.toMatchObject({ status: "cleared" });
+    expect(clears).toEqual(["web:browser", "web:browser"]);
+  });
 });

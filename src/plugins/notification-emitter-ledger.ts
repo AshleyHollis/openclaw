@@ -58,6 +58,13 @@ type LedgerDatabase = {
     created_at_ms: number;
     updated_at_ms: number;
   };
+  plugin_notification_clear_operations: {
+    principal_key: string;
+    plugin_id: string;
+    logical_operation_id: string;
+    created_at_ms: number;
+    updated_at_ms: number;
+  };
 };
 
 function stateOptions(stateDir?: string): OpenClawStateDatabaseOptions {
@@ -157,6 +164,14 @@ export function ensurePluginNotificationLedgerSchema(
       updated_at_ms INTEGER NOT NULL,
       PRIMARY KEY (principal_key, plugin_id, logical_operation_id, target_id)
     ) STRICT;
+    CREATE TABLE IF NOT EXISTS plugin_notification_clear_operations (
+      principal_key TEXT NOT NULL,
+      plugin_id TEXT NOT NULL,
+      logical_operation_id TEXT NOT NULL,
+      created_at_ms INTEGER NOT NULL,
+      updated_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (principal_key, plugin_id, logical_operation_id)
+    ) STRICT;
     CREATE TABLE IF NOT EXISTS plugin_notification_device_associations (
       target_id TEXT NOT NULL PRIMARY KEY,
       target_kind TEXT NOT NULL,
@@ -188,6 +203,10 @@ function deleteExpiredRows(
   executeSqliteQuerySync(
     db,
     kysely.deleteFrom("plugin_notification_clear_attempts").where("updated_at_ms", "<", cutoff),
+  );
+  executeSqliteQuerySync(
+    db,
+    kysely.deleteFrom("plugin_notification_clear_operations").where("updated_at_ms", "<", cutoff),
   );
   executeSqliteQuerySync(
     db,
@@ -237,6 +256,18 @@ export class SqlitePluginNotificationLedger implements PluginNotificationLedger 
         const result = parseEmitResult(existing.result_json);
         return result ? { kind: "replay" as const, result } : { kind: "in-flight" as const };
       }
+      const clearedOperation = executeSqliteQueryTakeFirstSync(
+        db,
+        kysely
+          .selectFrom("plugin_notification_clear_operations")
+          .select("logical_operation_id")
+          .where("principal_key", "=", key)
+          .where("plugin_id", "=", params.principal.pluginId)
+          .where("logical_operation_id", "=", params.logicalOperationId),
+      );
+      // A durable clear closes the whole logical operation. Do not let a retry
+      // create a new delivery after the operator has already cleared it.
+      if (clearedOperation) return { kind: "cleared" as const };
       const rateRows = executeSqliteQuerySync(
         db,
         kysely
@@ -293,10 +324,22 @@ export class SqlitePluginNotificationLedger implements PluginNotificationLedger 
     });
   }
 
-  completeEmission(params: Parameters<PluginNotificationLedger["completeEmission"]>[0]): void {
+  completeEmission(
+    params: Parameters<PluginNotificationLedger["completeEmission"]>[0],
+  ): readonly string[] {
     const key = principalKey(params.principal);
-    this.transaction((db) => {
+    return this.transaction((db) => {
       const kysely = getNodeSqliteKysely<LedgerDatabase>(db);
+      const emission = executeSqliteQueryTakeFirstSync(
+        db,
+        kysely
+          .selectFrom("plugin_notification_emissions")
+          .select("logical_operation_id")
+          .where("principal_key", "=", key)
+          .where("plugin_id", "=", params.principal.pluginId)
+          .where("emission_id", "=", params.emissionId),
+      );
+      if (!emission) return [];
       for (const [targetId, outcome] of params.outcomes) {
         executeSqliteQuerySync(
           db,
@@ -322,6 +365,36 @@ export class SqlitePluginNotificationLedger implements PluginNotificationLedger 
           .where("plugin_id", "=", params.principal.pluginId)
           .where("emission_id", "=", params.emissionId),
       );
+      const clearedOperation = executeSqliteQueryTakeFirstSync(
+        db,
+        kysely
+          .selectFrom("plugin_notification_clear_operations")
+          .select("logical_operation_id")
+          .where("principal_key", "=", key)
+          .where("plugin_id", "=", params.principal.pluginId)
+          .where("logical_operation_id", "=", emission.logical_operation_id),
+      );
+      const reClearTargetIds = clearedOperation
+        ? [...params.outcomes]
+            .filter(([, outcome]) => outcome === "accepted" || outcome === "ambiguous")
+            .map(([targetId]) => targetId)
+            .toSorted()
+        : [];
+      // Transport I/O happens outside the transaction, so a clear can finish
+      // before this send. Reclaim those targets for the coordinator's re-clear.
+      for (const targetId of reClearTargetIds) {
+        executeSqliteQuerySync(
+          db,
+          kysely
+            .updateTable("plugin_notification_clear_attempts")
+            .set({ outcome: "in-flight", result_json: null, updated_at_ms: params.nowMs })
+            .where("principal_key", "=", key)
+            .where("plugin_id", "=", params.principal.pluginId)
+            .where("logical_operation_id", "=", emission.logical_operation_id)
+            .where("target_id", "=", targetId),
+        );
+      }
+      return reClearTargetIds;
     });
   }
 
@@ -330,6 +403,23 @@ export class SqlitePluginNotificationLedger implements PluginNotificationLedger 
     return this.transaction((db) => {
       const kysely = getNodeSqliteKysely<LedgerDatabase>(db);
       deleteExpiredRows(db, kysely, params.nowMs);
+      executeSqliteQuerySync(
+        db,
+        kysely
+          .insertInto("plugin_notification_clear_operations")
+          .values({
+            principal_key: key,
+            plugin_id: params.principal.pluginId,
+            logical_operation_id: params.logicalOperationId,
+            created_at_ms: params.nowMs,
+            updated_at_ms: params.nowMs,
+          })
+          .onConflict((conflict) =>
+            conflict.columns(["principal_key", "plugin_id", "logical_operation_id"]).doUpdateSet({
+              updated_at_ms: params.nowMs,
+            }),
+          ),
+      );
       const existing = executeSqliteQuerySync(
         db,
         kysely
