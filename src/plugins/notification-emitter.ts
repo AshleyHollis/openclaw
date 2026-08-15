@@ -223,7 +223,51 @@ function canonical(candidate: PluginNotificationCandidateV1): string {
     expiresAtMs: candidate.expiresAtMs,
   });
 }
-export function validatePluginNotificationCandidate(
+
+/**
+ * Copy every candidate field while it is still untrusted. The plugin can retain
+ * and mutate its input after emit(), so validation and delivery must share this
+ * host-owned plain snapshot rather than the plugin's object graph.
+ */
+function snapshotPluginNotificationCandidate(value: unknown): unknown | undefined {
+  if (
+    !plain(value) ||
+    !keys(value, [
+      "version",
+      "emissionId",
+      "logicalOperationId",
+      "attentionClass",
+      "preview",
+      "deepLink",
+      "expiresAtMs",
+    ])
+  )
+    return undefined;
+  const preview = value.preview;
+  const deepLink = value.deepLink;
+  if (
+    !plain(preview) ||
+    !keys(preview, ["title", "body"]) ||
+    !plain(deepLink) ||
+    !keys(deepLink, ["kind", "destinationId", "recordId"])
+  )
+    return undefined;
+  return {
+    version: value.version,
+    emissionId: value.emissionId,
+    logicalOperationId: value.logicalOperationId,
+    attentionClass: value.attentionClass,
+    preview: { title: preview.title, body: preview.body },
+    deepLink: {
+      kind: deepLink.kind,
+      destinationId: deepLink.destinationId,
+      recordId: deepLink.recordId,
+    },
+    expiresAtMs: value.expiresAtMs,
+  };
+}
+
+function isValidPluginNotificationCandidateSnapshot(
   value: unknown,
   declaration: PluginNotificationDeclarationV1,
   nowMs = Date.now(),
@@ -276,6 +320,18 @@ export function validatePluginNotificationCandidate(
   )
     return false;
   return Buffer.byteLength(canonical(value as PluginNotificationCandidateV1), "utf8") <= 2048;
+}
+
+export function validatePluginNotificationCandidate(
+  value: unknown,
+  declaration: PluginNotificationDeclarationV1,
+  nowMs = Date.now(),
+): value is PluginNotificationCandidateV1 {
+  const snapshot = snapshotPluginNotificationCandidate(value);
+  return (
+    snapshot !== undefined &&
+    isValidPluginNotificationCandidateSnapshot(snapshot, declaration, nowMs)
+  );
 }
 export const pluginNotificationOperationTopic = (
   principal: Pick<PluginNotificationPrincipal, "operatorId" | "pluginId">,
@@ -392,9 +448,9 @@ export class PluginNotificationCoordinator {
     candidate: unknown,
   ): Promise<PluginNotificationEmitResult> {
     const now = this.options.now?.() ?? Date.now();
-    if (!validatePluginNotificationCandidate(candidate, this.options.declaration, now))
+    const c = snapshotPluginNotificationCandidate(candidate);
+    if (!isValidPluginNotificationCandidateSnapshot(c, this.options.declaration, now))
       return failure();
-    const c = candidate;
     const principal =
       typeof operator === "string"
         ? principalForLegacyOperator(this.options.pluginId, operator)

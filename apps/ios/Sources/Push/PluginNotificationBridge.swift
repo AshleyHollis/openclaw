@@ -10,6 +10,11 @@ struct PluginNotificationDestination: Equatable, Hashable {
     let tabID: String
     let destinationID: String
     let recordID: String
+
+    /// The push source is the gateway's host identity, not its display or route id.
+    func isOwnedByGateway(deviceID: String?) -> Bool {
+        GatewayStableIdentifier.matches(self.sourceID, deviceID)
+    }
 }
 
 /// Host-owned operation identity for silent plugin-notification clears.

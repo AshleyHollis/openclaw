@@ -3624,6 +3624,37 @@ extension NodeAppModel {
         self.pluginNotificationNavigationRequestID &+= 1
     }
 
+    /// Resolves only the current authenticated gateway when it proves ownership of a push source.
+    /// A stale registration must never make a notification navigate through another gateway's auth.
+    func verifiedPluginNotificationGatewayConfig(
+        for destination: PluginNotificationDestination) async -> GatewayConnectConfig?
+    {
+        guard self.operatorConnected,
+              let config = self.activeGatewayConnectConfig,
+              let gatewayStableID = GatewayStableIdentifier.exact(config.effectiveStableID)
+        else {
+            return nil
+        }
+        let routeGeneration = self.gatewayRouteGeneration
+        guard let route = await self.operatorGateway.currentRoute(),
+              self.isCurrentGatewayRoute(generation: routeGeneration, stableID: gatewayStableID)
+        else {
+            return nil
+        }
+        do {
+            let identity = try await self.fetchPushRelayGatewayIdentity(ifCurrentRoute: route)
+            guard self.operatorConnected,
+                  self.isCurrentGatewayRoute(generation: routeGeneration, stableID: gatewayStableID),
+                  destination.isOwnedByGateway(deviceID: identity.deviceId)
+            else {
+                return nil
+            }
+            return config
+        } catch {
+            return nil
+        }
+    }
+
     func hasPendingPluginNotificationDestination(_ requestID: Int) -> Bool {
         requestID != 0 &&
             requestID == self.pluginNotificationNavigationRequestID &&

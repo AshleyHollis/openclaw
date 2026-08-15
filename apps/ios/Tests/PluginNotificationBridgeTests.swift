@@ -89,6 +89,16 @@ struct PluginNotificationBridgeTests {
             userInfo: untrusted) == nil)
     }
 
+    @Test func `two gateway notification taps require their emitting source`() throws {
+        let destination = try #require(PluginNotificationBridge.parseDestination(
+            actionIdentifier: UNNotificationDefaultActionIdentifier,
+            userInfo: Self.destinationUserInfo))
+
+        #expect(destination.isOwnedByGateway(deviceID: "gateway-a"))
+        #expect(!destination.isOwnedByGateway(deviceID: "gateway-b"))
+        #expect(!destination.isOwnedByGateway(deviceID: nil))
+    }
+
     @Test @MainActor func `silent clears remove matching delivered notifications idempotently`() async {
         let center = PluginNotificationMockCenter()
         center.delivered = [

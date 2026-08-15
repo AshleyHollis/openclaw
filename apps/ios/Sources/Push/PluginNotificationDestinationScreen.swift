@@ -6,10 +6,19 @@ import SwiftUI
 struct PluginNotificationDestinationScreen: View {
     @Environment(NodeAppModel.self) private var appModel
     @Environment(\.dismiss) private var dismiss
+    @State private var verifiedGatewayConfig: GatewayConnectConfig? = nil
     let destination: PluginNotificationDestination
 
     var body: some View {
-        let config = self.appModel.activeGatewayConnectConfig
+        let activeConfig = self.appModel.activeGatewayConnectConfig
+        let config: GatewayConnectConfig? = if let verifiedGatewayConfig,
+                                               let activeConfig,
+                                               verifiedGatewayConfig.hasSameConnectionInputs(as: activeConfig)
+        {
+            verifiedGatewayConfig
+        } else {
+            nil
+        }
         let storedOperatorToken = AuthenticatedControlUI.storedOperatorToken(config: config)
         ZStack {
             OpenClawProBackground()
@@ -40,6 +49,25 @@ struct PluginNotificationDestinationScreen: View {
                 }
             }
         }
+        .task(id: self.gatewayValidationID) {
+            self.verifiedGatewayConfig = nil
+            let config = await self.appModel.verifiedPluginNotificationGatewayConfig(
+                for: self.destination)
+            guard !Task.isCancelled else { return }
+            self.verifiedGatewayConfig = config
+        }
+    }
+
+    private var gatewayValidationID: String {
+        let activeConfig = self.appModel.activeGatewayConnectConfig
+        let authIdentity = AuthenticatedControlUI.webContentIdentity(
+            config: activeConfig,
+            storedOperatorToken: AuthenticatedControlUI.storedOperatorToken(config: activeConfig))
+        return [
+            self.destination.sourceID,
+            self.appModel.isOperatorGatewayConnected ? "connected" : "offline",
+            String(authIdentity),
+        ].joined(separator: "\u{0}")
     }
 
     private var unavailableCard: some View {

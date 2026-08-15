@@ -124,6 +124,117 @@ describe("plugin notification emitter", () => {
     ).not.toMatchObject({ status: "rate-limited" });
   });
 
+  it("delivers the bounded snapshot when a plugin mutates its candidate after emit", async () => {
+    let releaseTransport: (() => void) | undefined;
+    let transportStarted: (() => void) | undefined;
+    const transportGate = new Promise<void>((resolve) => {
+      releaseTransport = resolve;
+    });
+    const transportStartedGate = new Promise<void>((resolve) => {
+      transportStarted = resolve;
+    });
+    let deliveredPayload: unknown;
+    const service = new PluginNotificationCoordinator({
+      pluginId: "board",
+      declaration,
+      now: () => 1_000,
+      targets: () => [{ id: "apns:phone" }],
+      transportSourceId: () => "gateway-test",
+      transport: {
+        send: async (_target, payload) => {
+          transportStarted?.();
+          await transportGate;
+          deliveredPayload = payload;
+          return "accepted";
+        },
+        clear: async () => "accepted",
+      },
+    });
+    const mutable = candidate();
+    const emission = service.emit("operator", mutable);
+
+    await transportStartedGate;
+    mutable.preview.title = "x".repeat(81);
+    mutable.preview.body = "y".repeat(257);
+    mutable.deepLink.destinationId = "foreign";
+    mutable.deepLink.recordId = "other-record";
+    mutable.expiresAtMs = 1;
+    releaseTransport?.();
+
+    await expect(emission).resolves.toMatchObject({ status: "sent" });
+    expect(deliveredPayload).toMatchObject({
+      expiresAtMs: 100_000,
+      preview: { title: "Ready", body: "One item is ready" },
+      target: { destinationId: "item", recordId: "record-1" },
+    });
+  });
+
+  it("samples accessor-backed candidates once before validating and delivering them", async () => {
+    let titleReads = 0;
+    let recordIdReads = 0;
+    let expiryReads = 0;
+    const preview: Record<string, unknown> = { body: "One item is ready" };
+    Object.defineProperty(preview, "title", {
+      enumerable: true,
+      get: () => {
+        titleReads += 1;
+        return titleReads === 1 ? "Ready" : "x".repeat(81);
+      },
+    });
+    const deepLink: Record<string, unknown> = { kind: "plugin-detail", destinationId: "item" };
+    Object.defineProperty(deepLink, "recordId", {
+      enumerable: true,
+      get: () => {
+        recordIdReads += 1;
+        return recordIdReads === 1 ? "record-1" : "other-record";
+      },
+    });
+    const accessorCandidate: Record<string, unknown> = {
+      version: 1,
+      emissionId: "event-accessor",
+      logicalOperationId: "operation-accessor",
+      attentionClass: "active",
+      preview,
+      deepLink,
+    };
+    Object.defineProperty(accessorCandidate, "expiresAtMs", {
+      enumerable: true,
+      get: () => {
+        expiryReads += 1;
+        return expiryReads === 1 ? 100_000 : 1;
+      },
+    });
+    let deliveredPayload: unknown;
+    const service = new PluginNotificationCoordinator({
+      pluginId: "board",
+      declaration,
+      now: () => 1_000,
+      targets: () => [{ id: "web" }],
+      transportSourceId: () => "gateway-test",
+      transport: {
+        send: async (_target, payload) => {
+          deliveredPayload = payload;
+          return "accepted";
+        },
+        clear: async () => "accepted",
+      },
+    });
+
+    await expect(service.emit("operator", accessorCandidate)).resolves.toMatchObject({
+      status: "sent",
+    });
+    expect({ titleReads, recordIdReads, expiryReads }).toEqual({
+      titleReads: 1,
+      recordIdReads: 1,
+      expiryReads: 1,
+    });
+    expect(deliveredPayload).toMatchObject({
+      expiresAtMs: 100_000,
+      preview: { title: "Ready", body: "One item is ready" },
+      target: { destinationId: "item", recordId: "record-1" },
+    });
+  });
+
   it("isolates matching operations from separate gateway installations", async () => {
     const operations = await Promise.all(
       [
