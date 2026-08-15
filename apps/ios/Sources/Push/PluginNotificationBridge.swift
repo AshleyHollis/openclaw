@@ -1,0 +1,119 @@
+import Foundation
+@preconcurrency import UserNotifications
+
+/// The only destination accepted from a host-owned plugin notification. It carries
+/// identifiers, never a URL or an action, so opening it cannot mutate plugin state.
+struct PluginNotificationDestination: Equatable, Hashable {
+    let tag: String
+    let pluginID: String
+    let tabID: String
+    let destinationID: String
+    let recordID: String
+}
+
+enum PluginNotificationBridge {
+    static let notificationKind = "plugin.notification"
+    static let clearedKind = "plugin.notification.cleared"
+
+    static func shouldPresentNotification(userInfo: [AnyHashable: Any]) -> Bool {
+        self.parseDestination(
+            actionIdentifier: UNNotificationDefaultActionIdentifier,
+            userInfo: userInfo) != nil
+    }
+
+    static func parseDestination(
+        actionIdentifier: String,
+        userInfo: [AnyHashable: Any]) -> PluginNotificationDestination?
+    {
+        guard actionIdentifier == UNNotificationDefaultActionIdentifier,
+              let openclaw = self.exactRecord(
+                  userInfo["openclaw"],
+                  keys: ["version", "kind", "nodeId", "tag", "target", "ts"]),
+              self.version(openclaw["version"]) == 1,
+              openclaw["kind"] as? String == self.notificationKind,
+              self.identifier(openclaw["nodeId"]) != nil,
+              let tag = self.identifier(openclaw["tag"]),
+              openclaw["ts"] is NSNumber,
+              let target = self.exactRecord(
+                  openclaw["target"],
+                  keys: ["kind", "pluginId", "tabId", "destinationId", "recordId"]),
+              target["kind"] as? String == "plugin-detail",
+              let pluginID = self.identifier(target["pluginId"]),
+              let tabID = self.identifier(target["tabId"]),
+              let destinationID = self.identifier(target["destinationId"]),
+              let recordID = self.identifier(target["recordId"])
+        else {
+            return nil
+        }
+
+        return PluginNotificationDestination(
+            tag: tag,
+            pluginID: pluginID,
+            tabID: tabID,
+            destinationID: destinationID,
+            recordID: recordID)
+    }
+
+    static func parseClearTag(userInfo: [AnyHashable: Any]) -> String? {
+        guard let openclaw = self.exactRecord(
+            userInfo["openclaw"],
+            keys: ["version", "kind", "nodeId", "tag", "ts"]),
+            self.version(openclaw["version"]) == 1,
+            openclaw["kind"] as? String == self.clearedKind,
+            self.identifier(openclaw["nodeId"]) != nil,
+            let tag = self.identifier(openclaw["tag"]),
+            openclaw["ts"] is NSNumber
+        else {
+            return nil
+        }
+        return tag
+    }
+
+    @MainActor
+    static func removeNotifications(forTag tag: String, notificationCenter: NotificationCentering) async {
+        guard self.identifier(tag) != nil else { return }
+
+        // APNs owns remote request identifiers. Remove the deterministic tag if it was
+        // used locally, then inspect delivered payloads to clear every matching alert.
+        await notificationCenter.removePendingNotificationRequests(withIdentifiers: [tag])
+        let delivered = await notificationCenter.deliveredNotifications()
+        let matchingIdentifiers = delivered.compactMap { notification in
+            let destination = self.parseDestination(
+                actionIdentifier: UNNotificationDefaultActionIdentifier,
+                userInfo: notification.userInfo)
+            return destination?.tag == tag ? notification.identifier : nil
+        }
+        await notificationCenter.removeDeliveredNotifications(withIdentifiers: matchingIdentifiers)
+    }
+
+    private static func exactRecord(_ rawValue: Any?, keys: Set<String>) -> [String: Any]? {
+        guard let record = rawValue as? [String: Any], Set(record.keys) == keys else { return nil }
+        return record
+    }
+
+    private static func identifier(_ rawValue: Any?) -> String? {
+        guard let value = rawValue as? String,
+              !value.isEmpty,
+              value.utf8.count <= 128,
+              let first = value.utf8.first,
+              Self.isAlphaNumeric(first),
+              value.utf8.allSatisfy({ Self.isIdentifierByte($0) })
+        else {
+            return nil
+        }
+        return value
+    }
+
+    private static func version(_ rawValue: Any?) -> Int? {
+        guard let value = rawValue as? NSNumber, value.intValue == 1 else { return nil }
+        return value.intValue
+    }
+
+    private static func isAlphaNumeric(_ byte: UInt8) -> Bool {
+        (0x30...0x39).contains(byte) || (0x41...0x5A).contains(byte) || (0x61...0x7A).contains(byte)
+    }
+
+    private static func isIdentifierByte(_ byte: UInt8) -> Bool {
+        Self.isAlphaNumeric(byte) || byte == 0x2D || byte == 0x2E || byte == 0x5F || byte == 0x3A
+    }
+}

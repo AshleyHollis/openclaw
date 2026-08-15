@@ -17,8 +17,11 @@ import {
   createApnsApprovalAlertPayload,
   createApnsApprovalResolvedPayload,
   createApnsBackgroundPayload,
+  createApnsPluginNotificationAlertPayload,
+  createApnsPluginNotificationClearedPayload,
   resolveExecApprovalAlertBody,
   resolvePluginApprovalAlertBody,
+  type PluginNotificationApnsTarget,
 } from "./push-apns-payloads.js";
 import {
   isLikelyApnsToken,
@@ -519,6 +522,55 @@ type ApnsPluginApprovalAlertParams = ApnsApprovalParams & {
   description: string;
 };
 
+type ApnsPluginNotificationCommonParams = {
+  nodeId: string;
+  tag: string;
+  timeoutMs?: number;
+  expirationUnixSeconds?: number;
+  signal?: AbortSignal;
+  isCurrent?: () => Promise<boolean>;
+};
+
+type ApnsPluginNotificationAlertCommonParams = ApnsPluginNotificationCommonParams & {
+  title: string;
+  body: string;
+  target: PluginNotificationApnsTarget;
+};
+
+type DirectApnsPluginNotificationAlertParams = ApnsPluginNotificationAlertCommonParams & {
+  registration: DirectApnsRegistration;
+  auth: ApnsAuthConfig;
+  requestSender?: ApnsRequestSender;
+  relayConfig?: never;
+  relayRequestSender?: never;
+};
+
+type RelayApnsPluginNotificationAlertParams = ApnsPluginNotificationAlertCommonParams & {
+  registration: RelayApnsRegistration;
+  relayConfig: ApnsRelayConfig;
+  relayRequestSender?: ApnsRelayRequestSender;
+  relayGatewayIdentity?: Pick<DeviceIdentity, "deviceId" | "privateKeyPem">;
+  auth?: never;
+  requestSender?: never;
+};
+
+type DirectApnsPluginNotificationClearParams = ApnsPluginNotificationCommonParams & {
+  registration: DirectApnsRegistration;
+  auth: ApnsAuthConfig;
+  requestSender?: ApnsRequestSender;
+  relayConfig?: never;
+  relayRequestSender?: never;
+};
+
+type RelayApnsPluginNotificationClearParams = ApnsPluginNotificationCommonParams & {
+  registration: RelayApnsRegistration;
+  relayConfig: ApnsRelayConfig;
+  relayRequestSender?: ApnsRelayRequestSender;
+  relayGatewayIdentity?: Pick<DeviceIdentity, "deviceId" | "privateKeyPem">;
+  auth?: never;
+  requestSender?: never;
+};
+
 /** Sends a visible APNs alert via direct APNs token or relay registration. */
 export async function sendApnsAlert(
   params: DirectApnsAlertParams | RelayApnsAlertParams,
@@ -555,6 +607,83 @@ export async function sendApnsAlert(
     priority: "10",
     ...(directParams.signal ? { signal: directParams.signal } : {}),
     ...(directParams.isCurrent ? { isCurrent: directParams.isCurrent } : {}),
+  });
+}
+
+async function sendApnsPluginNotificationPush(params: {
+  transport:
+    | DirectApnsPluginNotificationAlertParams
+    | RelayApnsPluginNotificationAlertParams
+    | DirectApnsPluginNotificationClearParams
+    | RelayApnsPluginNotificationClearParams;
+  payload: object;
+  pushType: ApnsPushType;
+  priority: "10" | "5";
+}): Promise<ApnsPushResult> {
+  const transport = params.transport;
+  if (transport.registration.transport === "relay") {
+    const relayParams = transport as
+      | RelayApnsPluginNotificationAlertParams
+      | RelayApnsPluginNotificationClearParams;
+    return await sendRelayApnsPush({
+      relayConfig: relayParams.relayConfig,
+      registration: relayParams.registration,
+      payload: params.payload,
+      pushType: params.pushType,
+      priority: params.priority,
+      gatewayIdentity: relayParams.relayGatewayIdentity,
+      requestSender: relayParams.relayRequestSender,
+      ...(relayParams.signal ? { signal: relayParams.signal } : {}),
+      ...(relayParams.isCurrent ? { isCurrent: relayParams.isCurrent } : {}),
+    });
+  }
+  const directParams = transport as
+    | DirectApnsPluginNotificationAlertParams
+    | DirectApnsPluginNotificationClearParams;
+  return await sendDirectApnsPush({
+    auth: directParams.auth,
+    registration: directParams.registration,
+    payload: params.payload,
+    timeoutMs: directParams.timeoutMs,
+    expirationUnixSeconds: directParams.expirationUnixSeconds,
+    requestSender: directParams.requestSender,
+    pushType: params.pushType,
+    priority: params.priority,
+    ...(directParams.signal ? { signal: directParams.signal } : {}),
+    ...(directParams.isCurrent ? { isCurrent: directParams.isCurrent } : {}),
+  });
+}
+
+/** Sends a typed plugin destination alert through the host-owned APNs transport. */
+export async function sendApnsPluginNotificationAlert(
+  params: DirectApnsPluginNotificationAlertParams | RelayApnsPluginNotificationAlertParams,
+): Promise<ApnsPushAlertResult> {
+  return await sendApnsPluginNotificationPush({
+    transport: params,
+    payload: createApnsPluginNotificationAlertPayload({
+      nodeId: params.nodeId,
+      title: params.title,
+      body: params.body,
+      tag: params.tag,
+      target: params.target,
+    }),
+    pushType: "alert",
+    priority: "10",
+  });
+}
+
+/** Sends a silent, idempotent plugin notification clear through the host-owned APNs transport. */
+export async function sendApnsPluginNotificationClear(
+  params: DirectApnsPluginNotificationClearParams | RelayApnsPluginNotificationClearParams,
+): Promise<ApnsPushWakeResult> {
+  return await sendApnsPluginNotificationPush({
+    transport: params,
+    payload: createApnsPluginNotificationClearedPayload({
+      nodeId: params.nodeId,
+      tag: params.tag,
+    }),
+    pushType: "background",
+    priority: "5",
   });
 }
 

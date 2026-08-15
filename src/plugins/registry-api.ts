@@ -15,13 +15,6 @@ import {
   unschedulePluginSessionTurnsByTag,
 } from "./host-hook-scheduled-turns.js";
 import { enqueuePluginNextTurnInjection } from "./host-hook-state.js";
-import { getPluginRuntimeGatewayRequestScope } from "./runtime/gateway-request-scope.js";
-import {
-  createPluginNotificationEmitter,
-  PluginNotificationCoordinator,
-  validatePluginNotificationDeclaration,
-  type PluginNotificationDeclarationV1,
-} from "./notification-emitter.js";
 import {
   capturePluginNotificationPrincipal,
   createHostPluginNotificationLedger,
@@ -29,6 +22,12 @@ import {
   isPluginNotificationPrincipalCurrent,
   listPluginNotificationTargets,
 } from "./notification-emitter-host.js";
+import {
+  createPluginNotificationEmitter,
+  PluginNotificationCoordinator,
+  validatePluginNotificationDeclaration,
+  type PluginNotificationDeclarationV1,
+} from "./notification-emitter.js";
 import { isPluginRegistryActivated, isPluginRegistryRetired } from "./registry-lifecycle.js";
 import type { PluginRegistrars } from "./registry-registrars.js";
 import type { PluginRuntimeResolver } from "./registry-runtime.js";
@@ -39,6 +38,7 @@ import {
   type PluginSideEffectGuard,
 } from "./registry-state.js";
 import type { PluginRecord } from "./registry-types.js";
+import { getPluginRuntimeGatewayRequestScope } from "./runtime/gateway-request-scope.js";
 import type { OpenClawPluginApi, PluginLogger, PluginRegistrationMode } from "./types.js";
 
 function normalizeLogger(logger: PluginLogger): PluginLogger {
@@ -207,7 +207,10 @@ export function createPluginApiFactory(
           pluginId: record.id,
           existingCount: existingDeclarations.length,
         });
-        if (!valid || existingDeclarations.some((entry) => entry.declaration.id === declaration.id)) {
+        if (
+          !valid ||
+          existingDeclarations.some((entry) => entry.declaration.id === declaration.id)
+        ) {
           pushDiagnostic({
             level: "error",
             pluginId: record.id,
@@ -219,17 +222,20 @@ export function createPluginApiFactory(
         const capturedDeclaration = capturePluginNotificationDeclaration(declaration);
         // Registration order is intentionally irrelevant: control UI tabs can be registered
         // before or after this declaration, so ownership is checked at use after activation.
-        registry.notificationEmitters.push({ pluginId: record.id, declaration: capturedDeclaration });
+        registry.notificationEmitters.push({
+          pluginId: record.id,
+          declaration: capturedDeclaration,
+        });
         return createPluginNotificationEmitter({
           declaration: capturedDeclaration,
           coordinator: new PluginNotificationCoordinator({
             pluginId: record.id,
             declaration: capturedDeclaration,
             targets: (principal) =>
-              typeof principal === "string"
-                ? []
-                : listPluginNotificationTargets(principal),
-            transport: createHostPluginNotificationTransport({ gatewayConfig: params.config.gateway }),
+              typeof principal === "string" ? [] : listPluginNotificationTargets(principal),
+            transport: createHostPluginNotificationTransport({
+              gatewayConfig: params.config.gateway,
+            }),
             ledger: createHostPluginNotificationLedger(),
           }),
           isPluginActive: isLoadedRecordInLiveRegistry,
@@ -253,7 +259,6 @@ export function createPluginApiFactory(
           isPrincipalCurrent: (principal) =>
             isPluginNotificationPrincipalCurrent({
               principal,
-              client: getPluginRuntimeGatewayRequestScope()?.client,
             }),
         });
       },

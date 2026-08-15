@@ -1,16 +1,18 @@
 // Host-only notification bindings. No transport credential is represented in a plugin-facing type.
 import { createHash } from "node:crypto";
 import type { Insertable } from "kysely";
-import type { GatewayClient } from "../gateway/server-methods/shared-types.js";
+import type { GatewayConfig } from "../config/types.gateway.js";
 import { isOperatorScope, type OperatorScope } from "../gateway/operator-scopes.js";
+import type { GatewayClient } from "../gateway/server-methods/shared-types.js";
 import { loadPairedDevicePairingStoreRecord } from "../infra/device-pairing-store.js";
+import { executeSqliteQuerySync, getNodeSqliteKysely } from "../infra/kysely-sync.js";
 import {
   loadApnsRegistration,
   resolveApnsAuthConfigFromEnv,
   resolveApnsRelayConfigFromEnv,
-  sendApnsAlert,
+  sendApnsPluginNotificationAlert,
+  sendApnsPluginNotificationClear,
 } from "../infra/push-apns.js";
-import type { GatewayConfig } from "../config/types.gateway.js";
 import { listWebPushSubscriptions } from "../infra/push-web-store.js";
 import { sendWebPushNotification } from "../infra/push-web.js";
 import {
@@ -18,7 +20,6 @@ import {
   runOpenClawStateWriteTransaction,
   type OpenClawStateDatabaseOptions,
 } from "../state/openclaw-state-db.js";
-import { executeSqliteQuerySync, getNodeSqliteKysely } from "../infra/kysely-sync.js";
 import {
   ensurePluginNotificationLedgerSchema,
   SqlitePluginNotificationLedger,
@@ -80,7 +81,11 @@ function principalGeneration(params: {
     .digest("hex");
 }
 
-function pairingGeneration(params: { deviceId: string; publicKey: string; approvedAtMs: number }): string {
+function pairingGeneration(params: {
+  deviceId: string;
+  publicKey: string;
+  approvedAtMs: number;
+}): string {
   return createHash("sha256")
     .update(`${params.deviceId}\0${params.publicKey}\0${params.approvedAtMs}`)
     .digest("hex");
@@ -120,10 +125,7 @@ export function capturePluginNotificationPrincipal(params: {
   }
   const issuerGeneration = token.issuer?.generation;
   // A shared-auth-issued device token must stay tied to the exact authenticated issuer epoch.
-  if (
-    issuerGeneration &&
-    client.sharedGatewaySessionGeneration !== issuerGeneration
-  ) {
+  if (issuerGeneration && client.sharedGatewaySessionGeneration !== issuerGeneration) {
     return undefined;
   }
   return {
@@ -154,22 +156,45 @@ export function capturePluginNotificationPrincipal(params: {
 /** Re-resolve stored device auth on every emit/clear, including revocation and issuer rotation. */
 export function isPluginNotificationPrincipalCurrent(params: {
   principal: PluginNotificationPrincipal;
-  client: GatewayClient | null | undefined;
+  stateDir?: string;
 }): boolean {
-  const current = capturePluginNotificationPrincipal({
-    pluginId: params.principal.pluginId,
-    client: params.client,
+  const { principal } = params;
+  const device = loadPairedDevicePairingStoreRecord(principal.pairedDeviceId, params.stateDir);
+  if (
+    principal.authenticationMethod !== "device-token" ||
+    !device ||
+    pairingGeneration({
+      deviceId: device.deviceId,
+      publicKey: device.publicKey,
+      approvedAtMs: device.approvedAtMs,
+    }) !== principal.pairingGeneration
+  ) {
+    return false;
+  }
+  const principalScopes = operatorScopes(principal.scopes);
+  if (principalScopes.length !== principal.scopes.length || principalScopes.length === 0)
+    return false;
+  return Object.entries(device.tokens).some(([role, token]) => {
+    if (!token || token.revokedAtMs) return false;
+    const tokenScopes = operatorScopes(token.scopes);
+    const issuerGeneration = token.issuer?.generation;
+    return (
+      principal.authenticationGeneration ===
+        principalGeneration({
+          deviceId: device.deviceId,
+          publicKey: device.publicKey,
+          role,
+          createdAtMs: token.createdAtMs,
+          rotatedAtMs: token.rotatedAtMs,
+          revokedAtMs: token.revokedAtMs,
+          issuerGeneration,
+          scopes: token.scopes,
+        }) &&
+      principal.issuerGeneration === issuerGeneration &&
+      tokenScopes.length === principalScopes.length &&
+      tokenScopes.every((scope, index) => scope === principalScopes[index])
+    );
   });
-  return Boolean(
-    current &&
-      current.operatorId === params.principal.operatorId &&
-      current.authenticationGeneration === params.principal.authenticationGeneration &&
-      current.pairedDeviceId === params.principal.pairedDeviceId &&
-      current.pairingGeneration === params.principal.pairingGeneration &&
-      current.issuerGeneration === params.principal.issuerGeneration &&
-      current.scopes.length === params.principal.scopes.length &&
-      current.scopes.every((scope, index) => scope === params.principal.scopes[index]),
-  );
 }
 
 /** Bind a Web Push subscription to the authenticated operator device which registered it. */
@@ -179,47 +204,53 @@ export function associatePluginNotificationWebTarget(params: {
   nowMs?: number;
   stateDir?: string;
 }): boolean {
-  const principal = capturePluginNotificationPrincipal({ pluginId: "host-association", client: params.client });
+  const principal = capturePluginNotificationPrincipal({
+    pluginId: "host-association",
+    client: params.client,
+  });
   if (!principal) return false;
   const nowMs = params.nowMs ?? Date.now();
   const options = stateOptions(params.stateDir);
   const database = openOpenClawStateDatabase(options);
-  runOpenClawStateWriteTransaction(({ db }) => {
-    ensurePluginNotificationLedgerSchema(db);
-    const kysely = getNodeSqliteKysely<AssociationDatabase>(db);
-    const row: Insertable<AssociationDatabase["plugin_notification_device_associations"]> = {
-      target_id: `web:${params.subscriptionId}`,
-      target_kind: "web",
-      operator_id: principal.operatorId,
-      authentication_method: principal.authenticationMethod,
-      authentication_generation: principal.authenticationGeneration,
-      paired_device_id: principal.pairedDeviceId,
-      pairing_generation: principal.pairingGeneration,
-      issuer_generation: principal.issuerGeneration ?? null,
-      scopes_json: JSON.stringify(principal.scopes),
-      created_at_ms: nowMs,
-      updated_at_ms: nowMs,
-    };
-    executeSqliteQuerySync(
-      db,
-      kysely
-        .insertInto("plugin_notification_device_associations")
-        .values(row)
-        .onConflict((conflict) =>
-          conflict.column("target_id").doUpdateSet({
-            target_kind: row.target_kind,
-            operator_id: row.operator_id,
-            authentication_method: row.authentication_method,
-            authentication_generation: row.authentication_generation,
-            paired_device_id: row.paired_device_id,
-            pairing_generation: row.pairing_generation,
-            issuer_generation: row.issuer_generation,
-            scopes_json: row.scopes_json,
-            updated_at_ms: nowMs,
-          }),
-        ),
-    );
-  }, { ...options, database });
+  runOpenClawStateWriteTransaction(
+    ({ db }) => {
+      ensurePluginNotificationLedgerSchema(db);
+      const kysely = getNodeSqliteKysely<AssociationDatabase>(db);
+      const row: Insertable<AssociationDatabase["plugin_notification_device_associations"]> = {
+        target_id: `web:${params.subscriptionId}`,
+        target_kind: "web",
+        operator_id: principal.operatorId,
+        authentication_method: principal.authenticationMethod,
+        authentication_generation: principal.authenticationGeneration,
+        paired_device_id: principal.pairedDeviceId,
+        pairing_generation: principal.pairingGeneration,
+        issuer_generation: principal.issuerGeneration ?? null,
+        scopes_json: JSON.stringify(principal.scopes),
+        created_at_ms: nowMs,
+        updated_at_ms: nowMs,
+      };
+      executeSqliteQuerySync(
+        db,
+        kysely
+          .insertInto("plugin_notification_device_associations")
+          .values(row)
+          .onConflict((conflict) =>
+            conflict.column("target_id").doUpdateSet({
+              target_kind: row.target_kind,
+              operator_id: row.operator_id,
+              authentication_method: row.authentication_method,
+              authentication_generation: row.authentication_generation,
+              paired_device_id: row.paired_device_id,
+              pairing_generation: row.pairing_generation,
+              issuer_generation: row.issuer_generation,
+              scopes_json: row.scopes_json,
+              updated_at_ms: nowMs,
+            }),
+          ),
+      );
+    },
+    { ...options, database },
+  );
   return true;
 }
 
@@ -229,15 +260,18 @@ export function removePluginNotificationWebTarget(params: {
 }): void {
   const options = stateOptions(params.stateDir);
   const database = openOpenClawStateDatabase(options);
-  runOpenClawStateWriteTransaction(({ db }) => {
-    ensurePluginNotificationLedgerSchema(db);
-    executeSqliteQuerySync(
-      db,
-      getNodeSqliteKysely<AssociationDatabase>(db)
-        .deleteFrom("plugin_notification_device_associations")
-        .where("target_id", "=", `web:${params.subscriptionId}`),
-    );
-  }, { ...options, database });
+  runOpenClawStateWriteTransaction(
+    ({ db }) => {
+      ensurePluginNotificationLedgerSchema(db);
+      executeSqliteQuerySync(
+        db,
+        getNodeSqliteKysely<AssociationDatabase>(db)
+          .deleteFrom("plugin_notification_device_associations")
+          .where("target_id", "=", `web:${params.subscriptionId}`),
+      );
+    },
+    { ...options, database },
+  );
 }
 
 /** Bind a paired APNs node to the currently authenticated operator device. */
@@ -247,48 +281,54 @@ export function associatePluginNotificationApnsTarget(params: {
   nowMs?: number;
   stateDir?: string;
 }): boolean {
-  const principal = capturePluginNotificationPrincipal({ pluginId: "host-association", client: params.client });
+  const principal = capturePluginNotificationPrincipal({
+    pluginId: "host-association",
+    client: params.client,
+  });
   const node = loadPairedDevicePairingStoreRecord(params.nodeId, params.stateDir);
   if (!principal || !node) return false;
   const nowMs = params.nowMs ?? Date.now();
   const options = stateOptions(params.stateDir);
   const database = openOpenClawStateDatabase(options);
-  runOpenClawStateWriteTransaction(({ db }) => {
-    ensurePluginNotificationLedgerSchema(db);
-    const kysely = getNodeSqliteKysely<AssociationDatabase>(db);
-    const row: Insertable<AssociationDatabase["plugin_notification_device_associations"]> = {
-      target_id: `apns:${params.nodeId}`,
-      target_kind: "apns",
-      operator_id: principal.operatorId,
-      authentication_method: principal.authenticationMethod,
-      authentication_generation: principal.authenticationGeneration,
-      paired_device_id: principal.pairedDeviceId,
-      pairing_generation: principal.pairingGeneration,
-      issuer_generation: principal.issuerGeneration ?? null,
-      scopes_json: JSON.stringify(principal.scopes),
-      created_at_ms: nowMs,
-      updated_at_ms: nowMs,
-    };
-    executeSqliteQuerySync(
-      db,
-      kysely
-        .insertInto("plugin_notification_device_associations")
-        .values(row)
-        .onConflict((conflict) =>
-          conflict.column("target_id").doUpdateSet({
-            target_kind: row.target_kind,
-            operator_id: row.operator_id,
-            authentication_method: row.authentication_method,
-            authentication_generation: row.authentication_generation,
-            paired_device_id: row.paired_device_id,
-            pairing_generation: row.pairing_generation,
-            issuer_generation: row.issuer_generation,
-            scopes_json: row.scopes_json,
-            updated_at_ms: nowMs,
-          }),
-        ),
-    );
-  }, { ...options, database });
+  runOpenClawStateWriteTransaction(
+    ({ db }) => {
+      ensurePluginNotificationLedgerSchema(db);
+      const kysely = getNodeSqliteKysely<AssociationDatabase>(db);
+      const row: Insertable<AssociationDatabase["plugin_notification_device_associations"]> = {
+        target_id: `apns:${params.nodeId}`,
+        target_kind: "apns",
+        operator_id: principal.operatorId,
+        authentication_method: principal.authenticationMethod,
+        authentication_generation: principal.authenticationGeneration,
+        paired_device_id: principal.pairedDeviceId,
+        pairing_generation: principal.pairingGeneration,
+        issuer_generation: principal.issuerGeneration ?? null,
+        scopes_json: JSON.stringify(principal.scopes),
+        created_at_ms: nowMs,
+        updated_at_ms: nowMs,
+      };
+      executeSqliteQuerySync(
+        db,
+        kysely
+          .insertInto("plugin_notification_device_associations")
+          .values(row)
+          .onConflict((conflict) =>
+            conflict.column("target_id").doUpdateSet({
+              target_kind: row.target_kind,
+              operator_id: row.operator_id,
+              authentication_method: row.authentication_method,
+              authentication_generation: row.authentication_generation,
+              paired_device_id: row.paired_device_id,
+              pairing_generation: row.pairing_generation,
+              issuer_generation: row.issuer_generation,
+              scopes_json: row.scopes_json,
+              updated_at_ms: nowMs,
+            }),
+          ),
+      );
+    },
+    { ...options, database },
+  );
   return true;
 }
 
@@ -301,9 +341,12 @@ export function listPluginNotificationTargets(
   const database = openOpenClawStateDatabase(options);
   // Existing state databases predate this additive table. Ensure it before the
   // read so a valid subscription never degrades to an unhandled missing-table error.
-  runOpenClawStateWriteTransaction(({ db }) => {
-    ensurePluginNotificationLedgerSchema(db);
-  }, { ...options, database });
+  runOpenClawStateWriteTransaction(
+    ({ db }) => {
+      ensurePluginNotificationLedgerSchema(db);
+    },
+    { ...options, database },
+  );
   const rows = executeSqliteQuerySync(
     database.db,
     getNodeSqliteKysely<AssociationDatabase>(database.db)
@@ -317,7 +360,9 @@ export function listPluginNotificationTargets(
       .where("issuer_generation", "is", principal.issuerGeneration ?? null)
       .orderBy("target_id"),
   ).rows;
-  const currentWebIds = new Set(listWebPushSubscriptions(stateDir).map((entry) => `web:${entry.subscriptionId}`));
+  const currentWebIds = new Set(
+    listWebPushSubscriptions(stateDir).map((entry) => `web:${entry.subscriptionId}`),
+  );
   return rows
     .filter(
       (row) =>
@@ -349,17 +394,19 @@ export function createHostPluginNotificationTransport(
       if (target.id.startsWith("apns:")) {
         const nodeId = target.id.slice("apns:".length);
         const registration = await loadApnsRegistration(nodeId, params.stateDir);
-        if (!registration) return "failed";
+        if (!registration || !payload.target) return "failed";
         const result =
           registration.transport === "direct"
             ? await (async () => {
                 const auth = await resolveApnsAuthConfigFromEnv(process.env);
                 if (!auth.ok) return null;
-                return await sendApnsAlert({
+                return await sendApnsPluginNotificationAlert({
                   registration,
                   nodeId,
                   title: payload.preview?.title ?? "OpenClaw",
                   body: payload.preview?.body ?? "",
+                  tag: payload.tag,
+                  target: payload.target,
                   auth: auth.value,
                   timeoutMs: attempt.timeoutMs,
                   expirationUnixSeconds: Math.floor(payload.expiresAtMs / 1000),
@@ -371,17 +418,26 @@ export function createHostPluginNotificationTransport(
                   registrationRelayOrigin: registration.relayOrigin,
                 });
                 if (!relay.ok) return null;
-                return await sendApnsAlert({
+                return await sendApnsPluginNotificationAlert({
                   registration,
                   nodeId,
                   title: payload.preview?.title ?? "OpenClaw",
                   body: payload.preview?.body ?? "",
-                  relayConfig: { ...relay.value, timeoutMs: Math.min(relay.value.timeoutMs, attempt.timeoutMs) },
+                  tag: payload.tag,
+                  target: payload.target,
+                  relayConfig: {
+                    ...relay.value,
+                    timeoutMs: Math.min(relay.value.timeoutMs, attempt.timeoutMs),
+                  },
                   signal: attempt.signal,
                 });
               })();
         if (!result) return "failed";
-        return result.ok ? "accepted" : result.status >= 400 && result.status < 500 ? "failed" : "ambiguous";
+        return result.ok
+          ? "accepted"
+          : result.status >= 400 && result.status < 500
+            ? "failed"
+            : "ambiguous";
       }
       if (!target.id.startsWith("web:")) return "failed";
       const subscriptionId = target.id.slice("web:".length);
@@ -410,9 +466,47 @@ export function createHostPluginNotificationTransport(
         : "ambiguous";
     },
     async clear(target, payload, attempt) {
-      // APNs has no server-side notification-revoke primitive. Do not pretend a visible
-      // alert is cleared; record a definite unsupported outcome for this transport.
-      if (target.id.startsWith("apns:")) return "failed";
+      if (target.id.startsWith("apns:")) {
+        const nodeId = target.id.slice("apns:".length);
+        const registration = await loadApnsRegistration(nodeId, params.stateDir);
+        if (!registration) return "failed";
+        const result =
+          registration.transport === "direct"
+            ? await (async () => {
+                const auth = await resolveApnsAuthConfigFromEnv(process.env);
+                if (!auth.ok) return null;
+                return await sendApnsPluginNotificationClear({
+                  registration,
+                  nodeId,
+                  tag: payload.tag,
+                  auth: auth.value,
+                  timeoutMs: attempt.timeoutMs,
+                  signal: attempt.signal,
+                });
+              })()
+            : await (async () => {
+                const relay = resolveApnsRelayConfigFromEnv(process.env, params.gatewayConfig, {
+                  registrationRelayOrigin: registration.relayOrigin,
+                });
+                if (!relay.ok) return null;
+                return await sendApnsPluginNotificationClear({
+                  registration,
+                  nodeId,
+                  tag: payload.tag,
+                  relayConfig: {
+                    ...relay.value,
+                    timeoutMs: Math.min(relay.value.timeoutMs, attempt.timeoutMs),
+                  },
+                  signal: attempt.signal,
+                });
+              })();
+        if (!result) return "failed";
+        return result.ok
+          ? "accepted"
+          : result.status >= 400 && result.status < 500
+            ? "failed"
+            : "ambiguous";
+      }
       if (!target.id.startsWith("web:")) return "failed";
       const subscriptionId = target.id.slice("web:".length);
       const result = await sendWebPushNotification({
@@ -421,7 +515,11 @@ export function createHostPluginNotificationTransport(
           title: "",
           tag: payload.tag,
           url: "./",
-          notification: { version: payload.version, kind: "clear", expiresAtMs: payload.expiresAtMs },
+          notification: {
+            version: payload.version,
+            kind: "clear",
+            expiresAtMs: payload.expiresAtMs,
+          },
         },
         ttlMs: 0,
         signal: attempt.signal,

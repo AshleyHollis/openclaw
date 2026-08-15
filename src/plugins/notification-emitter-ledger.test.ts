@@ -2,8 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { PluginNotificationPrincipal } from "./notification-emitter.js";
 import { SqlitePluginNotificationLedger } from "./notification-emitter-ledger.js";
+import {
+  PluginNotificationCoordinator,
+  type PluginNotificationPrincipal,
+} from "./notification-emitter.js";
 
 const stateDirs: string[] = [];
 const principal: PluginNotificationPrincipal = {
@@ -96,7 +99,9 @@ describe("plugin notification SQLite ledger", () => {
       ]),
       nowMs: 10_001,
     });
-    expect(ledger.claimClear({ principal, logicalOperationId: "operation-1", nowMs: 10_002 })).toMatchObject({
+    expect(
+      ledger.claimClear({ principal, logicalOperationId: "operation-1", nowMs: 10_002 }),
+    ).toMatchObject({
       kind: "claimed",
       targetIds: ["apns:phone", "web:browser"],
     });
@@ -152,5 +157,136 @@ describe("plugin notification SQLite ledger", () => {
         nowMs: afterRetention,
       }),
     ).toMatchObject({ kind: "claimed" });
+  });
+
+  it("retries only unresolved clear targets after a partial clear and restart", async () => {
+    const dir = await stateDir();
+    const first = new SqlitePluginNotificationLedger({ stateDir: dir });
+    const emit = first.claimEmission({
+      principal,
+      declarationId: "ready",
+      emissionId: "event-retry",
+      logicalOperationId: "operation-retry",
+      candidateHash: "hash-retry",
+      expiresAtMs: 1_000_000,
+      targetIds: ["web:browser", "apns:phone"],
+      nowMs: 10_000,
+    });
+    expect(emit.kind).toBe("claimed");
+    first.completeEmission({
+      principal,
+      emissionId: "event-retry",
+      result: sent,
+      outcomes: new Map([
+        ["web:browser", "accepted"],
+        ["apns:phone", "accepted"],
+      ]),
+      nowMs: 10_001,
+    });
+
+    const initial = first.claimClear({
+      principal,
+      logicalOperationId: "operation-retry",
+      nowMs: 10_002,
+    });
+    expect(initial).toEqual({
+      kind: "claimed",
+      targetIds: ["apns:phone", "web:browser"],
+      clearedTargetIds: [],
+    });
+    first.completeClear({
+      principal,
+      logicalOperationId: "operation-retry",
+      result: { status: "partial", attempted: 2, cleared: 1, failed: 1, ambiguous: 0 },
+      outcomes: new Map([
+        ["apns:phone", "failed"],
+        ["web:browser", "accepted"],
+      ]),
+      nowMs: 10_003,
+    });
+
+    const restarted = new SqlitePluginNotificationLedger({ stateDir: dir });
+    expect(
+      restarted.claimClear({
+        principal,
+        logicalOperationId: "operation-retry",
+        nowMs: 10_004,
+      }),
+    ).toEqual({
+      kind: "claimed",
+      targetIds: ["apns:phone"],
+      clearedTargetIds: ["web:browser"],
+    });
+    const finalResult = {
+      status: "cleared",
+      attempted: 2,
+      cleared: 2,
+      failed: 0,
+      ambiguous: 0,
+    } as const;
+    restarted.completeClear({
+      principal,
+      logicalOperationId: "operation-retry",
+      result: finalResult,
+      outcomes: new Map([["apns:phone", "accepted"]]),
+      nowMs: 10_005,
+    });
+    expect(
+      new SqlitePluginNotificationLedger({ stateDir: dir }).claimClear({
+        principal,
+        logicalOperationId: "operation-retry",
+        nowMs: 10_006,
+      }),
+    ).toEqual({ kind: "replay", result: finalResult });
+  });
+
+  it("retries a failed device clear through a new coordinator after restart", async () => {
+    const dir = await stateDir();
+    const declaration = {
+      version: 1 as const,
+      id: "ready",
+      requiredScopes: ["operator.read" as const],
+      destinations: [{ id: "item", tabId: "board" }],
+    };
+    const clearedTargets: string[] = [];
+    let failPhone = true;
+    const transport = {
+      send: async () => "accepted" as const,
+      clear: async (target: { id: string }) => {
+        clearedTargets.push(target.id);
+        if (target.id === "apns:phone" && failPhone) return "failed" as const;
+        return "accepted" as const;
+      },
+    };
+    const createCoordinator = () =>
+      new PluginNotificationCoordinator({
+        pluginId: "board",
+        declaration,
+        targets: () => [{ id: "web:browser" }, { id: "apns:phone" }],
+        transport,
+        ledger: new SqlitePluginNotificationLedger({ stateDir: dir }),
+        now: () => 10_000,
+      });
+    const candidate = {
+      version: 1 as const,
+      emissionId: "event-transport-retry",
+      logicalOperationId: "operation-transport-retry",
+      attentionClass: "active" as const,
+      preview: { title: "Ready", body: "One item" },
+      deepLink: { kind: "plugin-detail" as const, destinationId: "item", recordId: "record-1" },
+      expiresAtMs: 70_000,
+    };
+
+    await expect(createCoordinator().emit(principal, candidate)).resolves.toEqual(sent);
+    await expect(
+      createCoordinator().clear(principal, { version: 1, logicalOperationId: candidate.logicalOperationId }),
+    ).resolves.toEqual({ status: "partial", attempted: 2, cleared: 1, failed: 1, ambiguous: 0 });
+    expect(clearedTargets).toEqual(["apns:phone", "web:browser"]);
+
+    failPhone = false;
+    await expect(
+      createCoordinator().clear(principal, { version: 1, logicalOperationId: candidate.logicalOperationId }),
+    ).resolves.toEqual(cleared);
+    expect(clearedTargets).toEqual(["apns:phone", "web:browser", "apns:phone"]);
   });
 });

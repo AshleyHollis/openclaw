@@ -94,11 +94,7 @@ export type PluginNotificationTransport = {
   ): Promise<"accepted" | "failed" | "ambiguous">;
 };
 
-export type PluginNotificationAttemptOutcome =
-  | "accepted"
-  | "failed"
-  | "ambiguous"
-  | "suppressed";
+export type PluginNotificationAttemptOutcome = "accepted" | "failed" | "ambiguous" | "suppressed";
 export type PluginNotificationLedger = {
   claimEmission(params: {
     principal: PluginNotificationPrincipal;
@@ -127,7 +123,7 @@ export type PluginNotificationLedger = {
     logicalOperationId: string;
     nowMs: number;
   }):
-    | { kind: "claimed"; targetIds: readonly string[] }
+    | { kind: "claimed"; targetIds: readonly string[]; clearedTargetIds: readonly string[] }
     | { kind: "replay"; result: PluginNotificationClearResult }
     | { kind: "in-flight" };
   completeClear(params: {
@@ -205,7 +201,7 @@ export function validatePluginNotificationDeclaration(
       ID.test(destination.tabId) &&
       !destinationIds.has(destination.id) &&
       (destinationIds.add(destination.id),
-        (params.resolveTab === undefined || params.resolveTab(params.pluginId, destination.tabId))),
+      params.resolveTab === undefined || params.resolveTab(params.pluginId, destination.tabId)),
   );
 }
 
@@ -278,7 +274,10 @@ const validClear = (value: unknown): value is PluginNotificationClearV1 =>
 
 const maximumTransportAttemptMs = 10_000;
 
-function principalForLegacyOperator(pluginId: string, operatorId: string): PluginNotificationPrincipal {
+function principalForLegacyOperator(
+  pluginId: string,
+  operatorId: string,
+): PluginNotificationPrincipal {
   return {
     operatorId,
     pluginId,
@@ -290,7 +289,10 @@ function principalForLegacyOperator(pluginId: string, operatorId: string): Plugi
   };
 }
 
-function deadlineOptions(expiresAtMs: number, nowMs: number): {
+function deadlineOptions(
+  expiresAtMs: number,
+  nowMs: number,
+): {
   signal: AbortSignal;
   timeoutMs: number;
   cancel: () => void;
@@ -306,7 +308,10 @@ function deadlineOptions(expiresAtMs: number, nowMs: number): {
 async function sendWithinDeadline(
   expiresAtMs: number,
   now: () => number,
-  run: (options: { signal: AbortSignal; timeoutMs: number }) => Promise<PluginNotificationAttemptOutcome>,
+  run: (options: {
+    signal: AbortSignal;
+    timeoutMs: number;
+  }) => Promise<PluginNotificationAttemptOutcome>,
 ): Promise<PluginNotificationAttemptOutcome> {
   const deadline = deadlineOptions(expiresAtMs, now());
   if (!deadline) return "suppressed";
@@ -445,12 +450,18 @@ export class PluginNotificationCoordinator {
     };
     const values = await Promise.all(
       targets.map((target) =>
-        sendWithinDeadline(c.expiresAtMs, () => this.options.now?.() ?? Date.now(), (options) =>
-          this.options.transport.send(
-            target,
-            { ...payload, ttlMs: Math.max(0, c.expiresAtMs - (this.options.now?.() ?? Date.now())) },
-            options,
-          ),
+        sendWithinDeadline(
+          c.expiresAtMs,
+          () => this.options.now?.() ?? Date.now(),
+          (options) =>
+            this.options.transport.send(
+              target,
+              {
+                ...payload,
+                ttlMs: Math.max(0, c.expiresAtMs - (this.options.now?.() ?? Date.now())),
+              },
+              options,
+            ),
         ),
       ),
     );
@@ -541,12 +552,13 @@ export class PluginNotificationCoordinator {
         return outcome === "suppressed" ? "ambiguous" : outcome;
       }),
     );
-    const cleared = values.filter((x) => x === "accepted").length;
+    const priorCleared = claimed?.kind === "claimed" ? claimed.clearedTargetIds.length : 0;
+    const cleared = priorCleared + values.filter((x) => x === "accepted").length;
     const failed = values.filter((x) => x === "failed").length;
     const ambiguous = values.filter((x) => x === "ambiguous").length;
     const result = {
       status: ambiguous ? "ambiguous" : failed ? "partial" : "cleared",
-      attempted: targets.length,
+      attempted: priorCleared + targets.length,
       cleared,
       failed,
       ambiguous,
@@ -586,9 +598,7 @@ export function createPluginNotificationEmitter(params: {
       const authorized = () =>
         params.isPluginActive() &&
         (params.isDeclarationActive?.() ?? true) &&
-        !client.invalidated &&
-        client.authenticatedUserId === principal.operatorId &&
-        params.declaration.requiredScopes.every((scope) => client.connect.scopes.includes(scope));
+        params.declaration.requiredScopes.every((scope) => principal.scopes.includes(scope));
       if (!authorized()) return undefined;
       return {
         emit: async (candidate) => {

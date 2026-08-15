@@ -424,6 +424,9 @@ final class NodeAppModel {
     @ObservationIgnored private var consumedNewChatRequestID: Int = 0
     var dashboardNavigationRequestID: Int = 0
     @ObservationIgnored private var consumedDashboardNavigationRequestID: Int = 0
+    var pluginNotificationNavigationRequestID: Int = 0
+    @ObservationIgnored private var consumedPluginNotificationNavigationRequestID: Int = 0
+    private(set) var pendingPluginNotificationDestination: PluginNotificationDestination?
     var gatewaySetupRequestID: Int = 0
     private(set) var pendingAgentDeepLinkPrompt: AgentDeepLinkPrompt?
     private var pendingGatewaySetupLink: GatewayConnectDeepLink?
@@ -3614,6 +3617,30 @@ extension NodeAppModel {
         else { return false }
         self.consumedDashboardNavigationRequestID = requestID
         return true
+    }
+
+    func stagePluginNotificationDestination(_ destination: PluginNotificationDestination) {
+        self.pendingPluginNotificationDestination = destination
+        self.pluginNotificationNavigationRequestID &+= 1
+    }
+
+    func hasPendingPluginNotificationDestination(_ requestID: Int) -> Bool {
+        requestID != 0 &&
+            requestID == self.pluginNotificationNavigationRequestID &&
+            self.pendingPluginNotificationDestination != nil
+    }
+
+    func consumePluginNotificationDestination(
+        _ requestID: Int) -> PluginNotificationDestination?
+    {
+        guard self.hasPendingPluginNotificationDestination(requestID),
+              requestID != self.consumedPluginNotificationNavigationRequestID
+        else {
+            return nil
+        }
+        self.consumedPluginNotificationNavigationRequestID = requestID
+        defer { self.pendingPluginNotificationDestination = nil }
+        return self.pendingPluginNotificationDestination
     }
 
     /// One acknowledgement per unread episode: the pending flag clears when a fresh

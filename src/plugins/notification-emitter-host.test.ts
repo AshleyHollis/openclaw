@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   resolveApnsAuth: vi.fn(),
   resolveApnsRelay: vi.fn(),
   sendApns: vi.fn(),
+  clearApns: vi.fn(),
 }));
 
 vi.mock("../infra/device-pairing-store.js", () => ({
@@ -23,7 +24,8 @@ vi.mock("../infra/push-apns.js", () => ({
   loadApnsRegistration: mocks.loadApns,
   resolveApnsAuthConfigFromEnv: mocks.resolveApnsAuth,
   resolveApnsRelayConfigFromEnv: mocks.resolveApnsRelay,
-  sendApnsAlert: mocks.sendApns,
+  sendApnsPluginNotificationAlert: mocks.sendApns,
+  sendApnsPluginNotificationClear: mocks.clearApns,
 }));
 
 import {
@@ -31,6 +33,11 @@ import {
   createHostPluginNotificationTransport,
   isPluginNotificationPrincipalCurrent,
 } from "./notification-emitter-host.js";
+import {
+  createPluginNotificationEmitter,
+  PluginNotificationCoordinator,
+} from "./notification-emitter.js";
+import { withPluginRuntimeGatewayRequestScope } from "./runtime/gateway-request-scope.js";
 
 function pairedDevice(overrides: Record<string, unknown> = {}) {
   return {
@@ -69,7 +76,10 @@ describe("host plugin notification principal", () => {
     const device = pairedDevice();
     mocks.loadPairing.mockReturnValue(device);
     const currentClient = client();
-    const principal = capturePluginNotificationPrincipal({ pluginId: "board", client: currentClient });
+    const principal = capturePluginNotificationPrincipal({
+      pluginId: "board",
+      client: currentClient,
+    });
 
     expect(principal).toMatchObject({
       pluginId: "board",
@@ -80,14 +90,10 @@ describe("host plugin notification principal", () => {
       scopes: ["operator.read"],
     });
     expect(JSON.stringify(principal)).not.toContain("device-token-secret");
-    expect(
-      isPluginNotificationPrincipalCurrent({ principal: principal!, client: currentClient }),
-    ).toBe(true);
+    expect(isPluginNotificationPrincipalCurrent({ principal: principal! })).toBe(true);
 
     (device.tokens.operator as { revokedAtMs?: number }).revokedAtMs = 11;
-    expect(
-      isPluginNotificationPrincipalCurrent({ principal: principal!, client: currentClient }),
-    ).toBe(false);
+    expect(isPluginNotificationPrincipalCurrent({ principal: principal! })).toBe(false);
 
     mocks.loadPairing.mockReturnValue(pairedDevice());
     expect(
@@ -99,15 +105,91 @@ describe("host plugin notification principal", () => {
     expect(
       capturePluginNotificationPrincipal({
         pluginId: "board",
-        client: client({ connect: { device: { id: "browser-1" }, role: "operator", scopes: ["operator.write"] } }),
+        client: client({
+          connect: { device: { id: "browser-1" }, role: "operator", scopes: ["operator.write"] },
+        }),
       }),
     ).toBeUndefined();
+  });
+
+  it("keeps a bound principal usable after its request closes, then rejects revocation", async () => {
+    const device = pairedDevice();
+    mocks.loadPairing.mockReturnValue(device);
+    const currentClient = client();
+    const principal = capturePluginNotificationPrincipal({
+      pluginId: "board",
+      client: currentClient,
+    });
+    const send = vi.fn(async () => "accepted" as const);
+    const emitter = createPluginNotificationEmitter({
+      declaration: {
+        version: 1,
+        id: "ready",
+        requiredScopes: ["operator.read"],
+        destinations: [{ id: "item", tabId: "board" }],
+      },
+      coordinator: new PluginNotificationCoordinator({
+        pluginId: "board",
+        declaration: {
+          version: 1,
+          id: "ready",
+          requiredScopes: ["operator.read"],
+          destinations: [{ id: "item", tabId: "board" }],
+        },
+        targets: () => [{ id: "web:browser" }],
+        transport: { send, clear: async () => "accepted" },
+      }),
+      isPluginActive: () => true,
+      capturePrincipal: () => principal,
+      isPrincipalCurrent: (bound) => isPluginNotificationPrincipalCurrent({ principal: bound }),
+    });
+    let binding: ReturnType<typeof emitter.bindCurrentOperator> = undefined;
+    await withPluginRuntimeGatewayRequestScope(
+      {
+        client: currentClient,
+        isWebchatConnect: () => false,
+      },
+      async () => {
+        binding = emitter.bindCurrentOperator();
+      },
+    );
+
+    await expect(
+      binding!.emit({
+        version: 1,
+        emissionId: "event-background",
+        logicalOperationId: "operation-background",
+        attentionClass: "active",
+        preview: { title: "Ready", body: "One item" },
+        deepLink: { kind: "plugin-detail", destinationId: "item", recordId: "record-1" },
+        expiresAtMs: Date.now() + 60_000,
+      }),
+    ).resolves.toMatchObject({ status: "sent" });
+    expect(send).toHaveBeenCalledTimes(1);
+
+    (device.tokens.operator as { revokedAtMs?: number }).revokedAtMs = Date.now();
+    await expect(
+      binding!.emit({
+        version: 1,
+        emissionId: "event-revoked",
+        logicalOperationId: "operation-revoked",
+        attentionClass: "active",
+        preview: { title: "Ready", body: "One item" },
+        deepLink: { kind: "plugin-detail", destinationId: "item", recordId: "record-1" },
+        expiresAtMs: Date.now() + 60_000,
+      }),
+    ).resolves.toMatchObject({ status: "failed" });
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("host plugin notification transport", () => {
   it("passes only bounded payload data and a host timeout fence to Web Push", async () => {
-    mocks.sendWebPush.mockResolvedValue({ ok: true, subscriptionId: "subscription-1", statusCode: 201 });
+    mocks.sendWebPush.mockResolvedValue({
+      ok: true,
+      subscriptionId: "subscription-1",
+      statusCode: 201,
+    });
     const controller = new AbortController();
     const transport = createHostPluginNotificationTransport();
 
@@ -134,13 +216,17 @@ describe("host plugin notification transport", () => {
     ).resolves.toBe("accepted");
 
     expect(mocks.sendWebPush).toHaveBeenCalledWith(
-      expect.objectContaining({ subscriptionId: "subscription-1", ttlMs: 5_000, signal: controller.signal }),
+      expect.objectContaining({
+        subscriptionId: "subscription-1",
+        ttlMs: 5_000,
+        signal: controller.signal,
+      }),
     );
     const call = mocks.sendWebPush.mock.calls[0]?.[0] as { payload: unknown };
     expect(JSON.stringify(call.payload)).not.toMatch(/vapid|private.?key|token|authorization/i);
   });
 
-  it("maps definitive APNs responses separately from ambiguous transport failures", async () => {
+  it("sends typed APNs targets and maps definitive responses separately from ambiguity", async () => {
     const transport = createHostPluginNotificationTransport();
     mocks.loadApns.mockResolvedValue({
       transport: "direct",
@@ -163,6 +249,13 @@ describe("host plugin notification transport", () => {
       tag: "operation-tag",
       expiresAtMs: 60_000,
       ttlMs: 10_000,
+      target: {
+        kind: "plugin-detail" as const,
+        pluginId: "board",
+        tabId: "items",
+        destinationId: "item",
+        recordId: "record-1",
+      },
     };
     const attempt = { signal: new AbortController().signal, timeoutMs: 10_000 };
 
@@ -171,7 +264,39 @@ describe("host plugin notification transport", () => {
       "ambiguous",
     );
     expect(mocks.sendApns).toHaveBeenLastCalledWith(
-      expect.objectContaining({ timeoutMs: 10_000, expirationUnixSeconds: 60 }),
+      expect.objectContaining({
+        timeoutMs: 10_000,
+        expirationUnixSeconds: 60,
+        tag: "operation-tag",
+        target: payload.target,
+      }),
+    );
+  });
+
+  it("sends a silent APNs clear for an accepted notification", async () => {
+    const transport = createHostPluginNotificationTransport();
+    mocks.loadApns.mockResolvedValue({
+      transport: "direct",
+      nodeId: "phone-1",
+      token: "device-token-stays-host-side",
+      topic: "ai.openclaw.ios",
+      environment: "production",
+    });
+    mocks.resolveApnsAuth.mockResolvedValue({
+      ok: true,
+      value: { teamId: "team", keyId: "key", privateKey: "host-private-key" },
+    });
+    mocks.clearApns.mockResolvedValue({ ok: true, status: 200 });
+
+    await expect(
+      transport.clear(
+        { id: "apns:phone-1" },
+        { version: 1, kind: "clear", tag: "operation-tag", expiresAtMs: 60_000, ttlMs: 0 },
+        { signal: new AbortController().signal, timeoutMs: 10_000 },
+      ),
+    ).resolves.toBe("accepted");
+    expect(mocks.clearApns).toHaveBeenCalledWith(
+      expect.objectContaining({ nodeId: "phone-1", tag: "operation-tag", timeoutMs: 10_000 }),
     );
   });
 });

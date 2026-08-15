@@ -2,15 +2,15 @@
 import { createHash } from "node:crypto";
 import type { Insertable } from "kysely";
 import {
-  openOpenClawStateDatabase,
-  runOpenClawStateWriteTransaction,
-  type OpenClawStateDatabaseOptions,
-} from "../state/openclaw-state-db.js";
-import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
 } from "../infra/kysely-sync.js";
+import {
+  openOpenClawStateDatabase,
+  runOpenClawStateWriteTransaction,
+  type OpenClawStateDatabaseOptions,
+} from "../state/openclaw-state-db.js";
 import type {
   PluginNotificationAttemptOutcome,
   PluginNotificationClearResult,
@@ -189,15 +189,11 @@ function deleteExpiredRows(
   // Retention starts only after the terminal record is well past both its expiry and retry value.
   executeSqliteQuerySync(
     db,
-    kysely
-      .deleteFrom("plugin_notification_clear_attempts")
-      .where("updated_at_ms", "<", cutoff),
+    kysely.deleteFrom("plugin_notification_clear_attempts").where("updated_at_ms", "<", cutoff),
   );
   executeSqliteQuerySync(
     db,
-    kysely
-      .deleteFrom("plugin_notification_delivery_attempts")
-      .where("updated_at_ms", "<", cutoff),
+    kysely.deleteFrom("plugin_notification_delivery_attempts").where("updated_at_ms", "<", cutoff),
   );
   executeSqliteQuerySync(
     db,
@@ -215,10 +211,13 @@ export class SqlitePluginNotificationLedger implements PluginNotificationLedger 
   private transaction<T>(run: (db: Parameters<typeof getNodeSqliteKysely>[0]) => T): T {
     const options = stateOptions(this.options.stateDir);
     const database = openOpenClawStateDatabase(options);
-    return runOpenClawStateWriteTransaction(({ db }) => {
-      ensurePluginNotificationLedgerSchema(db);
-      return run(db);
-    }, { ...options, database });
+    return runOpenClawStateWriteTransaction(
+      ({ db }) => {
+        ensurePluginNotificationLedgerSchema(db);
+        return run(db);
+      },
+      { ...options, database },
+    );
   }
 
   claimEmission(params: Parameters<PluginNotificationLedger["claimEmission"]>[0]) {
@@ -270,7 +269,10 @@ export class SqlitePluginNotificationLedger implements PluginNotificationLedger 
         created_at_ms: params.nowMs,
         updated_at_ms: params.nowMs,
       };
-      executeSqliteQuerySync(db, kysely.insertInto("plugin_notification_emissions").values(emission));
+      executeSqliteQuerySync(
+        db,
+        kysely.insertInto("plugin_notification_emissions").values(emission),
+      );
       const targetIds = [...new Set(params.targetIds)].toSorted();
       if (targetIds.length > 0) {
         executeSqliteQuerySync(
@@ -313,7 +315,11 @@ export class SqlitePluginNotificationLedger implements PluginNotificationLedger 
         db,
         kysely
           .updateTable("plugin_notification_emissions")
-          .set({ state: "complete", result_json: JSON.stringify(params.result), updated_at_ms: params.nowMs })
+          .set({
+            state: "complete",
+            result_json: JSON.stringify(params.result),
+            updated_at_ms: params.nowMs,
+          })
           .where("principal_key", "=", key)
           .where("plugin_id", "=", params.principal.pluginId)
           .where("emission_id", "=", params.emissionId),
@@ -336,8 +342,45 @@ export class SqlitePluginNotificationLedger implements PluginNotificationLedger 
           .where("logical_operation_id", "=", params.logicalOperationId),
       ).rows;
       if (existing.length > 0) {
-        const result = parseClearResult(existing[0]?.result_json ?? null);
-        return result ? { kind: "replay" as const, result } : { kind: "in-flight" as const };
+        if (existing.some((row) => row.outcome === "in-flight")) {
+          return { kind: "in-flight" as const };
+        }
+        const clearedTargetIds = existing
+          .filter((row) => row.outcome === "accepted")
+          .map((row) => row.target_id)
+          .toSorted();
+        const targetIds = existing
+          .filter((row) => row.outcome !== "accepted")
+          .map((row) => row.target_id)
+          .toSorted();
+        if (targetIds.length === 0) {
+          const result = existing
+            .map((row) => parseClearResult(row.result_json))
+            .find((value): value is PluginNotificationClearResult => value !== null);
+          return {
+            kind: "replay" as const,
+            result: result ?? {
+              status: "cleared" as const,
+              attempted: clearedTargetIds.length,
+              cleared: clearedTargetIds.length,
+              failed: 0,
+              ambiguous: 0,
+            },
+          };
+        }
+        for (const targetId of targetIds) {
+          executeSqliteQuerySync(
+            db,
+            kysely
+              .updateTable("plugin_notification_clear_attempts")
+              .set({ outcome: "in-flight", result_json: null, updated_at_ms: params.nowMs })
+              .where("principal_key", "=", key)
+              .where("plugin_id", "=", params.principal.pluginId)
+              .where("logical_operation_id", "=", params.logicalOperationId)
+              .where("target_id", "=", targetId),
+          );
+        }
+        return { kind: "claimed" as const, targetIds, clearedTargetIds };
       }
       const deliveries = executeSqliteQuerySync(
         db,
@@ -353,7 +396,13 @@ export class SqlitePluginNotificationLedger implements PluginNotificationLedger 
       if (targetIds.length === 0) {
         return {
           kind: "replay" as const,
-          result: { status: "already-cleared" as const, attempted: 0, cleared: 0, failed: 0, ambiguous: 0 },
+          result: {
+            status: "already-cleared" as const,
+            attempted: 0,
+            cleared: 0,
+            failed: 0,
+            ambiguous: 0,
+          },
         };
       }
       executeSqliteQuerySync(
@@ -371,7 +420,7 @@ export class SqlitePluginNotificationLedger implements PluginNotificationLedger 
           })),
         ),
       );
-      return { kind: "claimed" as const, targetIds };
+      return { kind: "claimed" as const, targetIds, clearedTargetIds: [] };
     });
   }
 
@@ -384,13 +433,23 @@ export class SqlitePluginNotificationLedger implements PluginNotificationLedger 
           db,
           kysely
             .updateTable("plugin_notification_clear_attempts")
-            .set({ outcome, result_json: JSON.stringify(params.result), updated_at_ms: params.nowMs })
+            .set({ outcome, updated_at_ms: params.nowMs })
             .where("principal_key", "=", key)
             .where("plugin_id", "=", params.principal.pluginId)
             .where("logical_operation_id", "=", params.logicalOperationId)
             .where("target_id", "=", targetId),
         );
       }
+      // Every target keeps the aggregate so a terminal replay cannot depend on row order.
+      executeSqliteQuerySync(
+        db,
+        kysely
+          .updateTable("plugin_notification_clear_attempts")
+          .set({ result_json: JSON.stringify(params.result), updated_at_ms: params.nowMs })
+          .where("principal_key", "=", key)
+          .where("plugin_id", "=", params.principal.pluginId)
+          .where("logical_operation_id", "=", params.logicalOperationId),
+      );
     });
   }
 }

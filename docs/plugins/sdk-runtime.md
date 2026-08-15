@@ -1058,8 +1058,11 @@ const notifications = api.notifications.registerEmitter({
 At most eight declarations are allowed per plugin. Every destination must refer
 to a tab registered by that same plugin. Declarations and destinations are
 validated after registration completes, so their source order does not matter.
-The emitter is available only while the native runtime handles an authenticated
-operator request.
+Bind an emitter while the native runtime handles an authenticated operator
+request. The returned binding can emit or clear from a later background runtime
+callback after that request closes. Before each operation, the host revalidates
+the bound paired-device token, issuer generation, scopes, plugin activation,
+and declaration; token revocation or rotation immediately invalidates it.
 
 Use the returned binding to submit a candidate with a unique `emissionId`, a
 logical operation id, bounded title/body preview, a declared typed destination,
