@@ -67,6 +67,32 @@ function normalizeHostHookStringList(value: unknown): string[] | undefined | nul
   return normalized as string[];
 }
 
+function normalizeCapabilityBridge(
+  value: unknown,
+): PluginControlUiDescriptor["capabilityBridge"] | null | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const bridge = value as {
+    protocolVersion?: unknown;
+    requiredMethods?: unknown;
+    optionalMethods?: unknown;
+  };
+  if (
+    bridge.protocolVersion !== 1 ||
+    !Array.isArray(bridge.requiredMethods) ||
+    !Array.isArray(bridge.optionalMethods)
+  )
+    return null;
+  const requiredMethods = normalizeHostHookStringList(bridge.requiredMethods);
+  const optionalMethods = normalizeHostHookStringList(bridge.optionalMethods);
+  if (requiredMethods === null || optionalMethods === null || !requiredMethods || !optionalMethods)
+    return null;
+  const methods = [...requiredMethods, ...optionalMethods];
+  return methods.length <= 32 && new Set(methods).size === methods.length
+    ? { protocolVersion: 1, requiredMethods, optionalMethods }
+    : null;
+}
+
 export function createHostRegistrars(state: PluginRegistryState) {
   const { registry, registryParams, pushDiagnostic } = state;
 
@@ -360,6 +386,7 @@ export function createHostRegistrars(state: PluginRegistryState) {
     const description = normalizeOptionalHostHookString(descriptor.description);
     const placement = normalizeOptionalHostHookString(descriptor.placement);
     const requiredScopes = normalizeHostHookStringList(descriptor.requiredScopes);
+    const capabilityBridge = normalizeCapabilityBridge(descriptor.capabilityBridge);
     // The flat API predates required surface/label; preserve shipped JS-plugin behavior.
     const surface = typeof descriptor.surface === "string" ? descriptor.surface : "session";
     if (
@@ -368,7 +395,8 @@ export function createHostRegistrars(state: PluginRegistryState) {
       !controlUiSurfaces.has(surface) ||
       description === "" ||
       placement === "" ||
-      requiredScopes === null
+      requiredScopes === null ||
+      capabilityBridge === null
     ) {
       pushDiagnostic({
         level: "error",
@@ -433,11 +461,13 @@ export function createHostRegistrars(state: PluginRegistryState) {
       typeof descriptor.order === "number" && Number.isFinite(descriptor.order)
         ? descriptor.order
         : undefined;
+    const { capabilityBridge: _untrustedCapabilityBridge, ...descriptorWithoutCapabilityBridge } =
+      descriptor;
     registry.controlUiDescriptors.push({
       pluginId: record.id,
       pluginName: record.name,
       descriptor: {
-        ...descriptor,
+        ...descriptorWithoutCapabilityBridge,
         id,
         surface,
         label,
@@ -450,6 +480,7 @@ export function createHostRegistrars(state: PluginRegistryState) {
         path: tabPath,
         group,
         order,
+        ...(capabilityBridge ? { capabilityBridge } : {}),
       },
       source: record.source,
       rootDir: record.rootDir,

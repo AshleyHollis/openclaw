@@ -93,6 +93,12 @@ export type PluginToolMetadataRegistration = {
 
 type PluginControlUiTabGroup = "control" | "agent";
 
+export type PluginControlUiCapabilityBridge = {
+  protocolVersion: 1;
+  requiredMethods: string[];
+  optionalMethods: string[];
+};
+
 export type PluginControlUiDescriptor = {
   id: string;
   /** "tab" adds a sidebar tab; "widget" advertises a trusted dashboard renderer. */
@@ -113,6 +119,8 @@ export type PluginControlUiDescriptor = {
   group?: PluginControlUiTabGroup;
   /** Sort order among plugin tabs; lower renders first. */
   order?: number;
+  /** Explicit protocol-v1 capability declaration for an opaque external tab. */
+  capabilityBridge?: PluginControlUiCapabilityBridge;
 };
 
 export type PluginSessionActionContext = {

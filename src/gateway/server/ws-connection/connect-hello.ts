@@ -111,6 +111,7 @@ export async function sendGatewayHello(
   }
   const controlUiTabs = listControlUiPluginTabs(scopes, {
     requireGatewayAuthGrant: resolvedAuth.mode !== "none",
+    availableMethods: gatewayMethods,
   });
   const controlUiWidgetKinds = listControlUiPluginWidgetKinds(scopes);
   // A configured UI root can be built independently from the Gateway. Exact

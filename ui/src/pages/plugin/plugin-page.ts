@@ -22,6 +22,8 @@ import { renderLazyViewError } from "../../components/lazy-view-error.ts";
 import { renderLoadingState } from "../../components/loading-state.ts";
 import { t } from "../../i18n/index.ts";
 import { resolveEmbedSandbox } from "../../lib/chat/tool-display.ts";
+import { ExternalTabCapabilityBridgeController } from "../../lib/external-tab-capability-bridge.ts";
+import { sessionNavigationTarget } from "../../lib/sessions/route-navigation.ts";
 import { OpenClawLightDomContentsElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import { pluginTabKey } from "./route.ts";
@@ -119,6 +121,8 @@ export class PluginPage extends OpenClawLightDomContentsElement {
   private externalAuthRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private externalAuthExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   private externalAuthRefreshedAt = 0;
+  private capabilityBridge: ExternalTabCapabilityBridgeController | null = null;
+  private capabilityBridgeKey: string | null = null;
   private readonly subscriptions = new SubscriptionsController(this)
     .watch(
       () => this.context?.gateway,
@@ -153,6 +157,7 @@ export class PluginPage extends OpenClawLightDomContentsElement {
   override disconnectedCallback() {
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     this.clearExternalTabAuth();
+    this.revokeCapabilityBridge();
     this.subscriptions.clear();
     this.stopBundledView();
     super.disconnectedCallback();
@@ -211,6 +216,15 @@ export class PluginPage extends OpenClawLightDomContentsElement {
     }
     const key = this.tabKey();
     const info = this.tabInfo();
+    const bridgeKey = info?.capabilityBridge
+      ? JSON.stringify({
+          tab: this.tabKey(),
+          grant: info.capabilityBridge,
+          conn: this.context?.gateway.snapshot.hello?.server?.connId,
+        })
+      : null;
+    if (this.capabilityBridge && this.capabilityBridgeKey !== bridgeKey)
+      this.revokeCapabilityBridge();
     const hasBundledDescriptor = info !== undefined && key in BUNDLED_TAB_VIEWS;
     const viewState = this.bundledViewState;
     // Switching between plugin tabs reuses this element; the previous bundled
@@ -572,6 +586,52 @@ export class PluginPage extends OpenClawLightDomContentsElement {
     return tabs.find((tab) => tab.pluginId === this.pluginId && tab.id === this.tabId);
   }
 
+  private revokeCapabilityBridge() {
+    this.capabilityBridge?.revoke();
+    this.capabilityBridge = null;
+    this.capabilityBridgeKey = null;
+  }
+
+  private readonly bindCapabilityBridge = (event: Event) => {
+    this.revokeCapabilityBridge();
+    const frame = event.currentTarget;
+    const context = this.context;
+    const info = this.tabInfo();
+    const grant = info?.capabilityBridge;
+    const client = context?.gateway.snapshot.client;
+    if (
+      !(frame instanceof HTMLIFrameElement) ||
+      !context ||
+      !client ||
+      !grant ||
+      context.gateway.snapshot.phase !== "connected"
+    )
+      return;
+    this.capabilityBridge = new ExternalTabCapabilityBridgeController({
+      frame,
+      client,
+      grant,
+      // Hello carries the authenticated plugin/tab link set. Do not infer
+      // authority from the Control UI's globally selected session.
+      linkedSessionKeys: grant.linkedSessionKeys,
+      navigate: (sessionKey) => {
+        const target = sessionNavigationTarget({
+          face: "chat",
+          sessionKey,
+          fallbackAgentId: "main",
+          basePath: context.basePath,
+        });
+        window.location.assign(target.href);
+      },
+    });
+    this.capabilityBridgeKey = JSON.stringify({
+      tab: this.tabKey(),
+      grant,
+      conn: context.gateway.snapshot.hello?.server?.connId,
+    });
+    this.capabilityBridge.connect();
+  };
+
   override render() {
     const context = this.context;
     if (!context) {
@@ -615,6 +675,7 @@ export class PluginPage extends OpenClawLightDomContentsElement {
       });
     }
     if (info?.path) {
+      const bridge = info.capabilityBridge;
       if (info.requiresGatewayAuth === true && !this.isExternalTabAuthSupported()) {
         return html`
           <section class="card lazy-view-state" role="status">
@@ -640,11 +701,19 @@ export class PluginPage extends OpenClawLightDomContentsElement {
       }
       return html`
         <section class="plugin-tab-embed">
+          ${info.requiresGatewayAuth === true && (!bridge || bridge.upgradeRequired)
+            ? html`<p class="plugin-tab-embed__notice" role="status">
+                Capability bridge unavailable or needs an update; read-only mode is active.
+              </p>`
+            : nothing}
           <iframe
             class="plugin-tab-embed__frame"
             src=${info.path}
             title=${info.label}
-            sandbox=${resolveEmbedSandbox(context.config.current.embedSandboxMode)}
+            sandbox=${bridge
+              ? "allow-scripts"
+              : resolveEmbedSandbox(context.config.current.embedSandboxMode)}
+            @load=${this.bindCapabilityBridge}
           ></iframe>
         </section>
       `;

@@ -23,7 +23,38 @@ type ControlUiPluginTab = {
   group?: "control" | "agent";
   order?: number;
   requiresGatewayAuth?: boolean;
+  capabilityBridge?: ControlUiCapabilityBridgeGrant;
 };
+
+export const CONTROL_UI_CAPABILITY_BRIDGE_LIMITS = {
+  maxRequestBytes: 64 * 1024,
+  maxResponseBytes: 1024 * 1024,
+  maxConcurrentRequests: 8,
+  maxRequestsPerMinute: 60,
+  maxMutationsPerMinute: 12,
+  handshakeTimeoutMs: 10_000,
+  requestTimeoutMs: 30_000,
+} as const;
+
+export type ControlUiCapabilityBridgeGrant = {
+  protocolVersion: 1;
+  mode: "read-only" | "read-write";
+  methods: string[];
+  readMethods: string[];
+  missingRequiredMethods: string[];
+  upgradeRequired: boolean;
+  /** Authenticated plugin/tab links; never rendered into the iframe document. */
+  linkedSessionKeys: string[];
+  limits: typeof CONTROL_UI_CAPABILITY_BRIDGE_LIMITS;
+};
+
+const CORE_BRIDGE_METHODS = new Map<string, "read" | "write" | "local">([
+  ["sessions.create", "write"],
+  ["chat.history", "read"],
+  ["sessions.search", "read"],
+  ["chat.send", "write"],
+  ["ui.session.navigate", "local"],
+]);
 
 type ControlUiPluginWidgetKind = {
   pluginId: string;
@@ -68,6 +99,7 @@ export type ControlUiPluginTabAuthGrant = {
 function projectControlUiPluginTabs(
   entries: readonly ControlUiDescriptorEntry[],
   scopes: readonly string[],
+  availableMethods: readonly string[],
 ): ControlUiPluginTab[] {
   const tabs: ControlUiPluginTab[] = [];
   for (const entry of entries) {
@@ -81,6 +113,12 @@ function projectControlUiPluginTabs(
     if (!visible) {
       continue;
     }
+    const capabilityBridge = projectCapabilityBridge(
+      entry.pluginId,
+      descriptor,
+      scopes,
+      availableMethods,
+    );
     tabs.push({
       pluginId: entry.pluginId,
       id: descriptor.id,
@@ -90,6 +128,7 @@ function projectControlUiPluginTabs(
       path: descriptor.path,
       group: descriptor.group,
       order: descriptor.order,
+      ...(capabilityBridge ? { capabilityBridge } : {}),
     });
   }
   // Deterministic ordering keeps hello payloads stable across connects.
@@ -104,10 +143,14 @@ function projectControlUiPluginTabs(
 /** Lists active plugins' tab descriptors visible to the presented scopes. */
 export function listControlUiPluginTabs(
   scopes: readonly string[],
-  opts: { requireGatewayAuthGrant?: boolean } = {},
+  opts: { requireGatewayAuthGrant?: boolean; availableMethods?: readonly string[] } = {},
 ): ControlUiPluginTab[] {
   const registry = getActivePluginSessionExtensionRegistry();
-  return projectControlUiPluginTabs(registry?.controlUiDescriptors ?? [], scopes).flatMap((tab) => {
+  return projectControlUiPluginTabs(
+    registry?.controlUiDescriptors ?? [],
+    scopes,
+    opts.availableMethods ?? [],
+  ).flatMap((tab) => {
     const route = registry ? findControlUiTabGatewayRoute(registry, tab) : undefined;
     if (route === null) {
       // Dispatch authenticates against its first matching gateway route. Hide
@@ -158,7 +201,11 @@ export function listControlUiPluginTabAuthGrants(
     return [];
   }
   const grants = new Map<string, ControlUiPluginTabAuthGrant>();
-  for (const tab of projectControlUiPluginTabs(registry.controlUiDescriptors ?? [], callerScopes)) {
+  for (const tab of projectControlUiPluginTabs(
+    registry.controlUiDescriptors ?? [],
+    callerScopes,
+    [],
+  )) {
     if (!tab.path) {
       continue;
     }
@@ -182,4 +229,69 @@ export function listControlUiPluginTabAuthGrants(
     });
   }
   return [...grants.values()];
+}
+
+function projectCapabilityBridge(
+  pluginId: string,
+  descriptor: PluginControlUiDescriptor,
+  scopes: readonly string[],
+  availableMethods: readonly string[],
+): ControlUiCapabilityBridgeGrant | undefined {
+  const declaration = descriptor.capabilityBridge;
+  if (!declaration || descriptor.surface !== "tab") return undefined;
+  const available = new Set(availableMethods);
+  const registry = getActivePluginSessionExtensionRegistry();
+  const registered = new Map(
+    (registry?.gatewayMethodDescriptors ?? []).map((method) => [method.name, method]),
+  );
+  const kind = (method: string): "read" | "write" | "local" | undefined => {
+    const core = CORE_BRIDGE_METHODS.get(method);
+    if (core) return core;
+    const candidate = registered.get(method);
+    if (
+      candidate?.owner.kind === "plugin" &&
+      candidate.owner.pluginId === pluginId &&
+      (candidate.scope === READ_SCOPE || candidate.scope === "operator.write")
+    )
+      return candidate.scope === READ_SCOPE ? "read" : "write";
+    return undefined;
+  };
+  const permitted = (method: string) => {
+    const methodKind = kind(method);
+    if (!methodKind) return false;
+    if (methodKind === "local")
+      return authorizeOperatorScopesForRequiredScope(READ_SCOPE, scopes).allowed;
+    return (
+      available.has(method) &&
+      authorizeOperatorScopesForRequiredScope(
+        methodKind === "read" ? READ_SCOPE : "operator.write",
+        scopes,
+      ).allowed
+    );
+  };
+  const declared = [...declaration.requiredMethods, ...declaration.optionalMethods];
+  const missingRequiredMethods = declaration.requiredMethods.filter((method) => !permitted(method));
+  // Unknown required plugin methods are conservative mutations: never leave an
+  // optional write enabled when a required capability disappeared after upgrade.
+  const missingRequiredWrite = declaration.requiredMethods.some(
+    (method) => kind(method) !== "read" && kind(method) !== "local" && !permitted(method),
+  );
+  const methods = declared.filter(
+    (method) => permitted(method) && !(missingRequiredWrite && kind(method) === "write"),
+  );
+  const readMethods = methods.filter(
+    (method) => kind(method) === "read" || kind(method) === "local",
+  );
+  return {
+    protocolVersion: 1,
+    mode: methods.some((method) => kind(method) === "write") ? "read-write" : "read-only",
+    methods,
+    readMethods,
+    missingRequiredMethods,
+    upgradeRequired: missingRequiredWrite,
+    // There is deliberately no selection-derived authority. Plugins start with
+    // the authenticated tab-scoped empty set and only successful creates add keys.
+    linkedSessionKeys: [],
+    limits: CONTROL_UI_CAPABILITY_BRIDGE_LIMITS,
+  };
 }
