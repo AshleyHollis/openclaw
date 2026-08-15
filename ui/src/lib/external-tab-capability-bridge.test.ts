@@ -543,6 +543,48 @@ describe("ExternalTabCapabilityBridgeController", () => {
     expect(request).toHaveBeenCalledOnce();
   });
 
+  it("refuses an ambiguous plugin-write retry after its durable ledger is rehydrated", async () => {
+    const request = vi.fn(() => new Promise<unknown>(() => {}));
+    const firstState = createExternalTabCapabilityBridgeMutationState();
+    const first = makeBridge({
+      methods: ["plugin.example.write"],
+      reads: [],
+      mutationState: firstState,
+      request,
+    });
+    await hello(first.port);
+    first.port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "first-page",
+      operationId: "stable-write",
+      method: "plugin.example.write",
+      params: { enabled: true },
+    });
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    first.controller.revoke();
+
+    const second = makeBridge({
+      methods: ["plugin.example.write"],
+      reads: [],
+      mutationState: createExternalTabCapabilityBridgeMutationState({
+        tombstones: firstState.tombstones,
+      }),
+      request,
+    });
+    await hello(second.port);
+    second.port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "reloaded-page",
+      operationId: "stable-write",
+      method: "plugin.example.write",
+      params: { enabled: true },
+    });
+    expect(await next(second.port)).toMatchObject({
+      error: { code: "MUTATION_RECONCILIATION_REQUIRED", retryable: false },
+    });
+    expect(request).toHaveBeenCalledOnce();
+  });
+
   it("partitions identical logical writes across authenticated tab authorities", async () => {
     const request = vi.fn(async (_method: string, params: unknown) => params);
     const first = makeBridge({
@@ -638,6 +680,61 @@ describe("ExternalTabCapabilityBridgeController", () => {
     });
     expect(await next(port)).toMatchObject({ error: { code: "RATE_LIMITED" } });
     expect(request).toHaveBeenCalledTimes(8);
+    for (const operation of operations) operation.resolve({ messages: [] });
+  });
+
+  it("keeps timed-out Gateway work inside the downstream concurrency limit", async () => {
+    vi.useFakeTimers();
+    const operations = Array.from(
+      { length: EXTERNAL_TAB_BRIDGE_LIMITS.maxConcurrentRequests + 1 },
+      () => deferred<unknown>(),
+    );
+    let operationIndex = 0;
+    const request = vi.fn(() => operations[operationIndex++]!.promise);
+    const { port } = makeBridge({ request });
+    const responses: Record<string, unknown>[] = [];
+    port.addEventListener("message", (event) =>
+      responses.push(event.data as Record<string, unknown>),
+    );
+    await hello(port);
+    for (let index = 0; index < EXTERNAL_TAB_BRIDGE_LIMITS.maxConcurrentRequests; index += 1) {
+      port.postMessage({
+        type: "openclaw:capability-bridge-request",
+        requestId: `timeout-${index}`,
+        method: "chat.history",
+        params: { sessionKey: "agent:main:linked" },
+      });
+    }
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledTimes(EXTERNAL_TAB_BRIDGE_LIMITS.maxConcurrentRequests),
+    );
+    await vi.advanceTimersByTimeAsync(EXTERNAL_TAB_BRIDGE_LIMITS.requestTimeoutMs);
+
+    port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "timeout-overflow",
+      method: "chat.history",
+      params: { sessionKey: "agent:main:linked" },
+    });
+    await vi.waitFor(() =>
+      expect(responses).toContainEqual(
+        expect.objectContaining({
+          requestId: "timeout-overflow",
+          error: expect.objectContaining({ code: "RATE_LIMITED" }),
+        }),
+      ),
+    );
+    expect(request).toHaveBeenCalledTimes(EXTERNAL_TAB_BRIDGE_LIMITS.maxConcurrentRequests);
+    operations[0].resolve({ messages: [] });
+    port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "timeout-after-settle",
+      method: "chat.history",
+      params: { sessionKey: "agent:main:linked" },
+    });
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledTimes(EXTERNAL_TAB_BRIDGE_LIMITS.maxConcurrentRequests + 1),
+    );
     for (const operation of operations) operation.resolve({ messages: [] });
   });
 

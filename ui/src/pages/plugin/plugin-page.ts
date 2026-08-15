@@ -1,4 +1,5 @@
 import { consume } from "@lit/context";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import { keyed } from "lit/directives/keyed.js";
@@ -25,6 +26,7 @@ import { t } from "../../i18n/index.ts";
 import { resolveEmbedSandbox } from "../../lib/chat/tool-display.ts";
 import {
   createExternalTabCapabilityBridgeMutationState,
+  EXTERNAL_TAB_BRIDGE_MAX_MUTATION_OPERATIONS,
   EXTERNAL_TAB_BRIDGE_LIMITS,
   ExternalTabCapabilityBridgeController,
   type ExternalTabCapabilityBridgeMutationState,
@@ -102,6 +104,8 @@ const AUTHENTICATED_EXTERNAL_TAB_SANDBOX = "allow-scripts";
 const MAX_CAPABILITY_BRIDGE_DOCUMENT_BYTES = 1024 * 1024;
 const CAPABILITY_BRIDGE_BOOTSTRAP_MESSAGE = "openclaw:capability-bridge-bootstrap";
 const CAPABILITY_BRIDGE_BOOTSTRAP_MOUNTED_MESSAGE = "openclaw:capability-bridge-bootstrap-mounted";
+const CAPABILITY_BRIDGE_MUTATION_TOMBSTONES_STORAGE_PREFIX =
+  "openclaw.capability-bridge.tombstones.v1.";
 
 function randomBridgeBootstrapId(): string {
   const bytes = new Uint8Array(16);
@@ -727,10 +731,71 @@ export class PluginPage extends OpenClawLightDomContentsElement {
     });
     if (authorityKey !== this.capabilityBridgeMutationAuthorityKey) {
       this.capabilityBridgeMutationAuthorityKey = authorityKey;
-      this.capabilityBridgeMutationNamespace = randomBridgeBootstrapId();
-      this.capabilityBridgeMutationState = createExternalTabCapabilityBridgeMutationState();
+      // This is host-only but deterministic for the authenticated plugin/tab.
+      // Core idempotency must survive a full parent reload, while an auth change
+      // gets a distinct namespace before any sandbox mutation can be retried.
+      this.capabilityBridgeMutationNamespace = [
+        "v1",
+        encodeURIComponent(auth.authorityId),
+        encodeURIComponent(this.tabKey()),
+      ].join(":");
+      this.capabilityBridgeMutationState = this.createCapabilityBridgeMutationState(
+        this.capabilityBridgeMutationNamespace,
+      );
     }
     return this.capabilityBridgeMutationNamespace;
+  }
+
+  private createCapabilityBridgeMutationState(namespace: string) {
+    const tombstones = new Map<string, string>();
+    const storageKey = `${CAPABILITY_BRIDGE_MUTATION_TOMBSTONES_STORAGE_PREFIX}${namespace}`;
+    const unavailable = () =>
+      createExternalTabCapabilityBridgeMutationState({
+        tombstones,
+        persistTombstones: () => false,
+      });
+    try {
+      const stored = sessionStorage.getItem(storageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (!isRecord(parsed)) {
+          return unavailable();
+        }
+        const entries = Object.entries(parsed);
+        if (entries.length > EXTERNAL_TAB_BRIDGE_MAX_MUTATION_OPERATIONS) {
+          return unavailable();
+        }
+        for (const [operationId, method] of entries) {
+          if (
+            operationId.length > 128 ||
+            operationId.length === 0 ||
+            typeof method !== "string" ||
+            method.length === 0
+          ) {
+            return unavailable();
+          }
+          tombstones.set(operationId, method);
+        }
+      }
+      return createExternalTabCapabilityBridgeMutationState({
+        tombstones,
+        persistTombstones: () => {
+          try {
+            sessionStorage.setItem(
+              storageKey,
+              JSON.stringify(Object.fromEntries(tombstones)),
+            );
+            return true;
+          } catch {
+            return false;
+          }
+        },
+      });
+    } catch {
+      // A storage failure or malformed tombstone must not authorize a retry.
+      // Core mutations still have Gateway idempotency; plugin writes fail closed.
+      return unavailable();
+    }
   }
 
   private clearCapabilityBridgeMutationAuthority() {

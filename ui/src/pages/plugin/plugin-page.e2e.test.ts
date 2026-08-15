@@ -145,6 +145,12 @@ function externalPluginMutationDocument(): string {
         parent.postMessage({ type: "external-bridge-e2e:mutation-ready" }, "*");
         write();
       }
+      if (event.data.payload?.type === "openclaw:capability-bridge-response") {
+        parent.postMessage(
+          { type: "external-bridge-e2e:mutation-response", value: event.data.payload },
+          "*",
+        );
+      }
     });
     send({ type: "openclaw:capability-bridge-hello", protocolVersion: 1 });
   </script>`;
@@ -323,5 +329,31 @@ describeControlUiE2e("PluginPage external capability bridge E2E", () => {
       ).length;
     }).toBeGreaterThanOrEqual(2);
     expect(await gateway.getRequests("plugin.example.write")).toHaveLength(1);
+  });
+
+  it("refuses an ambiguous plugin write after a real sandbox parent reload", async () => {
+    const page = await createPage();
+    await routeExternalPlugin(page, externalPluginMutationDocument());
+    const gateway = await installMockGateway(page, bridgeScenario(externalMutationTab));
+    await gateway.deferNext("plugin.example.write");
+
+    await page.goto(`${server.baseUrl}plugin?plugin=external-plugin&id=panel`);
+    await gateway.waitForRequest("plugin.example.write");
+    expect(await gateway.getRequests("plugin.example.write")).toHaveLength(1);
+
+    await page.reload();
+    await expect.poll(async () => {
+      return await page.evaluate(
+        () => (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
+      );
+    }).toContainEqual(
+      expect.objectContaining({
+        type: "external-bridge-e2e:mutation-response",
+        value: expect.objectContaining({
+          error: expect.objectContaining({ code: "MUTATION_RECONCILIATION_REQUIRED" }),
+        }),
+      }),
+    );
+    expect(await gateway.getRequests("plugin.example.write")).toEqual([]);
   });
 });

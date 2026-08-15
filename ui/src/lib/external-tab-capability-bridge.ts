@@ -14,7 +14,7 @@ export const EXTERNAL_TAB_BRIDGE_LIMITS = {
 // A tab authority is short-lived and rate-limited, so this is a deliberately
 // bounded ledger. Once full, it rejects new operation ids instead of forgetting
 // one and risking a second mutation with the same logical identifier.
-const MAX_MUTATION_OPERATIONS = 1_024;
+export const EXTERNAL_TAB_BRIDGE_MAX_MUTATION_OPERATIONS = 1_024;
 const MUTATION_RESULT_RETENTION_MS = 60_000;
 const SESSION_CREATE_OPERATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
@@ -55,10 +55,24 @@ export type ExternalTabCapabilityBridgeMutationOperation = {
  */
 export type ExternalTabCapabilityBridgeMutationState = {
   operations: Map<string, ExternalTabCapabilityBridgeMutationOperation>;
+  /**
+   * Plugin-owned writes lack a shared idempotency contract. Persist only their
+   * operation id and method so a reload can refuse an ambiguous retry without
+   * retaining sandbox payloads or Gateway responses.
+   */
+  tombstones: Map<string, string>;
+  persistTombstones?: () => boolean;
 };
 
-export function createExternalTabCapabilityBridgeMutationState(): ExternalTabCapabilityBridgeMutationState {
-  return { operations: new Map() };
+export function createExternalTabCapabilityBridgeMutationState(params?: {
+  tombstones?: Map<string, string>;
+  persistTombstones?: () => boolean;
+}): ExternalTabCapabilityBridgeMutationState {
+  return {
+    operations: new Map(),
+    tombstones: params?.tombstones ?? new Map(),
+    ...(params?.persistTombstones ? { persistTombstones: params.persistTombstones } : {}),
+  };
 }
 
 class Failure extends Error {
@@ -129,6 +143,7 @@ export class ExternalTabCapabilityBridgeController {
   private readonly methods: Set<string>;
   private readonly reads: Set<string>;
   private readonly mutationOperations: Map<string, ExternalTabCapabilityBridgeMutationOperation>;
+  private readonly mutationTombstones: Map<string, string>;
 
   constructor(
     private readonly options: {
@@ -149,6 +164,7 @@ export class ExternalTabCapabilityBridgeController {
     this.methods = new Set(options.grant.methods);
     this.reads = new Set(options.grant.readMethods);
     this.mutationOperations = options.mutationState?.operations ?? new Map();
+    this.mutationTombstones = options.mutationState?.tombstones ?? new Map();
     for (const key of options.linkedSessionKeys ?? []) {
       if (this.links.size === 200) break;
       if (isNonEmptyString(key)) this.links.add(key);
@@ -286,6 +302,28 @@ export class ExternalTabCapabilityBridgeController {
           "Operation id has already been used for a different mutation",
         ),
       );
+    const tombstoneMethod =
+      mutation && !existingOperation
+        ? this.mutationTombstones.get(request.operationId as string)
+        : undefined;
+    if (tombstoneMethod && tombstoneMethod !== request.method)
+      return this.respond(
+        requestId,
+        undefined,
+        error(
+          "OPERATION_CONFLICT",
+          "Operation id has already been used for a different mutation",
+        ),
+      );
+    if (tombstoneMethod)
+      return this.respond(
+        requestId,
+        undefined,
+        error(
+          "MUTATION_RECONCILIATION_REQUIRED",
+          "Mutation outcome is unknown; reconcile before retrying",
+        ),
+      );
     // The 200-key link cap and ingress rate cap bound total host work.
     // Search groups dispatch serially, so they occupy one downstream slot.
     // Counting groups there would reject valid exact-set searches before Gateway sees them.
@@ -333,14 +371,41 @@ export class ExternalTabCapabilityBridgeController {
           "Mutation operation identifiers are required and read identifiers are forbidden",
         ),
       );
+    if (
+      mutation &&
+      !existingOperation &&
+      this.requiresDurableReconciliation(request.method) &&
+      !this.reserveMutationTombstone(request.operationId as string, request.method)
+    )
+      return this.respond(
+        requestId,
+        undefined,
+        error(
+          "MUTATION_RECONCILIATION_REQUIRED",
+          "Mutation requires durable reconciliation before it can be sent",
+        ),
+      );
     if (mutation && !existingOperation) this.mutations.push(now);
     this.active += downstreamConcurrencyUnits;
+    let executionStarted = false;
+    let released = false;
+    const releaseDownstreamSlot = () => {
+      if (released) return;
+      released = true;
+      this.active -= downstreamConcurrencyUnits;
+    };
     try {
       const execution = mutation
         ? this.reconcileMutation(request, operationFingerprint as string)
         : this.dispatch(request);
+      executionStarted = true;
+      // A timeout stops waiting for the sandbox response, not Gateway work.
+      // Keep this slot reserved until the original operation settles so retries
+      // cannot exceed the port's real downstream concurrency bound.
+      void execution.then(releaseDownstreamSlot, releaseDownstreamSlot);
       this.respond(requestId, await this.timed(execution));
     } catch (cause) {
+      if (!executionStarted) releaseDownstreamSlot();
       const timeout = cause instanceof Failure && cause.code === "TIMEOUT";
       const retryable = timeout && (!mutation || request.method === "chat.send");
       const unknown = timeout && mutation && !retryable;
@@ -363,8 +428,6 @@ export class ExternalTabCapabilityBridgeController {
           retryable,
         ),
       );
-    } finally {
-      this.active -= downstreamConcurrencyUnits;
     }
   }
 
@@ -394,6 +457,27 @@ export class ExternalTabCapabilityBridgeController {
     return value;
   }
 
+  private requiresDurableReconciliation(method: string): boolean {
+    return method !== "sessions.create" && method !== "chat.send";
+  }
+
+  private reserveMutationTombstone(operationId: string, method: string): boolean {
+    if (this.mutationTombstones.size >= EXTERNAL_TAB_BRIDGE_MAX_MUTATION_OPERATIONS) {
+      return false;
+    }
+    this.mutationTombstones.set(operationId, method);
+    try {
+      if (this.options.mutationState?.persistTombstones?.() === false) {
+        this.mutationTombstones.delete(operationId);
+        return false;
+      }
+    } catch {
+      this.mutationTombstones.delete(operationId);
+      return false;
+    }
+    return true;
+  }
+
   /**
    * Gateway methods do not all expose an idempotency field. Keep one logical
    * mutation per authenticated tab authority and retain its completion across
@@ -420,7 +504,7 @@ export class ExternalTabCapabilityBridgeController {
         "Mutation result has expired; reconcile before retrying",
       );
     }
-    if (this.mutationOperations.size >= MAX_MUTATION_OPERATIONS) {
+    if (this.mutationOperations.size >= EXTERNAL_TAB_BRIDGE_MAX_MUTATION_OPERATIONS) {
       throw new Failure(
         "MUTATION_RECONCILIATION_REQUIRED",
         "Too many logical mutations on this tab authority; reconcile before sending another",
