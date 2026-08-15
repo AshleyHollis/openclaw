@@ -39,7 +39,10 @@ import {
   type PluginSideEffectGuard,
 } from "./registry-state.js";
 import type { PluginRecord } from "./registry-types.js";
-import { getPluginRuntimeGatewayRequestScope } from "./runtime/gateway-request-scope.js";
+import {
+  getPluginRuntimeGatewayNotificationPrincipal,
+  getPluginRuntimeGatewayRequestScope,
+} from "./runtime/gateway-request-scope.js";
 import type { OpenClawPluginApi, PluginLogger, PluginRegistrationMode } from "./types.js";
 
 function normalizeLogger(logger: PluginLogger): PluginLogger {
@@ -263,6 +266,7 @@ export function createPluginApiFactory(
             capturePluginNotificationPrincipal({
               pluginId: record.id,
               client: getPluginRuntimeGatewayRequestScope()?.client,
+              binding: getPluginRuntimeGatewayNotificationPrincipal(),
             }),
           isPrincipalCurrent: (principal) =>
             isPluginNotificationPrincipalCurrent({

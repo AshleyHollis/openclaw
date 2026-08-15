@@ -1,7 +1,6 @@
 // Host-owned, closed notification candidate contract. No credential-bearing type is exported.
 import { createHash } from "node:crypto";
 import { isOperatorScope, type OperatorScope } from "../gateway/operator-scopes.js";
-import { getPluginRuntimeGatewayRequestScope } from "./runtime/gateway-request-scope.js";
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/u;
@@ -702,14 +701,8 @@ export function createPluginNotificationEmitter(params: {
 }): PluginNotificationEmitter {
   return {
     bindCurrentOperator: () => {
-      const client = getPluginRuntimeGatewayRequestScope()?.client;
       const principal = params.capturePrincipal?.();
-      if (
-        !(client?.authenticatedOperatorId ?? client?.authenticatedUserId) ||
-        !params.isPluginActive() ||
-        !principal
-      )
-        return undefined;
+      if (!params.isPluginActive() || !principal) return undefined;
       const authorized = () =>
         params.isPluginActive() &&
         (params.isDeclarationActive?.() ?? true) &&

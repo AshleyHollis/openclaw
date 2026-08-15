@@ -67,6 +67,9 @@ type PluginNotificationDeviceBinding = Pick<
   | "issuerGeneration"
 > & { scopes: readonly OperatorScope[] };
 
+/** Host-only authentication facts that can be bound to one plugin at use time. */
+export type PluginNotificationPrincipalBinding = Omit<PluginNotificationPrincipal, "pluginId">;
+
 const pluginNotificationClearDeliveryWindowMs = 24 * 60 * 60 * 1000;
 
 function stateOptions(stateDir?: string): OpenClawStateDatabaseOptions {
@@ -127,25 +130,17 @@ function pairingGeneration(params: {
 }
 
 /** Capture the authenticated device record that owns a host notification target. */
-function capturePluginNotificationTargetOwner(
-  client: GatewayClient | null | undefined,
-): PluginNotificationTargetOwner | undefined {
-  const deviceId = client?.connect.device?.id?.trim();
-  const role = client?.connect.role?.trim();
-  const operatorId = (client?.authenticatedOperatorId ?? client?.authenticatedUserId)?.trim();
-  if (
-    !client ||
-    client.invalidated ||
-    (!client.isDeviceTokenAuth && !client.usesSharedGatewayAuth) ||
-    !deviceId ||
-    !role ||
-    !operatorId
-  ) {
-    return undefined;
-  }
+function capturePluginNotificationTargetOwnerFromAuthenticatedDevice(params: {
+  operatorId: string;
+  deviceId: string;
+  role: string;
+  scopes: readonly string[];
+  sharedGatewaySessionGeneration?: string;
+}): PluginNotificationTargetOwner | undefined {
+  const { deviceId, role, operatorId } = params;
   const device = loadPairedDevicePairingStoreRecord(deviceId);
   const token = device?.tokens?.[role];
-  const scopes = operatorScopes(client.connect.scopes ?? []);
+  const scopes = operatorScopes(params.scopes);
   const tokenScopes = operatorScopes(token?.scopes ?? []);
   if (
     !device ||
@@ -159,7 +154,7 @@ function capturePluginNotificationTargetOwner(
   const issuerGeneration = token.issuer?.generation;
   // Shared gateway auth first verifies this paired device during the handshake. Its
   // durable grant must then remain bound to that exact shared-auth issuer epoch.
-  if (issuerGeneration && client.sharedGatewaySessionGeneration !== issuerGeneration) {
+  if (issuerGeneration && params.sharedGatewaySessionGeneration !== issuerGeneration) {
     return undefined;
   }
   return {
@@ -185,6 +180,33 @@ function capturePluginNotificationTargetOwner(
     scopes,
     role,
   };
+}
+
+function capturePluginNotificationTargetOwner(
+  client: GatewayClient | null | undefined,
+): PluginNotificationTargetOwner | undefined {
+  const deviceId = client?.connect.device?.id?.trim();
+  const role = client?.connect.role?.trim();
+  const operatorId = (client?.authenticatedOperatorId ?? client?.authenticatedUserId)?.trim();
+  if (
+    !client ||
+    client.invalidated ||
+    (!client.isDeviceTokenAuth && !client.usesSharedGatewayAuth) ||
+    !deviceId ||
+    !role ||
+    !operatorId
+  ) {
+    return undefined;
+  }
+  return capturePluginNotificationTargetOwnerFromAuthenticatedDevice({
+    operatorId,
+    deviceId,
+    role,
+    scopes: client.connect.scopes ?? [],
+    ...(client.sharedGatewaySessionGeneration
+      ? { sharedGatewaySessionGeneration: client.sharedGatewaySessionGeneration }
+      : {}),
+  });
 }
 
 function isPluginNotificationDeviceBindingCurrent(params: {
@@ -238,8 +260,9 @@ function isPluginNotificationDeviceBindingCurrent(params: {
           scopes: token.scopes,
         }) &&
       binding.issuerGeneration === issuerGeneration &&
-      tokenScopes.length === bindingScopes.length &&
-      tokenScopes.every((scope, index) => scope === bindingScopes[index])
+      // A binding may retain a constrained scope subset, while its generation
+      // always hashes the full token scope set to detect rotation or revocation.
+      bindingScopes.every((scope) => tokenScopes.includes(scope))
     );
   });
 }
@@ -248,14 +271,52 @@ function isPluginNotificationDeviceBindingCurrent(params: {
 export function capturePluginNotificationPrincipal(params: {
   pluginId: string;
   client: GatewayClient | null | undefined;
+  binding?: PluginNotificationPrincipalBinding;
 }): PluginNotificationPrincipal | undefined {
-  const owner = capturePluginNotificationTargetOwner(params.client);
-  if (!owner || owner.role !== "operator" || owner.scopes.length === 0) {
-    return undefined;
+  if (params.binding) {
+    return {
+      ...params.binding,
+      pluginId: params.pluginId,
+      scopes: [...params.binding.scopes],
+    };
   }
+  const owner = capturePluginNotificationTargetOwner(params.client);
+  if (!owner || owner.role !== "operator" || owner.scopes.length === 0) return undefined;
   return {
     operatorId: owner.operatorId,
     pluginId: params.pluginId,
+    authenticationMethod: owner.authenticationMethod,
+    authenticationGeneration: owner.authenticationGeneration,
+    pairedDeviceId: owner.pairedDeviceId,
+    pairingGeneration: owner.pairingGeneration,
+    ...(owner.issuerGeneration ? { issuerGeneration: owner.issuerGeneration } : {}),
+    scopes: owner.scopes,
+  };
+}
+
+/**
+ * Captures a verified Control UI device-token grant without retaining its bearer token.
+ * The caller has already verified that token; this re-reads the paired row to bind its
+ * current generation before an opaque iframe cookie references the result.
+ */
+export function capturePluginNotificationPrincipalBindingFromControlUiDevice(params: {
+  operatorId: string;
+  deviceId: string;
+  scopes: readonly string[];
+  sharedGatewaySessionGeneration?: string;
+}): PluginNotificationPrincipalBinding | undefined {
+  const owner = capturePluginNotificationTargetOwnerFromAuthenticatedDevice({
+    operatorId: params.operatorId,
+    deviceId: params.deviceId,
+    role: "operator",
+    scopes: params.scopes,
+    ...(params.sharedGatewaySessionGeneration
+      ? { sharedGatewaySessionGeneration: params.sharedGatewaySessionGeneration }
+      : {}),
+  });
+  if (!owner || owner.scopes.length === 0) return undefined;
+  return {
+    operatorId: owner.operatorId,
     authenticationMethod: owner.authenticationMethod,
     authenticationGeneration: owner.authenticationGeneration,
     pairedDeviceId: owner.pairedDeviceId,

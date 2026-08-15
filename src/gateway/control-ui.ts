@@ -360,6 +360,9 @@ async function authorizeControlUiReadRequest(
   let resolvedAuthResult = authResult;
   let verifiedDeviceScopes: string[] | undefined;
   let deviceTokenValidationFailed = false;
+  let notificationBinding:
+    | import("../plugins/notification-emitter-host.js").PluginNotificationPrincipalBinding
+    | undefined;
   if (!resolvedAuthResult.ok && token && supportsDeviceTokenFallback) {
     const deviceRateCheck = opts.rateLimiter?.check(clientIp, AUTH_RATE_LIMIT_SCOPE_DEVICE_TOKEN);
     if (deviceRateCheck && !deviceRateCheck.allowed) {
@@ -370,12 +373,18 @@ async function authorizeControlUiReadRequest(
         retryAfterMs: deviceRateCheck.retryAfterMs,
       };
     } else {
-      const deviceTokenOk = await authorizeControlUiDeviceReadToken(token, sharedAuthGeneration);
-      const deviceScopes = deviceTokenOk
-        ? await resolveControlUiDeviceReadTokenScopes(token)
-        : null;
-      if (deviceScopes) {
-        verifiedDeviceScopes = deviceScopes;
+      const deviceAuth = await authorizeControlUiDeviceReadToken(token, sharedAuthGeneration);
+      if (deviceAuth) {
+        verifiedDeviceScopes = deviceAuth.scopes;
+        const { capturePluginNotificationPrincipalBindingFromControlUiDevice } = await import(
+          "../plugins/notification-emitter-host.js"
+        );
+        notificationBinding = capturePluginNotificationPrincipalBindingFromControlUiDevice({
+          operatorId: "gateway:default-operator",
+          deviceId: deviceAuth.deviceId,
+          scopes: deviceAuth.scopes,
+          ...(sharedAuthGeneration ? { sharedGatewaySessionGeneration: sharedAuthGeneration } : {}),
+        });
         opts.rateLimiter?.reset(clientIp, AUTH_RATE_LIMIT_SCOPE_DEVICE_TOKEN);
         opts.rateLimiter?.reset(clientIp, AUTH_RATE_LIMIT_SCOPE_SHARED_SECRET);
         resolvedAuthResult = { ok: true, method: "device-token" };
@@ -406,6 +415,7 @@ async function authorizeControlUiReadRequest(
         trustDeclaredOperatorScopes,
         sharedAuthGeneration,
         verifiedDeviceScopes,
+        notificationBinding,
       ),
     );
   }
@@ -431,7 +441,7 @@ async function authorizeControlUiReadRequest(
 async function authorizeControlUiDeviceReadToken(
   token: string,
   requiredSharedGatewaySessionGeneration: string | undefined,
-): Promise<boolean> {
+): Promise<{ deviceId: string; scopes: string[] } | null> {
   const pairing = await listDevicePairing();
   for (const device of pairing.paired) {
     const operatorToken = device.tokens?.[CONTROL_UI_OPERATOR_ROLE];
@@ -449,22 +459,7 @@ async function authorizeControlUiDeviceReadToken(
       requiredSharedGatewaySessionGeneration,
     });
     if (verified.ok) {
-      return true;
-    }
-  }
-  return false;
-}
-
-async function resolveControlUiDeviceReadTokenScopes(token: string): Promise<string[] | null> {
-  const pairing = await listDevicePairing();
-  for (const device of pairing.paired) {
-    const operatorBearer = device.tokens?.[CONTROL_UI_OPERATOR_ROLE];
-    if (
-      operatorBearer &&
-      !operatorBearer.revokedAtMs &&
-      verifyPairingToken(token, operatorBearer.token)
-    ) {
-      return operatorBearer.scopes;
+      return { deviceId: device.deviceId, scopes: [...operatorToken.scopes] };
     }
   }
   return null;
