@@ -67,6 +67,8 @@ export type PluginNotificationPrincipal = {
 export type PluginNotificationTransportPayload = {
   version: 1;
   kind: "notify" | "clear";
+  /** Stable host runtime identity; never provided by a plugin candidate. */
+  sourceId: string;
   tag: string;
   expiresAtMs: number;
   /** Remaining delivery lifetime, bounded by the host immediately before I/O. */
@@ -278,11 +280,13 @@ export function validatePluginNotificationCandidate(
 export const pluginNotificationOperationTopic = (
   principal: Pick<PluginNotificationPrincipal, "operatorId" | "pluginId">,
   logicalOperationId: string,
+  sourceId: string,
 ) =>
   createHash("sha256")
     .update(
       JSON.stringify({
         version: 1,
+        sourceId,
         operatorId: principal.operatorId,
         pluginId: principal.pluginId,
         logicalOperationId,
@@ -312,6 +316,15 @@ function principalForLegacyOperator(
     pairingGeneration: `legacy:${operatorId}`,
     scopes: [],
   };
+}
+
+function resolveTransportSourceId(read: () => string): string | undefined {
+  try {
+    const sourceId = read();
+    return typeof sourceId === "string" && ID.test(sourceId) ? sourceId : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function deadlineOptions(
@@ -368,6 +381,8 @@ export class PluginNotificationCoordinator {
       declaration: PluginNotificationDeclarationV1;
       targets(operator: string | PluginNotificationPrincipal): readonly PluginNotificationTarget[];
       transport: PluginNotificationTransport;
+      /** Host-owned runtime identity used to isolate native notification operations. */
+      transportSourceId(): string;
       now?: () => number;
       ledger?: PluginNotificationLedger;
     },
@@ -385,6 +400,8 @@ export class PluginNotificationCoordinator {
         ? principalForLegacyOperator(this.options.pluginId, operator)
         : operator;
     if (principal.pluginId !== this.options.pluginId) return failure();
+    const sourceId = resolveTransportSourceId(this.options.transportSourceId);
+    if (!sourceId) return failure();
     const operatorKey = principal.operatorId;
     const key = JSON.stringify([operatorKey, this.options.pluginId, c.emissionId]);
     const hash = createHash("sha256").update(canonical(c)).digest("hex");
@@ -455,7 +472,8 @@ export class PluginNotificationCoordinator {
     const payload: PluginNotificationTransportPayload = {
       version: 1,
       kind: "notify",
-      tag: pluginNotificationOperationTopic(principal, c.logicalOperationId),
+      sourceId,
+      tag: pluginNotificationOperationTopic(principal, c.logicalOperationId, sourceId),
       expiresAtMs: c.expiresAtMs,
       ttlMs: Math.max(0, c.expiresAtMs - now),
       attentionClass: c.attentionClass,
@@ -548,6 +566,9 @@ export class PluginNotificationCoordinator {
         : operator;
     if (principal.pluginId !== this.options.pluginId)
       return { status: "partial", attempted: 0, cleared: 0, failed: 1, ambiguous: 0 };
+    const sourceId = resolveTransportSourceId(this.options.transportSourceId);
+    if (!sourceId)
+      return { status: "partial", attempted: 0, cleared: 0, failed: 1, ambiguous: 0 };
     const operatorKey = principal.operatorId;
     const key = JSON.stringify([operatorKey, request.logicalOperationId]);
     const claimed = this.options.ledger?.claimClear({
@@ -568,7 +589,8 @@ export class PluginNotificationCoordinator {
     const payload: PluginNotificationTransportPayload = {
       version: 1,
       kind: "clear",
-      tag: pluginNotificationOperationTopic(principal, request.logicalOperationId),
+      sourceId,
+      tag: pluginNotificationOperationTopic(principal, request.logicalOperationId, sourceId),
       expiresAtMs: this.options.now?.() ?? Date.now(),
       ttlMs: 0,
     };

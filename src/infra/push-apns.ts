@@ -529,6 +529,7 @@ type ApnsPluginApprovalAlertParams = ApnsApprovalParams & {
 
 type ApnsPluginNotificationCommonParams = {
   nodeId: string;
+  sourceId: string;
   tag: string;
   timeoutMs?: number;
   expirationUnixSeconds?: number;
@@ -671,6 +672,7 @@ export async function sendApnsPluginNotificationAlert(
       nodeId: params.nodeId,
       title: params.title,
       body: params.body,
+      sourceId: params.sourceId,
       tag: params.tag,
       target: params.target,
     }),
@@ -687,6 +689,7 @@ export async function sendApnsPluginNotificationClear(
     transport: params,
     payload: createApnsPluginNotificationClearedPayload({
       nodeId: params.nodeId,
+      sourceId: params.sourceId,
       tag: params.tag,
     }),
     pushType: "background",

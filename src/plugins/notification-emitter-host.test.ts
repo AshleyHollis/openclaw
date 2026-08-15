@@ -188,6 +188,7 @@ describe("host plugin notification principal", () => {
           destinations: [{ id: "item", tabId: "board" }],
         },
         targets: () => [{ id: "web:browser" }],
+        transportSourceId: () => "gateway-test",
         transport: { send, clear: async () => "accepted" },
       }),
       isPluginActive: () => true,
@@ -400,6 +401,7 @@ describe("host plugin notification transport", () => {
         {
           version: 1,
           kind: "notify",
+          sourceId: "gateway-test",
           tag: "operation-tag",
           expiresAtMs: 20_000,
           ttlMs: 5_000,
@@ -448,6 +450,7 @@ describe("host plugin notification transport", () => {
     const payload = {
       version: 1 as const,
       kind: "notify" as const,
+      sourceId: "gateway-test",
       tag: "operation-tag",
       expiresAtMs: 60_000,
       ttlMs: 10_000,
@@ -469,6 +472,7 @@ describe("host plugin notification transport", () => {
       expect.objectContaining({
         timeoutMs: 10_000,
         expirationUnixSeconds: 60,
+        sourceId: "gateway-test",
         tag: "operation-tag",
         target: payload.target,
       }),
@@ -495,13 +499,21 @@ describe("host plugin notification transport", () => {
       await expect(
         transport.clear(
           { id: "apns:phone-1" },
-          { version: 1, kind: "clear", tag: "operation-tag", expiresAtMs: 60_000, ttlMs: 0 },
+          {
+            version: 1,
+            kind: "clear",
+            sourceId: "gateway-test",
+            tag: "operation-tag",
+            expiresAtMs: 60_000,
+            ttlMs: 0,
+          },
           { signal: new AbortController().signal, timeoutMs: 10_000 },
         ),
       ).resolves.toBe("accepted");
       expect(mocks.clearApns).toHaveBeenCalledWith(
         expect.objectContaining({
           nodeId: "phone-1",
+          sourceId: "gateway-test",
           tag: "operation-tag",
           timeoutMs: 10_000,
           expirationUnixSeconds: 86_410,
@@ -535,13 +547,21 @@ describe("host plugin notification transport", () => {
       await expect(
         transport.clear(
           { id: "apns:phone-1" },
-          { version: 1, kind: "clear", tag: "operation-tag", expiresAtMs: 60_000, ttlMs: 0 },
+          {
+            version: 1,
+            kind: "clear",
+            sourceId: "gateway-test",
+            tag: "operation-tag",
+            expiresAtMs: 60_000,
+            ttlMs: 0,
+          },
           { signal: new AbortController().signal, timeoutMs: 10_000 },
         ),
       ).resolves.toBe("accepted");
       expect(mocks.clearApns).toHaveBeenCalledWith(
         expect.objectContaining({
           nodeId: "phone-1",
+          sourceId: "gateway-test",
           tag: "operation-tag",
           expirationUnixSeconds: 86_410,
           relayConfig: { baseUrl: "https://relay.example.test", timeoutMs: 10_000 },
@@ -565,7 +585,14 @@ describe("host plugin notification transport", () => {
     await expect(
       transport.clear(
         { id: "web:offline-browser" },
-        { version: 1, kind: "clear", tag: "operation-tag", expiresAtMs: 60_000, ttlMs: 0 },
+        {
+          version: 1,
+          kind: "clear",
+          sourceId: "gateway-test",
+          tag: "operation-tag",
+          expiresAtMs: 60_000,
+          ttlMs: 0,
+        },
         { signal: new AbortController().signal, timeoutMs: 10_000 },
       ),
     ).resolves.toBe("accepted");

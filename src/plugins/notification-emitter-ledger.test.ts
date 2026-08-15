@@ -364,6 +364,7 @@ describe("plugin notification SQLite ledger", () => {
         pluginId: "board",
         declaration,
         targets: () => [{ id: "web:browser" }, { id: "apns:phone" }],
+        transportSourceId: () => "gateway-test",
         transport,
         ledger: new SqlitePluginNotificationLedger({ stateDir: dir }),
         now: () => 10_000,
@@ -410,6 +411,7 @@ describe("plugin notification SQLite ledger", () => {
         destinations: [{ id: "item", tabId: "board" }],
       },
       targets: () => [{ id: "web:browser" }],
+      transportSourceId: () => "gateway-test",
       transport: {
         send: async (target) => {
           sends.push(target.id);
@@ -467,6 +469,7 @@ describe("plugin notification SQLite ledger", () => {
         destinations: [{ id: "item", tabId: "board" }],
       },
       targets: () => [{ id: "web:browser" }],
+      transportSourceId: () => "gateway-test",
       transport: {
         send: async () => {
           markSendStarted?.();

@@ -497,6 +497,7 @@ export function createHostPluginNotificationTransport(
                   nodeId,
                   title: payload.preview?.title ?? "OpenClaw",
                   body: payload.preview?.body ?? "",
+                  sourceId: payload.sourceId,
                   tag: payload.tag,
                   target: notificationTarget,
                   auth: auth.value,
@@ -515,6 +516,7 @@ export function createHostPluginNotificationTransport(
                   nodeId,
                   title: payload.preview?.title ?? "OpenClaw",
                   body: payload.preview?.body ?? "",
+                  sourceId: payload.sourceId,
                   tag: payload.tag,
                   target: notificationTarget,
                   relayConfig: {
@@ -575,6 +577,7 @@ export function createHostPluginNotificationTransport(
                 return await sendApnsPluginNotificationClear({
                   registration,
                   nodeId,
+                  sourceId: payload.sourceId,
                   tag: payload.tag,
                   auth: auth.value,
                   timeoutMs: attempt.timeoutMs,
@@ -590,6 +593,7 @@ export function createHostPluginNotificationTransport(
                 return await sendApnsPluginNotificationClear({
                   registration,
                   nodeId,
+                  sourceId: payload.sourceId,
                   tag: payload.tag,
                   relayConfig: {
                     ...relay.value,

@@ -124,6 +124,7 @@ export function createApnsPluginNotificationAlertPayload(params: {
   nodeId: string;
   title: string;
   body: string;
+  sourceId: string;
   tag: string;
   target: PluginNotificationApnsTarget;
 }): object {
@@ -140,6 +141,7 @@ export function createApnsPluginNotificationAlertPayload(params: {
       version: 1,
       kind: "plugin.notification",
       nodeId: params.nodeId,
+      sourceId: params.sourceId,
       tag: params.tag,
       target: params.target,
       ts: Date.now(),
@@ -150,6 +152,7 @@ export function createApnsPluginNotificationAlertPayload(params: {
 /** Create the idempotent silent clear payload for a plugin notification operation. */
 export function createApnsPluginNotificationClearedPayload(params: {
   nodeId: string;
+  sourceId: string;
   tag: string;
 }): object {
   return {
@@ -160,6 +163,7 @@ export function createApnsPluginNotificationClearedPayload(params: {
       version: 1,
       kind: "plugin.notification.cleared",
       nodeId: params.nodeId,
+      sourceId: params.sourceId,
       tag: params.tag,
       ts: Date.now(),
     },

@@ -4,11 +4,18 @@ import Foundation
 /// The only destination accepted from a host-owned plugin notification. It carries
 /// identifiers, never a URL or an action, so opening it cannot mutate plugin state.
 struct PluginNotificationDestination: Equatable, Hashable {
+    let sourceID: String
     let tag: String
     let pluginID: String
     let tabID: String
     let destinationID: String
     let recordID: String
+}
+
+/// Host-owned operation identity for silent plugin-notification clears.
+struct PluginNotificationClearOperation: Equatable, Hashable {
+    let sourceID: String
+    let tag: String
 }
 
 enum PluginNotificationBridge {
@@ -28,10 +35,11 @@ enum PluginNotificationBridge {
         guard actionIdentifier == UNNotificationDefaultActionIdentifier,
               let openclaw = self.exactRecord(
                   userInfo["openclaw"],
-                  keys: ["version", "kind", "nodeId", "tag", "target", "ts"]),
+                  keys: ["version", "kind", "nodeId", "sourceId", "tag", "target", "ts"]),
               self.version(openclaw["version"]) == 1,
               openclaw["kind"] as? String == self.notificationKind,
               self.identifier(openclaw["nodeId"]) != nil,
+              let sourceID = self.identifier(openclaw["sourceId"]),
               let tag = self.identifier(openclaw["tag"]),
               openclaw["ts"] is NSNumber,
               let target = self.exactRecord(
@@ -47,6 +55,7 @@ enum PluginNotificationBridge {
         }
 
         return PluginNotificationDestination(
+            sourceID: sourceID,
             tag: tag,
             pluginID: pluginID,
             tabID: tabID,
@@ -54,34 +63,42 @@ enum PluginNotificationBridge {
             recordID: recordID)
     }
 
-    static func parseClearTag(userInfo: [AnyHashable: Any]) -> String? {
+    static func parseClearOperation(userInfo: [AnyHashable: Any]) -> PluginNotificationClearOperation? {
         guard let openclaw = self.exactRecord(
             userInfo["openclaw"],
-            keys: ["version", "kind", "nodeId", "tag", "ts"]),
+            keys: ["version", "kind", "nodeId", "sourceId", "tag", "ts"]),
             self.version(openclaw["version"]) == 1,
             openclaw["kind"] as? String == self.clearedKind,
             self.identifier(openclaw["nodeId"]) != nil,
+            let sourceID = self.identifier(openclaw["sourceId"]),
             let tag = self.identifier(openclaw["tag"]),
             openclaw["ts"] is NSNumber
         else {
             return nil
         }
-        return tag
+        return PluginNotificationClearOperation(sourceID: sourceID, tag: tag)
     }
 
     @MainActor
-    static func removeNotifications(forTag tag: String, notificationCenter: NotificationCentering) async {
-        guard self.identifier(tag) != nil else { return }
+    static func removeNotifications(
+        for operation: PluginNotificationClearOperation,
+        notificationCenter: NotificationCentering) async
+    {
+        guard self.identifier(operation.sourceID) != nil,
+              self.identifier(operation.tag) != nil
+        else { return }
 
-        // APNs owns remote request identifiers. Remove the deterministic tag if it was
-        // used locally, then inspect delivered payloads to clear every matching alert.
-        await notificationCenter.removePendingNotificationRequests(withIdentifiers: [tag])
+        // APNs owns remote request identifiers. The host tag already includes sourceID,
+        // while delivered payloads match both fields so a collision cannot cross gateways.
+        await notificationCenter.removePendingNotificationRequests(withIdentifiers: [operation.tag])
         let delivered = await notificationCenter.deliveredNotifications()
         let matchingIdentifiers = delivered.compactMap { notification in
             let destination = self.parseDestination(
                 actionIdentifier: UNNotificationDefaultActionIdentifier,
                 userInfo: notification.userInfo)
-            return destination?.tag == tag ? notification.identifier : nil
+            return destination?.tag == operation.tag && destination?.sourceID == operation.sourceID
+                ? notification.identifier
+                : nil
         }
         await notificationCenter.removeDeliveredNotifications(withIdentifiers: matchingIdentifiers)
     }

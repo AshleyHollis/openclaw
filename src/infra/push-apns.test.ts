@@ -396,6 +396,7 @@ describe("push APNs send semantics", () => {
       nodeId: "ios-node-plugin-notification",
       title: "Ready",
       body: "One item is ready",
+      sourceId: "gateway-test",
       tag: "operation-tag",
       target: {
         kind: "plugin-detail",
@@ -423,6 +424,7 @@ describe("push APNs send semantics", () => {
       version: 1,
       kind: "plugin.notification",
       nodeId: "ios-node-plugin-notification",
+      sourceId: "gateway-test",
       tag: "operation-tag",
       target: {
         kind: "plugin-detail",
@@ -444,6 +446,7 @@ describe("push APNs send semantics", () => {
     await sendApnsPluginNotificationClear({
       registration,
       nodeId: "ios-node-plugin-clear",
+      sourceId: "gateway-test",
       tag: "operation-tag",
       auth,
       requestSender: send,
@@ -459,6 +462,7 @@ describe("push APNs send semantics", () => {
       version: 1,
       kind: "plugin.notification.cleared",
       nodeId: "ios-node-plugin-clear",
+      sourceId: "gateway-test",
       tag: "operation-tag",
     });
   });

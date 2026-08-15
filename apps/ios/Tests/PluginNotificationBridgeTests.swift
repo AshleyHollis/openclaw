@@ -31,6 +31,7 @@ struct PluginNotificationBridgeTests {
             "version": 1,
             "kind": PluginNotificationBridge.notificationKind,
             "nodeId": "ios-node",
+            "sourceId": "gateway-a",
             "tag": "operation-tag",
             "target": [
                 "kind": "plugin-detail",
@@ -48,6 +49,7 @@ struct PluginNotificationBridgeTests {
             actionIdentifier: UNNotificationDefaultActionIdentifier,
             userInfo: Self.destinationUserInfo))
         #expect(destination == PluginNotificationDestination(
+            sourceID: "gateway-a",
             tag: "operation-tag",
             pluginID: "board",
             tabID: "items",
@@ -70,6 +72,7 @@ struct PluginNotificationBridgeTests {
             "version": 1,
             "kind": PluginNotificationBridge.notificationKind,
             "nodeId": "ios-node",
+            "sourceId": "gateway-a",
             "tag": "operation-tag",
             "target": [
                 "kind": "plugin-detail",
@@ -97,6 +100,7 @@ struct PluginNotificationBridgeTests {
                         "version": 1,
                         "kind": PluginNotificationBridge.notificationKind,
                         "nodeId": "ios-node",
+                        "sourceId": "gateway-a",
                         "tag": "other-operation",
                         "target": [
                             "kind": "plugin-detail",
@@ -110,28 +114,69 @@ struct PluginNotificationBridgeTests {
                 ]),
         ]
 
-        let clearTag = try #require(PluginNotificationBridge.parseClearTag(userInfo: [
+        let clearOperation = try #require(PluginNotificationBridge.parseClearOperation(userInfo: [
             "openclaw": [
                 "version": 1,
                 "kind": PluginNotificationBridge.clearedKind,
                 "nodeId": "ios-node",
+                "sourceId": "gateway-a",
                 "tag": "operation-tag",
                 "ts": 2,
             ],
         ]))
-        await PluginNotificationBridge.removeNotifications(forTag: clearTag, notificationCenter: center)
-        await PluginNotificationBridge.removeNotifications(forTag: clearTag, notificationCenter: center)
+        await PluginNotificationBridge.removeNotifications(for: clearOperation, notificationCenter: center)
+        await PluginNotificationBridge.removeNotifications(for: clearOperation, notificationCenter: center)
 
         #expect(center.pendingRemovedIdentifiers == [["operation-tag"], ["operation-tag"]])
         #expect(center.deliveredRemovedIdentifiers == [["matching"], []])
     }
 
-    @Test func `clear payloads reject arbitrary data`() {
-        #expect(PluginNotificationBridge.parseClearTag(userInfo: [
+    @Test @MainActor func `silent clears do not cross gateway sources`() async {
+        let center = PluginNotificationMockCenter()
+        var otherGateway = Self.destinationUserInfo
+        otherGateway["openclaw"] = [
+            "version": 1,
+            "kind": PluginNotificationBridge.notificationKind,
+            "nodeId": "ios-node",
+            "sourceId": "gateway-b",
+            "tag": "operation-tag",
+            "target": [
+                "kind": "plugin-detail",
+                "pluginId": "board",
+                "tabId": "items",
+                "destinationId": "item",
+                "recordId": "record-1",
+            ],
+            "ts": 1,
+        ]
+        center.delivered = [
+            NotificationSnapshot(identifier: "gateway-a", userInfo: Self.destinationUserInfo),
+            NotificationSnapshot(identifier: "gateway-b", userInfo: otherGateway),
+        ]
+        let operation = try #require(PluginNotificationBridge.parseClearOperation(userInfo: [
             "openclaw": [
                 "version": 1,
                 "kind": PluginNotificationBridge.clearedKind,
                 "nodeId": "ios-node",
+                "sourceId": "gateway-a",
+                "tag": "operation-tag",
+                "ts": 2,
+            ],
+        ]))
+
+        await PluginNotificationBridge.removeNotifications(for: operation, notificationCenter: center)
+
+        #expect(center.deliveredRemovedIdentifiers == [["gateway-a"]])
+        #expect(center.delivered.map(\.identifier) == ["gateway-b"])
+    }
+
+    @Test func `clear payloads reject arbitrary data`() {
+        #expect(PluginNotificationBridge.parseClearOperation(userInfo: [
+            "openclaw": [
+                "version": 1,
+                "kind": PluginNotificationBridge.clearedKind,
+                "nodeId": "ios-node",
+                "sourceId": "gateway-a",
                 "tag": "operation-tag",
                 "ts": 2,
                 "url": "https://example.invalid/clear",

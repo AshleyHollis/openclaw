@@ -221,9 +221,9 @@ final class OpenClawAppDelegate: NSObject, UIApplicationDelegate, @preconcurrenc
     {
         self.logger.info("APNs remote notification received keys=\(userInfo.keys.count, privacy: .public)")
         Task { @MainActor in
-            if let tag = PluginNotificationBridge.parseClearTag(userInfo: userInfo) {
+            if let operation = PluginNotificationBridge.parseClearOperation(userInfo: userInfo) {
                 await PluginNotificationBridge.removeNotifications(
-                    forTag: tag,
+                    for: operation,
                     notificationCenter: LiveNotificationCenter())
                 completionHandler(.newData)
                 return

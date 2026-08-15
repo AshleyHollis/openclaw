@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { loadOrCreateProcessDeviceIdentity } from "../infra/device-identity.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { resolveUserPath } from "../utils.js";
 import { emitPluginAgentEvent } from "./agent-event-emission.js";
@@ -242,6 +243,7 @@ export function createPluginApiFactory(
             transport: createHostPluginNotificationTransport({
               gatewayConfig: params.config.gateway,
             }),
+            transportSourceId: () => loadOrCreateProcessDeviceIdentity().deviceId,
             ledger: createHostPluginNotificationLedger(),
           }),
           isPluginActive: isLoadedRecordInLiveRegistry,

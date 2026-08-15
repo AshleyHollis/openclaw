@@ -71,6 +71,7 @@ describe("plugin notification emitter", () => {
       declaration,
       now: () => now,
       targets: () => targets,
+      transportSourceId: () => "gateway-test",
       transport: {
         send: async (target) => {
           sends.push(target.id);
@@ -123,15 +124,18 @@ describe("plugin notification emitter", () => {
     ).not.toMatchObject({ status: "rate-limited" });
   });
 
-  it("uses distinct host-owned transport tags for matching operation ids from different owners", async () => {
-    const tags = await Promise.all(
+  it("isolates matching operations from separate gateway installations", async () => {
+    const operations = await Promise.all(
       [
-        { operatorId: "operator-a", pluginId: "board" },
-        { operatorId: "operator-a", pluginId: "inbox" },
-        { operatorId: "operator-b", pluginId: "board" },
-      ].map(async ({ operatorId, pluginId }) => {
+        { operatorId: "gateway:default-operator", pluginId: "board", sourceId: "gateway-a" },
+        { operatorId: "gateway:default-operator", pluginId: "board", sourceId: "gateway-b" },
+        { operatorId: "operator-a", pluginId: "inbox", sourceId: "gateway-a" },
+        { operatorId: "operator-b", pluginId: "board", sourceId: "gateway-a" },
+      ].map(async ({ operatorId, pluginId, sourceId }) => {
         let notifyTag: string | undefined;
         let clearTag: string | undefined;
+        let notifySourceId: string | undefined;
+        let clearSourceId: string | undefined;
         const principal = {
           operatorId,
           pluginId,
@@ -146,13 +150,16 @@ describe("plugin notification emitter", () => {
           declaration,
           now: () => 1_000,
           targets: () => [{ id: "web" }],
+          transportSourceId: () => sourceId,
           transport: {
             send: async (_target, payload) => {
               notifyTag = payload.tag;
+              notifySourceId = payload.sourceId;
               return "accepted" as const;
             },
             clear: async (_target, payload) => {
               clearTag = payload.tag;
+              clearSourceId = payload.sourceId;
               return "accepted" as const;
             },
           },
@@ -165,11 +172,15 @@ describe("plugin notification emitter", () => {
           service.clear(principal, { version: 1, logicalOperationId: "operation-1" }),
         ).resolves.toMatchObject({ status: "cleared" });
         expect(clearTag).toBe(notifyTag);
-        return notifyTag;
+        expect(clearSourceId).toBe(notifySourceId);
+        return { tag: notifyTag, sourceId: notifySourceId };
       }),
     );
 
-    expect(new Set(tags).size).toBe(3);
+    expect(operations[0]).toMatchObject({ sourceId: "gateway-a" });
+    expect(operations[1]).toMatchObject({ sourceId: "gateway-b" });
+    expect(operations[0]?.tag).not.toBe(operations[1]?.tag);
+    expect(new Set(operations.map((operation) => operation.tag)).size).toBe(4);
   });
 
   it("rechecks the captured authenticated principal before an emission can reach transport", async () => {
@@ -190,6 +201,7 @@ describe("plugin notification emitter", () => {
         pluginId: "board",
         declaration,
         targets: () => [{ id: "web" }],
+        transportSourceId: () => "gateway-test",
         transport: { send, clear: async () => "accepted" },
       }),
       isPluginActive: () => true,
@@ -222,6 +234,7 @@ describe("plugin notification emitter", () => {
       declaration,
       now: () => now,
       targets: () => [{ id: "web" }],
+      transportSourceId: () => "gateway-test",
       transport: {
         send: async (_target, _payload, options) => {
           timeoutMs = options.timeoutMs;
