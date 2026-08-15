@@ -179,7 +179,7 @@ describe("ExternalTabCapabilityBridgeController", () => {
     port.postMessage({
       type: "openclaw:capability-bridge-request",
       requestId: "send-owned",
-      operationId: "op",
+      operationId: "op-owned",
       method: "chat.send",
       params: { sessionKey: "agent:work:owned", message: "hello" },
     });
@@ -187,7 +187,7 @@ describe("ExternalTabCapabilityBridgeController", () => {
     expect(request).toHaveBeenLastCalledWith("chat.send", {
       sessionKey: "agent:work:owned",
       message: "hello",
-      idempotencyKey: "op",
+      idempotencyKey: "op-owned",
     });
   });
 

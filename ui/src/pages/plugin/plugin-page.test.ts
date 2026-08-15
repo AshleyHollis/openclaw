@@ -201,6 +201,7 @@ function bridgeState(page: PluginPage) {
   return page as unknown as {
     capabilityBridge: unknown;
     capabilityBridgeDocument: { key: string; markup: string; bootstrapId: string } | null;
+    capabilityBridgeFrameLoadSeen: boolean;
     handleCapabilityBridgeBootstrap: (event: MessageEvent) => void;
   };
 }
@@ -216,7 +217,9 @@ function mountCapabilityBridge(page: PluginPage, frame: HTMLIFrameElement): Mess
     data: { type: "openclaw:capability-bridge-bootstrap", id: document.bootstrapId },
     ports: [channel.port1],
   } as unknown as MessageEvent);
-  frame.dispatchEvent(new Event("load"));
+  if (!bridgeState(page).capabilityBridgeFrameLoadSeen) {
+    frame.dispatchEvent(new Event("load"));
+  }
   bridgeState(page).handleCapabilityBridgeBootstrap({
     source: frame.contentWindow,
     data: { type: "openclaw:capability-bridge-bootstrap-mounted", id: document.bootstrapId },
