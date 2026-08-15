@@ -403,13 +403,12 @@ describe("PluginPage", () => {
       const port = mountCapabilityBridge(page, frame);
       expect(bridgeState(page).capabilityBridge).not.toBeNull();
       port.postMessage({ type: "openclaw:capability-bridge-hello", protocolVersion: 2 });
-      await Promise.resolve();
-      await page.updateComplete;
-
-      expect(bridgeState(page).capabilityBridge).toBeNull();
-      expect(page.querySelector("iframe")?.getAttribute("src")).toBe("/plugins/external/panel");
-      expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toBeNull();
-      expect(page.textContent).toContain("Capability bridge unavailable");
+      await waitForFast(() => {
+        expect(bridgeState(page).capabilityBridge).toBeNull();
+        expect(page.querySelector("iframe")?.getAttribute("src")).toBe("/plugins/external/panel");
+        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toBeNull();
+        expect(page.textContent).toContain("Capability bridge unavailable");
+      });
     } finally {
       page.remove();
     }

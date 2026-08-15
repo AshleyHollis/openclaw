@@ -500,12 +500,12 @@ describe("ExternalTabCapabilityBridgeController", () => {
     makeBridge({ onHandshakeFailure: absent });
     await vi.advanceTimersByTimeAsync(EXTERNAL_TAB_BRIDGE_LIMITS.handshakeTimeoutMs);
     expect(absent).toHaveBeenCalledOnce();
+    vi.useRealTimers();
 
     const incompatible = vi.fn();
     const bridge = makeBridge({ onHandshakeFailure: incompatible });
     bridge.port.postMessage({ type: "openclaw:capability-bridge-hello", protocolVersion: 2 });
-    await Promise.resolve();
-    expect(incompatible).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(incompatible).toHaveBeenCalledOnce());
   });
 
   it("limits concurrent requests without issuing the rejected operation", async () => {
