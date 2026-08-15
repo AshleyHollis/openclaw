@@ -36,9 +36,6 @@ export const CONTROL_UI_PLUGIN_AUTH_PROBE_ORIGIN_QUERY = "__openclaw_plugin_fram
 /** Message emitted only by a successful sandbox cookie capability probe. */
 export const CONTROL_UI_PLUGIN_AUTH_PROBE_MESSAGE = "openclaw-plugin-frame-auth-probe";
 
-/** Reserved authenticated document marker for a bridge-bound external tab. */
-export const CONTROL_UI_CAPABILITY_BRIDGE_DOCUMENT_QUERY = "__openclaw_capability_bridge";
-
 /** Extracts the same-origin route pathname from a tab descriptor URL. */
 export function resolveControlUiPluginTabPathname(path: string): string | undefined {
   try {

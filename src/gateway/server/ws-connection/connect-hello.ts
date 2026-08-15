@@ -3,6 +3,7 @@ import {
   GATEWAY_SERVER_CAPS,
   PROTOCOL_VERSION,
 } from "../../../../packages/gateway-protocol/src/index.js";
+import { loadCombinedSessionStoreForGateway } from "../../../config/sessions/combined-store-gateway.js";
 import { sha256Base64Url } from "../../../infra/crypto-digest.js";
 import {
   redeemDeviceBootstrapTokenProfile,
@@ -16,6 +17,7 @@ import { hasMultipleSessionSharingIdentities } from "../../../state/user-profile
 import { resolveRuntimeServiceBuildId, resolveRuntimeServiceVersion } from "../../../version.js";
 import { resolveChatAttachmentPolicy } from "../../chat-attachment-policy.js";
 import {
+  listControlUiCapabilityBridgeLinkedSessionKeys,
   listControlUiPluginTabs,
   listControlUiPluginWidgetKinds,
 } from "../../control-ui-plugin-tabs.js";
@@ -109,11 +111,34 @@ export async function sendGatewayHello(
     snapshot.health = cachedHealth;
     snapshot.stateVersion.health = getHealthVersion();
   }
-  const controlUiTabs = listControlUiPluginTabs(scopes, {
+  const helloOkAuthScopes = deviceToken ? deviceToken.scopes : scopes;
+  let controlUiTabs = listControlUiPluginTabs(helloOkAuthScopes, {
     requireGatewayAuthGrant: resolvedAuth.mode !== "none",
     availableMethods: gatewayMethods,
   });
-  const controlUiWidgetKinds = listControlUiPluginWidgetKinds(scopes);
+  if (controlUiTabs.some((tab) => tab.capabilityBridge)) {
+    let linkedSessionKeysByPlugin: ReadonlyMap<string, readonly string[]> = new Map();
+    try {
+      const { store } = loadCombinedSessionStoreForGateway(context.configSnapshot, {
+        configuredAgentsOnly: true,
+        includeIncognito: false,
+        projection: "list",
+      });
+      linkedSessionKeysByPlugin = listControlUiCapabilityBridgeLinkedSessionKeys(
+        Object.entries(store),
+      );
+    } catch (err) {
+      // The session owner is a capability input, never best-effort iframe state.
+      // A read failure safely grants no links and leaves an operator-visible log.
+      logGateway.warn(`control UI capability bridge link projection failed: ${formatForLog(err)}`);
+    }
+    controlUiTabs = listControlUiPluginTabs(helloOkAuthScopes, {
+      requireGatewayAuthGrant: resolvedAuth.mode !== "none",
+      availableMethods: gatewayMethods,
+      linkedSessionKeysByPlugin,
+    });
+  }
+  const controlUiWidgetKinds = listControlUiPluginWidgetKinds(helloOkAuthScopes);
   // A configured UI root can be built independently from the Gateway. Exact
   // comparison is authoritative only for the package-owned bundled artifact.
   const controlUiBuildSource = context.configSnapshot.gateway?.controlUi?.root

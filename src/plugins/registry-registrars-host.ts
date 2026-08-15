@@ -67,11 +67,14 @@ function normalizeHostHookStringList(value: unknown): string[] | undefined | nul
   return normalized as string[];
 }
 
-function normalizeCapabilityBridge(
-  value: unknown,
-): PluginControlUiDescriptor["capabilityBridge"] | null | undefined {
-  if (value === undefined) return undefined;
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+type CapabilityBridgeNormalization =
+  | { kind: "absent" }
+  | { kind: "invalid" }
+  | { kind: "valid"; value: PluginControlUiDescriptor["capabilityBridge"] };
+
+function normalizeCapabilityBridge(value: unknown): CapabilityBridgeNormalization {
+  if (value === undefined) return { kind: "absent" };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { kind: "invalid" };
   const bridge = value as {
     protocolVersion?: unknown;
     requiredMethods?: unknown;
@@ -82,15 +85,18 @@ function normalizeCapabilityBridge(
     !Array.isArray(bridge.requiredMethods) ||
     !Array.isArray(bridge.optionalMethods)
   )
-    return null;
+    return { kind: "invalid" };
   const requiredMethods = normalizeHostHookStringList(bridge.requiredMethods);
   const optionalMethods = normalizeHostHookStringList(bridge.optionalMethods);
   if (requiredMethods === null || optionalMethods === null || !requiredMethods || !optionalMethods)
-    return null;
+    return { kind: "invalid" };
   const methods = [...requiredMethods, ...optionalMethods];
   return methods.length <= 32 && new Set(methods).size === methods.length
-    ? { protocolVersion: 1, requiredMethods, optionalMethods }
-    : null;
+    ? {
+        kind: "valid",
+        value: { protocolVersion: 1, requiredMethods, optionalMethods },
+      }
+    : { kind: "invalid" };
 }
 
 export function createHostRegistrars(state: PluginRegistryState) {
@@ -395,8 +401,7 @@ export function createHostRegistrars(state: PluginRegistryState) {
       !controlUiSurfaces.has(surface) ||
       description === "" ||
       placement === "" ||
-      requiredScopes === null ||
-      capabilityBridge === null
+      requiredScopes === null
     ) {
       pushDiagnostic({
         level: "error",
@@ -406,6 +411,17 @@ export function createHostRegistrars(state: PluginRegistryState) {
           "control UI descriptor registration requires id, surface, label, and valid optional fields",
       });
       return;
+    }
+    if (capabilityBridge.kind === "invalid") {
+      // The gateway-authenticated iframe remains useful without this optional
+      // protocol. Dropping the descriptor here would turn a declaration typo
+      // into an unavailable tab rather than its documented read-only fallback.
+      pushDiagnostic({
+        level: "error",
+        pluginId: record.id,
+        source: record.source,
+        message: `control UI descriptor capabilityBridge is invalid and will be ignored: ${id}`,
+      });
     }
     if (requiredScopes !== undefined) {
       const unknownScope = requiredScopes.find((scope) => !isOperatorScope(scope));
@@ -480,7 +496,9 @@ export function createHostRegistrars(state: PluginRegistryState) {
         path: tabPath,
         group,
         order,
-        ...(capabilityBridge ? { capabilityBridge } : {}),
+        ...(capabilityBridge.kind === "valid"
+          ? { capabilityBridge: capabilityBridge.value }
+          : {}),
       },
       source: record.source,
       rootDir: record.rootDir,

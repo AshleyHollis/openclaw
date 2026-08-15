@@ -20,6 +20,8 @@ type Grant = {
   mode: "read-only" | "read-write";
   methods: string[];
   readMethods: string[];
+  /** Authenticated parent binding; deliberately absent from the port envelope. */
+  linkedSessionKeys: string[];
   missingRequiredMethods: string[];
   upgradeRequired: boolean;
 };
@@ -65,6 +67,18 @@ function error(
   return { code, message, retryable, ...(retryAfterMs === undefined ? {} : { retryAfterMs }) };
 }
 
+function isNonEmptyString(value: unknown, maxLength?: number): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    (maxLength === undefined || value.length <= maxLength)
+  );
+}
+
+function isOptionalNonEmptyString(value: unknown, maxLength?: number): boolean {
+  return value === undefined || isNonEmptyString(value, maxLength);
+}
+
 /**
  * The port is the only iframe authority. Frame identity and Gateway identity
  * are intentionally retained in this controller and never posted to the port.
@@ -96,7 +110,7 @@ export class ExternalTabCapabilityBridgeController {
     this.reads = new Set(options.grant.readMethods);
     for (const key of options.linkedSessionKeys ?? []) {
       if (this.links.size === 200) break;
-      this.links.add(key);
+      if (isNonEmptyString(key)) this.links.add(key);
     }
   }
 
@@ -142,10 +156,15 @@ export class ExternalTabCapabilityBridgeController {
       this.hello = true;
       if (this.timer) clearTimeout(this.timer);
       this.timer = null;
-      const { readMethods: _readMethods, ...ready } = this.options.grant;
+      // Build the iframe envelope field-by-field. The grant also carries the
+      // host-only read classification and linked-session bindings used below.
       this.post({
         type: "openclaw:capability-bridge-ready",
-        ...ready,
+        protocolVersion: 1,
+        mode: this.options.grant.mode,
+        methods: [...this.options.grant.methods],
+        missingRequiredMethods: [...this.options.grant.missingRequiredMethods],
+        upgradeRequired: this.options.grant.upgradeRequired,
         limits: EXTERNAL_TAB_BRIDGE_LIMITS,
       });
       return;
@@ -224,7 +243,7 @@ export class ExternalTabCapabilityBridgeController {
         error("METHOD_NOT_GRANTED", "Method is not granted to this tab"),
       );
     if (
-      (mutation && (!request.operationId || typeof request.operationId !== "string")) ||
+      (mutation && !isNonEmptyString(request.operationId, 128)) ||
       (!mutation && request.operationId !== undefined)
     )
       return this.respond(
@@ -298,15 +317,23 @@ export class ExternalTabCapabilityBridgeController {
     if (request.method === "sessions.search") return await this.search(params);
     let allowed: Record<string, unknown>;
     if (request.method === "sessions.create") {
-      if (!this.exact(params, ["agentId", "label", "model", "thinkingLevel"]))
+      if (
+        !this.exact(params, ["agentId", "label", "model", "thinkingLevel"]) ||
+        !isOptionalNonEmptyString(params.agentId) ||
+        !isOptionalNonEmptyString(params.label, 512) ||
+        !isOptionalNonEmptyString(params.model) ||
+        !isOptionalNonEmptyString(params.thinkingLevel)
+      )
         throw new Failure("INVALID_PARAMS", "Invalid session creation parameters");
       allowed = params;
     } else if (request.method === "chat.history") {
       const limit = params.limit;
+      const offset = params.offset;
       if (
         !this.exact(params, ["sessionKey", "limit", "offset"]) ||
         (limit !== undefined &&
-          (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 100))
+          (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 100)) ||
+        (offset !== undefined && (!Number.isInteger(offset) || (offset as number) < 0))
       )
         throw new Failure("INVALID_PARAMS", "Invalid chat history parameters");
       allowed = { ...params, sessionKey: this.linked(params.sessionKey), maxChars: 500_000 };
@@ -314,6 +341,10 @@ export class ExternalTabCapabilityBridgeController {
       if (
         !this.exact(params, ["sessionKey", "message", "thinking", "fastMode"]) ||
         typeof params.message !== "string" ||
+        (params.thinking !== undefined && typeof params.thinking !== "string") ||
+        (params.fastMode !== undefined &&
+          typeof params.fastMode !== "boolean" &&
+          params.fastMode !== "auto") ||
         !request.operationId
       )
         throw new Failure("INVALID_PARAMS", "Invalid chat send parameters");
@@ -328,22 +359,15 @@ export class ExternalTabCapabilityBridgeController {
       this.options.navigate(this.linked(params.sessionKey));
       return undefined;
     } else allowed = params;
-    const result = await this.timed(this.options.client.request(request.method, allowed));
-    if (request.method === "sessions.create") {
-      const created = asRecord(result);
-      const key =
-        typeof created?.key === "string"
-          ? created.key
-          : typeof created?.sessionKey === "string"
-            ? created.sessionKey
-            : undefined;
-      if (key && this.links.size < 200) this.links.add(key);
-    }
-    return result;
+    return await this.timed(this.options.client.request(request.method, allowed));
   }
 
   private async search(params: Record<string, unknown>): Promise<unknown> {
-    if (!this.exact(params, ["query", "limit"]) || typeof params.query !== "string")
+    if (
+      !this.exact(params, ["query", "limit"]) ||
+      typeof params.query !== "string" ||
+      params.query.length > 4_000
+    )
       throw new Failure("INVALID_PARAMS", "Invalid session search parameters");
     const limit = params.limit === undefined ? 25 : params.limit;
     if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 25)

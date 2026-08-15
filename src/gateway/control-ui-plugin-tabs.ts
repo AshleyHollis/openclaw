@@ -36,6 +36,8 @@ export const CONTROL_UI_CAPABILITY_BRIDGE_LIMITS = {
   requestTimeoutMs: 30_000,
 } as const;
 
+export const CONTROL_UI_CAPABILITY_BRIDGE_MAX_LINKED_SESSION_KEYS = 200;
+
 export type ControlUiCapabilityBridgeGrant = {
   protocolVersion: 1;
   mode: "read-only" | "read-write";
@@ -88,6 +90,37 @@ type ControlUiDescriptorEntry = {
   descriptor: PluginControlUiDescriptor;
 };
 
+type PluginOwnedSessionEntry = {
+  initializationPending?: unknown;
+  pluginOwnerId?: unknown;
+};
+
+/**
+ * Projects the durable plugin ownership fact into a bounded tab input. The
+ * caller supplies only the host's session-store snapshot; iframe input never
+ * reaches this function or expands a port's initial authority.
+ */
+export function listControlUiCapabilityBridgeLinkedSessionKeys(
+  entries: Iterable<readonly [string, PluginOwnedSessionEntry]>,
+): ReadonlyMap<string, readonly string[]> {
+  const linksByPlugin = new Map<string, string[]>();
+  for (const [sessionKey, entry] of [...entries].toSorted(([left], [right]) =>
+    left.localeCompare(right),
+  )) {
+    const pluginId = typeof entry.pluginOwnerId === "string" ? entry.pluginOwnerId.trim() : "";
+    if (!pluginId || entry.initializationPending === true || !sessionKey) {
+      continue;
+    }
+    const links = linksByPlugin.get(pluginId) ?? [];
+    if (links.length >= CONTROL_UI_CAPABILITY_BRIDGE_MAX_LINKED_SESSION_KEYS) {
+      continue;
+    }
+    links.push(sessionKey);
+    linksByPlugin.set(pluginId, links);
+  }
+  return linksByPlugin;
+}
+
 export type ControlUiPluginTabAuthGrant = {
   pluginId: string;
   path: string;
@@ -100,6 +133,7 @@ function projectControlUiPluginTabs(
   entries: readonly ControlUiDescriptorEntry[],
   scopes: readonly string[],
   availableMethods: readonly string[],
+  linkedSessionKeysByPlugin: ReadonlyMap<string, readonly string[]>,
 ): ControlUiPluginTab[] {
   const tabs: ControlUiPluginTab[] = [];
   for (const entry of entries) {
@@ -118,6 +152,7 @@ function projectControlUiPluginTabs(
       descriptor,
       scopes,
       availableMethods,
+      linkedSessionKeysByPlugin.get(entry.pluginId) ?? [],
     );
     tabs.push({
       pluginId: entry.pluginId,
@@ -143,13 +178,18 @@ function projectControlUiPluginTabs(
 /** Lists active plugins' tab descriptors visible to the presented scopes. */
 export function listControlUiPluginTabs(
   scopes: readonly string[],
-  opts: { requireGatewayAuthGrant?: boolean; availableMethods?: readonly string[] } = {},
+  opts: {
+    requireGatewayAuthGrant?: boolean;
+    availableMethods?: readonly string[];
+    linkedSessionKeysByPlugin?: ReadonlyMap<string, readonly string[]>;
+  } = {},
 ): ControlUiPluginTab[] {
   const registry = getActivePluginSessionExtensionRegistry();
   return projectControlUiPluginTabs(
     registry?.controlUiDescriptors ?? [],
     scopes,
     opts.availableMethods ?? [],
+    opts.linkedSessionKeysByPlugin ?? new Map(),
   ).flatMap((tab) => {
     const route = registry ? findControlUiTabGatewayRoute(registry, tab) : undefined;
     if (route === null) {
@@ -157,9 +197,17 @@ export function listControlUiPluginTabs(
       // a descriptor whose owning plugin cannot receive that request.
       return [];
     }
-    return route && opts.requireGatewayAuthGrant !== false
-      ? [{ ...tab, requiresGatewayAuth: true }]
-      : [tab];
+    const { capabilityBridge, ...tabWithoutCapabilityBridge } = tab;
+    const authenticatedRoute = route && opts.requireGatewayAuthGrant !== false;
+    return authenticatedRoute
+      ? [
+          {
+            ...tabWithoutCapabilityBridge,
+            ...(capabilityBridge ? { capabilityBridge } : {}),
+            requiresGatewayAuth: true,
+          },
+        ]
+      : [tabWithoutCapabilityBridge];
   });
 }
 
@@ -205,6 +253,7 @@ export function listControlUiPluginTabAuthGrants(
     registry.controlUiDescriptors ?? [],
     callerScopes,
     [],
+    new Map(),
   )) {
     if (!tab.path) {
       continue;
@@ -236,6 +285,7 @@ function projectCapabilityBridge(
   descriptor: PluginControlUiDescriptor,
   scopes: readonly string[],
   availableMethods: readonly string[],
+  initialLinkedSessionKeys: readonly string[],
 ): ControlUiCapabilityBridgeGrant | undefined {
   const declaration = descriptor.capabilityBridge;
   if (!declaration || descriptor.surface !== "tab") return undefined;
@@ -289,9 +339,12 @@ function projectCapabilityBridge(
     readMethods,
     missingRequiredMethods,
     upgradeRequired: missingRequiredWrite,
-    // There is deliberately no selection-derived authority. Plugins start with
-    // the authenticated tab-scoped empty set and only successful creates add keys.
-    linkedSessionKeys: [],
+    // The authenticated server supplies this immutable, tab-owned input from
+    // durable plugin ownership. A browser selection or iframe request is never
+    // consulted when granting a port.
+    linkedSessionKeys: [...new Set(initialLinkedSessionKeys)]
+      .filter((key): key is string => typeof key === "string" && key.length > 0)
+      .slice(0, CONTROL_UI_CAPABILITY_BRIDGE_MAX_LINKED_SESSION_KEYS),
     limits: CONTROL_UI_CAPABILITY_BRIDGE_LIMITS,
   };
 }

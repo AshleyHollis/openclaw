@@ -4,6 +4,14 @@ import {
   ExternalTabCapabilityBridgeController,
 } from "./external-tab-capability-bridge.ts";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 function makeBridge(
   params: {
     methods?: string[];
@@ -38,6 +46,7 @@ function makeBridge(
         "ui.session.navigate",
       ],
       readMethods: params.reads ?? ["chat.history", "sessions.search", "ui.session.navigate"],
+      linkedSessionKeys: ["agent:main:host-only"],
       missingRequiredMethods: [],
       upgradeRequired: false,
     },
@@ -58,8 +67,11 @@ async function hello(port: MessagePort) {
 }
 
 describe("ExternalTabCapabilityBridgeController", () => {
-  afterEach(() => vi.restoreAllMocks());
-  it("returns only the public ready envelope and injects exact linked search keys", async () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+  it("returns an explicit public ready envelope and injects exact linked search keys", async () => {
     const { port, request } = makeBridge();
     expect(await hello(port)).toEqual({
       type: "openclaw:capability-bridge-ready",
@@ -130,8 +142,8 @@ describe("ExternalTabCapabilityBridgeController", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it("links a created session, maps stable send operation ids, and blocks create escalation fields", async () => {
-    const { port, request } = makeBridge({ links: [] });
+  it("keeps links frozen after create, maps send ids, and blocks escalation", async () => {
+    const { port, request } = makeBridge({ links: ["agent:work:owned"] });
     request.mockResolvedValueOnce({ key: "agent:work:created" });
     await hello(port);
     port.postMessage({
@@ -158,9 +170,18 @@ describe("ExternalTabCapabilityBridgeController", () => {
       method: "chat.send",
       params: { sessionKey: "agent:work:created", message: "hello" },
     });
+    expect(await next(port)).toMatchObject({ error: { code: "SESSION_NOT_LINKED" } });
+    expect(request).toHaveBeenCalledTimes(1);
+    port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "send-owned",
+      operationId: "op",
+      method: "chat.send",
+      params: { sessionKey: "agent:work:owned", message: "hello" },
+    });
     await next(port);
     expect(request).toHaveBeenLastCalledWith("chat.send", {
-      sessionKey: "agent:work:created",
+      sessionKey: "agent:work:owned",
       message: "hello",
       idempotencyKey: "op",
     });
@@ -196,7 +217,7 @@ describe("ExternalTabCapabilityBridgeController", () => {
     );
   });
 
-  it("bounds total, mutation, and concurrent attempts", async () => {
+  it("bounds total attempts", async () => {
     let now = 0;
     const { port } = makeBridge({ now: () => now });
     await hello(port);
@@ -224,6 +245,133 @@ describe("ExternalTabCapabilityBridgeController", () => {
       params: {},
     });
     expect(await next(port)).toMatchObject({ error: { code: "METHOD_NOT_GRANTED" } });
+  });
+
+  it("rejects malformed core schemas before the authoritative gateway request", async () => {
+    const { port, request } = makeBridge();
+    await hello(port);
+    for (const value of [
+      {
+        type: "openclaw:capability-bridge-request",
+        requestId: "create-shape",
+        operationId: "create-shape",
+        method: "sessions.create",
+        params: { agentId: "" },
+      },
+      {
+        type: "openclaw:capability-bridge-request",
+        requestId: "history-shape",
+        method: "chat.history",
+        params: { sessionKey: "agent:main:linked", offset: -1 },
+      },
+      {
+        type: "openclaw:capability-bridge-request",
+        requestId: "send-shape",
+        operationId: "send-shape",
+        method: "chat.send",
+        params: { sessionKey: "agent:main:linked", message: "hi", fastMode: "yes" },
+      },
+    ]) {
+      port.postMessage(value);
+      expect(await next(port)).toMatchObject({ error: { code: "INVALID_PARAMS" } });
+    }
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("caps downstream responses before they reach the iframe", async () => {
+    const { port, request } = makeBridge();
+    request.mockResolvedValueOnce({
+      value: "x".repeat(EXTERNAL_TAB_BRIDGE_LIMITS.maxResponseBytes),
+    });
+    await hello(port);
+    port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "large-response",
+      method: "chat.history",
+      params: { sessionKey: "agent:main:linked" },
+    });
+    expect(await next(port)).toMatchObject({
+      requestId: "large-response",
+      error: { code: "RESULT_TOO_LARGE" },
+    });
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it("marks timed-out mutations as an unknown authoritative outcome", async () => {
+    vi.useFakeTimers();
+    const pending = deferred<unknown>();
+    const request = vi.fn(() => pending.promise);
+    const { port } = makeBridge({ request });
+    await hello(port);
+    const response = next(port);
+    port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "timed-create",
+      operationId: "create-operation",
+      method: "sessions.create",
+      params: { agentId: "work" },
+    });
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    await vi.advanceTimersByTimeAsync(EXTERNAL_TAB_BRIDGE_LIMITS.requestTimeoutMs);
+    expect(await response).toMatchObject({
+      error: { code: "MUTATION_OUTCOME_UNKNOWN", retryable: false },
+    });
+  });
+
+  it("limits concurrent requests without issuing the rejected operation", async () => {
+    const operations = Array.from(
+      { length: EXTERNAL_TAB_BRIDGE_LIMITS.maxConcurrentRequests },
+      () => deferred<unknown>(),
+    );
+    let operationIndex = 0;
+    const request = vi.fn(() => operations[operationIndex++]!.promise);
+    const { port } = makeBridge({ request });
+    await hello(port);
+    for (let index = 0; index < EXTERNAL_TAB_BRIDGE_LIMITS.maxConcurrentRequests; index += 1) {
+      port.postMessage({
+        type: "openclaw:capability-bridge-request",
+        requestId: `active-${index}`,
+        method: "chat.history",
+        params: { sessionKey: "agent:main:linked" },
+      });
+    }
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(8));
+    port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "active-overflow",
+      method: "chat.history",
+      params: { sessionKey: "agent:main:linked" },
+    });
+    expect(await next(port)).toMatchObject({ error: { code: "RATE_LIMITED" } });
+    expect(request).toHaveBeenCalledTimes(8);
+    for (const operation of operations) operation.resolve({ messages: [] });
+  });
+
+  it("limits mutations before their authoritative effects", async () => {
+    const { port, request } = makeBridge({
+      methods: ["chat.send"],
+      reads: [],
+    });
+    await hello(port);
+    for (let index = 0; index < EXTERNAL_TAB_BRIDGE_LIMITS.maxMutationsPerMinute; index += 1) {
+      port.postMessage({
+        type: "openclaw:capability-bridge-request",
+        requestId: `mutation-${index}`,
+        operationId: `operation-${index}`,
+        method: "chat.send",
+        params: { sessionKey: "agent:main:linked", message: "hello" },
+      });
+      await next(port);
+    }
+    port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "mutation-overflow",
+      operationId: "operation-overflow",
+      method: "chat.send",
+      params: { sessionKey: "agent:main:linked", message: "hello" },
+    });
+    expect(await next(port)).toMatchObject({ error: { code: "RATE_LIMITED" } });
+    expect(request).toHaveBeenCalledTimes(EXTERNAL_TAB_BRIDGE_LIMITS.maxMutationsPerMinute);
   });
 
   it("does not expose downstream error text", async () => {
