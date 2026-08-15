@@ -188,6 +188,8 @@ export class PluginPage extends OpenClawLightDomContentsElement {
   private capabilityBridgeMountKey: string | null = null;
   private capabilityBridgeDocumentKey: string | null = null;
   private capabilityBridgeDocumentAbortController: AbortController | null = null;
+  private capabilityBridgeMutationAuthorityKey: string | null = null;
+  private capabilityBridgeMutationNamespace: string | null = null;
   private stopCapabilityBridgeGatewayEvents: (() => void) | null = null;
   private readonly subscriptions = new SubscriptionsController(this)
     .watch(
@@ -676,7 +678,8 @@ export class PluginPage extends OpenClawLightDomContentsElement {
   }
 
   private capabilityBridgeIdentity(info: GatewayControlUiPluginTab | undefined): string | null {
-    if (!info?.capabilityBridge) {
+    const mutationNamespace = this.mutationNamespaceForCapabilityBridge(info);
+    if (!info?.capabilityBridge || !mutationNamespace) {
       return null;
     }
     return JSON.stringify({
@@ -684,7 +687,45 @@ export class PluginPage extends OpenClawLightDomContentsElement {
       path: info.path,
       grant: info.capabilityBridge,
       conn: this.context?.gateway.snapshot.hello?.server?.connId,
+      // This opaque marker causes a remount when parent auth changes without
+      // retaining a credential in the document identity.
+      authGeneration: mutationNamespace,
     });
+  }
+
+  private capabilityBridgeAuthIdentity() {
+    const auth = this.context?.gateway.snapshot.hello?.auth;
+    if (!auth) return null;
+    // This identity stays in the parent only. The active device token and its
+    // generation distinguish operators without becoming iframe-visible data.
+    return {
+      role: auth.role,
+      scopes: auth.scopes,
+      deviceToken: auth.deviceToken,
+      issuedAtMs: auth.issuedAtMs,
+    };
+  }
+
+  private mutationNamespaceForCapabilityBridge(
+    info: GatewayControlUiPluginTab | undefined,
+  ): string | null {
+    const auth = this.capabilityBridgeAuthIdentity();
+    if (!info?.capabilityBridge || !auth) {
+      this.capabilityBridgeMutationAuthorityKey = null;
+      this.capabilityBridgeMutationNamespace = null;
+      return null;
+    }
+    const authorityKey = JSON.stringify({
+      tab: this.tabKey(),
+      path: info.path,
+      grant: info.capabilityBridge,
+      auth,
+    });
+    if (authorityKey !== this.capabilityBridgeMutationAuthorityKey) {
+      this.capabilityBridgeMutationAuthorityKey = authorityKey;
+      this.capabilityBridgeMutationNamespace = randomBridgeBootstrapId();
+    }
+    return this.capabilityBridgeMutationNamespace;
   }
 
   private revokeCapabilityBridge() {
@@ -756,9 +797,11 @@ export class PluginPage extends OpenClawLightDomContentsElement {
     hasBundledDescriptor: boolean,
   ) {
     const key = this.capabilityBridgeIdentity(info);
+    const mutationNamespace = this.mutationNamespaceForCapabilityBridge(info);
     const externalAuthKey = this.externalTabAuthKey(info, hasBundledDescriptor);
     if (
       !key ||
+      !mutationNamespace ||
       !info?.path ||
       info.requiresGatewayAuth !== true ||
       this.capabilityBridgeReconnectRequired ||
@@ -793,10 +836,10 @@ export class PluginPage extends OpenClawLightDomContentsElement {
         this.capabilityBridgeDocument = {
           key,
           bootstrapId,
-          // The document is built only after the tab grant and current auth
-          // epoch are accepted. This host-generated nonce scopes downstream
-          // write identities without turning it into a sandbox credential.
-          mutationNamespace: randomBridgeBootstrapId(),
+          // Keep the authority nonce through transport remounts, so a retry
+          // reuses the same Gateway idempotency key. It rotates when the tab,
+          // grant, or authenticated operator/generation changes.
+          mutationNamespace,
           markup: buildCapabilityBridgeDocument(loaded.source, loaded.markup, bootstrapId),
         };
       })

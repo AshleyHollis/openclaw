@@ -443,6 +443,53 @@ describe("PluginPage", () => {
     }
   });
 
+  it("keeps mutation identity through a reconnect but rotates it for a new auth authority", async () => {
+    const refresh = vi.fn(async () => externalPluginConfig());
+    const client = bridgeClient();
+    const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
+      capabilityBridge: externalTabBridgeGrant(),
+      client,
+    });
+    const context = (page as unknown as { context: ApplicationContext<RouteId> }).context;
+    context.gateway.snapshot.hello!.server = { connId: "connection-one" };
+    context.gateway.snapshot.hello!.auth = {
+      role: "operator",
+      scopes: ["operator.write"],
+      deviceToken: "device-one",
+      issuedAtMs: 1,
+    };
+    document.body.append(page);
+    try {
+      await waitForFast(() => expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"));
+      const first = bridgeState(page).capabilityBridgeDocument;
+      if (!first) {
+        throw new Error("expected first bridge document");
+      }
+
+      context.gateway.snapshot.hello!.server = { connId: "connection-two" };
+      page.requestUpdate();
+      await waitForFast(() => {
+        const next = bridgeState(page).capabilityBridgeDocument;
+        expect(next?.key).not.toBe(first.key);
+        expect(next?.mutationNamespace).toBe(first.mutationNamespace);
+      });
+
+      context.gateway.snapshot.hello!.auth = {
+        role: "operator",
+        scopes: ["operator.write"],
+        deviceToken: "device-two",
+        issuedAtMs: 2,
+      };
+      page.requestUpdate();
+      await waitForFast(() => {
+        const next = bridgeState(page).capabilityBridgeDocument;
+        expect(next?.mutationNamespace).not.toBe(first.mutationNamespace);
+      });
+    } finally {
+      page.remove();
+    }
+  });
+
   it("revokes an active bridge before reconnecting after a plugin runtime reload", async () => {
     const refresh = vi.fn(async () => externalPluginConfig());
     let emitGatewayEvent: ((event: { event: string }) => void) | undefined;

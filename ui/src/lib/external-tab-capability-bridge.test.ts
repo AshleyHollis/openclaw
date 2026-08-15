@@ -125,10 +125,11 @@ describe("ExternalTabCapabilityBridgeController", () => {
       {
         type: "openclaw:capability-bridge-request",
         requestId: "large",
-        method: "chat.history",
+        operationId: "large-operation",
+        method: "chat.send",
         params: {
           sessionKey: "agent:main:linked",
-          padding: "x".repeat(EXTERNAL_TAB_BRIDGE_LIMITS.maxRequestBytes),
+          message: "x".repeat(EXTERNAL_TAB_BRIDGE_LIMITS.maxRequestBytes),
         },
       },
     ]) {
