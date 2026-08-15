@@ -161,6 +161,7 @@ async function sendApnsRequest(params: {
   bearerToken: string;
   payload: object;
   timeoutMs: number;
+  expirationUnixSeconds?: number;
   pushType: ApnsPushType;
   priority: "10" | "5";
   signal?: AbortSignal;
@@ -418,6 +419,7 @@ async function sendRelayApnsPush(params: {
   payload: object;
   pushType: ApnsPushType;
   priority: "10" | "5";
+  expirationUnixSeconds?: number;
   gatewayIdentity?: Pick<DeviceIdentity, "deviceId" | "privateKeyPem">;
   requestSender?: ApnsRelayRequestSender;
   signal?: AbortSignal;
@@ -430,6 +432,9 @@ async function sendRelayApnsPush(params: {
     payload: params.payload,
     pushType: params.pushType,
     priority: params.priority,
+    ...(params.expirationUnixSeconds === undefined
+      ? {}
+      : { expirationUnixSeconds: params.expirationUnixSeconds }),
     gatewayIdentity: params.gatewayIdentity,
     requestSender: params.requestSender,
     ...(params.signal ? { signal: params.signal } : {}),
@@ -589,6 +594,7 @@ export async function sendApnsAlert(
       payload,
       pushType: "alert",
       priority: "10",
+      expirationUnixSeconds: relayParams.expirationUnixSeconds,
       gatewayIdentity: relayParams.relayGatewayIdentity,
       requestSender: relayParams.relayRequestSender,
       ...(relayParams.signal ? { signal: relayParams.signal } : {}),
@@ -631,6 +637,7 @@ async function sendApnsPluginNotificationPush(params: {
       payload: params.payload,
       pushType: params.pushType,
       priority: params.priority,
+      expirationUnixSeconds: relayParams.expirationUnixSeconds,
       gatewayIdentity: relayParams.relayGatewayIdentity,
       requestSender: relayParams.relayRequestSender,
       ...(relayParams.signal ? { signal: relayParams.signal } : {}),

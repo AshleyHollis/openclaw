@@ -329,6 +329,30 @@ describe("sending", () => {
     );
   });
 
+  it("passes the host transport deadline to the Web Push socket", async () => {
+    const subscription = await registerWebPushSubscription({
+      endpoint: "https://push.example.com/deadline",
+      keys,
+      baseDir: tmpDir,
+    });
+
+    await expect(
+      sendWebPushNotification({
+        subscriptionId: subscription.subscriptionId,
+        payload: { title: "Deadline" },
+        ttlMs: 1_500,
+        timeoutMs: 750,
+        baseDir: tmpDir,
+      }),
+    ).resolves.toMatchObject({ ok: true, subscriptionId: subscription.subscriptionId });
+
+    expect(vi.mocked(webPush.sendNotification)).toHaveBeenCalledWith(
+      expect.any(Object),
+      JSON.stringify({ title: "Deadline" }),
+      { TTL: 2, timeout: 750 },
+    );
+  });
+
   it("does not delete a subscription re-registered during an expired send", async () => {
     const endpoint = "https://push.example.com/reregistered";
     await registerWebPushSubscription({ endpoint, keys, baseDir: tmpDir });

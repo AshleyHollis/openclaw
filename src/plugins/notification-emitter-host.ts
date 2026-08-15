@@ -65,10 +65,9 @@ type PluginNotificationDeviceBinding = Pick<
   | "pairedDeviceId"
   | "pairingGeneration"
   | "issuerGeneration"
-  | "scopes"
->;
+> & { scopes: readonly OperatorScope[] };
 
-const webPushClearDeliveryWindowMs = 24 * 60 * 60 * 1000;
+const pluginNotificationClearDeliveryWindowMs = 24 * 60 * 60 * 1000;
 
 function stateOptions(stateDir?: string): OpenClawStateDatabaseOptions {
   return stateDir ? { env: { ...process.env, OPENCLAW_STATE_DIR: stateDir } } : {};
@@ -146,7 +145,7 @@ function capturePluginNotificationTargetOwner(
   }
   const device = loadPairedDevicePairingStoreRecord(deviceId);
   const token = device?.tokens?.[role];
-  const scopes = operatorScopes(client.connect.scopes);
+  const scopes = operatorScopes(client.connect.scopes ?? []);
   const tokenScopes = operatorScopes(token?.scopes ?? []);
   if (
     !device ||
@@ -213,7 +212,7 @@ function isPluginNotificationDeviceBindingCurrent(params: {
   ) {
     return false;
   }
-  return Object.entries(device.tokens).some(([role, token]) => {
+  return Object.entries(device.tokens ?? {}).some(([role, token]) => {
     if (!token || token.revokedAtMs) return false;
     const tokenScopes = operatorScopes(token.scopes);
     const issuerGeneration = token.issuer?.generation;
@@ -438,7 +437,8 @@ export function listPluginNotificationTargets(
       .map((row) => row.target_id)
       .filter((targetId) => {
         const node = loadPairedDevicePairingStoreRecord(targetId.slice("apns:".length), stateDir);
-        return Boolean(node?.tokens.node && !node.tokens.node.revokedAtMs);
+        const token = node?.tokens?.node;
+        return Boolean(token && !token.revokedAtMs);
       }),
   );
   return currentRows
@@ -472,7 +472,8 @@ export function createHostPluginNotificationTransport(
       if (target.id.startsWith("apns:")) {
         const nodeId = target.id.slice("apns:".length);
         const registration = await loadApnsRegistration(nodeId, params.stateDir);
-        if (!registration || !payload.target) return "failed";
+        const notificationTarget = payload.target;
+        if (!registration || !notificationTarget) return "failed";
         const result =
           registration.transport === "direct"
             ? await (async () => {
@@ -484,7 +485,7 @@ export function createHostPluginNotificationTransport(
                   title: payload.preview?.title ?? "OpenClaw",
                   body: payload.preview?.body ?? "",
                   tag: payload.tag,
-                  target: payload.target,
+                  target: notificationTarget,
                   auth: auth.value,
                   timeoutMs: attempt.timeoutMs,
                   expirationUnixSeconds: Math.floor(payload.expiresAtMs / 1000),
@@ -502,11 +503,12 @@ export function createHostPluginNotificationTransport(
                   title: payload.preview?.title ?? "OpenClaw",
                   body: payload.preview?.body ?? "",
                   tag: payload.tag,
-                  target: payload.target,
+                  target: notificationTarget,
                   relayConfig: {
                     ...relay.value,
                     timeoutMs: Math.min(relay.value.timeoutMs, attempt.timeoutMs),
                   },
+                  expirationUnixSeconds: Math.floor(payload.expiresAtMs / 1000),
                   signal: attempt.signal,
                 });
               })();
@@ -534,6 +536,7 @@ export function createHostPluginNotificationTransport(
           },
         },
         ttlMs: payload.ttlMs,
+        timeoutMs: attempt.timeoutMs,
         signal: attempt.signal,
         baseDir: params.stateDir,
       });
@@ -548,6 +551,9 @@ export function createHostPluginNotificationTransport(
         const nodeId = target.id.slice("apns:".length);
         const registration = await loadApnsRegistration(nodeId, params.stateDir);
         if (!registration) return "failed";
+        const expirationUnixSeconds = Math.floor(
+          (Date.now() + pluginNotificationClearDeliveryWindowMs) / 1000,
+        );
         const result =
           registration.transport === "direct"
             ? await (async () => {
@@ -559,6 +565,7 @@ export function createHostPluginNotificationTransport(
                   tag: payload.tag,
                   auth: auth.value,
                   timeoutMs: attempt.timeoutMs,
+                  expirationUnixSeconds,
                   signal: attempt.signal,
                 });
               })()
@@ -575,6 +582,7 @@ export function createHostPluginNotificationTransport(
                     ...relay.value,
                     timeoutMs: Math.min(relay.value.timeoutMs, attempt.timeoutMs),
                   },
+                  expirationUnixSeconds,
                   signal: attempt.signal,
                 });
               })();
@@ -602,7 +610,8 @@ export function createHostPluginNotificationTransport(
         // The push service may accept while this browser is offline. Retain the
         // idempotent clear for the maximum candidate lifetime so it can close
         // an already displayed tag when the device reconnects.
-        ttlMs: webPushClearDeliveryWindowMs,
+        ttlMs: pluginNotificationClearDeliveryWindowMs,
+        timeoutMs: attempt.timeoutMs,
         signal: attempt.signal,
         baseDir: params.stateDir,
       });

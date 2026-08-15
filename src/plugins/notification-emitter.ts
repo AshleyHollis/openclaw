@@ -242,24 +242,35 @@ export function validatePluginNotificationCandidate(
     !ID.test(value.emissionId) ||
     typeof value.logicalOperationId !== "string" ||
     !ID.test(value.logicalOperationId) ||
-    (value.attentionClass !== "active" && value.attentionClass !== "time-sensitive") ||
-    !plain(value.preview) ||
-    !keys(value.preview, ["title", "body"]) ||
-    !text(value.preview.title, 80) ||
-    !text(value.preview.body, 256) ||
-    !plain(value.deepLink) ||
-    !keys(value.deepLink, ["kind", "destinationId", "recordId"]) ||
-    value.deepLink.kind !== "plugin-detail" ||
-    typeof value.deepLink.destinationId !== "string" ||
-    typeof value.deepLink.recordId !== "string" ||
-    !ID.test(value.deepLink.destinationId) ||
-    !ID.test(value.deepLink.recordId) ||
-    !declaration.destinations.some(
-      (destination) => destination.id === value.deepLink.destinationId,
-    ) ||
-    !Number.isSafeInteger(value.expiresAtMs) ||
-    value.expiresAtMs <= nowMs ||
-    value.expiresAtMs > nowMs + DAY
+    (value.attentionClass !== "active" && value.attentionClass !== "time-sensitive")
+  )
+    return false;
+  const preview = value.preview;
+  if (
+    !plain(preview) ||
+    !keys(preview, ["title", "body"]) ||
+    !text(preview.title, 80) ||
+    !text(preview.body, 256)
+  )
+    return false;
+  const deepLink = value.deepLink;
+  if (
+    !plain(deepLink) ||
+    !keys(deepLink, ["kind", "destinationId", "recordId"]) ||
+    deepLink.kind !== "plugin-detail" ||
+    typeof deepLink.destinationId !== "string" ||
+    typeof deepLink.recordId !== "string" ||
+    !ID.test(deepLink.destinationId) ||
+    !ID.test(deepLink.recordId) ||
+    !declaration.destinations.some((destination) => destination.id === deepLink.destinationId)
+  )
+    return false;
+  const expiresAtMs = value.expiresAtMs;
+  if (
+    typeof expiresAtMs !== "number" ||
+    !Number.isSafeInteger(expiresAtMs) ||
+    expiresAtMs <= nowMs ||
+    expiresAtMs > nowMs + DAY
   )
     return false;
   return Buffer.byteLength(canonical(value as PluginNotificationCandidateV1), "utf8") <= 2048;
@@ -484,7 +495,7 @@ export class PluginNotificationCoordinator {
     const delivered = values.filter((x) => x === "accepted").length;
     const failed = values.filter((x) => x === "failed").length;
     const ambiguous = values.filter((x) => x === "ambiguous").length;
-    const result = {
+    const result: PluginNotificationEmitResult = {
       status: (ambiguous
         ? "ambiguous"
         : delivered === targets.length
@@ -577,7 +588,7 @@ export class PluginNotificationCoordinator {
     const cleared = priorCleared + values.filter((x) => x === "accepted").length;
     const failed = values.filter((x) => x === "failed").length;
     const ambiguous = values.filter((x) => x === "ambiguous").length;
-    const result = {
+    const result: PluginNotificationClearResult = {
       status: ambiguous ? "ambiguous" : failed ? "partial" : "cleared",
       attempted: priorCleared + targets.length,
       cleared,

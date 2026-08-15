@@ -447,11 +447,13 @@ describe("push APNs send semantics", () => {
       tag: "operation-tag",
       auth,
       requestSender: send,
+      expirationUnixSeconds: 1_700_000_000,
     });
 
     const sent = requireSendRequest(send);
     expect(sent.pushType).toBe("background");
     expect(sent.priority).toBe("5");
+    expect(sent.expirationUnixSeconds).toBe(1_700_000_000);
     expect(requirePayload(sent).aps).toEqual({ "content-available": 1 });
     expectRecordFields(requireRecord(requirePayload(sent).openclaw, "openclaw payload"), {
       version: 1,

@@ -196,6 +196,7 @@ async function sendPreparedWebPushNotification(
   subscription: WebPushSubscription,
   payload: WebPushPayload,
   ttlMs?: number,
+  timeoutMs?: number,
   signal?: AbortSignal,
 ): Promise<WebPushSendResult> {
   const pushSubscription = {
@@ -216,6 +217,9 @@ async function sendPreparedWebPushNotification(
     }
     const send = webPush.sendNotification(pushSubscription, JSON.stringify(payload), {
       ...(ttlMs === undefined ? {} : { TTL: Math.max(0, Math.ceil(ttlMs / 1000)) }),
+      // web-push passes this to https.request, which destroys the underlying
+      // socket on timeout. The AbortSignal alone only stops our awaiting caller.
+      ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }),
     });
     const result = signal
       ? await Promise.race([
@@ -257,6 +261,8 @@ export async function sendWebPushNotification(params: {
   subscriptionId: string;
   payload: WebPushPayload;
   ttlMs?: number;
+  /** Host deadline applied to the underlying Web Push HTTPS request. */
+  timeoutMs?: number;
   /** Host timeout fence; the public plugin SDK cannot supply this signal. */
   signal?: AbortSignal;
   baseDir?: string;
@@ -273,13 +279,17 @@ export async function sendWebPushNotification(params: {
       error: "unknown subscription",
     };
   }
-  const [vapidKeys, webPush] = await Promise.all([resolveVapidKeys(params.baseDir), loadWebPushRuntime()]);
+  const [vapidKeys, webPush] = await Promise.all([
+    resolveVapidKeys(params.baseDir),
+    loadWebPushRuntime(),
+  ]);
   applyVapidDetails(webPush, vapidKeys);
   const result = await sendPreparedWebPushNotification(
     webPush,
     subscription,
     params.payload,
     params.ttlMs,
+    params.timeoutMs,
     params.signal,
   );
   if (!result.ok && (result.statusCode === 404 || result.statusCode === 410)) {

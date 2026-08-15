@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   loadPairing: vi.fn(),
-  listSubscriptions: vi.fn(() => []),
+  listSubscriptions: vi.fn<() => Array<{ subscriptionId: string }>>(() => []),
   sendWebPush: vi.fn(),
   loadApns: vi.fn(),
   resolveApnsAuth: vi.fn(),
@@ -343,6 +343,7 @@ describe("host plugin notification transport", () => {
       expect.objectContaining({
         subscriptionId: "subscription-1",
         ttlMs: 5_000,
+        timeoutMs: 5_000,
         signal: controller.signal,
       }),
     );
@@ -398,6 +399,7 @@ describe("host plugin notification transport", () => {
   });
 
   it("sends a silent APNs clear for an accepted notification", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(10_000);
     const transport = createHostPluginNotificationTransport();
     mocks.loadApns.mockResolvedValue({
       transport: "direct",
@@ -412,16 +414,65 @@ describe("host plugin notification transport", () => {
     });
     mocks.clearApns.mockResolvedValue({ ok: true, status: 200 });
 
-    await expect(
-      transport.clear(
-        { id: "apns:phone-1" },
-        { version: 1, kind: "clear", tag: "operation-tag", expiresAtMs: 60_000, ttlMs: 0 },
-        { signal: new AbortController().signal, timeoutMs: 10_000 },
-      ),
-    ).resolves.toBe("accepted");
-    expect(mocks.clearApns).toHaveBeenCalledWith(
-      expect.objectContaining({ nodeId: "phone-1", tag: "operation-tag", timeoutMs: 10_000 }),
-    );
+    try {
+      await expect(
+        transport.clear(
+          { id: "apns:phone-1" },
+          { version: 1, kind: "clear", tag: "operation-tag", expiresAtMs: 60_000, ttlMs: 0 },
+          { signal: new AbortController().signal, timeoutMs: 10_000 },
+        ),
+      ).resolves.toBe("accepted");
+      expect(mocks.clearApns).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nodeId: "phone-1",
+          tag: "operation-tag",
+          timeoutMs: 10_000,
+          expirationUnixSeconds: 86_410,
+        }),
+      );
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("sends a retained silent APNs clear through the relay", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const transport = createHostPluginNotificationTransport();
+    mocks.loadApns.mockResolvedValue({
+      transport: "relay",
+      nodeId: "phone-1",
+      relayHandle: "relay-handle",
+      sendGrant: "host-owned-grant",
+      installationId: "install-1",
+      topic: "ai.openclaw.ios",
+      environment: "production",
+      relayOrigin: "https://relay.example.test",
+    });
+    mocks.resolveApnsRelay.mockReturnValue({
+      ok: true,
+      value: { baseUrl: "https://relay.example.test", timeoutMs: 20_000 },
+    });
+    mocks.clearApns.mockResolvedValue({ ok: true, status: 202 });
+
+    try {
+      await expect(
+        transport.clear(
+          { id: "apns:phone-1" },
+          { version: 1, kind: "clear", tag: "operation-tag", expiresAtMs: 60_000, ttlMs: 0 },
+          { signal: new AbortController().signal, timeoutMs: 10_000 },
+        ),
+      ).resolves.toBe("accepted");
+      expect(mocks.clearApns).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nodeId: "phone-1",
+          tag: "operation-tag",
+          expirationUnixSeconds: 86_410,
+          relayConfig: { baseUrl: "https://relay.example.test", timeoutMs: 10_000 },
+        }),
+      );
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("retains an offline Web Push clear for the bounded delivery window", async () => {
