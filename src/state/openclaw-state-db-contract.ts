@@ -42,6 +42,10 @@ export const LAZY_ADDITIVE_STATE_TABLES = [
   "skill_workshop_proposal_rollbacks",
   "skill_workshop_proposals",
   "worker_environment_ssh_fallback_ports",
+  "plugin_notification_emissions",
+  "plugin_notification_delivery_attempts",
+  "plugin_notification_clear_attempts",
+  "plugin_notification_device_associations",
 ] as const;
 export const LAZY_ADDITIVE_STATE_INDEXES = [
   ...FIRST_USE_STATE_INDEXES,

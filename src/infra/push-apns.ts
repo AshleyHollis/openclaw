@@ -79,6 +79,7 @@ type ApnsRequestParams = {
   bearerToken: string;
   payload: object;
   timeoutMs: number;
+  expirationUnixSeconds?: number;
   pushType: ApnsPushType;
   priority: "10" | "5";
   signal?: AbortSignal;
@@ -239,7 +240,7 @@ async function sendApnsRequest(params: {
           "apns-topic": params.topic,
           "apns-push-type": params.pushType,
           "apns-priority": params.priority,
-          "apns-expiration": "0",
+          "apns-expiration": params.expirationUnixSeconds?.toString() ?? "0",
           "content-type": "application/json",
           "content-length": Buffer.byteLength(body).toString(),
         });
@@ -373,6 +374,7 @@ async function sendDirectApnsPush(params: {
   registration: DirectApnsRegistration;
   payload: object;
   timeoutMs?: number;
+  expirationUnixSeconds?: number;
   requestSender?: ApnsRequestSender;
   pushType: ApnsPushType;
   priority: "10" | "5";
@@ -392,6 +394,9 @@ async function sendDirectApnsPush(params: {
     bearerToken,
     payload: params.payload,
     timeoutMs: resolveApnsTimeoutMs(params.timeoutMs),
+    ...(params.expirationUnixSeconds !== undefined
+      ? { expirationUnixSeconds: params.expirationUnixSeconds }
+      : {}),
     pushType: params.pushType,
     priority: params.priority,
     ...(params.signal ? { signal: params.signal } : {}),
@@ -435,6 +440,8 @@ type ApnsAlertCommonParams = {
   title: string;
   body: string;
   timeoutMs?: number;
+  /** Absolute APNs expiry. Omit for immediate-only delivery. */
+  expirationUnixSeconds?: number;
   signal?: AbortSignal;
   isCurrent?: () => Promise<boolean>;
 };
@@ -542,6 +549,7 @@ export async function sendApnsAlert(
     registration: directParams.registration,
     payload,
     timeoutMs: directParams.timeoutMs,
+    expirationUnixSeconds: directParams.expirationUnixSeconds,
     requestSender: directParams.requestSender,
     pushType: "alert",
     priority: "10",

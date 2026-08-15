@@ -15,11 +15,20 @@ import {
   unschedulePluginSessionTurnsByTag,
 } from "./host-hook-scheduled-turns.js";
 import { enqueuePluginNextTurnInjection } from "./host-hook-state.js";
+import { getPluginRuntimeGatewayRequestScope } from "./runtime/gateway-request-scope.js";
 import {
   createPluginNotificationEmitter,
   PluginNotificationCoordinator,
   validatePluginNotificationDeclaration,
+  type PluginNotificationDeclarationV1,
 } from "./notification-emitter.js";
+import {
+  capturePluginNotificationPrincipal,
+  createHostPluginNotificationLedger,
+  createHostPluginNotificationTransport,
+  isPluginNotificationPrincipalCurrent,
+  listPluginNotificationTargets,
+} from "./notification-emitter-host.js";
 import { isPluginRegistryActivated, isPluginRegistryRetired } from "./registry-lifecycle.js";
 import type { PluginRegistrars } from "./registry-registrars.js";
 import type { PluginRuntimeResolver } from "./registry-runtime.js";
@@ -47,6 +56,19 @@ function resolvePluginPath(input: string, rootDir: string | undefined): string {
     return resolveUserPath(input);
   }
   return rootDir ? path.resolve(rootDir, trimmed) : resolveUserPath(input);
+}
+
+function capturePluginNotificationDeclaration(
+  declaration: PluginNotificationDeclarationV1,
+): PluginNotificationDeclarationV1 {
+  // Registry state is host-owned. Do not retain a plugin-controlled declaration object
+  // that could be modified after its bounded destination/permission validation succeeds.
+  return {
+    version: 1,
+    id: declaration.id,
+    requiredScopes: [...declaration.requiredScopes],
+    destinations: declaration.destinations.map((destination) => ({ ...destination })),
+  };
 }
 
 export function createPluginApiFactory(
@@ -178,18 +200,14 @@ export function createPluginApiFactory(
       runtime: resolvePluginRuntime(record.id),
       logger: normalizeLogger(registryParams.logger),
       registerNotificationEmitter: (declaration) => {
+        const existingDeclarations = registry.notificationEmitters.filter(
+          (entry) => entry.pluginId === record.id,
+        );
         const valid = validatePluginNotificationDeclaration(declaration, {
           pluginId: record.id,
-          existingCount: 0,
-          resolveTab: (pluginId, tabId) =>
-            registry.controlUiDescriptors.some(
-              (entry) =>
-                entry.pluginId === pluginId &&
-                entry.descriptor.surface === "tab" &&
-                entry.descriptor.id === tabId,
-            ),
+          existingCount: existingDeclarations.length,
         });
-        if (!valid) {
+        if (!valid || existingDeclarations.some((entry) => entry.declaration.id === declaration.id)) {
           pushDiagnostic({
             level: "error",
             pluginId: record.id,
@@ -198,15 +216,45 @@ export function createPluginApiFactory(
           });
           return undefined;
         }
+        const capturedDeclaration = capturePluginNotificationDeclaration(declaration);
+        // Registration order is intentionally irrelevant: control UI tabs can be registered
+        // before or after this declaration, so ownership is checked at use after activation.
+        registry.notificationEmitters.push({ pluginId: record.id, declaration: capturedDeclaration });
         return createPluginNotificationEmitter({
-          declaration,
+          declaration: capturedDeclaration,
           coordinator: new PluginNotificationCoordinator({
             pluginId: record.id,
-            declaration,
-            targets: () => [],
-            transport: { send: async () => "failed", clear: async () => "failed" },
+            declaration: capturedDeclaration,
+            targets: (principal) =>
+              typeof principal === "string"
+                ? []
+                : listPluginNotificationTargets(principal),
+            transport: createHostPluginNotificationTransport({ gatewayConfig: params.config.gateway }),
+            ledger: createHostPluginNotificationLedger(),
           }),
           isPluginActive: isLoadedRecordInLiveRegistry,
+          isDeclarationActive: () =>
+            validatePluginNotificationDeclaration(capturedDeclaration, {
+              pluginId: record.id,
+              existingCount: existingDeclarations.length,
+              resolveTab: (pluginId, tabId) =>
+                registry.controlUiDescriptors.some(
+                  (entry) =>
+                    entry.pluginId === pluginId &&
+                    entry.descriptor.surface === "tab" &&
+                    entry.descriptor.id === tabId,
+                ),
+            }),
+          capturePrincipal: () =>
+            capturePluginNotificationPrincipal({
+              pluginId: record.id,
+              client: getPluginRuntimeGatewayRequestScope()?.client,
+            }),
+          isPrincipalCurrent: (principal) =>
+            isPluginNotificationPrincipalCurrent({
+              principal,
+              client: getPluginRuntimeGatewayRequestScope()?.client,
+            }),
         });
       },
       resolvePath: (input: string) => resolvePluginPath(input, record.rootDir),

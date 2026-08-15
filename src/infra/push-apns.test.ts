@@ -362,6 +362,26 @@ describe("push APNs send semantics", () => {
     expect(result.transport).toBe("direct");
   });
 
+  it("passes an absolute expiry to the direct APNs request seam", async () => {
+    const { send, registration, auth } = createDirectApnsSendFixture({
+      nodeId: "ios-node-expiry",
+      environment: "sandbox",
+      sendResult: { status: 200, apnsId: "apns-expiry-id", body: "" },
+    });
+
+    await sendApnsAlert({
+      registration,
+      nodeId: "ios-node-expiry",
+      title: "Wake",
+      body: "Ping",
+      auth,
+      requestSender: send,
+      expirationUnixSeconds: 1_700_000_000,
+    });
+
+    expect(requireSendRequest(send).expirationUnixSeconds).toBe(1_700_000_000);
+  });
+
   it("routes direct APNs HTTP/2 requests through the active managed proxy", async () => {
     const apnsServer = await startFakeApnsServer();
     const proxy = await startConnectProxy(apnsServer.port);

@@ -1,11 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  createPluginNotificationEmitter,
   PluginNotificationCoordinator,
   validatePluginNotificationCandidate,
   validatePluginNotificationDeclaration,
   type PluginNotificationCandidateV1,
   type PluginNotificationDeclarationV1,
 } from "./notification-emitter.js";
+import { withPluginRuntimeGatewayRequestScope } from "./runtime/gateway-request-scope.js";
 
 const declaration: PluginNotificationDeclarationV1 = {
   version: 1,
@@ -119,5 +121,71 @@ describe("plugin notification emitter", () => {
         }),
       ),
     ).not.toMatchObject({ status: "rate-limited" });
+  });
+
+  it("rechecks the captured authenticated principal before an emission can reach transport", async () => {
+    let current = true;
+    const send = vi.fn(async () => "accepted" as const);
+    const principal = {
+      operatorId: "operator",
+      pluginId: "board",
+      authenticationMethod: "device-token" as const,
+      authenticationGeneration: "auth-1",
+      pairedDeviceId: "device-1",
+      pairingGeneration: "pair-1",
+      scopes: ["operator.read"] as const,
+    };
+    const emitter = createPluginNotificationEmitter({
+      declaration,
+      coordinator: new PluginNotificationCoordinator({
+        pluginId: "board",
+        declaration,
+        targets: () => [{ id: "web" }],
+        transport: { send, clear: async () => "accepted" },
+      }),
+      isPluginActive: () => true,
+      capturePrincipal: () => principal,
+      isPrincipalCurrent: () => current,
+    });
+    await withPluginRuntimeGatewayRequestScope(
+      {
+        client: {
+          authenticatedUserId: "operator",
+          connect: { scopes: ["operator.read"] },
+        } as never,
+        isWebchatConnect: () => false,
+      },
+      async () => {
+        const binding = emitter.bindCurrentOperator();
+        expect(binding).toBeDefined();
+        current = false;
+        await expect(binding!.emit(candidate())).resolves.toMatchObject({ status: "failed" });
+      },
+    );
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("bounds an in-flight send by the candidate expiry and records timeout ambiguity", async () => {
+    let now = 1_000;
+    let timeoutMs = 0;
+    const service = new PluginNotificationCoordinator({
+      pluginId: "board",
+      declaration,
+      now: () => now,
+      targets: () => [{ id: "web" }],
+      transport: {
+        send: async (_target, _payload, options) => {
+          timeoutMs = options.timeoutMs;
+          return await new Promise<"accepted">(() => {});
+        },
+        clear: async () => "accepted",
+      },
+    });
+    await expect(service.emit("operator", candidate({ expiresAtMs: now + 15 }))).resolves.toMatchObject({
+      status: "ambiguous",
+      ambiguous: 1,
+    });
+    expect(timeoutMs).toBe(15);
+    now += 16;
   });
 });

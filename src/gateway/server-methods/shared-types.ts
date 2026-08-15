@@ -100,6 +100,11 @@ export type GatewayClient = {
   pluginNodeCapabilitySurfaces?: Record<string, PluginNodeCapabilitySurface>;
   pluginNodeCapabilities?: Record<string, { capability: string; expiresAtMs: number }>;
   isDeviceTokenAuth?: boolean;
+  usesSharedGatewayAuth?: boolean;
+  /** Issuer epoch for device tokens minted from shared Gateway authentication. */
+  sharedGatewaySessionGeneration?: string;
+  /** Set before dispatch once the backing device or credential is revoked. */
+  invalidated?: boolean;
   /** Temporary legacy migration session closed when normal enforcement resumes. */
   isControlUiDeviceAuthMigrationSession?: boolean;
   /** Signed shared-auth session admitted only to approve its own upgrade pairing. */

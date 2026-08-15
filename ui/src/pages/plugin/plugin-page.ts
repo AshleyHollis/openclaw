@@ -24,7 +24,7 @@ import { t } from "../../i18n/index.ts";
 import { resolveEmbedSandbox } from "../../lib/chat/tool-display.ts";
 import { OpenClawLightDomContentsElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
-import { pluginTabKey } from "./route.ts";
+import { pluginTabKey, type PluginNotificationNavigation } from "./route.ts";
 
 /**
  * Bundled plugin tab views ship with the Control UI and render natively; every
@@ -97,6 +97,7 @@ const BUNDLED_TAB_VIEWS: Record<string, () => Promise<BundledPluginTabView>> = {
 export class PluginPage extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) pluginId = "";
   @property({ attribute: false }) tabId = "";
+  @property({ attribute: false }) notificationTarget: PluginNotificationNavigation | undefined;
 
   @consume({ context: applicationContext, subscribe: true })
   private context?: ApplicationContext<RouteId>;
@@ -572,6 +573,27 @@ export class PluginPage extends OpenClawLightDomContentsElement {
     return tabs.find((tab) => tab.pluginId === this.pluginId && tab.id === this.tabId);
   }
 
+  private pluginFrameUrl(path: string): string {
+    const target = this.notificationTarget;
+    if (!target || target.pluginId !== this.pluginId || target.tabId !== this.tabId) {
+      return path;
+    }
+    try {
+      const url = new URL(path, window.location.origin);
+      if (url.origin !== window.location.origin) {
+        return path;
+      }
+      // The authenticated plugin-tab route owns this frame URL. Put the bounded selector
+      // on its initial same-origin load rather than postMessaging an opaque sandbox frame.
+      url.searchParams.set("openclawNotification", "plugin-detail");
+      url.searchParams.set("destination", target.destinationId);
+      url.searchParams.set("record", target.recordId);
+      return `${url.pathname}${url.search}${url.hash}`;
+    } catch {
+      return path;
+    }
+  }
+
   override render() {
     const context = this.context;
     if (!context) {
@@ -642,7 +664,7 @@ export class PluginPage extends OpenClawLightDomContentsElement {
         <section class="plugin-tab-embed">
           <iframe
             class="plugin-tab-embed__frame"
-            src=${info.path}
+            src=${this.pluginFrameUrl(info.path)}
             title=${info.label}
             sandbox=${resolveEmbedSandbox(context.config.current.embedSandboxMode)}
           ></iframe>

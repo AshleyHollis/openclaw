@@ -23,7 +23,7 @@ import {
 
 // --- Types ---
 
-type WebPushSendResult = {
+export type WebPushSendResult = {
   ok: boolean;
   subscriptionId: string;
   statusCode?: number;
@@ -167,11 +167,24 @@ export async function clearWebPushSubscriptionByEndpoint(
 
 // --- Sending ---
 
-type WebPushPayload = {
+export type WebPushPayload = {
   title: string;
   body?: string;
   tag?: string;
   url?: string;
+  /** Typed host navigation data, consumed by the Control UI service worker. */
+  notification?: {
+    version: 1;
+    kind: "notify" | "clear";
+    expiresAtMs: number;
+    target?: {
+      kind: "plugin-detail";
+      pluginId: string;
+      tabId: string;
+      destinationId: string;
+      recordId: string;
+    };
+  };
 };
 
 function applyVapidDetails(webPush: WebPushRuntime, keys: VapidKeyPair): void {
@@ -182,6 +195,8 @@ async function sendPreparedWebPushNotification(
   webPush: WebPushRuntime,
   subscription: WebPushSubscription,
   payload: WebPushPayload,
+  ttlMs?: number,
+  signal?: AbortSignal,
 ): Promise<WebPushSendResult> {
   const pushSubscription = {
     endpoint: subscription.endpoint,
@@ -192,7 +207,28 @@ async function sendPreparedWebPushNotification(
   };
 
   try {
-    const result = await webPush.sendNotification(pushSubscription, JSON.stringify(payload));
+    if (signal?.aborted) {
+      return {
+        ok: false,
+        subscriptionId: subscription.subscriptionId,
+        error: "notification attempt aborted before Web Push delivery",
+      };
+    }
+    const send = webPush.sendNotification(pushSubscription, JSON.stringify(payload), {
+      ...(ttlMs === undefined ? {} : { TTL: Math.max(0, Math.ceil(ttlMs / 1000)) }),
+    });
+    const result = signal
+      ? await Promise.race([
+          send,
+          new Promise<never>((_resolve, reject) => {
+            signal.addEventListener(
+              "abort",
+              () => reject(new Error("notification attempt aborted during Web Push delivery")),
+              { once: true },
+            );
+          }),
+        ])
+      : await send;
     return {
       ok: true,
       subscriptionId: subscription.subscriptionId,
@@ -214,6 +250,46 @@ async function sendPreparedWebPushNotification(
       error: message,
     };
   }
+}
+
+/** Deliver to one host-owned subscription without exposing VAPID material to callers. */
+export async function sendWebPushNotification(params: {
+  subscriptionId: string;
+  payload: WebPushPayload;
+  ttlMs?: number;
+  /** Host timeout fence; the public plugin SDK cannot supply this signal. */
+  signal?: AbortSignal;
+  baseDir?: string;
+}): Promise<WebPushSendResult> {
+  assertLegacyWebPushMigrationComplete(params.baseDir);
+  const subscription = listWebPushSubscriptions(params.baseDir).find(
+    (entry) => entry.subscriptionId === params.subscriptionId,
+  );
+  if (!subscription) {
+    return {
+      ok: false,
+      subscriptionId: params.subscriptionId,
+      statusCode: 404,
+      error: "unknown subscription",
+    };
+  }
+  const [vapidKeys, webPush] = await Promise.all([resolveVapidKeys(params.baseDir), loadWebPushRuntime()]);
+  applyVapidDetails(webPush, vapidKeys);
+  const result = await sendPreparedWebPushNotification(
+    webPush,
+    subscription,
+    params.payload,
+    params.ttlMs,
+    params.signal,
+  );
+  if (!result.ok && (result.statusCode === 404 || result.statusCode === 410)) {
+    deleteWebPushSubscriptionIfCurrent({
+      endpointHash: hashWebPushEndpoint(subscription.endpoint),
+      subscription,
+      stateDir: params.baseDir,
+    });
+  }
+  return result;
 }
 
 export async function broadcastWebPush(

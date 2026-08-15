@@ -53,24 +53,90 @@ export type PluginNotificationBinding = {
   clear(request: PluginNotificationClearV1): Promise<PluginNotificationClearResult>;
 };
 export type PluginNotificationTarget = { readonly id: string };
+/** Host-captured identity. This never crosses the plugin SDK boundary. */
+export type PluginNotificationPrincipal = {
+  readonly operatorId: string;
+  readonly pluginId: string;
+  readonly authenticationMethod: "device-token";
+  readonly authenticationGeneration: string;
+  readonly pairedDeviceId: string;
+  readonly pairingGeneration: string;
+  readonly issuerGeneration?: string;
+  readonly scopes: readonly OperatorScope[];
+};
 export type PluginNotificationTransportPayload = {
   version: 1;
   kind: "notify" | "clear";
   tag: string;
   expiresAtMs: number;
+  /** Remaining delivery lifetime, bounded by the host immediately before I/O. */
+  ttlMs: number;
   attentionClass?: "active" | "time-sensitive";
   preview?: { title: string; body: string };
-  target?: { kind: "plugin-detail"; destinationId: string; recordId: string };
+  target?: {
+    kind: "plugin-detail";
+    pluginId: string;
+    tabId: string;
+    destinationId: string;
+    recordId: string;
+  };
 };
 export type PluginNotificationTransport = {
   send(
     target: PluginNotificationTarget,
     payload: PluginNotificationTransportPayload,
+    options: { signal: AbortSignal; timeoutMs: number },
   ): Promise<"accepted" | "failed" | "ambiguous" | "suppressed">;
   clear(
     target: PluginNotificationTarget,
     payload: PluginNotificationTransportPayload,
+    options: { signal: AbortSignal; timeoutMs: number },
   ): Promise<"accepted" | "failed" | "ambiguous">;
+};
+
+export type PluginNotificationAttemptOutcome =
+  | "accepted"
+  | "failed"
+  | "ambiguous"
+  | "suppressed";
+export type PluginNotificationLedger = {
+  claimEmission(params: {
+    principal: PluginNotificationPrincipal;
+    declarationId: string;
+    emissionId: string;
+    logicalOperationId: string;
+    candidateHash: string;
+    expiresAtMs: number;
+    targetIds: readonly string[];
+    nowMs: number;
+  }):
+    | { kind: "claimed"; targetIds: readonly string[] }
+    | { kind: "replay"; result: PluginNotificationEmitResult }
+    | { kind: "conflict" }
+    | { kind: "rate-limited"; retryAfterMs: number }
+    | { kind: "in-flight" };
+  completeEmission(params: {
+    principal: PluginNotificationPrincipal;
+    emissionId: string;
+    result: PluginNotificationEmitResult;
+    outcomes: ReadonlyMap<string, PluginNotificationAttemptOutcome>;
+    nowMs: number;
+  }): void;
+  claimClear(params: {
+    principal: PluginNotificationPrincipal;
+    logicalOperationId: string;
+    nowMs: number;
+  }):
+    | { kind: "claimed"; targetIds: readonly string[] }
+    | { kind: "replay"; result: PluginNotificationClearResult }
+    | { kind: "in-flight" };
+  completeClear(params: {
+    principal: PluginNotificationPrincipal;
+    logicalOperationId: string;
+    result: PluginNotificationClearResult;
+    outcomes: ReadonlyMap<string, Exclude<PluginNotificationAttemptOutcome, "suppressed">>;
+    nowMs: number;
+  }): void;
 };
 
 const plain = (value: unknown): value is Record<string, unknown> =>
@@ -110,7 +176,7 @@ export function validatePluginNotificationDeclaration(
   params: {
     pluginId: string;
     existingCount: number;
-    resolveTab: (pluginId: string, tabId: string) => boolean;
+    resolveTab?: (pluginId: string, tabId: string) => boolean;
   },
 ): value is PluginNotificationDeclarationV1 {
   if (
@@ -138,7 +204,8 @@ export function validatePluginNotificationDeclaration(
       ID.test(destination.id) &&
       ID.test(destination.tabId) &&
       !destinationIds.has(destination.id) &&
-      (destinationIds.add(destination.id), params.resolveTab(params.pluginId, destination.tabId)),
+      (destinationIds.add(destination.id),
+        (params.resolveTab === undefined || params.resolveTab(params.pluginId, destination.tabId))),
   );
 }
 
@@ -209,7 +276,57 @@ const validClear = (value: unknown): value is PluginNotificationClearV1 =>
   typeof value.logicalOperationId === "string" &&
   ID.test(value.logicalOperationId);
 
-/** Process coordinator; durable ledger is supplied by the host's stored implementation. */
+const maximumTransportAttemptMs = 10_000;
+
+function principalForLegacyOperator(pluginId: string, operatorId: string): PluginNotificationPrincipal {
+  return {
+    operatorId,
+    pluginId,
+    authenticationMethod: "device-token",
+    authenticationGeneration: `legacy:${operatorId}`,
+    pairedDeviceId: `legacy:${operatorId}`,
+    pairingGeneration: `legacy:${operatorId}`,
+    scopes: [],
+  };
+}
+
+function deadlineOptions(expiresAtMs: number, nowMs: number): {
+  signal: AbortSignal;
+  timeoutMs: number;
+  cancel: () => void;
+} | null {
+  const remainingMs = expiresAtMs - nowMs;
+  if (remainingMs <= 0) return null;
+  const timeoutMs = Math.min(remainingMs, maximumTransportAttemptMs);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return { signal: controller.signal, timeoutMs, cancel: () => clearTimeout(timer) };
+}
+
+async function sendWithinDeadline(
+  expiresAtMs: number,
+  now: () => number,
+  run: (options: { signal: AbortSignal; timeoutMs: number }) => Promise<PluginNotificationAttemptOutcome>,
+): Promise<PluginNotificationAttemptOutcome> {
+  const deadline = deadlineOptions(expiresAtMs, now());
+  if (!deadline) return "suppressed";
+  try {
+    const result = await Promise.race([
+      run({ signal: deadline.signal, timeoutMs: deadline.timeoutMs }),
+      new Promise<"ambiguous">((resolve) => {
+        deadline.signal.addEventListener("abort", () => resolve("ambiguous"), { once: true });
+      }),
+    ]);
+    // A response arriving after the deadline cannot prove the remote endpoint did not accept it.
+    return deadline.signal.aborted ? "ambiguous" : result;
+  } catch {
+    return "ambiguous";
+  } finally {
+    deadline.cancel();
+  }
+}
+
+/** Coordinates a logical emission. Durable host ledgers claim before transport I/O. */
 export class PluginNotificationCoordinator {
   private emissions = new Map<string, { hash: string; result: PluginNotificationEmitResult }>();
   private rates = new Map<string, number[]>();
@@ -219,23 +336,57 @@ export class PluginNotificationCoordinator {
     private readonly options: {
       pluginId: string;
       declaration: PluginNotificationDeclarationV1;
-      targets(operatorKey: string): readonly PluginNotificationTarget[];
+      targets(operator: string | PluginNotificationPrincipal): readonly PluginNotificationTarget[];
       transport: PluginNotificationTransport;
       now?: () => number;
+      ledger?: PluginNotificationLedger;
     },
   ) {}
-  async emit(operatorKey: string, candidate: unknown): Promise<PluginNotificationEmitResult> {
+  async emit(
+    operator: string | PluginNotificationPrincipal,
+    candidate: unknown,
+  ): Promise<PluginNotificationEmitResult> {
     const now = this.options.now?.() ?? Date.now();
     if (!validatePluginNotificationCandidate(candidate, this.options.declaration, now))
       return failure();
     const c = candidate;
+    const principal =
+      typeof operator === "string"
+        ? principalForLegacyOperator(this.options.pluginId, operator)
+        : operator;
+    if (principal.pluginId !== this.options.pluginId) return failure();
+    const operatorKey = principal.operatorId;
     const key = JSON.stringify([operatorKey, this.options.pluginId, c.emissionId]);
     const hash = createHash("sha256").update(canonical(c)).digest("hex");
+    const targets = this.options.targets(principal);
+    const claimed = this.options.ledger?.claimEmission({
+      principal,
+      declarationId: this.options.declaration.id,
+      emissionId: c.emissionId,
+      logicalOperationId: c.logicalOperationId,
+      candidateHash: hash,
+      expiresAtMs: c.expiresAtMs,
+      targetIds: targets.map((target) => target.id),
+      nowMs: now,
+    });
+    if (claimed?.kind === "replay") return claimed.result;
+    if (claimed?.kind === "conflict") return failure();
+    if (claimed?.kind === "in-flight")
+      return { status: "ambiguous", attempted: 0, delivered: 0, failed: 0, ambiguous: 1 };
+    if (claimed?.kind === "rate-limited")
+      return {
+        status: "rate-limited",
+        attempted: 0,
+        delivered: 0,
+        failed: 0,
+        ambiguous: 0,
+        retryAfterMs: claimed.retryAfterMs,
+      };
     const old = this.emissions.get(key);
-    if (old) return old.hash === hash ? old.result : failure();
+    if (!this.options.ledger && old) return old.hash === hash ? old.result : failure();
     const rateKey = JSON.stringify([operatorKey, this.options.pluginId]);
     const starts = (this.rates.get(rateKey) ?? []).filter((start) => start > now - 60_000);
-    if (starts.length >= 12)
+    if (!this.options.ledger && starts.length >= 12)
       return {
         status: "rate-limited",
         attempted: 0,
@@ -244,9 +395,10 @@ export class PluginNotificationCoordinator {
         ambiguous: 0,
         retryAfterMs: starts[0]! + 60_000 - now,
       };
-    starts.push(now);
-    this.rates.set(rateKey, starts);
-    const targets = this.options.targets(operatorKey);
+    if (!this.options.ledger) {
+      starts.push(now);
+      this.rates.set(rateKey, starts);
+    }
     if (!targets.length) {
       const result = {
         status: "no-targets" as const,
@@ -255,7 +407,17 @@ export class PluginNotificationCoordinator {
         failed: 0,
         ambiguous: 0,
       };
-      this.emissions.set(key, { hash, result });
+      if (this.options.ledger) {
+        this.options.ledger.completeEmission({
+          principal,
+          emissionId: c.emissionId,
+          result,
+          outcomes: new Map(),
+          nowMs: now,
+        });
+      } else {
+        this.emissions.set(key, { hash, result });
+      }
       return result;
     }
     const payload: PluginNotificationTransportPayload = {
@@ -263,20 +425,34 @@ export class PluginNotificationCoordinator {
       kind: "notify",
       tag: pluginNotificationOperationTopic(c.logicalOperationId),
       expiresAtMs: c.expiresAtMs,
+      ttlMs: Math.max(0, c.expiresAtMs - now),
       attentionClass: c.attentionClass,
       preview: c.preview,
-      target: c.deepLink,
+      target: (() => {
+        const destination = this.options.declaration.destinations.find(
+          (entry) => entry.id === c.deepLink.destinationId,
+        );
+        // Candidate validation above guarantees this declaration-owned destination exists.
+        if (!destination) return undefined;
+        return {
+          kind: "plugin-detail" as const,
+          pluginId: this.options.pluginId,
+          tabId: destination.tabId,
+          destinationId: c.deepLink.destinationId,
+          recordId: c.deepLink.recordId,
+        };
+      })(),
     };
     const values = await Promise.all(
-      targets.map(async (target) => {
-        try {
-          return c.expiresAtMs <= (this.options.now?.() ?? Date.now())
-            ? ("suppressed" as const)
-            : await this.options.transport.send(target, payload);
-        } catch {
-          return "ambiguous" as const;
-        }
-      }),
+      targets.map((target) =>
+        sendWithinDeadline(c.expiresAtMs, () => this.options.now?.() ?? Date.now(), (options) =>
+          this.options.transport.send(
+            target,
+            { ...payload, ttlMs: Math.max(0, c.expiresAtMs - (this.options.now?.() ?? Date.now())) },
+            options,
+          ),
+        ),
+      ),
     );
     const delivered = values.filter((x) => x === "accepted").length;
     const failed = values.filter((x) => x === "failed").length;
@@ -289,27 +465,61 @@ export class PluginNotificationCoordinator {
           : delivered
             ? "partial"
             : values.every((x) => x === "suppressed")
-              ? "suppressed"
+              ? "expired"
               : "failed") as PluginNotificationEmitResult["status"],
       attempted: targets.length,
       delivered,
       failed,
       ambiguous,
     };
-    this.emissions.set(key, { hash, result });
+    const outcomes = new Map(targets.map((target, index) => [target.id, values[index]!])) as Map<
+      string,
+      PluginNotificationAttemptOutcome
+    >;
+    if (this.options.ledger) {
+      this.options.ledger.completeEmission({
+        principal,
+        emissionId: c.emissionId,
+        result,
+        outcomes,
+        nowMs: this.options.now?.() ?? Date.now(),
+      });
+    } else {
+      this.emissions.set(key, { hash, result });
+    }
     const operationKey = JSON.stringify([operatorKey, c.logicalOperationId]);
     const all = this.targets.get(operationKey) ?? new Map();
     targets.forEach((target) => all.set(target.id, target));
     this.targets.set(operationKey, all);
     return result;
   }
-  async clear(operatorKey: string, request: unknown): Promise<PluginNotificationClearResult> {
+  async clear(
+    operator: string | PluginNotificationPrincipal,
+    request: unknown,
+  ): Promise<PluginNotificationClearResult> {
     if (!validClear(request))
       return { status: "partial", attempted: 0, cleared: 0, failed: 1, ambiguous: 0 };
+    const principal =
+      typeof operator === "string"
+        ? principalForLegacyOperator(this.options.pluginId, operator)
+        : operator;
+    if (principal.pluginId !== this.options.pluginId)
+      return { status: "partial", attempted: 0, cleared: 0, failed: 1, ambiguous: 0 };
+    const operatorKey = principal.operatorId;
     const key = JSON.stringify([operatorKey, request.logicalOperationId]);
-    if (this.cleared.has(key))
+    const claimed = this.options.ledger?.claimClear({
+      principal,
+      logicalOperationId: request.logicalOperationId,
+      nowMs: this.options.now?.() ?? Date.now(),
+    });
+    if (claimed?.kind === "replay") return claimed.result;
+    if (claimed?.kind === "in-flight")
+      return { status: "ambiguous", attempted: 0, cleared: 0, failed: 0, ambiguous: 1 };
+    if (!this.options.ledger && this.cleared.has(key))
       return { status: "already-cleared", attempted: 0, cleared: 0, failed: 0, ambiguous: 0 };
-    const targets = [...(this.targets.get(key)?.values() ?? [])];
+    const targets = this.options.ledger
+      ? claimed!.targetIds.map((id) => ({ id }))
+      : [...(this.targets.get(key)?.values() ?? [])];
     if (!targets.length)
       return { status: "already-cleared", attempted: 0, cleared: 0, failed: 0, ambiguous: 0 };
     const payload: PluginNotificationTransportPayload = {
@@ -317,27 +527,46 @@ export class PluginNotificationCoordinator {
       kind: "clear",
       tag: pluginNotificationOperationTopic(request.logicalOperationId),
       expiresAtMs: this.options.now?.() ?? Date.now(),
+      ttlMs: 0,
     };
     const values = await Promise.all(
       targets.map(async (target) => {
-        try {
-          return await this.options.transport.clear(target, payload);
-        } catch {
-          return "ambiguous" as const;
-        }
+        const outcome = await sendWithinDeadline(
+          (this.options.now?.() ?? Date.now()) + maximumTransportAttemptMs,
+          () => this.options.now?.() ?? Date.now(),
+          (options) => this.options.transport.clear(target, payload, options),
+        );
+        // Clears never have an expiry contract. A clock jump before the request starts
+        // cannot prove a remote notification was removed, so preserve ambiguity.
+        return outcome === "suppressed" ? "ambiguous" : outcome;
       }),
     );
     const cleared = values.filter((x) => x === "accepted").length;
     const failed = values.filter((x) => x === "failed").length;
     const ambiguous = values.filter((x) => x === "ambiguous").length;
-    if (!failed && !ambiguous) this.cleared.add(key);
-    return {
+    const result = {
       status: ambiguous ? "ambiguous" : failed ? "partial" : "cleared",
       attempted: targets.length,
       cleared,
       failed,
       ambiguous,
     };
+    const outcomes = new Map(targets.map((target, index) => [target.id, values[index]!])) as Map<
+      string,
+      Exclude<PluginNotificationAttemptOutcome, "suppressed">
+    >;
+    if (this.options.ledger) {
+      this.options.ledger.completeClear({
+        principal,
+        logicalOperationId: request.logicalOperationId,
+        result,
+        outcomes,
+        nowMs: this.options.now?.() ?? Date.now(),
+      });
+    } else if (!failed && !ambiguous) {
+      this.cleared.add(key);
+    }
+    return result;
   }
 }
 
@@ -345,25 +574,38 @@ export function createPluginNotificationEmitter(params: {
   declaration: PluginNotificationDeclarationV1;
   coordinator: PluginNotificationCoordinator;
   isPluginActive(): boolean;
+  isDeclarationActive?(): boolean;
+  capturePrincipal?(): PluginNotificationPrincipal | undefined;
+  isPrincipalCurrent?(principal: PluginNotificationPrincipal): boolean | Promise<boolean>;
 }): PluginNotificationEmitter {
   return {
     bindCurrentOperator: () => {
       const client = getPluginRuntimeGatewayRequestScope()?.client;
-      if (!client?.authenticatedUserId || !params.isPluginActive()) return undefined;
+      const principal = params.capturePrincipal?.();
+      if (!client?.authenticatedUserId || !params.isPluginActive() || !principal) return undefined;
       const authorized = () =>
         params.isPluginActive() &&
+        (params.isDeclarationActive?.() ?? true) &&
         !client.invalidated &&
+        client.authenticatedUserId === principal.operatorId &&
         params.declaration.requiredScopes.every((scope) => client.connect.scopes.includes(scope));
       if (!authorized()) return undefined;
       return {
-        emit: async (candidate) =>
-          authorized()
-            ? params.coordinator.emit(client.authenticatedUserId!, candidate)
-            : failure(),
-        clear: async (request) =>
-          authorized()
-            ? params.coordinator.clear(client.authenticatedUserId!, request)
-            : { status: "partial", attempted: 0, cleared: 0, failed: 1, ambiguous: 0 },
+        emit: async (candidate) => {
+          const current = params.isPrincipalCurrent
+            ? await params.isPrincipalCurrent(principal)
+            : true;
+          if (!authorized() || !current) return failure();
+          return await params.coordinator.emit(principal, candidate);
+        },
+        clear: async (request) => {
+          const current = params.isPrincipalCurrent
+            ? await params.isPrincipalCurrent(principal)
+            : true;
+          if (!authorized() || !current)
+            return { status: "partial", attempted: 0, cleared: 0, failed: 1, ambiguous: 0 };
+          return await params.coordinator.clear(principal, request);
+        },
       };
     },
   };
