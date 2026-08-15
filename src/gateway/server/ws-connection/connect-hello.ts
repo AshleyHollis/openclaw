@@ -79,12 +79,12 @@ export async function sendGatewayHello(
     bootstrapTokenCandidate,
     authResult,
     authMethod,
-    sessionSharedGatewaySessionGeneration,
     issuedBootstrapProfile,
     handoffBootstrapProfile,
     deviceToken,
     bootstrapDeviceTokens,
     controlUiDeviceAuthMigrationPending,
+    sessionSharedGatewaySessionGeneration,
   } = state;
   // Prefer the authenticated human; principal scopes never inherit device-token rows.
   const authenticatedPrincipal = authenticatedUserProfileId ?? authResult.user;
@@ -112,6 +112,17 @@ export async function sendGatewayHello(
     snapshot.stateVersion.health = getHealthVersion();
   }
   const helloOkAuthScopes = deviceToken ? deviceToken.scopes : scopes;
+  // The parent uses this opaque marker to bind a sandbox bridge to the current
+  // operator/auth generation. It intentionally never enters an iframe envelope.
+  const authorityId = deviceToken
+    ? sha256Base64Url(
+        `device-token\u0000${sessionSharedGatewaySessionGeneration ?? ""}\u0000${deviceToken.token}\u0000${deviceToken.rotatedAtMs ?? deviceToken.createdAtMs}`,
+      )
+    : sessionSharedGatewaySessionGeneration
+      ? authMethod === "trusted-proxy" && authResult.user
+        ? sha256Base64Url(`${sessionSharedGatewaySessionGeneration}\u0000${authResult.user}`)
+        : sessionSharedGatewaySessionGeneration
+      : undefined;
   let controlUiTabs = listControlUiPluginTabs(helloOkAuthScopes, {
     requireGatewayAuthGrant: resolvedAuth.mode !== "none",
     availableMethods: gatewayMethods,
@@ -175,9 +186,10 @@ export async function sendGatewayHello(
       : {}),
     auth: {
       role,
-      scopes,
+      scopes: helloOkAuthScopes,
       ...(recoveryScope ? { recoveryScope } : {}),
       ...(canMigrateRecovery ? { recoveryMigrationAllowed: true as const } : {}),
+      ...(authorityId ? { authorityId } : {}),
       ...(deviceToken
         ? {
             deviceToken: deviceToken.token,

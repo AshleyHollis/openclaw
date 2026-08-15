@@ -76,6 +76,28 @@ const externalTab: GatewayControlUiPluginTab = {
   },
 };
 
+const externalMutationTab: GatewayControlUiPluginTab = {
+  ...externalTab,
+  capabilityBridge: {
+    protocolVersion: 1,
+    mode: "read-write",
+    methods: ["plugin.example.write"],
+    readMethods: [],
+    missingRequiredMethods: [],
+    upgradeRequired: false,
+    linkedSessionKeys: ["agent:main:owned"],
+    limits: {
+      maxRequestBytes: 64 * 1024,
+      maxResponseBytes: 1024 * 1024,
+      maxConcurrentRequests: 8,
+      maxRequestsPerMinute: 60,
+      maxMutationsPerMinute: 12,
+      handshakeTimeoutMs: 10_000,
+      requestTimeoutMs: 30_000,
+    },
+  },
+};
+
 function externalPluginDocument(): string {
   return `<!doctype html><script>
     const send = (payload) => window.postMessage({ type: "openclaw:capability-bridge-send", protocolVersion: 1, payload }, "*");
@@ -107,6 +129,27 @@ function externalPluginDocument(): string {
   </script>`;
 }
 
+function externalPluginMutationDocument(): string {
+  return `<!doctype html><script>
+    const send = (payload) => window.postMessage({ type: "openclaw:capability-bridge-send", protocolVersion: 1, payload }, "*");
+    const write = () => send({
+      type: "openclaw:capability-bridge-request",
+      requestId: crypto.randomUUID(),
+      operationId: "stable-plugin-write",
+      method: "plugin.example.write",
+      params: { enabled: true },
+    });
+    window.addEventListener("message", (event) => {
+      if (event.source !== window || event.data?.type !== "openclaw:capability-bridge-receive" || event.data.protocolVersion !== 1) return;
+      if (event.data.payload?.type === "openclaw:capability-bridge-ready") {
+        parent.postMessage({ type: "external-bridge-e2e:mutation-ready" }, "*");
+        write();
+      }
+    });
+    send({ type: "openclaw:capability-bridge-hello", protocolVersion: 1 });
+  </script>`;
+}
+
 async function routeExternalPlugin(page: Page, documentMarkup = externalPluginDocument()) {
   await page.route("**/plugins/external/panel**", async (route) => {
     const url = new URL(route.request().url());
@@ -122,11 +165,11 @@ async function routeExternalPlugin(page: Page, documentMarkup = externalPluginDo
   });
 }
 
-function bridgeScenario() {
+function bridgeScenario(tab = externalTab) {
   return {
-    controlUiTabs: [externalTab],
+    controlUiTabs: [tab],
     embedSandbox: "trusted" as const,
-    featureMethods: ["chat.history", "chat.metadata", "chat.startup"],
+    featureMethods: ["chat.history", "chat.metadata", "chat.startup", "plugin.example.write"],
     methodResponses: { "chat.history": { messages: [{ role: "assistant", content: "linked" }] } },
     pluginFrameGrants: [{ pluginId: "external-plugin", path: "/plugins/external", match: "prefix" as const }],
   };
@@ -255,5 +298,30 @@ describeControlUiE2e("PluginPage external capability bridge E2E", () => {
     );
     expect(events).not.toContainEqual(expect.objectContaining({ type: "external-bridge-e2e:foreign-port" }));
     expect(await gateway.getRequests("chat.history")).toEqual([]);
+  });
+
+  it("reconciles a plugin write across a real sandbox remount", async () => {
+    const page = await createPage();
+    await routeExternalPlugin(page, externalPluginMutationDocument());
+    const gateway = await installMockGateway(page, bridgeScenario(externalMutationTab));
+
+    await page.goto(`${server.baseUrl}plugin?plugin=external-plugin&id=panel`);
+    await gateway.waitForRequest("plugin.example.write");
+    expect(await gateway.getRequests("plugin.example.write")).toHaveLength(1);
+
+    await gateway.closeLatest(1012, "test reconnect");
+    await expect.poll(async () => await gateway.getSocketCount()).toBeGreaterThan(1);
+    await expect.poll(async () => {
+      const events = await page.evaluate(
+        () => (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
+      );
+      return events.filter(
+        (event) =>
+          typeof event === "object" &&
+          event !== null &&
+          (event as { type?: unknown }).type === "external-bridge-e2e:mutation-ready",
+      ).length;
+    }).toBeGreaterThanOrEqual(2);
+    expect(await gateway.getRequests("plugin.example.write")).toHaveLength(1);
   });
 });

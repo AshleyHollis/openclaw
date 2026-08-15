@@ -11,9 +11,9 @@ export const EXTERNAL_TAB_BRIDGE_LIMITS = {
   requestTimeoutMs: 30_000,
 } as const;
 
-// A port is short-lived and rate-limited, so this is a deliberately bounded
-// ledger. Once full, a tab reconnects instead of forgetting an operation and
-// risking a second mutation with the same logical identifier.
+// A tab authority is short-lived and rate-limited, so this is a deliberately
+// bounded ledger. Once full, it rejects new operation ids instead of forgetting
+// one and risking a second mutation with the same logical identifier.
 const MAX_MUTATION_OPERATIONS = 1_024;
 const MUTATION_RESULT_RETENTION_MS = 60_000;
 const SESSION_CREATE_OPERATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
@@ -40,7 +40,7 @@ type Request = {
   operationId?: string;
 };
 type PublicError = { code: string; message: string; retryable: boolean; retryAfterMs?: number };
-type MutationOperation = {
+export type ExternalTabCapabilityBridgeMutationOperation = {
   fingerprint: string;
   pending: Promise<unknown> | null;
   outcome:
@@ -48,6 +48,18 @@ type MutationOperation = {
     | { ok: false; cause: unknown; completedAt: number }
     | null;
 };
+
+/**
+ * PluginPage owns this bounded state for one authenticated tab authority. It
+ * outlives a revoked transport so a reconnect cannot repeat a completed write.
+ */
+export type ExternalTabCapabilityBridgeMutationState = {
+  operations: Map<string, ExternalTabCapabilityBridgeMutationOperation>;
+};
+
+export function createExternalTabCapabilityBridgeMutationState(): ExternalTabCapabilityBridgeMutationState {
+  return { operations: new Map() };
+}
 
 class Failure extends Error {
   constructor(
@@ -111,7 +123,7 @@ export class ExternalTabCapabilityBridgeController {
   private readonly links = new Set<string>();
   private readonly methods: Set<string>;
   private readonly reads: Set<string>;
-  private readonly mutationOperations = new Map<string, MutationOperation>();
+  private readonly mutationOperations: Map<string, ExternalTabCapabilityBridgeMutationOperation>;
 
   constructor(
     private readonly options: {
@@ -122,6 +134,7 @@ export class ExternalTabCapabilityBridgeController {
        * sandbox, so a logical operation id cannot become Gateway-global.
        */
       mutationNamespace: string;
+      mutationState?: ExternalTabCapabilityBridgeMutationState;
       linkedSessionKeys?: readonly string[];
       navigate: (sessionKey: string) => void;
       onHandshakeFailure?: () => void;
@@ -130,6 +143,7 @@ export class ExternalTabCapabilityBridgeController {
   ) {
     this.methods = new Set(options.grant.methods);
     this.reads = new Set(options.grant.readMethods);
+    this.mutationOperations = options.mutationState?.operations ?? new Map();
     for (const key of options.linkedSessionKeys ?? []) {
       if (this.links.size === 200) break;
       if (isNonEmptyString(key)) this.links.add(key);
@@ -251,20 +265,6 @@ export class ExternalTabCapabilityBridgeController {
         undefined,
         error("INVALID_PARAMS", "Request id has already been used"),
       );
-    if (this.requests.length >= EXTERNAL_TAB_BRIDGE_LIMITS.maxRequestsPerMinute)
-      return this.respond(
-        requestId,
-        undefined,
-        error("RATE_LIMITED", "Bridge request rate limit exceeded", true, 60_000),
-      );
-    this.requestIds.set(requestId, now);
-    this.requests.push(now);
-    if (this.active >= EXTERNAL_TAB_BRIDGE_LIMITS.maxConcurrentRequests)
-      return this.respond(
-        requestId,
-        undefined,
-        error("RATE_LIMITED", "Bridge request concurrency limit exceeded", true, 60_000),
-      );
     const mutation = !this.reads.has(request.method);
     const operationFingerprint = mutation
       ? JSON.stringify({ method: request.method, params: request.params })
@@ -281,6 +281,35 @@ export class ExternalTabCapabilityBridgeController {
           "Operation id has already been used for a different mutation",
         ),
       );
+    let workUnits = 1;
+    if (this.methods.has(request.method)) {
+      try {
+        workUnits = this.workUnits(request);
+      } catch (cause) {
+        return this.respond(
+          requestId,
+          undefined,
+          error(
+            cause instanceof Failure ? cause.code : "INVALID_PARAMS",
+            cause instanceof Failure ? cause.message : "Gateway rejected bridge request",
+          ),
+        );
+      }
+    }
+    if (this.requests.length + workUnits > EXTERNAL_TAB_BRIDGE_LIMITS.maxRequestsPerMinute)
+      return this.respond(
+        requestId,
+        undefined,
+        error("RATE_LIMITED", "Bridge request rate limit exceeded", true, 60_000),
+      );
+    if (this.active + workUnits > EXTERNAL_TAB_BRIDGE_LIMITS.maxConcurrentRequests)
+      return this.respond(
+        requestId,
+        undefined,
+        error("RATE_LIMITED", "Bridge request concurrency limit exceeded", true, 60_000),
+      );
+    this.requestIds.set(requestId, now);
+    this.requests.push(...Array.from({ length: workUnits }, () => now));
     if (
       mutation &&
       !existingOperation &&
@@ -310,7 +339,7 @@ export class ExternalTabCapabilityBridgeController {
         ),
       );
     if (mutation && !existingOperation) this.mutations.push(now);
-    this.active += 1;
+    this.active += workUnits;
     try {
       const execution = mutation
         ? this.reconcileMutation(request, operationFingerprint as string)
@@ -340,7 +369,7 @@ export class ExternalTabCapabilityBridgeController {
         ),
       );
     } finally {
-      this.active -= 1;
+      this.active -= workUnits;
     }
   }
 
@@ -372,8 +401,8 @@ export class ExternalTabCapabilityBridgeController {
 
   /**
    * Gateway methods do not all expose an idempotency field. Keep one logical
-   * mutation per port and retain its authoritative completion for retries;
-   * never turn a forgotten bridge timeout into a second write.
+   * mutation per authenticated tab authority and retain its completion across
+   * transport remounts; never turn a forgotten timeout into a second write.
    */
   private reconcileMutation(request: Request, fingerprint: string): Promise<unknown> {
     const operationId = request.operationId;
@@ -399,10 +428,14 @@ export class ExternalTabCapabilityBridgeController {
     if (this.mutationOperations.size >= MAX_MUTATION_OPERATIONS) {
       throw new Failure(
         "MUTATION_RECONCILIATION_REQUIRED",
-        "Too many logical mutations on this tab; reconnect before sending another",
+        "Too many logical mutations on this tab authority; reconcile before sending another",
       );
     }
-    const operation: MutationOperation = { fingerprint, pending: null, outcome: null };
+    const operation: ExternalTabCapabilityBridgeMutationOperation = {
+      fingerprint,
+      pending: null,
+      outcome: null,
+    };
     const pending = this.dispatch(request);
     operation.pending = pending;
     this.mutationOperations.set(operationId, operation);
@@ -479,6 +512,54 @@ export class ExternalTabCapabilityBridgeController {
   }
 
   private async search(params: Record<string, unknown>): Promise<unknown> {
+    const plan = this.searchPlan(params);
+    if (plan.groups.length === 0) return { results: [] };
+    const results: unknown[] = [];
+    let indexing = false;
+    let responseBytes = 0;
+    for (const group of plan.groups) {
+      const response =
+        asRecord(
+          await this.options.client.request("sessions.search", {
+            query: plan.query,
+            limit: plan.limit,
+            sessionKeys: group.sessionKeys,
+            ...(group.agentId ? { agentId: group.agentId } : {}),
+          }),
+        ) ?? { results: [] };
+      const nextResponseBytes = byteLength(response);
+      if (
+        nextResponseBytes === null ||
+        nextResponseBytes > EXTERNAL_TAB_BRIDGE_LIMITS.maxResponseBytes - responseBytes
+      ) {
+        throw new Failure("RESULT_TOO_LARGE", "Bridge search response exceeds the public limit");
+      }
+      responseBytes += nextResponseBytes;
+      indexing ||= response.indexing === true;
+      if (Array.isArray(response.results)) {
+        for (const result of response.results) {
+          if (results.length === plan.limit) break;
+          results.push(result);
+        }
+      }
+    }
+    return { results, ...(indexing ? { indexing: true } : {}) };
+  }
+
+  private workUnits(request: Request): number {
+    if (request.method !== "sessions.search") return 1;
+    const params = asRecord(request.params);
+    if (!params) throw new Failure("INVALID_PARAMS", "Bridge parameters must be an object");
+    // Every agent-scoped search is charged before dispatch. This avoids a
+    // single iframe request bypassing the port's rate and concurrency limits.
+    return Math.max(1, this.searchPlan(params).groups.length);
+  }
+
+  private searchPlan(params: Record<string, unknown>): {
+    query: string;
+    limit: number;
+    groups: Array<{ agentId: string; sessionKeys: string[] }>;
+  } {
     if (
       !this.exact(params, ["query", "limit"]) ||
       typeof params.query !== "string" ||
@@ -488,31 +569,15 @@ export class ExternalTabCapabilityBridgeController {
     const limit = params.limit === undefined ? 25 : params.limit;
     if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 25)
       throw new Failure("INVALID_PARAMS", "Invalid session search limit");
-    if (this.links.size === 0) return { results: [] };
     const byAgent = new Map<string, string[]>();
     for (const key of this.links) {
       const agent = parseAgentSessionKey(key)?.agentId ?? "";
       byAgent.set(agent, [...(byAgent.get(agent) ?? []), key]);
     }
-    const responses = await Promise.all(
-      [...byAgent.entries()].map(
-        async ([agentId, sessionKeys]) =>
-          asRecord(
-            await this.options.client.request("sessions.search", {
-              query: params.query,
-              limit,
-              sessionKeys,
-              ...(agentId ? { agentId } : {}),
-            }),
-          ) ?? { results: [] },
-      ),
-    );
-    const results = responses
-      .flatMap((response) => (Array.isArray(response.results) ? response.results : []))
-      .slice(0, limit as number);
     return {
-      results,
-      ...(responses.some((response) => response.indexing === true) ? { indexing: true } : {}),
+      query: params.query,
+      limit: limit as number,
+      groups: [...byAgent.entries()].map(([agentId, sessionKeys]) => ({ agentId, sessionKeys })),
     };
   }
 }

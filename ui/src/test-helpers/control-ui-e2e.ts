@@ -276,6 +276,8 @@ export type ControlUiMockGatewayScenario = {
   embedSandbox?: ControlUiEmbedSandboxMode;
   /** Simulate the one-time legacy Control UI device-auth pairing transition. */
   deviceAuthMigrationPending?: boolean;
+  /** Opaque server-derived operator/authentication generation from hello-ok. */
+  authAuthorityId?: string;
   deviceToken?: string;
   featureMethods?: string[];
   /** Simulate a legacy Gateway that predates the advertised method catalog. */
@@ -793,6 +795,7 @@ function normalizeScenario(
       scenario.agentModel === undefined ? "openai/gpt-5.5" : scenario.agentModel?.trim() || null,
     assistantAgentId: scenario.assistantAgentId?.trim() || defaultAgentId,
     assistantName: scenario.assistantName?.trim() || "OpenClaw",
+    authAuthorityId: scenario.authAuthorityId?.trim() || "e2e-auth-authority",
     basePath,
     controlUiTabs: scenario.controlUiTabs ?? [],
     controlUiWidgetKinds: scenario.controlUiWidgetKinds ?? [],
@@ -1595,6 +1598,7 @@ function installControlUiMockGateway(
           auth && typeof auth.deviceToken === "string" ? auth.deviceToken : scenario.deviceToken;
         return {
           auth: {
+            authorityId: scenario.authAuthorityId,
             ...(deviceAuthMigrationPending
               ? {}
               : { deviceToken: connectedDeviceToken, recoveryMigrationAllowed: true as const }),

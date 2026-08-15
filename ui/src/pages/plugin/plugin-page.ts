@@ -24,8 +24,10 @@ import { renderLoadingState } from "../../components/loading-state.ts";
 import { t } from "../../i18n/index.ts";
 import { resolveEmbedSandbox } from "../../lib/chat/tool-display.ts";
 import {
+  createExternalTabCapabilityBridgeMutationState,
   EXTERNAL_TAB_BRIDGE_LIMITS,
   ExternalTabCapabilityBridgeController,
+  type ExternalTabCapabilityBridgeMutationState,
 } from "../../lib/external-tab-capability-bridge.ts";
 import { sessionNavigationTarget } from "../../lib/sessions/route-navigation.ts";
 import { OpenClawLightDomContentsElement } from "../../lit/openclaw-element.ts";
@@ -190,6 +192,7 @@ export class PluginPage extends OpenClawLightDomContentsElement {
   private capabilityBridgeDocumentAbortController: AbortController | null = null;
   private capabilityBridgeMutationAuthorityKey: string | null = null;
   private capabilityBridgeMutationNamespace: string | null = null;
+  private capabilityBridgeMutationState: ExternalTabCapabilityBridgeMutationState | null = null;
   private stopCapabilityBridgeGatewayEvents: (() => void) | null = null;
   private readonly subscriptions = new SubscriptionsController(this)
     .watch(
@@ -228,6 +231,7 @@ export class PluginPage extends OpenClawLightDomContentsElement {
     window.removeEventListener("message", this.handleCapabilityBridgeBootstrap);
     this.clearExternalTabAuth();
     this.clearCapabilityBridge();
+    this.clearCapabilityBridgeMutationAuthority();
     this.stopCapabilityBridgeGatewayEvents?.();
     this.stopCapabilityBridgeGatewayEvents = null;
     this.subscriptions.clear();
@@ -695,15 +699,10 @@ export class PluginPage extends OpenClawLightDomContentsElement {
 
   private capabilityBridgeAuthIdentity() {
     const auth = this.context?.gateway.snapshot.hello?.auth;
-    if (!auth) return null;
-    // This identity stays in the parent only. The active device token and its
-    // generation distinguish operators without becoming iframe-visible data.
-    return {
-      role: auth.role,
-      scopes: auth.scopes,
-      deviceToken: auth.deviceToken,
-      issuedAtMs: auth.issuedAtMs,
-    };
+    if (!auth?.authorityId) return null;
+    // The server derives this opaque marker from the authenticated operator and
+    // generation. Older hellos lack it and therefore retain the read-only route.
+    return { authorityId: auth.authorityId };
   }
 
   private mutationNamespaceForCapabilityBridge(
@@ -711,8 +710,11 @@ export class PluginPage extends OpenClawLightDomContentsElement {
   ): string | null {
     const auth = this.capabilityBridgeAuthIdentity();
     if (!info?.capabilityBridge || !auth) {
-      this.capabilityBridgeMutationAuthorityKey = null;
-      this.capabilityBridgeMutationNamespace = null;
+      // Gateway clears hello while reconnecting. Preserve the host-only ledger
+      // until the replacement hello can prove whether this authority changed.
+      if (this.context?.gateway.snapshot.phase === "connected") {
+        this.clearCapabilityBridgeMutationAuthority();
+      }
       return null;
     }
     const authorityKey = JSON.stringify({
@@ -724,8 +726,15 @@ export class PluginPage extends OpenClawLightDomContentsElement {
     if (authorityKey !== this.capabilityBridgeMutationAuthorityKey) {
       this.capabilityBridgeMutationAuthorityKey = authorityKey;
       this.capabilityBridgeMutationNamespace = randomBridgeBootstrapId();
+      this.capabilityBridgeMutationState = createExternalTabCapabilityBridgeMutationState();
     }
     return this.capabilityBridgeMutationNamespace;
+  }
+
+  private clearCapabilityBridgeMutationAuthority() {
+    this.capabilityBridgeMutationAuthorityKey = null;
+    this.capabilityBridgeMutationNamespace = null;
+    this.capabilityBridgeMutationState = null;
   }
 
   private revokeCapabilityBridge() {
@@ -885,6 +894,7 @@ export class PluginPage extends OpenClawLightDomContentsElement {
       client,
       grant,
       mutationNamespace: document.mutationNamespace,
+      mutationState: this.capabilityBridgeMutationState ?? undefined,
       // Hello carries the authenticated plugin/tab link set. Do not infer
       // authority from the Control UI's globally selected session.
       linkedSessionKeys: grant.linkedSessionKeys,

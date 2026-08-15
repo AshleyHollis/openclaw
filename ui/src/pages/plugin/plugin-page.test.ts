@@ -119,6 +119,7 @@ function createExternalPluginPage(
   requiresGatewayAuth = true,
   path = "/plugins/external/panel",
   options: {
+    auth?: GatewayHelloOk["auth"];
     capabilityBridge?: ExternalTabBridgeGrant;
     client?: GatewayBrowserClient | null;
     embedSandboxMode?: ApplicationConfig["embedSandboxMode"];
@@ -127,7 +128,11 @@ function createExternalPluginPage(
   const hello: GatewayHelloOk = {
     type: "hello-ok",
     protocol: 3,
-    auth: { role: "operator", scopes: ["operator.write"] },
+    auth: options.auth ?? {
+      authorityId: "test-auth-authority",
+      role: "operator",
+      scopes: ["operator.write"],
+    },
     controlUiTabs: [
       {
         pluginId: "external-plugin",
@@ -329,6 +334,24 @@ describe("PluginPage", () => {
     }
   });
 
+  it("keeps a bridge declaration on the authenticated read-only route without an authority marker", async () => {
+    const refresh = vi.fn(async () => externalPluginConfig());
+    const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
+      auth: { role: "operator", scopes: ["operator.write"] },
+      capabilityBridge: externalTabBridgeGrant(),
+      client: bridgeClient(),
+    });
+    document.body.append(page);
+    try {
+      await waitForFast(() => expect(page.querySelector("iframe")).not.toBeNull());
+      expect(page.querySelector("iframe")?.getAttribute("src")).toBe("/plugins/external/panel");
+      expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toBeNull();
+      expect(page.textContent).toContain("Capability bridge unavailable");
+    } finally {
+      page.remove();
+    }
+  });
+
   it("grants one validated iframe mount and terminally revokes later loads", async () => {
     const refresh = vi.fn(async () => externalPluginConfig());
     const client = bridgeClient();
@@ -443,7 +466,7 @@ describe("PluginPage", () => {
     }
   });
 
-  it("keeps mutation identity through a reconnect but rotates it for a new auth authority", async () => {
+  it("keeps tokenless mutation identity through a reconnect but rotates it for a new auth authority", async () => {
     const refresh = vi.fn(async () => externalPluginConfig());
     const client = bridgeClient();
     const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
@@ -453,10 +476,9 @@ describe("PluginPage", () => {
     const context = (page as unknown as { context: ApplicationContext<RouteId> }).context;
     context.gateway.snapshot.hello!.server = { connId: "connection-one" };
     context.gateway.snapshot.hello!.auth = {
+      authorityId: "token-auth-generation-one",
       role: "operator",
       scopes: ["operator.write"],
-      deviceToken: "device-one",
-      issuedAtMs: 1,
     };
     document.body.append(page);
     try {
@@ -466,7 +488,17 @@ describe("PluginPage", () => {
         throw new Error("expected first bridge document");
       }
 
-      context.gateway.snapshot.hello!.server = { connId: "connection-two" };
+      const firstHello = context.gateway.snapshot.hello!;
+      context.gateway.snapshot.phase = "reconnecting";
+      context.gateway.snapshot.hello = null;
+      page.requestUpdate();
+      await page.updateComplete;
+
+      context.gateway.snapshot.phase = "connected";
+      context.gateway.snapshot.hello = {
+        ...firstHello,
+        server: { connId: "connection-two" },
+      };
       page.requestUpdate();
       await waitForFast(() => {
         const next = bridgeState(page).capabilityBridgeDocument;
@@ -475,10 +507,9 @@ describe("PluginPage", () => {
       });
 
       context.gateway.snapshot.hello!.auth = {
+        authorityId: "token-auth-generation-two",
         role: "operator",
         scopes: ["operator.write"],
-        deviceToken: "device-two",
-        issuedAtMs: 2,
       };
       page.requestUpdate();
       await waitForFast(() => {

@@ -399,11 +399,15 @@ method, params, operationId? }`; responses echo `requestId` with either
 request id for retry. Mutations require a stable operation id; `chat.send`
 maps its host-derived plugin/tab/current-auth authority namespace to Gateway
 idempotency and can retry only with a fresh request id and the same operation
-id. That namespace survives a transport remount for the same authority, but
-rotates when its tab, grant, or authenticated operator/generation changes. The
-same host namespace also scopes explicit Session keys, so identical logical
-operation ids from different tabs or operators never collide.
-Timed-out create and plugin writes report unknown outcome. Limits are 64 KiB
+id. The host retains each tab authority's bounded mutation reconciliation
+ledger across a transport remount, so a generic plugin write with the same
+operation id cannot run twice while its result is retained. That namespace
+survives a transport remount for the same authority, but rotates when its tab,
+grant, or authenticated operator/generation changes. Older Gateways that do
+not provide the required opaque authority binding leave the tab on the
+authenticated read-only route. The same host namespace also scopes explicit
+Session keys, so identical logical operation ids from different tabs or
+operators never collide. Limits are 64 KiB
 request, 1 MiB response, eight concurrent requests, 60 requests/12 mutations
 per minute, ten-second hello, and 30-second request.
 

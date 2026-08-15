@@ -153,6 +153,8 @@ export const HelloOkSchema = closedObject({
     }),
   ),
   auth: closedObject({
+    /** Opaque server-derived operator/authentication generation for host-only bindings. */
+    authorityId: Type.Optional(NonEmptyString),
     deviceToken: Type.Optional(NonEmptyString),
     recoveryMigrationAllowed: Type.Optional(Type.Literal(true)),
     recoveryScope: Type.Optional(NonEmptyString),

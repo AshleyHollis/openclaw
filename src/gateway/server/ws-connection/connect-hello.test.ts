@@ -99,6 +99,7 @@ describe("sendGatewayHello", () => {
       } as never,
       {
         authMethod: "token",
+        authResult: { ok: true, method: "token" },
         bootstrapDeviceTokens: [],
         controlUiDeviceAuthMigrationPending: false,
         device: null,
@@ -106,6 +107,7 @@ describe("sendGatewayHello", () => {
         hasPasswordAuth: false,
         hasTokenAuth: true,
         resolvedAuth: { mode: "token" },
+        sessionSharedGatewaySessionGeneration: "token-auth-generation",
         role: "operator",
         scopes: ["operator.read"],
       } as never,
@@ -128,6 +130,17 @@ describe("sendGatewayHello", () => {
               }),
             }),
           ],
+        }),
+      }),
+    );
+    expect(sendFrame).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          auth: {
+            authorityId: "token-auth-generation",
+            role: "operator",
+            scopes: ["operator.read"],
+          },
         }),
       }),
     );

@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createExternalTabCapabilityBridgeMutationState,
   EXTERNAL_TAB_BRIDGE_LIMITS,
   ExternalTabCapabilityBridgeController,
+  type ExternalTabCapabilityBridgeMutationState,
 } from "./external-tab-capability-bridge.ts";
 
 function deferred<T>() {
@@ -18,6 +20,7 @@ function makeBridge(
     reads?: string[];
     links?: string[];
     mutationNamespace?: string;
+    mutationState?: ExternalTabCapabilityBridgeMutationState;
     onHandshakeFailure?: ReturnType<typeof vi.fn>;
     now?: () => number;
     request?: ReturnType<typeof vi.fn>;
@@ -27,6 +30,7 @@ function makeBridge(
   const controller = new ExternalTabCapabilityBridgeController({
     client: { request },
     mutationNamespace: params.mutationNamespace ?? "operator-a-tab-a",
+    mutationState: params.mutationState,
     linkedSessionKeys: params.links ?? ["agent:main:linked"],
     navigate: vi.fn(),
     onHandshakeFailure: params.onHandshakeFailure,
@@ -218,6 +222,20 @@ describe("ExternalTabCapabilityBridgeController", () => {
     );
   });
 
+  it("charges every distinct-agent search before issuing gateway work", async () => {
+    const links = Array.from({ length: 200 }, (_, index) => `agent:agent-${index}:linked`);
+    const { port, request } = makeBridge({ links });
+    await hello(port);
+    port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "many-agents",
+      method: "sessions.search",
+      params: { query: "x" },
+    });
+    expect(await next(port)).toMatchObject({ error: { code: "RATE_LIMITED" } });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("bounds total attempts", async () => {
     let now = 0;
     const { port } = makeBridge({ now: () => now });
@@ -397,11 +415,13 @@ describe("ExternalTabCapabilityBridgeController", () => {
 
   it("reuses a host mutation identity only within the same tab authority", async () => {
     const request = vi.fn(async (_method: string, params: unknown) => params);
+    const mutationState = createExternalTabCapabilityBridgeMutationState();
     const first = makeBridge({
       methods: ["sessions.create"],
       reads: [],
       request,
       mutationNamespace: "operator-a-tab-a",
+      mutationState,
     });
     await hello(first.port);
     first.port.postMessage({
@@ -419,6 +439,7 @@ describe("ExternalTabCapabilityBridgeController", () => {
       reads: [],
       request,
       mutationNamespace: "operator-a-tab-a",
+      mutationState,
     });
     await hello(second.port);
     second.port.postMessage({
@@ -430,14 +451,52 @@ describe("ExternalTabCapabilityBridgeController", () => {
     });
     await next(second.port);
 
-    expect(request).toHaveBeenNthCalledWith(1, "sessions.create", {
+    expect(request).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledWith("sessions.create", {
       agentId: "work",
       key: "agent:work:dashboard:bridge-operator-a-tab-a-stable-session-create",
     });
-    expect(request).toHaveBeenNthCalledWith(2, "sessions.create", {
-      agentId: "work",
-      key: "agent:work:dashboard:bridge-operator-a-tab-a-stable-session-create",
+  });
+
+  it("reconciles a plugin write after the private transport remounts", async () => {
+    const pending = deferred<unknown>();
+    const request = vi.fn(() => pending.promise);
+    const mutationState = createExternalTabCapabilityBridgeMutationState();
+    const first = makeBridge({
+      methods: ["plugin.example.write"],
+      reads: [],
+      mutationState,
+      request,
     });
+    await hello(first.port);
+    first.port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "first-transport",
+      operationId: "stable-write",
+      method: "plugin.example.write",
+      params: { enabled: true },
+    });
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    first.controller.revoke();
+
+    const second = makeBridge({
+      methods: ["plugin.example.write"],
+      reads: [],
+      mutationState,
+      request,
+    });
+    await hello(second.port);
+    const retry = next(second.port);
+    second.port.postMessage({
+      type: "openclaw:capability-bridge-request",
+      requestId: "second-transport",
+      operationId: "stable-write",
+      method: "plugin.example.write",
+      params: { enabled: true },
+    });
+    pending.resolve({ applied: true });
+    expect(await retry).toMatchObject({ result: { applied: true } });
+    expect(request).toHaveBeenCalledOnce();
   });
 
   it("partitions identical logical writes across authenticated tab authorities", async () => {
