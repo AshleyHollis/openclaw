@@ -191,6 +191,7 @@ function isPluginNotificationDeviceBindingCurrent(params: {
   binding: PluginNotificationDeviceBinding;
   requireOperatorScopes: boolean;
   stateDir?: string;
+  getRequiredSharedGatewaySessionGeneration?: () => string | undefined;
 }): boolean {
   const { binding } = params;
   const device = loadPairedDevicePairingStoreRecord(binding.pairedDeviceId, params.stateDir);
@@ -209,6 +210,14 @@ function isPluginNotificationDeviceBindingCurrent(params: {
   if (
     bindingScopes.length !== binding.scopes.length ||
     (params.requireOperatorScopes && bindingScopes.length === 0)
+  ) {
+    return false;
+  }
+  // A shared-auth-issued device token remains valid only for the gateway's
+  // live issuer epoch. Retained notification bindings must not outlive auth rotation.
+  if (
+    binding.issuerGeneration !== undefined &&
+    params.getRequiredSharedGatewaySessionGeneration?.() !== binding.issuerGeneration
   ) {
     return false;
   }
@@ -310,11 +319,13 @@ function savePluginNotificationTargetAssociation(params: {
 export function isPluginNotificationPrincipalCurrent(params: {
   principal: PluginNotificationPrincipal;
   stateDir?: string;
+  getRequiredSharedGatewaySessionGeneration?: () => string | undefined;
 }): boolean {
   return isPluginNotificationDeviceBindingCurrent({
     binding: params.principal,
     requireOperatorScopes: true,
     stateDir: params.stateDir,
+    getRequiredSharedGatewaySessionGeneration: params.getRequiredSharedGatewaySessionGeneration,
   });
 }
 
@@ -391,6 +402,7 @@ export function associatePluginNotificationApnsTarget(params: {
 export function listPluginNotificationTargets(
   principal: PluginNotificationPrincipal,
   stateDir?: string,
+  getRequiredSharedGatewaySessionGeneration?: () => string | undefined,
 ): PluginNotificationTarget[] {
   const options = stateOptions(stateDir);
   const database = openOpenClawStateDatabase(options);
@@ -426,6 +438,7 @@ export function listPluginNotificationTargets(
       },
       requireOperatorScopes: scopes.length > 0,
       stateDir,
+      getRequiredSharedGatewaySessionGeneration,
     });
   });
   const currentWebIds = new Set(

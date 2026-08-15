@@ -232,7 +232,13 @@ export function createPluginApiFactory(
             pluginId: record.id,
             declaration: capturedDeclaration,
             targets: (principal) =>
-              typeof principal === "string" ? [] : listPluginNotificationTargets(principal),
+              typeof principal === "string"
+                ? []
+                : listPluginNotificationTargets(
+                    principal,
+                    undefined,
+                    registryParams.hostServices?.getRequiredSharedGatewaySessionGeneration,
+                  ),
             transport: createHostPluginNotificationTransport({
               gatewayConfig: params.config.gateway,
             }),
@@ -259,6 +265,8 @@ export function createPluginApiFactory(
           isPrincipalCurrent: (principal) =>
             isPluginNotificationPrincipalCurrent({
               principal,
+              getRequiredSharedGatewaySessionGeneration:
+                registryParams.hostServices?.getRequiredSharedGatewaySessionGeneration,
             }),
         });
       },

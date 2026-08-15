@@ -599,6 +599,8 @@ export type PluginRegistryParams = {
   hostServices?: {
     /** May be a live accessor; plugin APIs must read it at call time. */
     cron?: import("../cron/service-contract.js").CronServiceContract;
+    /** Host-only auth epoch accessor for durable device-bound capabilities. */
+    getRequiredSharedGatewaySessionGeneration?: () => string | undefined;
   };
   activateGlobalSideEffects?: boolean;
 };

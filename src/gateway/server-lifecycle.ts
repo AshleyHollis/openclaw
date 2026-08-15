@@ -34,6 +34,7 @@ import {
   shouldRetainControlUiDeviceAuthMigrationSession,
 } from "./server-public.js";
 import type { prepareGatewayKernelState } from "./server-runtime-state-prepare.js";
+import { getRequiredSharedGatewaySessionGeneration } from "./server-shared-auth-generation.js";
 import {
   getHealthVersion,
   incrementPresenceVersion,
@@ -104,6 +105,7 @@ export async function prepareGatewayLifecycle(params: {
     nodeDesktopStreamBroker,
     bindDeviceNodeControl,
     workerPlacementRuntime,
+    sharedGatewaySessionGenerationState,
   } = runtime;
   const completeControlUiDeviceAuthMigrationForEffectiveOperator = (
     device: EffectiveOperatorDeviceIdentity,
@@ -405,6 +407,8 @@ export async function prepareGatewayLifecycle(params: {
     get cron() {
       return runtimeState.cronState.cron;
     },
+    getRequiredSharedGatewaySessionGeneration: () =>
+      getRequiredSharedGatewaySessionGeneration(sharedGatewaySessionGenerationState),
   };
 
   const lifecycle = { closePreludeStarted: false };

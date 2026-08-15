@@ -130,10 +130,20 @@ describe("host plugin notification principal", () => {
       scopes: ["operator.read"],
     });
     expect(JSON.stringify(principal)).not.toContain("device-token-secret");
-    expect(isPluginNotificationPrincipalCurrent({ principal: principal! })).toBe(true);
+    expect(
+      isPluginNotificationPrincipalCurrent({
+        principal: principal!,
+        getRequiredSharedGatewaySessionGeneration: () => "issuer-1",
+      }),
+    ).toBe(true);
 
     (device.tokens.operator as { revokedAtMs?: number }).revokedAtMs = 11;
-    expect(isPluginNotificationPrincipalCurrent({ principal: principal! })).toBe(false);
+    expect(
+      isPluginNotificationPrincipalCurrent({
+        principal: principal!,
+        getRequiredSharedGatewaySessionGeneration: () => "issuer-1",
+      }),
+    ).toBe(false);
 
     mocks.loadPairing.mockReturnValue(pairedDevice());
     expect(
@@ -152,10 +162,11 @@ describe("host plugin notification principal", () => {
     ).toBeUndefined();
   });
 
-  it("keeps a bound principal usable after its request closes, then rejects revocation", async () => {
+  it("keeps a bound principal usable after its request closes, then rejects shared auth rotation and revocation", async () => {
     const device = pairedDevice();
     mocks.loadPairing.mockReturnValue(device);
     const currentClient = client();
+    let requiredSharedGatewaySessionGeneration = "issuer-1";
     const principal = capturePluginNotificationPrincipal({
       pluginId: "board",
       client: currentClient,
@@ -181,7 +192,11 @@ describe("host plugin notification principal", () => {
       }),
       isPluginActive: () => true,
       capturePrincipal: () => principal,
-      isPrincipalCurrent: (bound) => isPluginNotificationPrincipalCurrent({ principal: bound }),
+      isPrincipalCurrent: (bound) =>
+        isPluginNotificationPrincipalCurrent({
+          principal: bound,
+          getRequiredSharedGatewaySessionGeneration: () => requiredSharedGatewaySessionGeneration,
+        }),
     });
     let binding: ReturnType<typeof emitter.bindCurrentOperator> = undefined;
     await withPluginRuntimeGatewayRequestScope(
@@ -207,6 +222,25 @@ describe("host plugin notification principal", () => {
     ).resolves.toMatchObject({ status: "sent" });
     expect(send).toHaveBeenCalledTimes(1);
 
+    // A gateway credential rotation changes the host epoch but does not rewrite
+    // the paired-device row. The retained binding must be rejected before I/O.
+    const pairingBeforeGatewayRotation = JSON.stringify(device);
+    requiredSharedGatewaySessionGeneration = "issuer-rotated";
+    await expect(
+      binding!.emit({
+        version: 1,
+        emissionId: "event-auth-rotated",
+        logicalOperationId: "operation-auth-rotated",
+        attentionClass: "active",
+        preview: { title: "Ready", body: "One item" },
+        deepLink: { kind: "plugin-detail", destinationId: "item", recordId: "record-1" },
+        expiresAtMs: Date.now() + 60_000,
+      }),
+    ).resolves.toMatchObject({ status: "failed" });
+    expect(JSON.stringify(device)).toBe(pairingBeforeGatewayRotation);
+    expect(send).toHaveBeenCalledTimes(1);
+
+    requiredSharedGatewaySessionGeneration = "issuer-1";
     (device.tokens.operator as { revokedAtMs?: number }).revokedAtMs = Date.now();
     await expect(
       binding!.emit({
@@ -235,7 +269,8 @@ describe("host plugin notification principal", () => {
           role: "operator",
           scopes: ["operator.read"],
           createdAtMs: 20,
-          issuer: { kind: "shared-gateway-auth", generation: "issuer-2" },
+          rotatedAtMs: 21,
+          issuer: { kind: "shared-gateway-auth", generation: "issuer-1" },
         },
       },
     });
@@ -281,7 +316,6 @@ describe("host plugin notification principal", () => {
       const rotatedPrincipal = capturePluginNotificationPrincipal({
         pluginId: "board",
         client: client({
-          sharedGatewaySessionGeneration: "issuer-2",
           connect: {
             device: { id: "browser-rotated" },
             role: "operator",
@@ -290,7 +324,7 @@ describe("host plugin notification principal", () => {
         }),
       });
       expect(rotatedPrincipal).toBeDefined();
-      expect(listPluginNotificationTargets(rotatedPrincipal!, dir)).toEqual([
+      expect(listPluginNotificationTargets(rotatedPrincipal!, dir, () => "issuer-1")).toEqual([
         { id: "apns:phone-1" },
         { id: "web:browser-subscription" },
       ]);
@@ -298,9 +332,52 @@ describe("host plugin notification principal", () => {
       (browser.tokens.operator as { revokedAtMs?: number }).revokedAtMs = 40;
       // The new browser can still deliver to independently current devices, but
       // never to a Web Push endpoint whose originally associated device is revoked.
-      expect(listPluginNotificationTargets(rotatedPrincipal!, dir)).toEqual([
+      expect(listPluginNotificationTargets(rotatedPrincipal!, dir, () => "issuer-1")).toEqual([
         { id: "apns:phone-1" },
       ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("filters stale target associations after shared auth generation rotates", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "openclaw-notification-target-epoch-"));
+    const device = pairedDevice();
+    let requiredSharedGatewaySessionGeneration = "issuer-1";
+    mocks.loadPairing.mockReturnValue(device);
+    mocks.listSubscriptions.mockReturnValue([{ subscriptionId: "browser-subscription" }]);
+    try {
+      const principal = capturePluginNotificationPrincipal({ pluginId: "board", client: client() });
+      expect(principal).toBeDefined();
+      expect(
+        associatePluginNotificationWebTarget({
+          subscriptionId: "browser-subscription",
+          client: client(),
+          stateDir: dir,
+        }),
+      ).toBe(true);
+      expect(
+        listPluginNotificationTargets(
+          principal!,
+          dir,
+          () => requiredSharedGatewaySessionGeneration,
+        ),
+      ).toEqual([{ id: "web:browser-subscription" }]);
+
+      requiredSharedGatewaySessionGeneration = "issuer-rotated";
+      expect(
+        isPluginNotificationPrincipalCurrent({
+          principal: principal!,
+          getRequiredSharedGatewaySessionGeneration: () => requiredSharedGatewaySessionGeneration,
+        }),
+      ).toBe(false);
+      expect(
+        listPluginNotificationTargets(
+          principal!,
+          dir,
+          () => requiredSharedGatewaySessionGeneration,
+        ),
+      ).toEqual([]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
