@@ -423,4 +423,27 @@ describe("host plugin notification transport", () => {
       expect.objectContaining({ nodeId: "phone-1", tag: "operation-tag", timeoutMs: 10_000 }),
     );
   });
+
+  it("retains an offline Web Push clear for the bounded delivery window", async () => {
+    // HTTP acceptance only queues delivery for an offline browser. The fake
+    // transport makes the retention window observable without a push service.
+    mocks.sendWebPush.mockResolvedValue({
+      ok: true,
+      subscriptionId: "offline-browser",
+      statusCode: 201,
+    });
+    const transport = createHostPluginNotificationTransport();
+
+    await expect(
+      transport.clear(
+        { id: "web:offline-browser" },
+        { version: 1, kind: "clear", tag: "operation-tag", expiresAtMs: 60_000, ttlMs: 0 },
+        { signal: new AbortController().signal, timeoutMs: 10_000 },
+      ),
+    ).resolves.toBe("accepted");
+
+    expect(mocks.sendWebPush).toHaveBeenCalledWith(
+      expect.objectContaining({ subscriptionId: "offline-browser", ttlMs: 86_400_000 }),
+    );
+  });
 });

@@ -68,6 +68,8 @@ type PluginNotificationDeviceBinding = Pick<
   | "scopes"
 >;
 
+const webPushClearDeliveryWindowMs = 24 * 60 * 60 * 1000;
+
 function stateOptions(stateDir?: string): OpenClawStateDatabaseOptions {
   return stateDir ? { env: { ...process.env, OPENCLAW_STATE_DIR: stateDir } } : {};
 }
@@ -597,7 +599,10 @@ export function createHostPluginNotificationTransport(
             expiresAtMs: payload.expiresAtMs,
           },
         },
-        ttlMs: 0,
+        // The push service may accept while this browser is offline. Retain the
+        // idempotent clear for the maximum candidate lifetime so it can close
+        // an already displayed tag when the device reconnects.
+        ttlMs: webPushClearDeliveryWindowMs,
         signal: attempt.signal,
         baseDir: params.stateDir,
       });
