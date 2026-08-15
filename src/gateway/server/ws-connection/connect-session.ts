@@ -127,6 +127,7 @@ export async function attachAuthenticatedGatewayConnect(
     device,
     devicePublicKey,
     deviceToken,
+    deviceTokenAuthenticated,
     authResult,
     authMethod,
     pairingLocality,
@@ -140,10 +141,9 @@ export async function attachAuthenticatedGatewayConnect(
   let nodePairingAdmission: AuthenticatedNodePairingAdmission | undefined;
   if (role === "node") {
     const nodeId = device?.id ?? connectParams.client.id;
-    const authenticatedNodeToken =
-      authMethod === "device-token"
-        ? normalizeOptionalString(connectParams.auth?.deviceToken ?? connectParams.auth?.token)
-        : deviceToken?.token;
+    const authenticatedNodeToken = deviceTokenAuthenticated
+      ? normalizeOptionalString(connectParams.auth?.deviceToken ?? connectParams.auth?.token)
+      : deviceToken?.token;
     if (!device || !devicePublicKey || !authenticatedNodeToken) {
       const message = "authenticated node pairing identity unavailable";
       markHandshakeFailure("node-pairing-generation-changed", {});
@@ -380,7 +380,7 @@ export async function attachAuthenticatedGatewayConnect(
       : connectParams,
     connId,
     connectionKind: "gateway",
-    isDeviceTokenAuth: authMethod === "device-token",
+    isDeviceTokenAuth: deviceTokenAuthenticated,
     isControlUiDeviceAuthMigrationSession: state.controlUiDeviceAuthMigrationPending,
     // Only identity-bearing migration sessions may use bounded self-pairing.
     // Device-less sessions remain pairing-scoped until reopened securely.

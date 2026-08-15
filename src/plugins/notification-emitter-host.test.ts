@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -29,9 +32,12 @@ vi.mock("../infra/push-apns.js", () => ({
 }));
 
 import {
+  associatePluginNotificationApnsTarget,
+  associatePluginNotificationWebTarget,
   capturePluginNotificationPrincipal,
   createHostPluginNotificationTransport,
   isPluginNotificationPrincipalCurrent,
+  listPluginNotificationTargets,
 } from "./notification-emitter-host.js";
 import {
   createPluginNotificationEmitter,
@@ -180,6 +186,83 @@ describe("host plugin notification principal", () => {
       }),
     ).resolves.toMatchObject({ status: "failed" });
     expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("discovers separately registered Web and APNs devices after operator credential rotation", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "openclaw-notification-targets-"));
+    const browser = pairedDevice();
+    const rotatedBrowser = pairedDevice({
+      deviceId: "browser-rotated",
+      publicKey: "public-key-rotated",
+      approvedAtMs: 20,
+      tokens: {
+        operator: {
+          token: "rotated-device-token-secret",
+          role: "operator",
+          scopes: ["operator.read"],
+          createdAtMs: 20,
+          issuer: { kind: "shared-gateway-auth", generation: "issuer-2" },
+        },
+      },
+    });
+    const phone = {
+      deviceId: "phone-1",
+      publicKey: "phone-public-key",
+      approvedAtMs: 30,
+      tokens: {
+        node: {
+          token: "phone-device-token-secret",
+          role: "node",
+          scopes: [],
+          createdAtMs: 30,
+          issuer: { kind: "shared-gateway-auth", generation: "issuer-1" },
+        },
+      },
+    };
+    mocks.loadPairing.mockImplementation((deviceId: string) => {
+      if (deviceId === "browser-1") return browser;
+      if (deviceId === "browser-rotated") return rotatedBrowser;
+      if (deviceId === "phone-1") return phone;
+      return undefined;
+    });
+    mocks.listSubscriptions.mockReturnValue([{ subscriptionId: "browser-subscription" }]);
+    try {
+      expect(
+        associatePluginNotificationWebTarget({
+          subscriptionId: "browser-subscription",
+          client: client(),
+          stateDir: dir,
+        }),
+      ).toBe(true);
+      expect(
+        associatePluginNotificationApnsTarget({
+          nodeId: "phone-1",
+          client: client({
+            connect: { device: { id: "phone-1" }, role: "node", scopes: [] },
+          }),
+          stateDir: dir,
+        }),
+      ).toBe(true);
+
+      const rotatedPrincipal = capturePluginNotificationPrincipal({
+        pluginId: "board",
+        client: client({
+          sharedGatewaySessionGeneration: "issuer-2",
+          connect: {
+            device: { id: "browser-rotated" },
+            role: "operator",
+            scopes: ["operator.read"],
+          },
+        }),
+      });
+      expect(rotatedPrincipal).toBeDefined();
+      expect(listPluginNotificationTargets(rotatedPrincipal!, dir)).toEqual([
+        { id: "apns:phone-1" },
+        { id: "web:browser-subscription" },
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

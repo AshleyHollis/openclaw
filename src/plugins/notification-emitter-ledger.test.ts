@@ -76,6 +76,56 @@ describe("plugin notification SQLite ledger", () => {
     ).toEqual({ kind: "conflict" });
   });
 
+  it("keeps duplicate suppression and clearing with the operator after credential rotation", async () => {
+    const dir = await stateDir();
+    const first = new SqlitePluginNotificationLedger({ stateDir: dir });
+    const rotatedPrincipal: PluginNotificationPrincipal = {
+      ...principal,
+      authenticationGeneration: "auth-generation-2",
+      pairedDeviceId: "browser-2",
+      pairingGeneration: "pairing-generation-2",
+      issuerGeneration: "issuer-generation-2",
+    };
+    const emission = {
+      principal,
+      declarationId: "ready",
+      emissionId: "event-rotation",
+      logicalOperationId: "operation-rotation",
+      candidateHash: "hash-rotation",
+      expiresAtMs: 1_000_000,
+      targetIds: ["web:browser", "apns:phone"],
+      nowMs: 10_000,
+    };
+    expect(first.claimEmission(emission)).toMatchObject({ kind: "claimed" });
+    first.completeEmission({
+      principal,
+      emissionId: emission.emissionId,
+      result: sent,
+      outcomes: new Map([
+        ["web:browser", "accepted"],
+        ["apns:phone", "accepted"],
+      ]),
+      nowMs: 10_001,
+    });
+
+    const restarted = new SqlitePluginNotificationLedger({ stateDir: dir });
+    expect(restarted.claimEmission({ ...emission, principal: rotatedPrincipal })).toEqual({
+      kind: "replay",
+      result: sent,
+    });
+    expect(
+      restarted.claimClear({
+        principal: rotatedPrincipal,
+        logicalOperationId: emission.logicalOperationId,
+        nowMs: 10_002,
+      }),
+    ).toEqual({
+      kind: "claimed",
+      targetIds: ["apns:phone", "web:browser"],
+      clearedTargetIds: [],
+    });
+  });
+
   it("persists cross-device clearing, rate windows, and retention boundaries", async () => {
     const dir = await stateDir();
     const ledger = new SqlitePluginNotificationLedger({ stateDir: dir });
@@ -279,13 +329,19 @@ describe("plugin notification SQLite ledger", () => {
 
     await expect(createCoordinator().emit(principal, candidate)).resolves.toEqual(sent);
     await expect(
-      createCoordinator().clear(principal, { version: 1, logicalOperationId: candidate.logicalOperationId }),
+      createCoordinator().clear(principal, {
+        version: 1,
+        logicalOperationId: candidate.logicalOperationId,
+      }),
     ).resolves.toEqual({ status: "partial", attempted: 2, cleared: 1, failed: 1, ambiguous: 0 });
     expect(clearedTargets).toEqual(["apns:phone", "web:browser"]);
 
     failPhone = false;
     await expect(
-      createCoordinator().clear(principal, { version: 1, logicalOperationId: candidate.logicalOperationId }),
+      createCoordinator().clear(principal, {
+        version: 1,
+        logicalOperationId: candidate.logicalOperationId,
+      }),
     ).resolves.toEqual(cleared);
     expect(clearedTargets).toEqual(["apns:phone", "web:browser", "apns:phone"]);
   });

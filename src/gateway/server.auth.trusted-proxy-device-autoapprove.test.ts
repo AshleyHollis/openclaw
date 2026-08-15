@@ -20,6 +20,7 @@ import {
   installGatewayTestHooks,
   onceMessage,
   readConnectChallengeNonce,
+  rpcReq,
   testState,
   trackConnectChallengeNonce,
   withGatewayServer,
@@ -97,6 +98,7 @@ async function connectBrowser(params: {
   identityPath: string;
   scopes?: string[];
   token?: string;
+  deviceToken?: string;
   trustedProxy?: boolean;
   declaredProxyScopes?: string;
 }) {
@@ -109,6 +111,7 @@ async function connectBrowser(params: {
   try {
     return await connectReq(ws, {
       ...(params.token ? { token: params.token } : { skipDefaultAuth: true }),
+      ...(params.deviceToken ? { deviceToken: params.deviceToken } : {}),
       ...(params.scopes === undefined ? {} : { scopes: params.scopes }),
       client: CONTROL_UI_CLIENT,
       deviceIdentityPath: params.identityPath,
@@ -588,5 +591,50 @@ describe("trusted-proxy browser device auto-approval", () => {
     const paired = await getPairedDevice(identity.deviceId);
     expect(paired?.approvedScopes).toEqual(["operator.read"]);
     expect(paired?.approvedVia).not.toBe("trusted-proxy");
+  });
+
+  test("binds the proxy-authenticated operator to its verified device token", async () => {
+    await writeGatewayAuthConfig({
+      mode: "trusted-proxy",
+      deviceAutoApprove: { enabled: true },
+    });
+    const identityPath = deviceIdentityPath("trusted-proxy-device-binding");
+    const identity = loadOrCreateDeviceIdentity({ path: identityPath });
+
+    await withGatewayServer(async ({ port }) => {
+      expect(
+        (
+          await connectBrowser({
+            port,
+            identityPath,
+            scopes: ["operator.write"],
+          })
+        ).ok,
+      ).toBe(true);
+      const paired = await getPairedDevice(identity.deviceId);
+      const deviceToken = paired?.tokens.operator?.token;
+      expect(deviceToken).toEqual(expect.any(String));
+
+      const ws = await openBrowserWs(port, trustedProxyHeaders());
+      try {
+        const connected = await connectReq(ws, {
+          skipDefaultAuth: true,
+          deviceToken,
+          scopes: ["operator.write"],
+          client: CONTROL_UI_CLIENT,
+          deviceIdentityPath: identityPath,
+        });
+        expect(connected.ok).toBe(true);
+        const subscribed = await rpcReq(ws, "push.web.subscribe", {
+          endpoint: "https://push.example.test/subscription",
+          keys: { p256dh: "p256dh", auth: "auth" },
+        });
+        // Subscription registration fails unless the live client exposes both
+        // the proxy identity and independently verified device-token proof.
+        expect(subscribed.ok).toBe(true);
+      } finally {
+        ws.close();
+      }
+    });
   });
 });

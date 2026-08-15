@@ -65,17 +65,13 @@ function stateOptions(stateDir?: string): OpenClawStateDatabaseOptions {
 }
 
 function principalKey(principal: PluginNotificationPrincipal): string {
+  // Credential generations authorize each operation but do not own it. Keeping
+  // durable records operator/plugin-scoped preserves dedupe and clearing after rotation.
   return createHash("sha256")
     .update(
       JSON.stringify({
         operatorId: principal.operatorId,
         pluginId: principal.pluginId,
-        authenticationMethod: principal.authenticationMethod,
-        authenticationGeneration: principal.authenticationGeneration,
-        pairedDeviceId: principal.pairedDeviceId,
-        pairingGeneration: principal.pairingGeneration,
-        issuerGeneration: principal.issuerGeneration ?? null,
-        scopes: [...principal.scopes].toSorted(),
       }),
     )
     .digest("hex");
@@ -176,6 +172,8 @@ export function ensurePluginNotificationLedgerSchema(
     ) STRICT;
     CREATE INDEX IF NOT EXISTS idx_plugin_notification_device_associations_owner
       ON plugin_notification_device_associations(operator_id, authentication_generation, target_kind);
+    CREATE INDEX IF NOT EXISTS idx_plugin_notification_device_associations_operator_targets
+      ON plugin_notification_device_associations(operator_id, target_kind, target_id);
   `);
   ensured.add(db);
 }
