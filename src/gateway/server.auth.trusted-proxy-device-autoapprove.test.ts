@@ -593,7 +593,7 @@ describe("trusted-proxy browser device auto-approval", () => {
     expect(paired?.approvedVia).not.toBe("trusted-proxy");
   });
 
-  test("binds the proxy-authenticated operator to its verified device token", async () => {
+  test("binds a proxy-authenticated paired browser without sending its stored device token", async () => {
     await writeGatewayAuthConfig({
       mode: "trusted-proxy",
       deviceAutoApprove: { enabled: true },
@@ -612,14 +612,12 @@ describe("trusted-proxy browser device auto-approval", () => {
         ).ok,
       ).toBe(true);
       const paired = await getPairedDevice(identity.deviceId);
-      const deviceToken = paired?.tokens.operator?.token;
-      expect(deviceToken).toEqual(expect.any(String));
+      expect(paired?.tokens.operator?.token).toEqual(expect.any(String));
 
       const ws = await openBrowserWs(port, trustedProxyHeaders());
       try {
         const connected = await connectReq(ws, {
           skipDefaultAuth: true,
-          deviceToken,
           scopes: ["operator.write"],
           client: CONTROL_UI_CLIENT,
           deviceIdentityPath: identityPath,
@@ -629,8 +627,8 @@ describe("trusted-proxy browser device auto-approval", () => {
           endpoint: "https://push.example.test/subscription",
           keys: { p256dh: "p256dh", auth: "auth" },
         });
-        // Subscription registration fails unless the live client exposes both
-        // the proxy identity and independently verified device-token proof.
+        // The shared-auth handshake re-verifies the paired browser generation;
+        // the browser never sends its stored device token back to the gateway.
         expect(subscribed.ok).toBe(true);
       } finally {
         ws.close();

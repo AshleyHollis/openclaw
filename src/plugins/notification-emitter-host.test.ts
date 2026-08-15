@@ -65,6 +65,7 @@ function pairedDevice(overrides: Record<string, unknown> = {}) {
 
 function client(overrides: Record<string, unknown> = {}) {
   return {
+    authenticatedOperatorId: "operator@example.test",
     authenticatedUserId: "operator@example.test",
     isDeviceTokenAuth: true,
     sharedGatewaySessionGeneration: "issuer-1",
@@ -78,6 +79,39 @@ function client(overrides: Record<string, unknown> = {}) {
 }
 
 describe("host plugin notification principal", () => {
+  it("binds a paired browser under shared gateway auth without a profile or device-token auth", async () => {
+    mocks.loadPairing.mockReturnValue(pairedDevice());
+    const sharedGatewayClient = client({
+      authenticatedOperatorId: "gateway:default-operator",
+      authenticatedUserId: undefined,
+      isDeviceTokenAuth: false,
+      usesSharedGatewayAuth: true,
+    });
+
+    const dir = await mkdtemp(path.join(os.tmpdir(), "openclaw-notification-shared-auth-"));
+    try {
+      const principal = capturePluginNotificationPrincipal({
+        pluginId: "board",
+        client: sharedGatewayClient,
+      });
+
+      expect(principal).toMatchObject({
+        operatorId: "gateway:default-operator",
+        pairedDeviceId: "browser-1",
+        scopes: ["operator.read"],
+      });
+      expect(
+        associatePluginNotificationWebTarget({
+          subscriptionId: "shared-auth-browser",
+          client: sharedGatewayClient,
+          stateDir: dir,
+        }),
+      ).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("binds paired auth, issuer generation, revocation, and current scopes without serializing a token", () => {
     const device = pairedDevice();
     mocks.loadPairing.mockReturnValue(device);
@@ -259,6 +293,13 @@ describe("host plugin notification principal", () => {
       expect(listPluginNotificationTargets(rotatedPrincipal!, dir)).toEqual([
         { id: "apns:phone-1" },
         { id: "web:browser-subscription" },
+      ]);
+
+      (browser.tokens.operator as { revokedAtMs?: number }).revokedAtMs = 40;
+      // The new browser can still deliver to independently current devices, but
+      // never to a Web Push endpoint whose originally associated device is revoked.
+      expect(listPluginNotificationTargets(rotatedPrincipal!, dir)).toEqual([
+        { id: "apns:phone-1" },
       ]);
     } finally {
       await rm(dir, { recursive: true, force: true });

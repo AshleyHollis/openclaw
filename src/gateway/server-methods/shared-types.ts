@@ -86,6 +86,8 @@ export type GatewayClient = {
   clientIp?: string;
   /** Client id verified against the server-approved device pairing record. */
   pairedClientId?: string;
+  /** Stable host operator subject; unlike user identity, this exists for all authenticated modes. */
+  authenticatedOperatorId?: string;
   authenticatedUserId?: string;
   /** Verified Tailscale provider identity; generic proxy identities must not infer this. */
   authenticatedUserIsTailscaleProvider?: boolean;

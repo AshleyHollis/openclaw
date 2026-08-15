@@ -58,12 +58,35 @@ type PluginNotificationTargetOwner = {
   role: string;
 };
 
+type PluginNotificationDeviceBinding = Pick<
+  PluginNotificationTargetOwner,
+  | "authenticationMethod"
+  | "authenticationGeneration"
+  | "pairedDeviceId"
+  | "pairingGeneration"
+  | "issuerGeneration"
+  | "scopes"
+>;
+
 function stateOptions(stateDir?: string): OpenClawStateDatabaseOptions {
   return stateDir ? { env: { ...process.env, OPENCLAW_STATE_DIR: stateDir } } : {};
 }
 
 function operatorScopes(scopes: readonly string[]): OperatorScope[] {
   return scopes.filter(isOperatorScope).toSorted();
+}
+
+function parseOperatorScopes(value: string): OperatorScope[] | undefined {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed) || !parsed.every((scope) => typeof scope === "string")) {
+      return undefined;
+    }
+    const scopes = operatorScopes(parsed);
+    return scopes.length === parsed.length ? scopes : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function principalGeneration(params: {
@@ -108,11 +131,11 @@ function capturePluginNotificationTargetOwner(
 ): PluginNotificationTargetOwner | undefined {
   const deviceId = client?.connect.device?.id?.trim();
   const role = client?.connect.role?.trim();
-  const operatorId = client?.authenticatedUserId?.trim();
+  const operatorId = (client?.authenticatedOperatorId ?? client?.authenticatedUserId)?.trim();
   if (
     !client ||
     client.invalidated ||
-    !client.isDeviceTokenAuth ||
+    (!client.isDeviceTokenAuth && !client.usesSharedGatewayAuth) ||
     !deviceId ||
     !role ||
     !operatorId
@@ -133,7 +156,8 @@ function capturePluginNotificationTargetOwner(
     return undefined;
   }
   const issuerGeneration = token.issuer?.generation;
-  // A shared-auth-issued device token must stay tied to the exact authenticated issuer epoch.
+  // Shared gateway auth first verifies this paired device during the handshake. Its
+  // durable grant must then remain bound to that exact shared-auth issuer epoch.
   if (issuerGeneration && client.sharedGatewaySessionGeneration !== issuerGeneration) {
     return undefined;
   }
@@ -160,6 +184,54 @@ function capturePluginNotificationTargetOwner(
     scopes,
     role,
   };
+}
+
+function isPluginNotificationDeviceBindingCurrent(params: {
+  binding: PluginNotificationDeviceBinding;
+  requireOperatorScopes: boolean;
+  stateDir?: string;
+}): boolean {
+  const { binding } = params;
+  const device = loadPairedDevicePairingStoreRecord(binding.pairedDeviceId, params.stateDir);
+  if (
+    binding.authenticationMethod !== "device-token" ||
+    !device ||
+    pairingGeneration({
+      deviceId: device.deviceId,
+      publicKey: device.publicKey,
+      approvedAtMs: device.approvedAtMs,
+    }) !== binding.pairingGeneration
+  ) {
+    return false;
+  }
+  const bindingScopes = operatorScopes(binding.scopes);
+  if (
+    bindingScopes.length !== binding.scopes.length ||
+    (params.requireOperatorScopes && bindingScopes.length === 0)
+  ) {
+    return false;
+  }
+  return Object.entries(device.tokens).some(([role, token]) => {
+    if (!token || token.revokedAtMs) return false;
+    const tokenScopes = operatorScopes(token.scopes);
+    const issuerGeneration = token.issuer?.generation;
+    return (
+      binding.authenticationGeneration ===
+        principalGeneration({
+          deviceId: device.deviceId,
+          publicKey: device.publicKey,
+          role,
+          createdAtMs: token.createdAtMs,
+          rotatedAtMs: token.rotatedAtMs,
+          revokedAtMs: token.revokedAtMs,
+          issuerGeneration,
+          scopes: token.scopes,
+        }) &&
+      binding.issuerGeneration === issuerGeneration &&
+      tokenScopes.length === bindingScopes.length &&
+      tokenScopes.every((scope, index) => scope === bindingScopes[index])
+    );
+  });
 }
 
 /** Capture the exact host-authenticated principal that is allowed to emit for one plugin. */
@@ -238,42 +310,10 @@ export function isPluginNotificationPrincipalCurrent(params: {
   principal: PluginNotificationPrincipal;
   stateDir?: string;
 }): boolean {
-  const { principal } = params;
-  const device = loadPairedDevicePairingStoreRecord(principal.pairedDeviceId, params.stateDir);
-  if (
-    principal.authenticationMethod !== "device-token" ||
-    !device ||
-    pairingGeneration({
-      deviceId: device.deviceId,
-      publicKey: device.publicKey,
-      approvedAtMs: device.approvedAtMs,
-    }) !== principal.pairingGeneration
-  ) {
-    return false;
-  }
-  const principalScopes = operatorScopes(principal.scopes);
-  if (principalScopes.length !== principal.scopes.length || principalScopes.length === 0)
-    return false;
-  return Object.entries(device.tokens).some(([role, token]) => {
-    if (!token || token.revokedAtMs) return false;
-    const tokenScopes = operatorScopes(token.scopes);
-    const issuerGeneration = token.issuer?.generation;
-    return (
-      principal.authenticationGeneration ===
-        principalGeneration({
-          deviceId: device.deviceId,
-          publicKey: device.publicKey,
-          role,
-          createdAtMs: token.createdAtMs,
-          rotatedAtMs: token.rotatedAtMs,
-          revokedAtMs: token.revokedAtMs,
-          issuerGeneration,
-          scopes: token.scopes,
-        }) &&
-      principal.issuerGeneration === issuerGeneration &&
-      tokenScopes.length === principalScopes.length &&
-      tokenScopes.every((scope, index) => scope === principalScopes[index])
-    );
+  return isPluginNotificationDeviceBindingCurrent({
+    binding: params.principal,
+    requireOperatorScopes: true,
+    stateDir: params.stateDir,
   });
 }
 
@@ -365,15 +405,33 @@ export function listPluginNotificationTargets(
     database.db,
     getNodeSqliteKysely<AssociationDatabase>(database.db)
       .selectFrom("plugin_notification_device_associations")
-      .select(["target_id", "target_kind"])
+      .selectAll()
       .where("operator_id", "=", principal.operatorId)
       .orderBy("target_id"),
   ).rows;
+  const currentRows = rows.filter((row) => {
+    const scopes = parseOperatorScopes(row.scopes_json);
+    if (!scopes) return false;
+    // Associations are per-device grants, not merely operator labels. Recheck
+    // each target so revoking one browser cannot leak its preview via another.
+    return isPluginNotificationDeviceBindingCurrent({
+      binding: {
+        authenticationMethod: row.authentication_method as "device-token",
+        authenticationGeneration: row.authentication_generation,
+        pairedDeviceId: row.paired_device_id,
+        pairingGeneration: row.pairing_generation,
+        ...(row.issuer_generation ? { issuerGeneration: row.issuer_generation } : {}),
+        scopes,
+      },
+      requireOperatorScopes: scopes.length > 0,
+      stateDir,
+    });
+  });
   const currentWebIds = new Set(
     listWebPushSubscriptions(stateDir).map((entry) => `web:${entry.subscriptionId}`),
   );
   const currentApnsIds = new Set(
-    rows
+    currentRows
       .filter((row) => row.target_kind === "apns" && row.target_id.startsWith("apns:"))
       .map((row) => row.target_id)
       .filter((targetId) => {
@@ -381,7 +439,7 @@ export function listPluginNotificationTargets(
         return Boolean(node?.tokens.node && !node.tokens.node.revokedAtMs);
       }),
   );
-  return rows
+  return currentRows
     .filter(
       (row) =>
         (row.target_kind === "web" && currentWebIds.has(row.target_id)) ||

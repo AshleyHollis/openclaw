@@ -290,6 +290,57 @@ describe("plugin notification SQLite ledger", () => {
     ).toEqual({ kind: "replay", result: finalResult });
   });
 
+  it("reclaims clear attempts left in flight when the host restarts", async () => {
+    const dir = await stateDir();
+    const first = new SqlitePluginNotificationLedger({ stateDir: dir });
+    const emission = {
+      principal,
+      declarationId: "ready",
+      emissionId: "event-crash-recovery",
+      logicalOperationId: "operation-crash-recovery",
+      candidateHash: "hash-crash-recovery",
+      expiresAtMs: 1_000_000,
+      targetIds: ["web:browser", "apns:phone"],
+      nowMs: 10_000,
+    };
+    expect(first.claimEmission(emission)).toMatchObject({ kind: "claimed" });
+    first.completeEmission({
+      principal,
+      emissionId: emission.emissionId,
+      result: sent,
+      outcomes: new Map([
+        ["web:browser", "accepted"],
+        ["apns:phone", "accepted"],
+      ]),
+      nowMs: 10_001,
+    });
+
+    // Simulate process loss after the durable claim but before transport I/O completes.
+    expect(
+      first.claimClear({
+        principal,
+        logicalOperationId: emission.logicalOperationId,
+        nowMs: 10_002,
+      }),
+    ).toEqual({
+      kind: "claimed",
+      targetIds: ["apns:phone", "web:browser"],
+      clearedTargetIds: [],
+    });
+
+    expect(
+      new SqlitePluginNotificationLedger({ stateDir: dir }).claimClear({
+        principal,
+        logicalOperationId: emission.logicalOperationId,
+        nowMs: 10_003,
+      }),
+    ).toEqual({
+      kind: "claimed",
+      targetIds: ["apns:phone", "web:browser"],
+      clearedTargetIds: [],
+    });
+  });
+
   it("retries a failed device clear through a new coordinator after restart", async () => {
     const dir = await stateDir();
     const declaration = {

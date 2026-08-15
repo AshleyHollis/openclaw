@@ -340,9 +340,6 @@ export class SqlitePluginNotificationLedger implements PluginNotificationLedger 
           .where("logical_operation_id", "=", params.logicalOperationId),
       ).rows;
       if (existing.length > 0) {
-        if (existing.some((row) => row.outcome === "in-flight")) {
-          return { kind: "in-flight" as const };
-        }
         const clearedTargetIds = existing
           .filter((row) => row.outcome === "accepted")
           .map((row) => row.target_id)
@@ -366,6 +363,8 @@ export class SqlitePluginNotificationLedger implements PluginNotificationLedger 
             },
           };
         }
+        // Clear delivery is idempotent. An in-flight row is a crash-recovery
+        // marker, not an exclusive lease, so a restarted host can reclaim it.
         for (const targetId of targetIds) {
           executeSqliteQuerySync(
             db,

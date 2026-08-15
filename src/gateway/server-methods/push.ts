@@ -22,13 +22,13 @@ import {
   sendApnsAlert,
   shouldClearStoredApnsRegistration,
 } from "../../infra/push-apns.js";
+import { listWebPushSubscriptions } from "../../infra/push-web-store.js";
 import {
   broadcastWebPush,
   clearWebPushSubscriptionByEndpoint,
   registerWebPushSubscription,
   resolveVapidKeys,
 } from "../../infra/push-web.js";
-import { listWebPushSubscriptions } from "../../infra/push-web-store.js";
 import {
   associatePluginNotificationApnsTarget,
   associatePluginNotificationWebTarget,
@@ -168,18 +168,9 @@ export const pushHandlers: GatewayRequestHandlers = {
         endpoint: params.endpoint,
         keys: params.keys,
       });
-      if (!associatePluginNotificationWebTarget({ subscriptionId: subscription.subscriptionId, client })) {
-        await clearWebPushSubscriptionByEndpoint(params.endpoint);
-        respond(
-          false,
-          undefined,
-          errorShape(
-            ErrorCodes.INVALID_REQUEST,
-            "web push requires a current authenticated operator device association",
-          ),
-        );
-        return;
-      }
+      // General Web Push remains available when the optional plugin-notification
+      // association cannot be created (for example before a paired device exists).
+      associatePluginNotificationWebTarget({ subscriptionId: subscription.subscriptionId, client });
       respond(true, { subscriptionId: subscription.subscriptionId }, undefined);
     });
   },

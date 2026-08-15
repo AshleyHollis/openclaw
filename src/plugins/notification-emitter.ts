@@ -594,7 +594,12 @@ export function createPluginNotificationEmitter(params: {
     bindCurrentOperator: () => {
       const client = getPluginRuntimeGatewayRequestScope()?.client;
       const principal = params.capturePrincipal?.();
-      if (!client?.authenticatedUserId || !params.isPluginActive() || !principal) return undefined;
+      if (
+        !(client?.authenticatedOperatorId ?? client?.authenticatedUserId) ||
+        !params.isPluginActive() ||
+        !principal
+      )
+        return undefined;
       const authorized = () =>
         params.isPluginActive() &&
         (params.isDeclarationActive?.() ?? true) &&
