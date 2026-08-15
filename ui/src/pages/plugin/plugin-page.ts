@@ -112,9 +112,9 @@ function escapeHtmlAttribute(value: string): string {
 }
 
 /**
- * The bootstrap holds the iframe side of the port. It relays opaque local
- * messages for the plugin document but never transfers the port into a window
- * that could have navigated away after the source was provenance-checked.
+ * The bootstrap holds the iframe side of the port. Its public, versioned
+ * window relay lets the plugin speak the bridge without transferring the port
+ * into a document that could have navigated after provenance was checked.
  */
 function buildCapabilityBridgeDocument(source: URL, markup: string, bootstrapId: string): string {
   const base = `<base href="${escapeHtmlAttribute(source.href)}">`;
@@ -122,9 +122,9 @@ function buildCapabilityBridgeDocument(source: URL, markup: string, bootstrapId:
     "<script>(()=>{",
     `const id=${JSON.stringify(bootstrapId)};`,
     "const channel=new MessageChannel();const port=channel.port1;",
-    'port.onmessage=(event)=>window.postMessage({type:"openclaw:capability-bridge-receive",payload:event.data},"*");',
+    'port.onmessage=(event)=>window.postMessage({type:"openclaw:capability-bridge-receive",protocolVersion:1,payload:event.data},"*");',
     "port.start();",
-    'window.addEventListener("message",(event)=>{const data=event.data;if(event.source===window&&data?.type==="openclaw:capability-bridge-send")port.postMessage(data.payload)});',
+    'window.addEventListener("message",(event)=>{const data=event.data;if(event.source===window&&data?.type==="openclaw:capability-bridge-send"&&data.protocolVersion===1)port.postMessage(data.payload)});',
     `window.addEventListener("load",()=>parent.postMessage({type:"${CAPABILITY_BRIDGE_BOOTSTRAP_MOUNTED_MESSAGE}",id},"*"),{once:true});`,
     "document.currentScript?.remove();",
     `parent.postMessage({type:"${CAPABILITY_BRIDGE_BOOTSTRAP_MESSAGE}",id},"*",[channel.port2]);`,
@@ -157,8 +157,12 @@ export class PluginPage extends OpenClawLightDomContentsElement {
   @state() private externalAuthReadyKey: string | null = null;
   @state() private externalAuthUnavailableKey: string | null = null;
   @state()
-  private capabilityBridgeDocument: { key: string; markup: string; bootstrapId: string } | null =
-    null;
+  private capabilityBridgeDocument: {
+    key: string;
+    markup: string;
+    bootstrapId: string;
+    mutationNamespace: string;
+  } | null = null;
 
   private bundledViewHost: object = {};
   private gatewaySource?: ApplicationContext<RouteId>["gateway"];
@@ -789,6 +793,10 @@ export class PluginPage extends OpenClawLightDomContentsElement {
         this.capabilityBridgeDocument = {
           key,
           bootstrapId,
+          // The document is built only after the tab grant and current auth
+          // epoch are accepted. This host-generated nonce scopes downstream
+          // write identities without turning it into a sandbox credential.
+          mutationNamespace: randomBridgeBootstrapId(),
           markup: buildCapabilityBridgeDocument(loaded.source, loaded.markup, bootstrapId),
         };
       })
@@ -829,10 +837,11 @@ export class PluginPage extends OpenClawLightDomContentsElement {
       frame.getAttribute("srcdoc") !== document.markup
     )
       return;
-    this.capabilityBridge = new ExternalTabCapabilityBridgeController({
-      frame,
+    let capabilityBridge: ExternalTabCapabilityBridgeController;
+    capabilityBridge = new ExternalTabCapabilityBridgeController({
       client,
       grant,
+      mutationNamespace: document.mutationNamespace,
       // Hello carries the authenticated plugin/tab link set. Do not infer
       // authority from the Control UI's globally selected session.
       linkedSessionKeys: grant.linkedSessionKeys,
@@ -845,7 +854,16 @@ export class PluginPage extends OpenClawLightDomContentsElement {
         });
         window.location.assign(target.href);
       },
+      onHandshakeFailure: () => {
+        if (this.capabilityBridge !== capabilityBridge) return;
+        // An absent or incompatible plugin handshake must not leave a dead
+        // sandbox mounted. Keep the authenticated direct route read-only until
+        // a connection epoch refreshes the declared bridge contract.
+        this.capabilityBridgeReconnectRequired = true;
+        this.clearCapabilityBridge();
+      },
     });
+    this.capabilityBridge = capabilityBridge;
     this.capabilityBridgeBootstrapPort = null;
     if (this.capabilityBridgeBootstrapTimer) {
       clearTimeout(this.capabilityBridgeBootstrapTimer);

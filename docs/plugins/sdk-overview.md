@@ -366,10 +366,26 @@ only the declared intersection of `sessions.create`, `chat.history`,
 `operator.read`/`operator.write` methods. There is no raw RPC, URL, shell,
 subscription, session-list/delete, or global-presentation capability.
 
-The tab receives a private `MessagePort` with a window message
-`{ type: "openclaw:capability-bridge-connect", protocolVersion: 1 }` and
-sends `{ type: "openclaw:capability-bridge-hello", protocolVersion: 1 }` on
-that port within ten seconds. The host responds only with:
+The host keeps the private `MessagePort` in its provenance-bound bootstrap so
+a source document that later navigates cannot inherit it. A tab sends bridge
+messages through its own window with:
+
+```ts
+window.postMessage(
+  {
+    type: "openclaw:capability-bridge-send",
+    protocolVersion: 1,
+    payload: { type: "openclaw:capability-bridge-hello", protocolVersion: 1 },
+  },
+  "*",
+);
+```
+
+The tab receives host envelopes as self-window messages with
+`type: "openclaw:capability-bridge-receive"`, `protocolVersion: 1`, and the
+bridge envelope in `payload`. Ignore messages whose `source` is not `window`
+or whose relay protocol version is not `1`. It must send the hello within ten
+seconds. The host responds only with:
 
 ```ts
 { type: "openclaw:capability-bridge-ready", protocolVersion: 1,
@@ -381,10 +397,13 @@ Requests are `{ type: "openclaw:capability-bridge-request", requestId,
 method, params, operationId? }`; responses echo `requestId` with either
 `result` or `{ code, message, retryable, retryAfterMs? }`. Reads use a fresh
 request id for retry. Mutations require a stable operation id; `chat.send`
-maps it to Gateway idempotency and can retry only with a fresh request id and
-the same operation id. Timed-out create and plugin writes report unknown
-outcome. Limits are 64 KiB request, 1 MiB response, eight concurrent requests,
-60 requests/12 mutations per minute, ten-second hello, and 30-second request.
+maps its host-derived plugin/tab/current-auth authority namespace to Gateway
+idempotency and can retry only with a fresh request id and the same operation
+id. The same host namespace also scopes explicit Session keys, so identical
+logical operation ids from different tabs or operators never collide.
+Timed-out create and plugin writes report unknown outcome. Limits are 64 KiB
+request, 1 MiB response, eight concurrent requests, 60 requests/12 mutations
+per minute, ten-second hello, and 30-second request.
 
 Linked session authority is host-owned, tab-scoped, and frozen per port (zero
 to 200 keys); the current UI selection is never a grant. Search receives only

@@ -17,23 +17,19 @@ function makeBridge(
     methods?: string[];
     reads?: string[];
     links?: string[];
+    mutationNamespace?: string;
+    onHandshakeFailure?: ReturnType<typeof vi.fn>;
     now?: () => number;
     request?: ReturnType<typeof vi.fn>;
   } = {},
 ) {
-  const ports: MessagePort[] = [];
-  const frame = {
-    contentWindow: {
-      postMessage: (_value: unknown, _origin: string, transferred: MessagePort[]) =>
-        ports.push(transferred[0]!),
-    },
-  } as unknown as HTMLIFrameElement;
   const request = params.request ?? vi.fn(async (_method: string, values: unknown) => values);
   const controller = new ExternalTabCapabilityBridgeController({
-    frame,
     client: { request },
+    mutationNamespace: params.mutationNamespace ?? "operator-a-tab-a",
     linkedSessionKeys: params.links ?? ["agent:main:linked"],
     navigate: vi.fn(),
+    onHandshakeFailure: params.onHandshakeFailure,
     now: params.now,
     grant: {
       protocolVersion: 1,
@@ -51,10 +47,10 @@ function makeBridge(
       upgradeRequired: false,
     },
   });
-  controller.connect();
-  const port = ports[0]!;
-  port.start();
-  return { controller, port, request };
+  const channel = new MessageChannel();
+  controller.connect(channel.port1);
+  channel.port2.start();
+  return { controller, port: channel.port2, request };
 }
 function next(port: MessagePort) {
   return new Promise<Record<string, unknown>>((resolve) => {
@@ -165,7 +161,7 @@ describe("ExternalTabCapabilityBridgeController", () => {
     expect(request).toHaveBeenCalledWith("sessions.create", {
       agentId: "work",
       label: "New",
-      key: "agent:work:dashboard:bridge-create",
+      key: "agent:work:dashboard:bridge-operator-a-tab-a-create",
     });
     port.postMessage({
       type: "openclaw:capability-bridge-request",
@@ -187,7 +183,7 @@ describe("ExternalTabCapabilityBridgeController", () => {
     expect(request).toHaveBeenLastCalledWith("chat.send", {
       sessionKey: "agent:work:owned",
       message: "hello",
-      idempotencyKey: "op-owned",
+      idempotencyKey: "bridge:operator-a-tab-a:op-owned",
     });
   });
 
@@ -350,7 +346,7 @@ describe("ExternalTabCapabilityBridgeController", () => {
       result: {
         agentId: "work",
         label: "Draft",
-        key: "agent:work:dashboard:bridge-create-operation",
+        key: "agent:work:dashboard:bridge-operator-a-tab-a-create-operation",
       },
     });
     port.postMessage({
@@ -364,7 +360,7 @@ describe("ExternalTabCapabilityBridgeController", () => {
       result: {
         agentId: "work",
         label: "Draft",
-        key: "agent:work:dashboard:bridge-create-operation",
+        key: "agent:work:dashboard:bridge-operator-a-tab-a-create-operation",
       },
     });
     expect(request).toHaveBeenCalledTimes(1);
@@ -398,9 +394,14 @@ describe("ExternalTabCapabilityBridgeController", () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
 
-  it("uses the same authoritative session key when an operation is retried on a new bridge", async () => {
+  it("reuses a host mutation identity only within the same tab authority", async () => {
     const request = vi.fn(async (_method: string, params: unknown) => params);
-    const first = makeBridge({ methods: ["sessions.create"], reads: [], request });
+    const first = makeBridge({
+      methods: ["sessions.create"],
+      reads: [],
+      request,
+      mutationNamespace: "operator-a-tab-a",
+    });
     await hello(first.port);
     first.port.postMessage({
       type: "openclaw:capability-bridge-request",
@@ -412,7 +413,12 @@ describe("ExternalTabCapabilityBridgeController", () => {
     await next(first.port);
     first.controller.revoke();
 
-    const second = makeBridge({ methods: ["sessions.create"], reads: [], request });
+    const second = makeBridge({
+      methods: ["sessions.create"],
+      reads: [],
+      request,
+      mutationNamespace: "operator-a-tab-a",
+    });
     await hello(second.port);
     second.port.postMessage({
       type: "openclaw:capability-bridge-request",
@@ -425,12 +431,81 @@ describe("ExternalTabCapabilityBridgeController", () => {
 
     expect(request).toHaveBeenNthCalledWith(1, "sessions.create", {
       agentId: "work",
-      key: "agent:work:dashboard:bridge-stable-session-create",
+      key: "agent:work:dashboard:bridge-operator-a-tab-a-stable-session-create",
     });
     expect(request).toHaveBeenNthCalledWith(2, "sessions.create", {
       agentId: "work",
-      key: "agent:work:dashboard:bridge-stable-session-create",
+      key: "agent:work:dashboard:bridge-operator-a-tab-a-stable-session-create",
     });
+  });
+
+  it("partitions identical logical writes across authenticated tab authorities", async () => {
+    const request = vi.fn(async (_method: string, params: unknown) => params);
+    const first = makeBridge({
+      methods: ["sessions.create", "chat.send"],
+      reads: [],
+      request,
+      mutationNamespace: "operator-a-tab-a",
+    });
+    const second = makeBridge({
+      methods: ["sessions.create", "chat.send"],
+      reads: [],
+      request,
+      mutationNamespace: "operator-b-tab-b",
+    });
+    await Promise.all([hello(first.port), hello(second.port)]);
+
+    for (const bridge of [first, second]) {
+      bridge.port.postMessage({
+        type: "openclaw:capability-bridge-request",
+        requestId: `create-${bridge === first ? "a" : "b"}`,
+        operationId: "create",
+        method: "sessions.create",
+        params: { agentId: "work" },
+      });
+      await next(bridge.port);
+      bridge.port.postMessage({
+        type: "openclaw:capability-bridge-request",
+        requestId: `send-${bridge === first ? "a" : "b"}`,
+        operationId: "send",
+        method: "chat.send",
+        params: { sessionKey: "agent:main:linked", message: "hello" },
+      });
+      await next(bridge.port);
+    }
+
+    expect(request).toHaveBeenNthCalledWith(1, "sessions.create", {
+      agentId: "work",
+      key: "agent:work:dashboard:bridge-operator-a-tab-a-create",
+    });
+    expect(request).toHaveBeenNthCalledWith(2, "chat.send", {
+      sessionKey: "agent:main:linked",
+      message: "hello",
+      idempotencyKey: "bridge:operator-a-tab-a:send",
+    });
+    expect(request).toHaveBeenNthCalledWith(3, "sessions.create", {
+      agentId: "work",
+      key: "agent:work:dashboard:bridge-operator-b-tab-b-create",
+    });
+    expect(request).toHaveBeenNthCalledWith(4, "chat.send", {
+      sessionKey: "agent:main:linked",
+      message: "hello",
+      idempotencyKey: "bridge:operator-b-tab-b:send",
+    });
+  });
+
+  it("reports an absent or incompatible handshake to the mounting page", async () => {
+    vi.useFakeTimers();
+    const absent = vi.fn();
+    makeBridge({ onHandshakeFailure: absent });
+    await vi.advanceTimersByTimeAsync(EXTERNAL_TAB_BRIDGE_LIMITS.handshakeTimeoutMs);
+    expect(absent).toHaveBeenCalledOnce();
+
+    const incompatible = vi.fn();
+    const bridge = makeBridge({ onHandshakeFailure: incompatible });
+    bridge.port.postMessage({ type: "openclaw:capability-bridge-hello", protocolVersion: 2 });
+    await Promise.resolve();
+    expect(incompatible).toHaveBeenCalledOnce();
   });
 
   it("limits concurrent requests without issuing the rejected operation", async () => {

@@ -95,8 +95,9 @@ function isOptionalNonEmptyString(value: unknown, maxLength?: number): boolean {
 }
 
 /**
- * The port is the only iframe authority. Frame identity and Gateway identity
- * are intentionally retained in this controller and never posted to the port.
+ * PluginPage validates the iframe document before handing this controller the
+ * private port. From here, the port is the only iframe authority and Gateway
+ * identity remains outside every iframe-visible envelope.
  */
 export class ExternalTabCapabilityBridgeController {
   private port: MessagePort | null = null;
@@ -114,11 +115,16 @@ export class ExternalTabCapabilityBridgeController {
 
   constructor(
     private readonly options: {
-      frame: HTMLIFrameElement;
       client: ExternalTabBridgeGatewayClient;
       grant: Grant;
+      /**
+       * Host-created, authenticated tab authority. It is never taken from the
+       * sandbox, so a logical operation id cannot become Gateway-global.
+       */
+      mutationNamespace: string;
       linkedSessionKeys?: readonly string[];
       navigate: (sessionKey: string) => void;
+      onHandshakeFailure?: () => void;
       now?: () => number;
     },
   ) {
@@ -130,27 +136,15 @@ export class ExternalTabCapabilityBridgeController {
     }
   }
 
-  connect(port?: MessagePort): void {
+  connect(port: MessagePort): void {
     if (this.revoked) return;
-    if (port) {
-      this.port = port;
-    } else {
-      const target = this.options.frame.contentWindow;
-      if (!target) return;
-      const channel = new MessageChannel();
-      this.port = channel.port1;
-      target.postMessage(
-        {
-          type: "openclaw:capability-bridge-connect",
-          protocolVersion: 1,
-        },
-        "*",
-        [channel.port2],
-      );
-    }
+    this.port = port;
     this.port.onmessage = (event) => this.onMessage(event.data);
     this.port.start();
-    this.timer = setTimeout(() => this.revoke(), EXTERNAL_TAB_BRIDGE_LIMITS.handshakeTimeoutMs);
+    this.timer = setTimeout(
+      () => this.failHandshake(),
+      EXTERNAL_TAB_BRIDGE_LIMITS.handshakeTimeoutMs,
+    );
   }
 
   revoke(): void {
@@ -179,7 +173,8 @@ export class ExternalTabCapabilityBridgeController {
     const message = asRecord(value);
     if (message?.type === "openclaw:capability-bridge-revoke") return this.revoke();
     if (message?.type === "openclaw:capability-bridge-hello") {
-      if (this.hello || message.protocolVersion !== 1) return this.revoke();
+      if (this.hello) return this.revoke();
+      if (message.protocolVersion !== 1) return this.failHandshake();
       this.hello = true;
       if (this.timer) clearTimeout(this.timer);
       this.timer = null;
@@ -196,8 +191,14 @@ export class ExternalTabCapabilityBridgeController {
       });
       return;
     }
-    if (!this.hello) return this.revoke();
+    if (!this.hello) return this.failHandshake();
     void this.handle(value);
+  }
+
+  private failHandshake(): void {
+    if (this.revoked || this.hello) return;
+    this.revoke();
+    this.options.onHandshakeFailure?.();
   }
 
   private trim(now: number): void {
@@ -435,10 +436,11 @@ export class ExternalTabCapabilityBridgeController {
       )
         throw new Failure("INVALID_PARAMS", "Invalid session creation parameters");
       // sessions.create already adopts an explicit key atomically. Deriving it
-      // from the logical operation keeps retries safe even after this port ends.
+      // from host tab authority plus the logical operation keeps retries safe
+      // without allowing two authenticated tabs to adopt each other's key.
       allowed = {
         ...params,
-        key: `agent:${params.agentId}:dashboard:bridge-${request.operationId}`,
+        key: `agent:${params.agentId}:dashboard:bridge-${this.options.mutationNamespace}-${request.operationId}`,
       };
     } else if (request.method === "chat.history") {
       const limit = params.limit;
@@ -465,7 +467,7 @@ export class ExternalTabCapabilityBridgeController {
       allowed = {
         ...params,
         sessionKey: this.linked(params.sessionKey),
-        idempotencyKey: request.operationId,
+        idempotencyKey: `bridge:${this.options.mutationNamespace}:${request.operationId}`,
       };
     } else if (request.method === "ui.session.navigate") {
       if (!this.exact(params, ["sessionKey"]))

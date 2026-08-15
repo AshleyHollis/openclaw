@@ -78,7 +78,7 @@ const externalTab: GatewayControlUiPluginTab = {
 
 function externalPluginDocument(): string {
   return `<!doctype html><script>
-    const send = (payload) => window.postMessage({ type: "openclaw:capability-bridge-send", payload }, "*");
+    const send = (payload) => window.postMessage({ type: "openclaw:capability-bridge-send", protocolVersion: 1, payload }, "*");
     const requestHistory = (requestId) => send({
       type: "openclaw:capability-bridge-request",
       requestId,
@@ -90,10 +90,10 @@ function externalPluginDocument(): string {
         parent.postMessage({ type: "external-bridge-e2e:retry-sent" }, "*");
         requestHistory("history-retry");
       }
-      if (event.data?.type !== "openclaw:capability-bridge-receive") return;
+      if (event.source !== window || event.data?.type !== "openclaw:capability-bridge-receive" || event.data.protocolVersion !== 1) return;
       const message = event.data.payload;
       if (message?.type === "openclaw:capability-bridge-ready") {
-        parent.postMessage({ type: "external-bridge-e2e:ready", value: message }, "*");
+        parent.postMessage({ type: "external-bridge-e2e:ready", relayProtocolVersion: event.data.protocolVersion, value: message }, "*");
         requestHistory("history-initial");
       }
       if (message?.type === "openclaw:capability-bridge-response") {
@@ -183,6 +183,7 @@ describeControlUiE2e("PluginPage external capability bridge E2E", () => {
     }).toContainEqual(
       expect.objectContaining({
         type: "external-bridge-e2e:ready",
+        relayProtocolVersion: 1,
         value: expect.objectContaining({ methods: ["chat.history"] }),
       }),
     );

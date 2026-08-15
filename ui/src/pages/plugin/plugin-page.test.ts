@@ -5,6 +5,7 @@ import type { RouteId } from "../../app-route-paths.ts";
 import type { ApplicationConfigCapability } from "../../app/config.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "../../app/context.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
+import { EXTERNAL_TAB_BRIDGE_LIMITS } from "../../lib/external-tab-capability-bridge.ts";
 import { getLogbookState, stopLogbookPolling } from "./logbook-controller.ts";
 import { renderLogbook } from "./logbook-view.ts";
 import { PluginPage } from "./plugin-page.ts";
@@ -200,7 +201,12 @@ function bridgeClient(request = vi.fn()) {
 function bridgeState(page: PluginPage) {
   return page as unknown as {
     capabilityBridge: unknown;
-    capabilityBridgeDocument: { key: string; markup: string; bootstrapId: string } | null;
+    capabilityBridgeDocument: {
+      key: string;
+      markup: string;
+      bootstrapId: string;
+      mutationNamespace: string;
+    } | null;
     capabilityBridgeFrameLoadSeen: boolean;
     handleCapabilityBridgeBootstrap: (event: MessageEvent) => void;
   };
@@ -377,6 +383,64 @@ describe("PluginPage", () => {
       expect(client.request).not.toHaveBeenCalled();
     } finally {
       page.remove();
+    }
+  });
+
+  it("falls back to the authenticated read-only route after an incompatible bridge handshake", async () => {
+    const refresh = vi.fn(async () => externalPluginConfig());
+    const client = bridgeClient();
+    const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
+      capabilityBridge: externalTabBridgeGrant(),
+      client,
+    });
+    document.body.append(page);
+    try {
+      await waitForFast(() => expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"));
+      const frame = page.querySelector("iframe");
+      if (!frame) {
+        throw new Error("expected plugin frame");
+      }
+      const port = mountCapabilityBridge(page, frame);
+      expect(bridgeState(page).capabilityBridge).not.toBeNull();
+      port.postMessage({ type: "openclaw:capability-bridge-hello", protocolVersion: 2 });
+      await Promise.resolve();
+      await page.updateComplete;
+
+      expect(bridgeState(page).capabilityBridge).toBeNull();
+      expect(page.querySelector("iframe")?.getAttribute("src")).toBe("/plugins/external/panel");
+      expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toBeNull();
+      expect(page.textContent).toContain("Capability bridge unavailable");
+    } finally {
+      page.remove();
+    }
+  });
+
+  it("falls back to the authenticated read-only route when the bridge hello is absent", async () => {
+    const refresh = vi.fn(async () => externalPluginConfig());
+    const client = bridgeClient();
+    const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
+      capabilityBridge: externalTabBridgeGrant(),
+      client,
+    });
+    document.body.append(page);
+    try {
+      await waitForFast(() => expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"));
+      const frame = page.querySelector("iframe");
+      if (!frame) {
+        throw new Error("expected plugin frame");
+      }
+      vi.useFakeTimers();
+      mountCapabilityBridge(page, frame);
+      await vi.advanceTimersByTimeAsync(EXTERNAL_TAB_BRIDGE_LIMITS.handshakeTimeoutMs);
+      await page.updateComplete;
+
+      expect(bridgeState(page).capabilityBridge).toBeNull();
+      expect(page.querySelector("iframe")?.getAttribute("src")).toBe("/plugins/external/panel");
+      expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toBeNull();
+      expect(page.textContent).toContain("Capability bridge unavailable");
+    } finally {
+      page.remove();
+      vi.useRealTimers();
     }
   });
 
