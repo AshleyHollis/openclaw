@@ -648,7 +648,7 @@ function createNotificationServiceWorker(
   const showNotification = vi.fn(
     async (_title: string, _options: ServiceWorkerNotificationOptions) => undefined,
   );
-  const getNotifications = vi.fn(async () => []);
+  const getNotifications = vi.fn(async (): Promise<Array<{ close(): void }>> => []);
   const scopeUrl = new URL(scope);
   const serviceWorkerGlobal = {
     addEventListener(type: string, listener: (event: ServiceWorkerNotificationEventStub) => void) {
@@ -706,7 +706,9 @@ function createNotificationServiceWorker(
 
       return { title: notification[0], options: notification[1] };
     },
-    async dispatchNotificationClick(data: ServiceWorkerNotificationOptions["data"]) {
+    async dispatchNotificationClick(
+      data: NonNullable<ServiceWorkerNotificationEventStub["notification"]>["data"],
+    ) {
       const listener = listeners.get("notificationclick");
       if (!listener) {
         throw new Error("Service worker did not register a notification-click handler");

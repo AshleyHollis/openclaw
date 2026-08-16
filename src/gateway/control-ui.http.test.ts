@@ -2480,7 +2480,7 @@ describe("handleControlUiHttpRequest", () => {
                 notificationBinding: {
                   operatorId: "gateway:default-operator",
                   pairedDeviceId: expect.any(String),
-                  scopes: ["operator.admin", "operator.read"],
+                  scopes: ["operator.admin", "operator.read", "operator.write"],
                 },
               },
             ]);
