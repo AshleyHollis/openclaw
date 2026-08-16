@@ -109,3 +109,6 @@ repos:
         language: system
         pass_filenames: false
         types: [swift]
+
+ci:
+  skip: [shellcheck]
