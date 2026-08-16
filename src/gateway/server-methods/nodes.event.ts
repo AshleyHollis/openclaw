@@ -106,6 +106,15 @@ export const nodeEventHandlers: GatewayRequestHandlers = {
         },
         clearNodePresenceActivity: (activity) =>
           context.nodeRegistry.clearPresenceActivity(activity),
+        onApnsRegistrationAccepted: async (registeredNodeId) => {
+          const { associatePluginNotificationApnsTarget } =
+            await import("../../plugins/notification-emitter-host.js");
+          if (!associatePluginNotificationApnsTarget({ nodeId: registeredNodeId, client })) {
+            context.logGateway.warn(
+              `push apns register accepted without notification target association node=${registeredNodeId}`,
+            );
+          }
+        },
         logGateway: { warn: context.logGateway.warn },
       };
       const result = await handleNodeEvent(

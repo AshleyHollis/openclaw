@@ -2,6 +2,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { asDateTimestampMs } from "@openclaw/normalization-core/number-coercion";
+import type { PluginNotificationPrincipalBinding } from "../plugins/notification-emitter-host.js";
 import {
   CONTROL_UI_PLUGIN_AUTH_GRANT_TTL_MS,
   CONTROL_UI_PLUGIN_AUTH_PROBE_MESSAGE,
@@ -18,6 +19,22 @@ import { resolvePluginRoutePathContext } from "./server/plugins-http/path-contex
 const CONTROL_UI_PLUGIN_AUTH_COOKIE_PREFIX = `__openclaw_plugin_tab_auth_${randomBytes(8).toString("hex")}`;
 const CONTROL_UI_PLUGIN_AUTH_COOKIE_SCOPE = "plugin-tab";
 const controlUiPluginAuthCookieSecret = randomBytes(32);
+const MAX_CONTROL_UI_PLUGIN_NOTIFICATION_BINDINGS = 256;
+
+/** A resolved frame grant may carry a host-only notification binding. */
+export type ControlUiPluginTabAuthRequestGrant = ControlUiPluginTabAuthGrant & {
+  notificationBinding?: PluginNotificationPrincipalBinding;
+};
+
+type PluginNotificationBindingRecord = {
+  pluginId: string;
+  expiresAtMs: number;
+  binding: PluginNotificationPrincipalBinding;
+};
+
+// The signed cookie carries only this opaque id. Device generations stay in
+// process memory so an external plugin handler cannot decode host auth facts.
+const pluginNotificationBindings = new Map<string, PluginNotificationBindingRecord>();
 
 type PluginAuthCookiePayload = {
   scope: typeof CONTROL_UI_PLUGIN_AUTH_COOKIE_SCOPE;
@@ -28,7 +45,93 @@ type PluginAuthCookiePayload = {
   generation: string;
   exp: number;
   profileId?: string;
+  notificationBindingId?: string;
 };
+
+function snapshotNotificationBinding(
+  binding: PluginNotificationPrincipalBinding | undefined,
+  grantScopes: readonly OperatorScope[],
+): PluginNotificationPrincipalBinding | undefined {
+  const bindingScopes = binding?.scopes.filter(isOperatorScope) ?? [];
+  if (
+    !binding ||
+    binding.authenticationMethod !== "device-token" ||
+    !binding.operatorId ||
+    !binding.authenticationGeneration ||
+    !binding.pairedDeviceId ||
+    !binding.pairingGeneration ||
+    bindingScopes.length !== binding.scopes.length ||
+    bindingScopes.length === 0 ||
+    !grantScopes.every((scope) => bindingScopes.includes(scope))
+  ) {
+    return undefined;
+  }
+  return {
+    operatorId: binding.operatorId,
+    authenticationMethod: "device-token",
+    authenticationGeneration: binding.authenticationGeneration,
+    pairedDeviceId: binding.pairedDeviceId,
+    pairingGeneration: binding.pairingGeneration,
+    ...(binding.issuerGeneration ? { issuerGeneration: binding.issuerGeneration } : {}),
+    // The public frame grant remains least-privilege, but this private record
+    // retains the verified token scopes needed for declaration authorization.
+    scopes: bindingScopes,
+  };
+}
+
+function prunePluginNotificationBindings(nowMs: number) {
+  for (const [id, record] of pluginNotificationBindings) {
+    if (record.expiresAtMs <= nowMs) {
+      pluginNotificationBindings.delete(id);
+    }
+  }
+  while (pluginNotificationBindings.size > MAX_CONTROL_UI_PLUGIN_NOTIFICATION_BINDINGS) {
+    const oldestId = pluginNotificationBindings.keys().next().value;
+    if (typeof oldestId !== "string") {
+      break;
+    }
+    pluginNotificationBindings.delete(oldestId);
+  }
+}
+
+function registerPluginNotificationBinding(params: {
+  binding: PluginNotificationPrincipalBinding;
+  pluginId: string;
+  expiresAtMs: number;
+  nowMs: number;
+}): string {
+  prunePluginNotificationBindings(params.nowMs);
+  const id = randomBytes(18).toString("base64url");
+  pluginNotificationBindings.set(id, {
+    pluginId: params.pluginId,
+    expiresAtMs: params.expiresAtMs,
+    binding: params.binding,
+  });
+  prunePluginNotificationBindings(params.nowMs);
+  return id;
+}
+
+function resolvePluginNotificationBinding(params: {
+  id: string | undefined;
+  pluginId: string;
+  expiresAtMs: number;
+  nowMs: number;
+}): PluginNotificationPrincipalBinding | undefined {
+  if (!params.id) {
+    return undefined;
+  }
+  prunePluginNotificationBindings(params.nowMs);
+  const record = pluginNotificationBindings.get(params.id);
+  if (
+    !record ||
+    record.pluginId !== params.pluginId ||
+    record.expiresAtMs !== params.expiresAtMs ||
+    record.expiresAtMs <= params.nowMs
+  ) {
+    return undefined;
+  }
+  return { ...record.binding, scopes: [...record.binding.scopes] };
+}
 
 function signPayload(encodedPayload: string): string {
   return createHmac("sha256", controlUiPluginAuthCookieSecret)
@@ -95,6 +198,7 @@ function createControlUiPluginAuthCookie(
     generation: string | undefined;
     profileId?: string;
     nowMs?: number;
+    notificationBinding?: PluginNotificationPrincipalBinding;
   },
 ) {
   const path = normalizeCookiePath(grant.path);
@@ -109,15 +213,27 @@ function createControlUiPluginAuthCookie(
   if (exp === undefined) {
     return undefined;
   }
+  const scopes = grant.scopes.filter(isOperatorScope);
+  const notificationBinding = snapshotNotificationBinding(params.notificationBinding, scopes);
   const payload: PluginAuthCookiePayload = {
     scope: CONTROL_UI_PLUGIN_AUTH_COOKIE_SCOPE,
     pluginId: grant.pluginId,
-    scopes: grant.scopes.filter(isOperatorScope),
+    scopes,
     path,
     match: grant.match,
     generation: params.generation,
     exp,
     ...(params.profileId ? { profileId: params.profileId } : {}),
+    ...(notificationBinding
+      ? {
+          notificationBindingId: registerPluginNotificationBinding({
+            binding: notificationBinding,
+            pluginId: grant.pluginId,
+            expiresAtMs: exp,
+            nowMs: now,
+          }),
+        }
+      : {}),
   };
   const encodedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
   const sig = signPayload(encodedPayload);
@@ -135,6 +251,7 @@ export function setControlUiPluginAuthCookie(
     generation: string | undefined;
     profileId?: string;
     nowMs?: number;
+    notificationBinding?: PluginNotificationPrincipalBinding;
   },
 ) {
   const issuedGrants: ControlUiPluginTabAuthGrant[] = [];
@@ -143,6 +260,7 @@ export function setControlUiPluginAuthCookie(
       generation: params.generation,
       profileId: params.profileId,
       nowMs: params.nowMs,
+      notificationBinding: params.notificationBinding,
     });
     if (!cookie) {
       return [];
@@ -185,7 +303,7 @@ export function resolveControlUiPluginAuthCookieGrants(
     generation: string | undefined;
     nowMs?: number;
   },
-): ControlUiPluginTabAuthGrant[] {
+): ControlUiPluginTabAuthRequestGrant[] {
   const now = asDateTimestampMs(params.nowMs ?? Date.now());
   if (now === undefined) {
     return [];
@@ -198,7 +316,7 @@ export function resolveControlUiPluginAuthCookieGrants(
   if (requestPathContext.malformedEncoding || requestPathContext.decodePassLimitReached) {
     return [];
   }
-  const grants: ControlUiPluginTabAuthGrant[] = [];
+  const grants: ControlUiPluginTabAuthRequestGrant[] = [];
   for (const value of readCookieHeaderValues(
     req.headers.cookie,
     CONTROL_UI_PLUGIN_AUTH_COOKIE_PREFIX,
@@ -224,6 +342,9 @@ export function resolveControlUiPluginAuthCookieGrants(
         (payload.profileId !== undefined &&
           (typeof payload.profileId !== "string" || payload.profileId.length === 0)) ||
         !Array.isArray(payload.scopes) ||
+        (payload.notificationBindingId !== undefined &&
+          (typeof payload.notificationBindingId !== "string" ||
+            !/^[A-Za-z0-9_-]{24}$/.test(payload.notificationBindingId))) ||
         typeof payload.path !== "string" ||
         normalizeCookiePath(payload.path) !== payload.path ||
         (payload.match !== "exact" && payload.match !== "prefix")
@@ -242,12 +363,19 @@ export function resolveControlUiPluginAuthCookieGrants(
       ) {
         continue;
       }
-      const grant = {
+      const notificationBinding = resolvePluginNotificationBinding({
+        id: payload.notificationBindingId,
+        pluginId: payload.pluginId,
+        expiresAtMs: payload.exp,
+        nowMs: now,
+      });
+      const grant: ControlUiPluginTabAuthRequestGrant = {
         pluginId: payload.pluginId,
         path: payload.path,
         match: payload.match,
         scopes: payload.scopes.filter(isOperatorScope),
         ...(payload.profileId ? { profileId: payload.profileId } : {}),
+        ...(notificationBinding ? { notificationBinding } : {}),
       };
       grants.push(grant);
     } catch {

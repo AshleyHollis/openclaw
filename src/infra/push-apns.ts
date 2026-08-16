@@ -18,8 +18,11 @@ import {
   createApnsApprovalAlertPayload,
   createApnsApprovalResolvedPayload,
   createApnsBackgroundPayload,
+  createApnsPluginNotificationAlertPayload,
+  createApnsPluginNotificationClearedPayload,
   resolveExecApprovalAlertBody,
   resolvePluginApprovalAlertBody,
+  type PluginNotificationApnsTarget,
 } from "./push-apns-payloads.js";
 import {
   isLikelyApnsToken,
@@ -80,6 +83,7 @@ type ApnsRequestParams = {
   bearerToken: string;
   payload: object;
   timeoutMs: number;
+  expirationUnixSeconds?: number;
   pushType: ApnsPushType;
   priority: "10" | "5";
   signal?: AbortSignal;
@@ -158,6 +162,7 @@ async function sendApnsRequest(params: {
   bearerToken: string;
   payload: object;
   timeoutMs: number;
+  expirationUnixSeconds?: number;
   pushType: ApnsPushType;
   priority: "10" | "5";
   signal?: AbortSignal;
@@ -240,7 +245,7 @@ async function sendApnsRequest(params: {
           "apns-topic": params.topic,
           "apns-push-type": params.pushType,
           "apns-priority": params.priority,
-          "apns-expiration": "0",
+          "apns-expiration": params.expirationUnixSeconds?.toString() ?? "0",
           "content-type": "application/json",
           "content-length": Buffer.byteLength(body).toString(),
         });
@@ -374,6 +379,7 @@ async function sendDirectApnsPush(params: {
   registration: DirectApnsRegistration;
   payload: object;
   timeoutMs?: number;
+  expirationUnixSeconds?: number;
   requestSender?: ApnsRequestSender;
   pushType: ApnsPushType;
   priority: "10" | "5";
@@ -393,6 +399,9 @@ async function sendDirectApnsPush(params: {
     bearerToken,
     payload: params.payload,
     timeoutMs: resolveApnsTimeoutMs(params.timeoutMs),
+    ...(params.expirationUnixSeconds !== undefined
+      ? { expirationUnixSeconds: params.expirationUnixSeconds }
+      : {}),
     pushType: params.pushType,
     priority: params.priority,
     ...(params.signal ? { signal: params.signal } : {}),
@@ -411,6 +420,7 @@ async function sendRelayApnsPush(params: {
   payload: object;
   pushType: ApnsPushType;
   priority: "10" | "5";
+  expirationUnixSeconds?: number;
   gatewayIdentity?: Pick<DeviceIdentity, "deviceId" | "privateKeyPem">;
   requestSender?: ApnsRelayRequestSender;
   signal?: AbortSignal;
@@ -423,6 +433,9 @@ async function sendRelayApnsPush(params: {
     payload: params.payload,
     pushType: params.pushType,
     priority: params.priority,
+    ...(params.expirationUnixSeconds === undefined
+      ? {}
+      : { expirationUnixSeconds: params.expirationUnixSeconds }),
     gatewayIdentity: params.gatewayIdentity,
     requestSender: params.requestSender,
     ...(params.signal ? { signal: params.signal } : {}),
@@ -436,6 +449,8 @@ type ApnsAlertCommonParams = {
   title: string;
   body: string;
   timeoutMs?: number;
+  /** Absolute APNs expiry. Omit for immediate-only delivery. */
+  expirationUnixSeconds?: number;
   signal?: AbortSignal;
   isCurrent?: () => Promise<boolean>;
 };
@@ -513,6 +528,56 @@ type ApnsPluginApprovalAlertParams = ApnsApprovalParams & {
   description: string;
 };
 
+type ApnsPluginNotificationCommonParams = {
+  nodeId: string;
+  sourceId: string;
+  tag: string;
+  timeoutMs?: number;
+  expirationUnixSeconds?: number;
+  signal?: AbortSignal;
+  isCurrent?: () => Promise<boolean>;
+};
+
+type ApnsPluginNotificationAlertCommonParams = ApnsPluginNotificationCommonParams & {
+  title: string;
+  body: string;
+  target: PluginNotificationApnsTarget;
+};
+
+type DirectApnsPluginNotificationAlertParams = ApnsPluginNotificationAlertCommonParams & {
+  registration: DirectApnsRegistration;
+  auth: ApnsAuthConfig;
+  requestSender?: ApnsRequestSender;
+  relayConfig?: never;
+  relayRequestSender?: never;
+};
+
+type RelayApnsPluginNotificationAlertParams = ApnsPluginNotificationAlertCommonParams & {
+  registration: RelayApnsRegistration;
+  relayConfig: ApnsRelayConfig;
+  relayRequestSender?: ApnsRelayRequestSender;
+  relayGatewayIdentity?: Pick<DeviceIdentity, "deviceId" | "privateKeyPem">;
+  auth?: never;
+  requestSender?: never;
+};
+
+type DirectApnsPluginNotificationClearParams = ApnsPluginNotificationCommonParams & {
+  registration: DirectApnsRegistration;
+  auth: ApnsAuthConfig;
+  requestSender?: ApnsRequestSender;
+  relayConfig?: never;
+  relayRequestSender?: never;
+};
+
+type RelayApnsPluginNotificationClearParams = ApnsPluginNotificationCommonParams & {
+  registration: RelayApnsRegistration;
+  relayConfig: ApnsRelayConfig;
+  relayRequestSender?: ApnsRelayRequestSender;
+  relayGatewayIdentity?: Pick<DeviceIdentity, "deviceId" | "privateKeyPem">;
+  auth?: never;
+  requestSender?: never;
+};
+
 /** Sends a visible APNs alert via direct APNs token or relay registration. */
 export async function sendApnsAlert(
   params: DirectApnsAlertParams | RelayApnsAlertParams,
@@ -531,6 +596,7 @@ export async function sendApnsAlert(
       payload,
       pushType: "alert",
       priority: "10",
+      expirationUnixSeconds: relayParams.expirationUnixSeconds,
       gatewayIdentity: relayParams.relayGatewayIdentity,
       requestSender: relayParams.relayRequestSender,
       ...(relayParams.signal ? { signal: relayParams.signal } : {}),
@@ -543,11 +609,92 @@ export async function sendApnsAlert(
     registration: directParams.registration,
     payload,
     timeoutMs: directParams.timeoutMs,
+    expirationUnixSeconds: directParams.expirationUnixSeconds,
     requestSender: directParams.requestSender,
     pushType: "alert",
     priority: "10",
     ...(directParams.signal ? { signal: directParams.signal } : {}),
     ...(directParams.isCurrent ? { isCurrent: directParams.isCurrent } : {}),
+  });
+}
+
+async function sendApnsPluginNotificationPush(params: {
+  transport:
+    | DirectApnsPluginNotificationAlertParams
+    | RelayApnsPluginNotificationAlertParams
+    | DirectApnsPluginNotificationClearParams
+    | RelayApnsPluginNotificationClearParams;
+  payload: object;
+  pushType: ApnsPushType;
+  priority: "10" | "5";
+}): Promise<ApnsPushResult> {
+  const transport = params.transport;
+  if (transport.registration.transport === "relay") {
+    const relayParams = transport as
+      | RelayApnsPluginNotificationAlertParams
+      | RelayApnsPluginNotificationClearParams;
+    return await sendRelayApnsPush({
+      relayConfig: relayParams.relayConfig,
+      registration: relayParams.registration,
+      payload: params.payload,
+      pushType: params.pushType,
+      priority: params.priority,
+      expirationUnixSeconds: relayParams.expirationUnixSeconds,
+      gatewayIdentity: relayParams.relayGatewayIdentity,
+      requestSender: relayParams.relayRequestSender,
+      ...(relayParams.signal ? { signal: relayParams.signal } : {}),
+      ...(relayParams.isCurrent ? { isCurrent: relayParams.isCurrent } : {}),
+    });
+  }
+  const directParams = transport as
+    | DirectApnsPluginNotificationAlertParams
+    | DirectApnsPluginNotificationClearParams;
+  return await sendDirectApnsPush({
+    auth: directParams.auth,
+    registration: directParams.registration,
+    payload: params.payload,
+    timeoutMs: directParams.timeoutMs,
+    expirationUnixSeconds: directParams.expirationUnixSeconds,
+    requestSender: directParams.requestSender,
+    pushType: params.pushType,
+    priority: params.priority,
+    ...(directParams.signal ? { signal: directParams.signal } : {}),
+    ...(directParams.isCurrent ? { isCurrent: directParams.isCurrent } : {}),
+  });
+}
+
+/** Sends a typed plugin destination alert through the host-owned APNs transport. */
+export async function sendApnsPluginNotificationAlert(
+  params: DirectApnsPluginNotificationAlertParams | RelayApnsPluginNotificationAlertParams,
+): Promise<ApnsPushAlertResult> {
+  return await sendApnsPluginNotificationPush({
+    transport: params,
+    payload: createApnsPluginNotificationAlertPayload({
+      nodeId: params.nodeId,
+      title: params.title,
+      body: params.body,
+      sourceId: params.sourceId,
+      tag: params.tag,
+      target: params.target,
+    }),
+    pushType: "alert",
+    priority: "10",
+  });
+}
+
+/** Sends a silent, idempotent plugin notification clear through the host-owned APNs transport. */
+export async function sendApnsPluginNotificationClear(
+  params: DirectApnsPluginNotificationClearParams | RelayApnsPluginNotificationClearParams,
+): Promise<ApnsPushWakeResult> {
+  return await sendApnsPluginNotificationPush({
+    transport: params,
+    payload: createApnsPluginNotificationClearedPayload({
+      nodeId: params.nodeId,
+      sourceId: params.sourceId,
+      tag: params.tag,
+    }),
+    pushType: "background",
+    priority: "5",
   });
 }
 

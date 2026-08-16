@@ -1,6 +1,15 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, expect, test, vi } from "vitest";
-import { getPluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.js";
+import { capturePluginNotificationPrincipal } from "../plugins/notification-emitter-host.js";
+import {
+  createPluginNotificationEmitter,
+  PluginNotificationCoordinator,
+} from "../plugins/notification-emitter.js";
+import {
+  getPluginRuntimeGatewayNotificationPrincipal,
+  getPluginRuntimeGatewayRequestScope,
+  withPluginRuntimePluginIdScope,
+} from "../plugins/runtime/gateway-request-scope.js";
 import {
   CONTROL_UI_PLUGIN_AUTH_PROBE_MESSAGE,
   CONTROL_UI_PLUGIN_AUTH_PROBE_ORIGIN_QUERY,
@@ -324,6 +333,136 @@ describe("control ui plugin frame auth route boundaries", () => {
 
     expect(observedRuntimeScopes).toEqual([["operator.read", "operator.write"]]);
     expect(writeAllowedResults).toEqual([true]);
+  });
+
+  test("binds an opaque frame grant for emission after the external plugin request ends", async () => {
+    const pluginId = "notification-frame-plugin";
+    const sends = vi.fn(async () => "accepted" as const);
+    const emitter = createPluginNotificationEmitter({
+      declaration: {
+        version: 1,
+        id: "ready",
+        requiredScopes: ["operator.admin"],
+        destinations: [{ id: "item", tabId: "board" }],
+      },
+      coordinator: new PluginNotificationCoordinator({
+        pluginId,
+        declaration: {
+          version: 1,
+          id: "ready",
+          requiredScopes: ["operator.admin"],
+          destinations: [{ id: "item", tabId: "board" }],
+        },
+        targets: () => [{ id: "web:phone" }],
+        transportSourceId: () => "gateway-test",
+        transport: { send: sends, clear: async () => "accepted" },
+      }),
+      isPluginActive: () => true,
+      capturePrincipal: () =>
+        capturePluginNotificationPrincipal({
+          pluginId,
+          client: getPluginRuntimeGatewayRequestScope()?.client,
+          binding: getPluginRuntimeGatewayNotificationPrincipal(),
+        }),
+      isPrincipalCurrent: () => true,
+    });
+    const notificationState: {
+      binding: ReturnType<typeof emitter.bindCurrentOperator>;
+    } = { binding: undefined };
+    let pluginVisibleScope: unknown;
+    let foreignPluginPrincipal: unknown;
+    const handlePluginRequest = createGatewayPluginRequestHandler({
+      registry: createGatewayTestRegistry({
+        httpRoutes: [
+          {
+            pluginId,
+            source: pluginId,
+            path: "/plugin-notification",
+            auth: "gateway",
+            match: "exact",
+            handler: async (_req: IncomingMessage, res: ServerResponse) => {
+              pluginVisibleScope = getPluginRuntimeGatewayRequestScope();
+              foreignPluginPrincipal = withPluginRuntimePluginIdScope("other-plugin", () =>
+                getPluginRuntimeGatewayNotificationPrincipal(),
+              );
+              notificationState.binding = emitter.bindCurrentOperator();
+              res.statusCode = notificationState.binding ? 200 : 500;
+              res.end("ok");
+              return true;
+            },
+          },
+        ],
+      }),
+      log: { warn: vi.fn() } as unknown as Parameters<
+        typeof createGatewayPluginRequestHandler
+      >[0]["log"],
+    });
+    const cookieResponse = createResponse();
+    setControlUiPluginAuthCookie(
+      cookieResponse.res,
+      [
+        {
+          pluginId,
+          path: "/plugin-notification",
+          match: "exact",
+          scopes: ["operator.read"],
+        },
+      ],
+      {
+        generation: resolveSharedGatewaySessionGeneration(AUTH_TOKEN),
+        notificationBinding: {
+          operatorId: "gateway:default-operator",
+          authenticationMethod: "device-token",
+          authenticationGeneration: "auth-generation",
+          pairedDeviceId: "browser-1",
+          pairingGeneration: "pairing-generation",
+          scopes: ["operator.read", "operator.admin"],
+        },
+      },
+    );
+    const setCookie = cookieResponse.setHeader.mock.calls.find(
+      ([name]) => name === "Set-Cookie",
+    )?.[1];
+    const cookie = Array.isArray(setCookie) ? setCookie[0] : setCookie;
+    if (typeof cookie !== "string") {
+      throw new Error("expected frame auth cookie");
+    }
+
+    await withGatewayServer({
+      prefix: "openclaw-plugin-notification-frame-binding-test-",
+      resolvedAuth: AUTH_TOKEN,
+      overrides: {
+        handlePluginRequest,
+        shouldEnforcePluginGatewayAuth: (pathContext) =>
+          pathContext.pathname === "/plugin-notification",
+      },
+      run: async (server) => {
+        await expectPluginRequestOk(server, {
+          path: "/plugin-notification",
+          headers: { cookie },
+        });
+      },
+    });
+
+    expect(pluginVisibleScope).not.toHaveProperty("notificationPrincipal");
+    expect(JSON.stringify(pluginVisibleScope)).not.toContain("auth-generation");
+    expect(foreignPluginPrincipal).toBeUndefined();
+    expect(notificationState.binding).toBeDefined();
+    if (!notificationState.binding) {
+      throw new Error("expected notification binding");
+    }
+    await expect(
+      notificationState.binding.emit({
+        version: 1,
+        emissionId: "frame-ready",
+        logicalOperationId: "frame-operation",
+        attentionClass: "active",
+        preview: { title: "Ready", body: "One item" },
+        deepLink: { kind: "plugin-detail", destinationId: "item", recordId: "record-1" },
+        expiresAtMs: Date.now() + 60_000,
+      }),
+    ).resolves.toMatchObject({ status: "sent" });
+    expect(sends).toHaveBeenCalledOnce();
   });
 
   test("accepts control ui plugin auth cookies on child paths under the bound tab route", async () => {

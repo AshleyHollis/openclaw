@@ -10,6 +10,14 @@ type NativeNotificationsSnapshot = {
   test: NativeNotificationTestOutcome | null;
 };
 
+type PluginNotificationNavigation = {
+  kind: "plugin-detail";
+  pluginId: string;
+  tabId: string;
+  destinationId: string;
+  recordId: string;
+};
+
 type NativeNotificationsMessage =
   | { type: "status" }
   | { type: "request-permission" }
@@ -37,10 +45,12 @@ type NativeNotificationsWindow = Window & {
 
 // Wire contract with the Mac app's dashboard bridge (DashboardWindowController+Notifications.swift).
 const NATIVE_NOTIFICATIONS_STATUS_EVENT = "openclaw:native-notifications-status";
+const NATIVE_NOTIFICATIONS_NAVIGATION_EVENT = "openclaw:native-notification-navigation";
 
 export type NativeNotificationsCapability = {
   readonly snapshot: NativeNotificationsSnapshot;
   subscribe(listener: (snapshot: NativeNotificationsSnapshot) => void): () => void;
+  subscribeNavigation(listener: (navigation: PluginNotificationNavigation) => void): () => void;
   requestPermission(): void;
   sendTest(): void;
   backgroundSessionCompleted(completion: NativeBackgroundSessionCompletion): void;
@@ -77,6 +87,28 @@ function snapshotFrom(value: unknown): NativeNotificationsSnapshot | null {
   return null;
 }
 
+function navigationFrom(value: unknown): PluginNotificationNavigation | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const target = value as Record<string, unknown>;
+  const validId = (item: unknown): item is string =>
+    typeof item === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(item);
+  return target.kind === "plugin-detail" &&
+    validId(target.pluginId) &&
+    validId(target.tabId) &&
+    validId(target.destinationId) &&
+    validId(target.recordId)
+    ? {
+        kind: "plugin-detail",
+        pluginId: target.pluginId,
+        tabId: target.tabId,
+        destinationId: target.destinationId,
+        recordId: target.recordId,
+      }
+    : null;
+}
+
 function getNativeNotificationsPoster():
   | WebKitNotificationsMessageHandler["postMessage"]
   | undefined {
@@ -100,6 +132,7 @@ export function createNativeNotificationsCapability(): NativeNotificationsCapabi
     test: null,
   };
   const listeners = new Set<(snapshot: NativeNotificationsSnapshot) => void>();
+  const navigationListeners = new Set<(navigation: PluginNotificationNavigation) => void>();
 
   const publish = (next: NativeNotificationsSnapshot) => {
     snapshot = next;
@@ -113,10 +146,20 @@ export function createNativeNotificationsCapability(): NativeNotificationsCapabi
       publish(next);
     }
   };
+  const handleNavigation = (event: Event) => {
+    const navigation = navigationFrom((event as CustomEvent<unknown>).detail);
+    if (!navigation) {
+      return;
+    }
+    for (const listener of navigationListeners) {
+      listener(navigation);
+    }
+  };
   // Permission may change in System Settings while the app is backgrounded.
   const refreshStatus = () => postMessage({ type: "status" });
 
   window.addEventListener(NATIVE_NOTIFICATIONS_STATUS_EVENT, handleStatus);
+  window.addEventListener(NATIVE_NOTIFICATIONS_NAVIGATION_EVENT, handleNavigation);
   window.addEventListener("focus", refreshStatus);
   refreshStatus();
 
@@ -127,6 +170,10 @@ export function createNativeNotificationsCapability(): NativeNotificationsCapabi
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    subscribeNavigation(listener) {
+      navigationListeners.add(listener);
+      return () => navigationListeners.delete(listener);
     },
     requestPermission() {
       postMessage({ type: "request-permission" });
@@ -143,8 +190,10 @@ export function createNativeNotificationsCapability(): NativeNotificationsCapabi
     },
     dispose() {
       window.removeEventListener(NATIVE_NOTIFICATIONS_STATUS_EVENT, handleStatus);
+      window.removeEventListener(NATIVE_NOTIFICATIONS_NAVIGATION_EVENT, handleNavigation);
       window.removeEventListener("focus", refreshStatus);
       listeners.clear();
+      navigationListeners.clear();
     },
   };
 }

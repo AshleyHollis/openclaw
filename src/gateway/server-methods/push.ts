@@ -39,6 +39,11 @@ import {
   resolveVapidKeys,
   setWebPushSubscriptionPreferences,
 } from "../../infra/push-web.js";
+import {
+  associatePluginNotificationApnsTarget,
+  associatePluginNotificationWebTarget,
+  removePluginNotificationWebTarget,
+} from "../../plugins/notification-emitter-host.js";
 import { getUserPreferences, setUserPreferences } from "../../state/user-preferences.js";
 import { resolveUserProfileId } from "../../state/user-profiles.js";
 import { respondUnavailableOnThrow } from "./nodes.helpers.js";
@@ -96,7 +101,7 @@ function authorizeWebPushSubscription(
 }
 
 export const pushHandlers: GatewayRequestHandlers = {
-  "push.test": async ({ params, respond, context }) => {
+  "push.test": async ({ params, respond, context, client }) => {
     if (!assertValidParams(params, validatePushTestParams, "push.test", respond)) {
       return;
     }
@@ -123,6 +128,9 @@ export const pushHandlers: GatewayRequestHandlers = {
         );
         return;
       }
+      // A successful authenticated lookup proves the paired target this
+      // operator may receive plugin notifications on.
+      associatePluginNotificationApnsTarget({ nodeId, client });
 
       const overrideEnvironment = normalizeApnsEnvironment(params.environment);
       const result =
@@ -239,6 +247,10 @@ export const pushHandlers: GatewayRequestHandlers = {
           keys: params.keys,
           binding: { deviceId, userProfileId: userProfileId ?? null },
         });
+        associatePluginNotificationWebTarget({
+          subscriptionId: subscription.subscriptionId,
+          client,
+        });
         respond(true, { subscriptionId: subscription.subscriptionId }, undefined);
       } catch (error) {
         if (!(error instanceof WebPushSubscriptionBindingError)) {
@@ -271,6 +283,7 @@ export const pushHandlers: GatewayRequestHandlers = {
         respond(false, undefined, errorShape(ErrorCodes.FORBIDDEN, "subscription binding changed"));
         return;
       }
+      removePluginNotificationWebTarget({ subscriptionId: subscription.subscriptionId });
       respond(true, { removed }, undefined);
     });
   },

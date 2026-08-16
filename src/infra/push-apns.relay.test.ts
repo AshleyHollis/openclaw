@@ -267,6 +267,7 @@ describe("push-apns.relay", () => {
         payload: { aps: { alert: { title: "Wake", body: "Ping" } } },
         pushType: "alert",
         priority: "10",
+        expirationUnixSeconds: 1_700_000_000,
         gatewayIdentity: relayGatewayIdentity,
         requestSender: sender,
       });
@@ -281,6 +282,7 @@ describe("push-apns.relay", () => {
             signedAtMs?: number;
             pushType?: string;
             priority?: string;
+            expirationUnixSeconds?: number;
             payload?: unknown;
             bodyJson?: string;
             signature?: string;
@@ -294,12 +296,14 @@ describe("push-apns.relay", () => {
       expect(sent?.signedAtMs).toBe(123_456_789);
       expect(sent?.pushType).toBe("alert");
       expect(sent?.priority).toBe("10");
+      expect(sent?.expirationUnixSeconds).toBe(1_700_000_000);
       expect(sent?.payload).toEqual({ aps: { alert: { title: "Wake", body: "Ping" } } });
       expect(sent?.bodyJson).toBe(
         JSON.stringify({
           relayHandle: "relay-handle-123",
           pushType: "alert",
           priority: 10,
+          expirationUnixSeconds: 1_700_000_000,
           payload: { aps: { alert: { title: "Wake", body: "Ping" } } },
         }),
       );

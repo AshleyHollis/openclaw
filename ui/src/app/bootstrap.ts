@@ -495,6 +495,19 @@ export function bootstrapApplication(
     revalidate: (routeId) => router.revalidate(context, routeId),
     preload: (routeId, options) => router.preloadLocation(routeLocation(routeId, options), context),
   };
+  const stopNativeNotificationNavigation = nativeNotifications?.subscribeNavigation((target) => {
+    // The native bridge may only select a declared plugin record. Route loading rechecks
+    // the current authenticated tab projection and this navigation issues no Gateway mutation.
+    context.navigate("plugin", {
+      search: `?${new URLSearchParams({
+        plugin: target.pluginId,
+        id: target.tabId,
+        notification: "plugin-detail",
+        destination: target.destinationId,
+        record: target.recordId,
+      }).toString()}`,
+    });
+  });
   return {
     context,
     router,
@@ -604,6 +617,7 @@ export function bootstrapApplication(
       theme.dispose();
       nativeChatDrafts.dispose();
       nativeLinkRouting.dispose();
+      stopNativeNotificationNavigation?.();
       nativeNotifications?.dispose();
       webPush.dispose();
       chatSubmissions.clear();

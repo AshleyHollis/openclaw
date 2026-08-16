@@ -1,5 +1,14 @@
 // Plugin entry contracts define the manifest-facing hooks implemented by plugin packages.
 import { emptyPluginConfigSchema } from "../plugins/config-schema.js";
+export type {
+  PluginNotificationBinding,
+  PluginNotificationCandidateV1,
+  PluginNotificationClearResult,
+  PluginNotificationClearV1,
+  PluginNotificationDeclarationV1,
+  PluginNotificationEmitter,
+  PluginNotificationEmitResult,
+} from "../plugins/notification-emitter.js";
 import type {
   OpenClawPluginConfigSchema,
   OpenClawPluginDefinition,

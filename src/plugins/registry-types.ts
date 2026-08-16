@@ -40,6 +40,7 @@ import type {
   PluginManifestDashboardDataBinding,
   PluginManifestMcpServer,
 } from "./manifest.js";
+import type { PluginNotificationDeclarationV1 } from "./notification-emitter.js";
 import type { PluginKind } from "./plugin-kind.types.js";
 import type {
   ContextEngineRegistration,
@@ -90,6 +91,12 @@ type PluginOrigin = import("./types.js").PluginOrigin;
 type PluginTextTransformRegistration = import("./types.js").PluginTextTransformRegistration;
 type MigrationProviderPlugin = import("./types.js").MigrationProviderPlugin;
 type ProviderPlugin = import("./types.js").ProviderPlugin;
+
+/** Captured at registration; destination ownership is checked after all descriptors load. */
+type PluginNotificationEmitterRegistryRegistration = {
+  pluginId: string;
+  declaration: PluginNotificationDeclarationV1;
+};
 type RealtimeTranscriptionProviderPlugin = import("./types.js").RealtimeTranscriptionProviderPlugin;
 type RealtimeVoiceProviderPlugin = import("./types.js").RealtimeVoiceProviderPlugin;
 type SpeechProviderPlugin = import("./types.js").SpeechProviderPlugin;
@@ -587,6 +594,7 @@ export type PluginRegistry = {
   trustedToolPolicies: PluginTrustedToolPolicyRegistryRegistration[];
   toolMetadata: PluginToolMetadataRegistryRegistration[];
   controlUiDescriptors: PluginControlUiDescriptorRegistryRegistration[];
+  notificationEmitters: PluginNotificationEmitterRegistryRegistration[];
   runtimeLifecycles: PluginRuntimeLifecycleRegistryRegistration[];
   agentEventSubscriptions: PluginAgentEventSubscriptionRegistryRegistration[];
   sessionSchedulerJobs: PluginSessionSchedulerJobRegistryRegistration[];
@@ -605,6 +613,8 @@ export type PluginRegistryParams = {
   hostServices?: {
     /** May be a live accessor; plugin APIs must read it at call time. */
     cron?: import("../cron/service-contract.js").CronServiceContract;
+    /** Host-only auth epoch accessor for durable device-bound capabilities. */
+    getRequiredSharedGatewaySessionGeneration?: () => string | undefined;
   };
   activateGlobalSideEffects?: boolean;
 };

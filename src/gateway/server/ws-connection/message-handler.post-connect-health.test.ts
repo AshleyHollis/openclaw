@@ -827,6 +827,7 @@ describe("attachGatewayWsMessageHandler post-connect health refresh", () => {
           ),
         });
         expect(first.harness.client).toMatchObject({
+          authenticatedOperatorId: "alice@example.com",
           authenticatedUserId: "alice@example.com",
           authenticatedUserProfile: {
             profileId,
@@ -1463,6 +1464,9 @@ describe("attachGatewayWsMessageHandler post-connect health refresh", () => {
       ok: true,
     });
     expect(upsertPresenceMock).not.toHaveBeenCalled();
+    expect(harness.client).toMatchObject({
+      authenticatedOperatorId: "gateway:default-operator",
+    });
     expect(harness.client).not.toMatchObject({ authenticatedUserId: expect.anything() });
     const localUserIngress = localUserIngressFor(harness.client);
     expect(localUserIngress).toMatchObject({
@@ -1541,6 +1545,42 @@ describe("attachGatewayWsMessageHandler post-connect health refresh", () => {
     expect(harness.client).toBeNull();
     expect(harness.socketSend).not.toHaveBeenCalled();
     expect(harness.send).not.toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+  });
+
+  it("assigns the stable operator subject for password-authenticated clients", async () => {
+    const harness = attachGatewayHarness({
+      connId: "conn-password-userless",
+      connectNonce: "nonce-password-userless",
+      resolvedAuth: {
+        mode: "password",
+        password: "gateway-password",
+        allowTailscale: false,
+      },
+    });
+
+    harness.sendConnect("connect-password-userless", {
+      minProtocol: PROTOCOL_VERSION,
+      maxProtocol: PROTOCOL_VERSION,
+      client: {
+        id: "gateway-client",
+        version: "dev",
+        platform: "test",
+        mode: "backend",
+      },
+      role: "operator",
+      caps: [],
+      auth: { password: "gateway-password" },
+    });
+
+    await waitForFast(() => {
+      expect(harness.socketSend.mock.calls.length + harness.send.mock.calls.length).toBeGreaterThan(
+        0,
+      );
+    });
+    expect(harness.client).toMatchObject({
+      authenticatedOperatorId: "gateway:default-operator",
+    });
+    expect(harness.client).not.toMatchObject({ authenticatedUserId: expect.anything() });
   });
 
   it("emits a security event for rejected gateway auth", async () => {

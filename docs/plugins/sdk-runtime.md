@@ -1286,6 +1286,41 @@ Beyond `api.runtime`, the API object also provides:
   Resolve a path relative to the plugin root.
 </ParamField>
 
+### Mobile notification candidates
+
+Trusted native plugins can register a bounded mobile-notification declaration:
+
+```ts
+const notifications = api.notifications.registerEmitter({
+  version: 1,
+  id: "ready",
+  requiredScopes: ["operator.read"],
+  destinations: [{ id: "item", tabId: "board" }],
+});
+```
+
+At most eight declarations are allowed per plugin. Every destination must refer
+to a tab registered by that same plugin. Declarations and destinations are
+validated after registration completes, so their source order does not matter.
+Bind an emitter while the native runtime handles an authenticated operator
+request. The returned binding can emit or clear from a later background runtime
+callback after that request closes. Before each operation, the host revalidates
+the bound paired-device token, issuer generation, scopes, plugin activation,
+and declaration; token revocation or rotation immediately invalidates it.
+
+Use the returned binding to submit a candidate with a unique `emissionId`, a
+logical operation id, bounded title/body preview, a declared typed destination,
+and an expiry no more than one day away. The host owns authorization, paired
+operator-device associations, rate limits, expiry, Web Push/APNs delivery,
+deduplication, and clearing. It may return `no-targets`, `rate-limited`,
+`expired`, `partial`, or `ambiguous`; do not retry an ambiguous result with a
+new id.
+
+Plugins and Control UI iframes never receive subscriptions, VAPID keys, APNs
+tokens, relay grants, host credentials, or navigation URLs. A notification
+click carries only a typed `plugin-detail` destination back to an authenticated
+host UI route and performs no plugin or Gateway mutation.
+
 ## Related
 
 - [Plugin internals](/plugins/architecture) — capability model and registry

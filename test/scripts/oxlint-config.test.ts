@@ -526,6 +526,18 @@ describe("oxlint config", () => {
         },
       },
       {
+        files: ["src/infra/push-apns.ts"],
+        rules: {
+          "max-lines": ["error", { max: 760, skipBlankLines: true, skipComments: true }],
+        },
+      },
+      {
+        files: ["src/infra/push-apns.test.ts"],
+        rules: {
+          "max-lines": ["error", { max: 1080, skipBlankLines: true, skipComments: true }],
+        },
+      },
+      {
         files: ["extensions/copilot/src/attempt-transcript-journal.test.ts"],
         rules: {
           "max-lines": ["error", { max: 1200, skipBlankLines: true, skipComments: true }],

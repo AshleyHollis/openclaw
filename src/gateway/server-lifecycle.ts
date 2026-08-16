@@ -32,6 +32,7 @@ import type { prepareGatewayKernelState } from "./server-runtime-state-prepare.j
 import { runGatewayShutdownSteps } from "./server-shutdown.js";
 import type { GatewayShutdownRuntime } from "./server-shutdown.runtime.js";
 import { createGatewaySidecarStopOwner } from "./server-sidecar-owners.js";
+import { getRequiredSharedGatewaySessionGeneration } from "./server-shared-auth-generation.js";
 import {
   getHealthVersion,
   incrementPresenceVersion,
@@ -92,6 +93,7 @@ export async function prepareGatewayLifecycle(params: {
     bindWorkerNodeDesktopControl,
     workerPlacementRuntime,
     lifecycle,
+    sharedGatewaySessionGenerationState,
   } = runtime;
   const subscribeSessionMessageEvents: GatewayRequestContext["subscribeSessionMessageEvents"] = (
     connId,
@@ -344,6 +346,8 @@ export async function prepareGatewayLifecycle(params: {
     get cron() {
       return runtimeState.cronState.cron;
     },
+    getRequiredSharedGatewaySessionGeneration: () =>
+      getRequiredSharedGatewaySessionGeneration(sharedGatewaySessionGenerationState),
   };
 
   const cronReconciliation = createGatewayCronReconciliation({

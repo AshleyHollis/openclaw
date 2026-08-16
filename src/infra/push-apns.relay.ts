@@ -56,6 +56,7 @@ export type ApnsRelayRequestSender = (params: {
   bodyJson: string;
   pushType: ApnsRelayPushType;
   priority: "10" | "5";
+  expirationUnixSeconds?: number;
   payload: object;
   signal?: AbortSignal;
   isCurrent?: () => Promise<boolean>;
@@ -298,6 +299,7 @@ async function sendApnsRelayRequest(params: {
   bodyJson: string;
   pushType: ApnsRelayPushType;
   priority: "10" | "5";
+  expirationUnixSeconds?: number;
   payload: object;
   signal?: AbortSignal;
   isCurrent?: () => Promise<boolean>;
@@ -375,6 +377,7 @@ export async function sendApnsRelayPush(params: {
   relayHandle: string;
   pushType: ApnsRelayPushType;
   priority: "10" | "5";
+  expirationUnixSeconds?: number;
   payload: object;
   gatewayIdentity?: Pick<DeviceIdentity, "deviceId" | "privateKeyPem">;
   requestSender?: ApnsRelayRequestSender;
@@ -389,6 +392,9 @@ export async function sendApnsRelayPush(params: {
     relayHandle: params.relayHandle,
     pushType: params.pushType,
     priority: Number(params.priority),
+    ...(params.expirationUnixSeconds === undefined
+      ? {}
+      : { expirationUnixSeconds: params.expirationUnixSeconds }),
     payload: params.payload,
   });
   const signature = signDevicePayload(
@@ -409,6 +415,9 @@ export async function sendApnsRelayPush(params: {
     bodyJson,
     pushType: params.pushType,
     priority: params.priority,
+    ...(params.expirationUnixSeconds === undefined
+      ? {}
+      : { expirationUnixSeconds: params.expirationUnixSeconds }),
     payload: params.payload,
     ...(params.signal ? { signal: params.signal } : {}),
     ...(params.isCurrent ? { isCurrent: params.isCurrent } : {}),

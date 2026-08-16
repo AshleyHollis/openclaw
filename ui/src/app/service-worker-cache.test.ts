@@ -685,6 +685,32 @@ describe("Control UI service worker notification scope", () => {
       `${nestedScope}chat?session=42#latest`,
     );
   });
+
+  it("routes a typed plugin notification to its declared tab without invoking a mutation", async () => {
+    const worker = createNotificationServiceWorker(nestedScope, [`${nestedScope}settings`]);
+    const target = {
+      kind: "plugin-detail" as const,
+      pluginId: "board",
+      tabId: "items",
+      destinationId: "item",
+      recordId: "record-1",
+    };
+    const notification = await worker.dispatchPush({
+      title: "OpenClaw",
+      body: "Ready",
+      url: "plugin?plugin=board&id=items&notification=plugin-detail&destination=item&record=record-1",
+      notification: { version: 1, kind: "notify", expiresAtMs: Date.now() + 60_000, target },
+    });
+
+    expect(notification.options.data.pluginNotificationTarget).toEqual(target);
+    await worker.dispatchNotificationClick(notification.options.data);
+
+    expect(worker.windowClients[0]?.navigate).toHaveBeenCalledExactlyOnceWith(
+      `${nestedScope}plugin?plugin=board&id=items&notification=plugin-detail` +
+        "&destination=item&record=record-1",
+    );
+    expect(worker.clients.openWindow).not.toHaveBeenCalled();
+  });
 });
 
 type ActivateEventStub = {
@@ -706,12 +732,42 @@ type NotificationClickScenario = {
   openedUrl: string | null;
 };
 
+it("clears every local notification with the host operation tag without opening a route", async () => {
+  const worker = createNotificationServiceWorker("https://control.example/openclaw/", []);
+  const close = vi.fn();
+  worker.getNotifications.mockResolvedValueOnce([{ close }]);
+
+  await worker.dispatchClear({
+    title: "",
+    body: "",
+    tag: "operation-topic",
+    notification: { version: 1, kind: "clear" },
+  });
+
+  expect(worker.getNotifications).toHaveBeenCalledWith({ tag: "operation-topic" });
+  expect(close).toHaveBeenCalledOnce();
+  expect(worker.clients.openWindow).not.toHaveBeenCalled();
+});
+
 type ServiceWorkerPushPayload = {
   title: string;
   body: string;
   renotify?: boolean;
   tag?: string;
   url?: string;
+  tag?: string;
+  notification?: {
+    version: 1;
+    kind: "notify" | "clear";
+    expiresAtMs?: number;
+    target?: {
+      kind: "plugin-detail";
+      pluginId: string;
+      tabId: string;
+      destinationId: string;
+      recordId: string;
+    };
+  };
 };
 
 type ServiceWorkerNotificationOptions = {
@@ -720,7 +776,17 @@ type ServiceWorkerNotificationOptions = {
   badge: string;
   tag: string;
   renotify: boolean;
-  data: { url: string; explicitUrl: boolean };
+  data: {
+    url: string;
+    explicitUrl: boolean;
+    pluginNotificationTarget?: {
+      kind: "plugin-detail";
+      pluginId: string;
+      tabId: string;
+      destinationId: string;
+      recordId: string;
+    } | null;
+  };
 };
 
 type ServiceWorkerNotificationEventStub = {
@@ -730,7 +796,17 @@ type ServiceWorkerNotificationEventStub = {
   };
   notification?: {
     close(): void;
-    data: { url: string; explicitUrl?: boolean };
+    data: {
+      url: string;
+      explicitUrl?: boolean;
+      pluginNotificationTarget?: {
+        kind: "plugin-detail";
+        pluginId: string;
+        tabId: string;
+        destinationId: string;
+        recordId: string;
+      } | null;
+    };
   };
   waitUntil(promise: Promise<unknown>): void;
 };
@@ -746,6 +822,7 @@ function createNotificationServiceWorker(
     return {
       url,
       focus,
+      postMessage: vi.fn(),
       navigate: vi.fn(async (_url: string) => {
         if (options.rejectNavigation) {
           throw new Error("Window is controlled by a previous service worker");
@@ -761,6 +838,7 @@ function createNotificationServiceWorker(
   const showNotification = vi.fn(
     async (_title: string, _options: ServiceWorkerNotificationOptions) => undefined,
   );
+  const getNotifications = vi.fn(async (): Promise<Array<{ close(): void }>> => []);
   const scopeUrl = new URL(scope);
   const serviceWorkerGlobal = {
     addEventListener(type: string, listener: (event: ServiceWorkerNotificationEventStub) => void) {
@@ -771,7 +849,7 @@ function createNotificationServiceWorker(
       href: new URL("sw.js?v=notification-scope", scopeUrl).href,
       origin: scopeUrl.origin,
     },
-    registration: { scope, showNotification },
+    registration: { scope, showNotification, getNotifications },
     skipWaiting: vi.fn(),
   };
   const context = vm.createContext({
@@ -787,6 +865,7 @@ function createNotificationServiceWorker(
 
   return {
     clients,
+    getNotifications,
     windowClients,
     async dispatchPush(payload: ServiceWorkerPushPayload) {
       const listener = listeners.get("push");
@@ -817,7 +896,9 @@ function createNotificationServiceWorker(
 
       return { title: notification[0], options: notification[1] };
     },
-    async dispatchNotificationClick(data: { url: string; explicitUrl?: boolean }) {
+    async dispatchNotificationClick(
+      data: NonNullable<ServiceWorkerNotificationEventStub["notification"]>["data"],
+    ) {
       const listener = listeners.get("notificationclick");
       if (!listener) {
         throw new Error("Service worker did not register a notification-click handler");
@@ -837,6 +918,23 @@ function createNotificationServiceWorker(
       }
       await completion;
       return close;
+    },
+    async dispatchClear(payload: ServiceWorkerPushPayload) {
+      const listener = listeners.get("push");
+      if (!listener) {
+        throw new Error("Service worker did not register a push handler");
+      }
+      let completion: Promise<unknown> | undefined;
+      listener({
+        data: { json: () => payload, text: () => payload.body },
+        waitUntil(promise) {
+          completion = promise;
+        },
+      });
+      if (!completion) {
+        throw new Error("Service worker clear did not register a completion promise");
+      }
+      await completion;
     },
   };
 }

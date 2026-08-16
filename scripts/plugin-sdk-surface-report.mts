@@ -339,7 +339,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +4: canonical node CLI option, envelope, presentation, and error owners.
       // +1: Gateway caller ownership for standalone browser routing.
       // +1: canonical temporal context renderer for plugin-owned agent harnesses.
-      4370,
+      // +14: host-owned plugin notification emitter contracts and bounded destination types.
+      4384,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(

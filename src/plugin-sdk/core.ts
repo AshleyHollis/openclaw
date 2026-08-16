@@ -31,6 +31,15 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { buildOutboundBaseSessionKey } from "../infra/outbound/base-session-key.js";
 import type { OutboundDeliveryResult } from "../infra/outbound/deliver.js";
 import { normalizeOutboundThreadId } from "../infra/outbound/thread-id.js";
+export type {
+  PluginNotificationBinding,
+  PluginNotificationCandidateV1,
+  PluginNotificationClearResult,
+  PluginNotificationClearV1,
+  PluginNotificationDeclarationV1,
+  PluginNotificationEmitter,
+  PluginNotificationEmitResult,
+} from "../plugins/notification-emitter.js";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
 import type { OpenClawPluginApi } from "../plugins/types.js";
 import { resolveThreadSessionKeys } from "../routing/session-key.js";

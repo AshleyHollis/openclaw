@@ -58,6 +58,10 @@ import type {
   PluginConfigMigration,
   PluginSetupAutoEnableProbe,
 } from "./migration-provider.types.js";
+import type {
+  PluginNotificationDeclarationV1,
+  PluginNotificationEmitter,
+} from "./notification-emitter.js";
 import type { OpenClawPluginCommandDefinition } from "./plugin-command.types.js";
 import type {
   OpenClawPluginChannelRegistration,
@@ -201,6 +205,12 @@ export type OpenClawPluginApi = {
   runContext: OpenClawPluginRunContextApi;
   /** Grouped facade for plugin-owned lifecycle cleanup hooks. */
   lifecycle: OpenClawPluginLifecycleApi;
+  /** Host-owned mobile notification capability for trusted native runtimes. */
+  notifications: {
+    registerEmitter: (
+      declaration: PluginNotificationDeclarationV1,
+    ) => PluginNotificationEmitter | undefined;
+  };
   registerTool: (
     tool: AnyAgentTool | OpenClawPluginToolFactory,
     opts?: OpenClawPluginToolOptions,

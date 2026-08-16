@@ -6,6 +6,7 @@ import type {
   GatewayRequestOptions,
 } from "../../gateway/server-methods/types.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
+import type { PluginNotificationPrincipal } from "../notification-emitter.js";
 import type { PluginOrigin } from "../plugin-origin.types.js";
 import type { PluginRegistry } from "../registry-types.js";
 import type { OpenClawPluginNodeWorkspace } from "../types.node-host.js";
@@ -60,6 +61,15 @@ type PluginRuntimePluginScope = {
   pluginTrustedOfficialInstall?: boolean;
 };
 
+/**
+ * Host-only facts associated with a request scope. Keep this separate from the
+ * scope object: plugins may inspect the public request scope, but must never
+ * receive a durable authentication binding or its device generations.
+ */
+type PluginRuntimeGatewayHostScope = {
+  notificationPrincipal?: PluginNotificationPrincipal;
+};
+
 const PLUGIN_RUNTIME_GATEWAY_REQUEST_SCOPE_KEY: unique symbol = Symbol.for(
   "openclaw.pluginRuntimeGatewayRequestScope",
 );
@@ -109,13 +119,24 @@ export function getSharedGatewayContextResolver(
     : () => undefined;
 }
 
+const pluginRuntimeGatewayHostScopes = resolveGlobalSingleton<
+  WeakMap<PluginRuntimeGatewayRequestScope, PluginRuntimeGatewayHostScope>
+>(
+  Symbol.for("openclaw.pluginRuntimeGatewayHostScopes"),
+  () => new WeakMap<PluginRuntimeGatewayRequestScope, PluginRuntimeGatewayHostScope>(),
+);
+
 /**
  * Runs plugin gateway handlers with request-scoped context that runtime helpers can read.
  */
 export function withPluginRuntimeGatewayRequestScope<T>(
   scope: PluginRuntimeGatewayRequestScope,
   run: () => T,
+  hostScope?: PluginRuntimeGatewayHostScope,
 ): T {
+  if (hostScope) {
+    pluginRuntimeGatewayHostScopes.set(scope, hostScope);
+  }
   return pluginRuntimeGatewayRequestScope.run(scope, run);
 }
 
@@ -181,6 +202,16 @@ export function withPluginRuntimePluginScope<T>(scope: PluginRuntimePluginScope,
   } else {
     delete scoped.pluginTrustedOfficialInstall;
   }
+  const hostScope = current ? pluginRuntimeGatewayHostScopes.get(current) : undefined;
+  // A route's host auth facts are capabilities for that route's plugin only.
+  // Nested scopes for another plugin must not inherit its operator binding.
+  if (
+    hostScope &&
+    (!hostScope.notificationPrincipal ||
+      hostScope.notificationPrincipal.pluginId === scoped.pluginId)
+  ) {
+    pluginRuntimeGatewayHostScopes.set(scoped, hostScope);
+  }
   return pluginRuntimeGatewayRequestScope.run(scoped, run);
 }
 
@@ -198,4 +229,12 @@ export function getPluginRuntimeGatewayRequestScope():
   | PluginRuntimeGatewayRequestScope
   | undefined {
   return pluginRuntimeGatewayRequestScope.getStore();
+}
+
+/** Returns the host-captured notification principal without exposing it on the SDK scope. */
+export function getPluginRuntimeGatewayNotificationPrincipal():
+  | PluginNotificationPrincipal
+  | undefined {
+  const scope = pluginRuntimeGatewayRequestScope.getStore();
+  return scope ? pluginRuntimeGatewayHostScopes.get(scope)?.notificationPrincipal : undefined;
 }

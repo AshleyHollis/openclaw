@@ -704,6 +704,8 @@ struct RootTabs: View {
         content
             .onAppear {
                 self.handleDashboardNavigationRequest(self.appModel.dashboardNavigationRequestID)
+                self.handlePluginNotificationNavigationRequest(
+                    self.appModel.pluginNotificationNavigationRequestID)
             }
             .onChange(of: self.onboardingRequestID) { _, _ in
                 self.evaluateOnboardingPresentation(force: true)
@@ -718,6 +720,9 @@ struct RootTabs: View {
             .onChange(of: self.appModel.dashboardNavigationRequestID) { _, requestID in
                 self.handleDashboardNavigationRequest(requestID)
             }
+            .onChange(of: self.appModel.pluginNotificationNavigationRequestID) { _, requestID in
+                self.handlePluginNotificationNavigationRequest(requestID)
+            }
             .onChange(of: self.appModel.gatewaySetupRequestID) { _, _ in
                 self.maybeOpenSettingsForGatewaySetup()
             }
@@ -731,6 +736,11 @@ struct RootTabs: View {
     private func handleDashboardNavigationRequest(_ requestID: Int) {
         guard self.appModel.consumeDashboardNavigationRequest(requestID) else { return }
         self.selectSidebarDestination(.overview)
+    }
+
+    private func handlePluginNotificationNavigationRequest(_ requestID: Int) {
+        guard self.appModel.hasPendingPluginNotificationDestination(requestID) else { return }
+        self.selectSidebarDestination(.chat)
     }
 
     private func rootPresentation(_ content: some View) -> some View {

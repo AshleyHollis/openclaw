@@ -36,6 +36,7 @@ import {
   CONTROL_UI_BOOTSTRAP_CONFIG_PATH,
   type ControlUiPluginFrameGrantAck,
 } from "./control-ui-contract.js";
+import { resolveControlUiPluginAuthCookieGrants } from "./control-ui-plugin-auth-cookie.js";
 import { resolveOpenedControlUiRepresentation } from "./control-ui-static.js";
 import {
   handleControlUiAssistantMediaRequest,
@@ -2612,6 +2613,86 @@ describe("handleControlUiHttpRequest", () => {
     } finally {
       rateLimiter.dispose();
     }
+  });
+
+  it("keeps paired-device notification binding facts host-side for external plugin frame cookies", async () => {
+    await withScopedPairedOperatorDevice({
+      scopes: ["operator.read", "operator.admin"],
+      fn: async (operatorToken) => {
+        await withControlUiRoot({
+          fn: async (tmp) => {
+            const registry = createEmptyPluginRegistry();
+            registry.controlUiDescriptors.push({
+              pluginId: "notification-frame-plugin",
+              source: "notification-frame-plugin",
+              descriptor: {
+                surface: "tab",
+                id: "board",
+                label: "Board",
+                path: "/plugin-notification",
+                requiredScopes: ["operator.admin"],
+              },
+            });
+            registry.httpRoutes.push({
+              pluginId: "notification-frame-plugin",
+              source: "notification-frame-plugin",
+              path: "/plugin-notification",
+              auth: "gateway",
+              match: "exact",
+              handler: async () => true,
+            });
+            setActivePluginRegistry(registry);
+
+            const { res, handled, setHeader } = await runBootstrapConfigRequest({
+              rootPath: tmp,
+              auth: { mode: "token", token: "shared-token", allowTailscale: false },
+              headers: { authorization: `Bearer ${operatorToken}` },
+            });
+            expect(handled).toBe(true);
+            expect(res.statusCode).toBe(200);
+            const setCookie = setHeader.mock.calls.find(([name]) => name === "Set-Cookie")?.[1];
+            const cookie = Array.isArray(setCookie) ? setCookie[0] : setCookie;
+            expect(typeof cookie).toBe("string");
+            const encodedPayload = String(cookie).match(/[=]v1\.([^.]+)\./)?.[1] ?? "";
+            const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+            expect(payload).toMatchObject({
+              pluginId: "notification-frame-plugin",
+              notificationBindingId: expect.any(String),
+            });
+            expect(payload).not.toHaveProperty("operatorId");
+            expect(payload).not.toHaveProperty("pairedDeviceId");
+            expect(payload).not.toHaveProperty("authenticationGeneration");
+            expect(JSON.stringify(payload)).not.toContain(operatorToken);
+
+            const grants = resolveControlUiPluginAuthCookieGrants(
+              {
+                method: "GET",
+                headers: { cookie: String(cookie) },
+              } as IncomingMessage,
+              {
+                requestPath: "/plugin-notification",
+                generation: resolveSharedGatewaySessionGeneration({
+                  mode: "token",
+                  token: "shared-token",
+                  allowTailscale: false,
+                }),
+              },
+            );
+            expect(grants).toMatchObject([
+              {
+                pluginId: "notification-frame-plugin",
+                scopes: ["operator.read"],
+                notificationBinding: {
+                  operatorId: "gateway:default-operator",
+                  pairedDeviceId: expect.any(String),
+                  scopes: ["operator.admin", "operator.read", "operator.write"],
+                },
+              },
+            ]);
+          },
+        });
+      },
+    });
   });
 
   it("selects higher-scope frame tabs using paired device-token scopes", async () => {

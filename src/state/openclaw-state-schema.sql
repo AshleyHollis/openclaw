@@ -869,6 +869,80 @@ CREATE TABLE IF NOT EXISTS web_push_approval_deliveries (
 CREATE INDEX IF NOT EXISTS idx_web_push_approval_deliveries_subscription
   ON web_push_approval_deliveries(subscription_id, approval_id);
 
+CREATE TABLE IF NOT EXISTS plugin_notification_emissions (
+  principal_key TEXT NOT NULL,
+  operator_id TEXT NOT NULL,
+  plugin_id TEXT NOT NULL,
+  emission_id TEXT NOT NULL,
+  declaration_id TEXT NOT NULL,
+  logical_operation_id TEXT NOT NULL,
+  candidate_hash TEXT NOT NULL,
+  expires_at_ms INTEGER NOT NULL,
+  state TEXT NOT NULL,
+  result_json TEXT,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (principal_key, plugin_id, emission_id)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_plugin_notification_emissions_rate
+  ON plugin_notification_emissions(operator_id, plugin_id, created_at_ms);
+CREATE INDEX IF NOT EXISTS idx_plugin_notification_emissions_retention
+  ON plugin_notification_emissions(updated_at_ms, expires_at_ms);
+
+CREATE TABLE IF NOT EXISTS plugin_notification_delivery_attempts (
+  principal_key TEXT NOT NULL,
+  plugin_id TEXT NOT NULL,
+  emission_id TEXT NOT NULL,
+  logical_operation_id TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (principal_key, plugin_id, emission_id, target_id)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_plugin_notification_delivery_operations
+  ON plugin_notification_delivery_attempts(principal_key, plugin_id, logical_operation_id, target_id);
+
+CREATE TABLE IF NOT EXISTS plugin_notification_clear_attempts (
+  principal_key TEXT NOT NULL,
+  plugin_id TEXT NOT NULL,
+  logical_operation_id TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  result_json TEXT,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (principal_key, plugin_id, logical_operation_id, target_id)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS plugin_notification_clear_operations (
+  principal_key TEXT NOT NULL,
+  plugin_id TEXT NOT NULL,
+  logical_operation_id TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (principal_key, plugin_id, logical_operation_id)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS plugin_notification_device_associations (
+  target_id TEXT NOT NULL PRIMARY KEY,
+  target_kind TEXT NOT NULL,
+  operator_id TEXT NOT NULL,
+  authentication_method TEXT NOT NULL,
+  authentication_generation TEXT NOT NULL,
+  paired_device_id TEXT NOT NULL,
+  pairing_generation TEXT NOT NULL,
+  issuer_generation TEXT,
+  scopes_json TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_plugin_notification_device_associations_owner
+  ON plugin_notification_device_associations(operator_id, authentication_generation, target_kind);
+
 CREATE TABLE IF NOT EXISTS apns_registrations (
   node_id TEXT NOT NULL PRIMARY KEY,
   transport TEXT NOT NULL,
