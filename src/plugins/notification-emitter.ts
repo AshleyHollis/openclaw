@@ -1,7 +1,7 @@
 // Host-owned, closed notification candidate contract. No credential-bearing type is exported.
 import { createHash } from "node:crypto";
 import { isOperatorScope, type OperatorScope } from "../gateway/operator-scopes.js";
-import { canonical, failure, keys, plain, text } from "./notification-emitter-validation.js";
+import { boundedText, canonical, failure, keys, plain } from "./notification-emitter-validation.js";
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const DAY = 86_400_000;
@@ -250,8 +250,8 @@ function isValidPluginNotificationCandidateSnapshot(
   if (
     !plain(preview) ||
     !keys(preview, ["title", "body"]) ||
-    !text(preview.title, 80) ||
-    !text(preview.body, 256)
+    !boundedText(preview.title, 80) ||
+    !boundedText(preview.body, 256)
   ) {
     return false;
   }

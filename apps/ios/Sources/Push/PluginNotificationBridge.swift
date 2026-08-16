@@ -136,6 +136,6 @@ enum PluginNotificationBridge {
     }
 
     private static func isIdentifierByte(_ byte: UInt8) -> Bool {
-        isAlphaNumeric(byte) || byte == 0x2D || byte == 0x2E || byte == 0x5F || byte == 0x3A
+        self.isAlphaNumeric(byte) || byte == 0x2D || byte == 0x2E || byte == 0x5F || byte == 0x3A
     }
 }

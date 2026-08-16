@@ -1,15 +1,20 @@
-import type {
-  PluginNotificationCandidateV1,
-  PluginNotificationEmitResult,
-} from "./notification-emitter.js";
+type NotificationCandidateShape = {
+  emissionId: string;
+  logicalOperationId: string;
+  attentionClass: "active" | "time-sensitive";
+  preview: { title: string; body: string };
+  deepLink: { destinationId: string; recordId: string };
+  expiresAtMs: number;
+};
 
-export const failure = (): PluginNotificationEmitResult => ({
-  status: "failed",
-  attempted: 0,
-  delivered: 0,
-  failed: 1,
-  ambiguous: 0,
-});
+export const failure = () =>
+  ({
+    status: "failed",
+    attempted: 0,
+    delivered: 0,
+    failed: 1,
+    ambiguous: 0,
+  }) as const;
 
 export const plain = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" &&
@@ -43,14 +48,14 @@ function containsControlCharacter(value: string): boolean {
   });
 }
 
-export const text = (value: unknown, max: number): value is string =>
+export const boundedText = (value: unknown, max: number): value is string =>
   typeof value === "string" &&
   scalar(value) &&
   [...value].length > 0 &&
   [...value].length <= max &&
   !containsControlCharacter(value);
 
-export function canonical(candidate: PluginNotificationCandidateV1): string {
+export function canonical(candidate: NotificationCandidateShape): string {
   return JSON.stringify({
     version: 1,
     emissionId: candidate.emissionId,
