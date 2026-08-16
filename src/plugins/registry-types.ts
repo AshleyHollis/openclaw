@@ -93,7 +93,7 @@ type MigrationProviderPlugin = import("./types.js").MigrationProviderPlugin;
 type ProviderPlugin = import("./types.js").ProviderPlugin;
 
 /** Captured at registration; destination ownership is checked after all descriptors load. */
-export type PluginNotificationEmitterRegistryRegistration = {
+type PluginNotificationEmitterRegistryRegistration = {
   pluginId: string;
   declaration: PluginNotificationDeclarationV1;
 };

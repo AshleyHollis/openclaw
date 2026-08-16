@@ -118,8 +118,8 @@ enum PluginNotificationBridge {
               !value.isEmpty,
               value.utf8.count <= 128,
               let first = value.utf8.first,
-              Self.isAlphaNumeric(first),
-              value.utf8.allSatisfy({ Self.isIdentifierByte($0) })
+              isAlphaNumeric(first),
+              value.utf8.allSatisfy({ isIdentifierByte($0) })
         else {
             return nil
         }
@@ -136,6 +136,6 @@ enum PluginNotificationBridge {
     }
 
     private static func isIdentifierByte(_ byte: UInt8) -> Bool {
-        Self.isAlphaNumeric(byte) || byte == 0x2D || byte == 0x2E || byte == 0x5F || byte == 0x3A
+        isAlphaNumeric(byte) || byte == 0x2D || byte == 0x2E || byte == 0x5F || byte == 0x3A
     }
 }

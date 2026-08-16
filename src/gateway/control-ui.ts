@@ -376,9 +376,8 @@ async function authorizeControlUiReadRequest(
       const deviceAuth = await authorizeControlUiDeviceReadToken(token, sharedAuthGeneration);
       if (deviceAuth) {
         verifiedDeviceScopes = deviceAuth.scopes;
-        const { capturePluginNotificationPrincipalBindingFromControlUiDevice } = await import(
-          "../plugins/notification-emitter-host.js"
-        );
+        const { capturePluginNotificationPrincipalBindingFromControlUiDevice } =
+          await import("../plugins/notification-emitter-host.js");
         notificationBinding = capturePluginNotificationPrincipalBindingFromControlUiDevice({
           operatorId: "gateway:default-operator",
           deviceId: deviceAuth.deviceId,

@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import { SqlitePluginNotificationLedger } from "./notification-emitter-ledger.js";
 import {
   PluginNotificationCoordinator,
@@ -29,6 +30,7 @@ async function stateDir(): Promise<string> {
 }
 
 afterEach(async () => {
+  closeOpenClawStateDatabaseForTest();
   await Promise.all(stateDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -52,7 +54,9 @@ describe("plugin notification SQLite ledger", () => {
     ]);
     expect([owner.kind, follower.kind].toSorted()).toEqual(["claimed", "in-flight"]);
     const claim = owner.kind === "claimed" ? owner : follower;
-    if (claim.kind !== "claimed") throw new Error("expected one emission claimant");
+    if (claim.kind !== "claimed") {
+      throw new Error("expected one emission claimant");
+    }
     expect(claim.targetIds).toEqual(["apns:phone", "web:browser"]);
     first.completeEmission({
       principal,
@@ -355,7 +359,9 @@ describe("plugin notification SQLite ledger", () => {
       send: async () => "accepted" as const,
       clear: async (target: { id: string }) => {
         clearedTargets.push(target.id);
-        if (target.id === "apns:phone" && failPhone) return "failed" as const;
+        if (target.id === "apns:phone" && failPhone) {
+          return "failed" as const;
+        }
         return "accepted" as const;
       },
     };
@@ -500,7 +506,9 @@ describe("plugin notification SQLite ledger", () => {
     await expect(
       coordinator.clear(principal, { version: 1, logicalOperationId: emission.logicalOperationId }),
     ).resolves.toMatchObject({ status: "cleared" });
-    if (!releaseSend) throw new Error("expected send release");
+    if (!releaseSend) {
+      throw new Error("expected send release");
+    }
     releaseSend("accepted");
     await expect(inFlight).resolves.toMatchObject({ status: "sent" });
     expect(clears).toEqual(["web:browser", "web:browser"]);

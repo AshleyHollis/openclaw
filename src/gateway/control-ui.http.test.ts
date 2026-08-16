@@ -34,13 +34,13 @@ import {
   CONTROL_UI_BOOTSTRAP_CONFIG_PATH,
   type ControlUiPluginFrameGrantAck,
 } from "./control-ui-contract.js";
+import { resolveControlUiPluginAuthCookieGrants } from "./control-ui-plugin-auth-cookie.js";
 import { resolveOpenedControlUiRepresentation } from "./control-ui-static.js";
 import {
   handleControlUiAssistantMediaRequest,
   handleControlUiAvatarRequest,
   handleControlUiHttpRequest,
 } from "./control-ui.js";
-import { resolveControlUiPluginAuthCookieGrants } from "./control-ui-plugin-auth-cookie.js";
 import { setControlUiPluginAuthCookieForRequest } from "./http-auth-utils.js";
 import { resolveSharedGatewaySessionGeneration } from "./server/ws-shared-generation.js";
 import { makeMockHttpResponse } from "./test-http-response.js";
@@ -2448,7 +2448,7 @@ describe("handleControlUiHttpRequest", () => {
             const setCookie = setHeader.mock.calls.find(([name]) => name === "Set-Cookie")?.[1];
             const cookie = Array.isArray(setCookie) ? setCookie[0] : setCookie;
             expect(typeof cookie).toBe("string");
-            const encodedPayload = String(cookie).match(/=v1\.([^.]+)\./)?.[1] ?? "";
+            const encodedPayload = String(cookie).match(/[=]v1\.([^.]+)\./)?.[1] ?? "";
             const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
             expect(payload).toMatchObject({
               pluginId: "notification-frame-plugin",

@@ -6,13 +6,6 @@ import { isOperatorScope, type OperatorScope } from "../gateway/operator-scopes.
 import type { GatewayClient } from "../gateway/server-methods/shared-types.js";
 import { loadPairedDevicePairingStoreRecord } from "../infra/device-pairing-store.js";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "../infra/kysely-sync.js";
-import {
-  loadApnsRegistration,
-  resolveApnsAuthConfigFromEnv,
-  resolveApnsRelayConfigFromEnv,
-  sendApnsPluginNotificationAlert,
-  sendApnsPluginNotificationClear,
-} from "../infra/push-apns.js";
 import { listWebPushSubscriptions } from "../infra/push-web-store.js";
 import { sendWebPushNotification } from "../infra/push-web.js";
 import {
@@ -244,7 +237,9 @@ function isPluginNotificationDeviceBindingCurrent(params: {
     return false;
   }
   return Object.entries(device.tokens ?? {}).some(([role, token]) => {
-    if (!token || token.revokedAtMs) return false;
+    if (!token || token.revokedAtMs) {
+      return false;
+    }
     const tokenScopes = operatorScopes(token.scopes);
     const issuerGeneration = token.issuer?.generation;
     return (
@@ -281,7 +276,9 @@ export function capturePluginNotificationPrincipal(params: {
     };
   }
   const owner = capturePluginNotificationTargetOwner(params.client);
-  if (!owner || owner.role !== "operator" || owner.scopes.length === 0) return undefined;
+  if (!owner || owner.role !== "operator" || owner.scopes.length === 0) {
+    return undefined;
+  }
   return {
     operatorId: owner.operatorId,
     pluginId: params.pluginId,
@@ -314,7 +311,9 @@ export function capturePluginNotificationPrincipalBindingFromControlUiDevice(par
       ? { sharedGatewaySessionGeneration: params.sharedGatewaySessionGeneration }
       : {}),
   });
-  if (!owner || owner.scopes.length === 0) return undefined;
+  if (!owner || owner.scopes.length === 0) {
+    return undefined;
+  }
   return {
     operatorId: owner.operatorId,
     authenticationMethod: owner.authenticationMethod,
@@ -398,7 +397,9 @@ export function associatePluginNotificationWebTarget(params: {
   stateDir?: string;
 }): boolean {
   const owner = capturePluginNotificationTargetOwner(params.client);
-  if (!owner || owner.role !== "operator" || owner.scopes.length === 0) return false;
+  if (!owner || owner.role !== "operator" || owner.scopes.length === 0) {
+    return false;
+  }
   const nowMs = params.nowMs ?? Date.now();
   savePluginNotificationTargetAssociation({
     targetId: `web:${params.subscriptionId}`,
@@ -485,7 +486,9 @@ export function listPluginNotificationTargets(
   ).rows;
   const currentRows = rows.filter((row) => {
     const scopes = parseOperatorScopes(row.scopes_json);
-    if (!scopes) return false;
+    if (!scopes) {
+      return false;
+    }
     // Associations are per-device grants, not merely operator labels. Recheck
     // each target so revoking one browser cannot leak its preview via another.
     return isPluginNotificationDeviceBindingCurrent({
@@ -526,7 +529,9 @@ export function listPluginNotificationTargets(
 
 function notificationUrl(payload: PluginNotificationTransportPayload): string {
   const target = payload.target;
-  if (!target) return "./";
+  if (!target) {
+    return "./";
+  }
   const query = new URLSearchParams({
     plugin: target.pluginId,
     id: target.tabId,
@@ -544,15 +549,25 @@ export function createHostPluginNotificationTransport(
   return {
     async send(target, payload, attempt) {
       if (target.id.startsWith("apns:")) {
+        const {
+          loadApnsRegistration,
+          resolveApnsAuthConfigFromEnv,
+          resolveApnsRelayConfigFromEnv,
+          sendApnsPluginNotificationAlert,
+        } = await import("../infra/push-apns.js");
         const nodeId = target.id.slice("apns:".length);
         const registration = await loadApnsRegistration(nodeId, params.stateDir);
         const notificationTarget = payload.target;
-        if (!registration || !notificationTarget) return "failed";
+        if (!registration || !notificationTarget) {
+          return "failed";
+        }
         const result =
           registration.transport === "direct"
             ? await (async () => {
                 const auth = await resolveApnsAuthConfigFromEnv(process.env);
-                if (!auth.ok) return null;
+                if (!auth.ok) {
+                  return null;
+                }
                 return await sendApnsPluginNotificationAlert({
                   registration,
                   nodeId,
@@ -571,7 +586,9 @@ export function createHostPluginNotificationTransport(
                 const relay = resolveApnsRelayConfigFromEnv(process.env, params.gatewayConfig, {
                   registrationRelayOrigin: registration.relayOrigin,
                 });
-                if (!relay.ok) return null;
+                if (!relay.ok) {
+                  return null;
+                }
                 return await sendApnsPluginNotificationAlert({
                   registration,
                   nodeId,
@@ -588,14 +605,18 @@ export function createHostPluginNotificationTransport(
                   signal: attempt.signal,
                 });
               })();
-        if (!result) return "failed";
+        if (!result) {
+          return "failed";
+        }
         return result.ok
           ? "accepted"
           : result.status >= 400 && result.status < 500
             ? "failed"
             : "ambiguous";
       }
-      if (!target.id.startsWith("web:")) return "failed";
+      if (!target.id.startsWith("web:")) {
+        return "failed";
+      }
       const subscriptionId = target.id.slice("web:".length);
       const result = await sendWebPushNotification({
         subscriptionId,
@@ -616,7 +637,9 @@ export function createHostPluginNotificationTransport(
         signal: attempt.signal,
         baseDir: params.stateDir,
       });
-      if (result.ok) return "accepted";
+      if (result.ok) {
+        return "accepted";
+      }
       // A terminal HTTP response proves this exact subscription did not accept the payload.
       return result.statusCode && result.statusCode >= 400 && result.statusCode < 500
         ? "failed"
@@ -624,9 +647,17 @@ export function createHostPluginNotificationTransport(
     },
     async clear(target, payload, attempt) {
       if (target.id.startsWith("apns:")) {
+        const {
+          loadApnsRegistration,
+          resolveApnsAuthConfigFromEnv,
+          resolveApnsRelayConfigFromEnv,
+          sendApnsPluginNotificationClear,
+        } = await import("../infra/push-apns.js");
         const nodeId = target.id.slice("apns:".length);
         const registration = await loadApnsRegistration(nodeId, params.stateDir);
-        if (!registration) return "failed";
+        if (!registration) {
+          return "failed";
+        }
         const expirationUnixSeconds = Math.floor(
           (Date.now() + pluginNotificationClearDeliveryWindowMs) / 1000,
         );
@@ -634,7 +665,9 @@ export function createHostPluginNotificationTransport(
           registration.transport === "direct"
             ? await (async () => {
                 const auth = await resolveApnsAuthConfigFromEnv(process.env);
-                if (!auth.ok) return null;
+                if (!auth.ok) {
+                  return null;
+                }
                 return await sendApnsPluginNotificationClear({
                   registration,
                   nodeId,
@@ -650,7 +683,9 @@ export function createHostPluginNotificationTransport(
                 const relay = resolveApnsRelayConfigFromEnv(process.env, params.gatewayConfig, {
                   registrationRelayOrigin: registration.relayOrigin,
                 });
-                if (!relay.ok) return null;
+                if (!relay.ok) {
+                  return null;
+                }
                 return await sendApnsPluginNotificationClear({
                   registration,
                   nodeId,
@@ -664,14 +699,18 @@ export function createHostPluginNotificationTransport(
                   signal: attempt.signal,
                 });
               })();
-        if (!result) return "failed";
+        if (!result) {
+          return "failed";
+        }
         return result.ok
           ? "accepted"
           : result.status >= 400 && result.status < 500
             ? "failed"
             : "ambiguous";
       }
-      if (!target.id.startsWith("web:")) return "failed";
+      if (!target.id.startsWith("web:")) {
+        return "failed";
+      }
       const subscriptionId = target.id.slice("web:".length);
       const result = await sendWebPushNotification({
         subscriptionId,
@@ -693,7 +732,9 @@ export function createHostPluginNotificationTransport(
         signal: attempt.signal,
         baseDir: params.stateDir,
       });
-      if (result.ok) return "accepted";
+      if (result.ok) {
+        return "accepted";
+      }
       return result.statusCode && result.statusCode >= 400 && result.statusCode < 500
         ? "failed"
         : "ambiguous";

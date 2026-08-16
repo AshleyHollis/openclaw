@@ -5,8 +5,8 @@ import type {
   GatewayRequestOptions,
 } from "../../gateway/server-methods/types.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
-import type { PluginOrigin } from "../plugin-origin.types.js";
 import type { PluginNotificationPrincipal } from "../notification-emitter.js";
+import type { PluginOrigin } from "../plugin-origin.types.js";
 import type { PluginRegistry } from "../registry-types.js";
 
 type PluginRuntimeGatewayRequestScope = {
@@ -33,7 +33,7 @@ type PluginRuntimePluginScope = {
  * scope object: plugins may inspect the public request scope, but must never
  * receive a durable authentication binding or its device generations.
  */
-export type PluginRuntimeGatewayHostScope = {
+type PluginRuntimeGatewayHostScope = {
   notificationPrincipal?: PluginNotificationPrincipal;
 };
 
@@ -115,7 +115,8 @@ export function withPluginRuntimePluginScope<T>(scope: PluginRuntimePluginScope,
   // Nested scopes for another plugin must not inherit its operator binding.
   if (
     hostScope &&
-    (!hostScope.notificationPrincipal || hostScope.notificationPrincipal.pluginId === scoped.pluginId)
+    (!hostScope.notificationPrincipal ||
+      hostScope.notificationPrincipal.pluginId === scoped.pluginId)
   ) {
     pluginRuntimeGatewayHostScopes.set(scoped, hostScope);
   }

@@ -729,7 +729,9 @@ function createNotificationServiceWorker(
     },
     async dispatchClear(payload: ServiceWorkerPushPayload) {
       const listener = listeners.get("push");
-      if (!listener) throw new Error("Service worker did not register a push handler");
+      if (!listener) {
+        throw new Error("Service worker did not register a push handler");
+      }
       let completion: Promise<unknown> | undefined;
       listener({
         data: { json: () => payload, text: () => payload.body },
@@ -737,7 +739,9 @@ function createNotificationServiceWorker(
           completion = promise;
         },
       });
-      if (!completion) throw new Error("Service worker clear did not register a completion promise");
+      if (!completion) {
+        throw new Error("Service worker clear did not register a completion promise");
+      }
       await completion;
     },
   };

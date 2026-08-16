@@ -12,7 +12,6 @@ import {
   type OpenClawStateDatabaseOptions,
 } from "../state/openclaw-state-db.js";
 import type {
-  PluginNotificationAttemptOutcome,
   PluginNotificationClearResult,
   PluginNotificationEmitResult,
   PluginNotificationLedger,
@@ -85,7 +84,9 @@ function principalKey(principal: PluginNotificationPrincipal): string {
 }
 
 function parseEmitResult(value: string | null): PluginNotificationEmitResult | null {
-  if (!value) return null;
+  if (!value) {
+    return null;
+  }
   try {
     const result = JSON.parse(value) as Partial<PluginNotificationEmitResult>;
     return typeof result.status === "string" &&
@@ -101,7 +102,9 @@ function parseEmitResult(value: string | null): PluginNotificationEmitResult | n
 }
 
 function parseClearResult(value: string | null): PluginNotificationClearResult | null {
-  if (!value) return null;
+  if (!value) {
+    return null;
+  }
   try {
     const result = JSON.parse(value) as Partial<PluginNotificationClearResult>;
     return typeof result.status === "string" &&
@@ -119,7 +122,10 @@ function parseClearResult(value: string | null): PluginNotificationClearResult |
 export function ensurePluginNotificationLedgerSchema(
   db: Parameters<typeof getNodeSqliteKysely>[0],
 ): void {
-  if (ensured.has(db)) return;
+  if (ensured.has(db)) {
+    return;
+  }
+  /* sqlite-allow-raw: additive STRICT-table schema DDL is a closed, constant host-owned script. */
   db.exec(`
     CREATE TABLE IF NOT EXISTS plugin_notification_emissions (
       principal_key TEXT NOT NULL,
@@ -252,7 +258,9 @@ export class SqlitePluginNotificationLedger implements PluginNotificationLedger 
           .where("emission_id", "=", params.emissionId),
       );
       if (existing) {
-        if (existing.candidate_hash !== params.candidateHash) return { kind: "conflict" as const };
+        if (existing.candidate_hash !== params.candidateHash) {
+          return { kind: "conflict" as const };
+        }
         const result = parseEmitResult(existing.result_json);
         return result ? { kind: "replay" as const, result } : { kind: "in-flight" as const };
       }
@@ -267,7 +275,9 @@ export class SqlitePluginNotificationLedger implements PluginNotificationLedger 
       );
       // A durable clear closes the whole logical operation. Do not let a retry
       // create a new delivery after the operator has already cleared it.
-      if (clearedOperation) return { kind: "cleared" as const };
+      if (clearedOperation) {
+        return { kind: "cleared" as const };
+      }
       const rateRows = executeSqliteQuerySync(
         db,
         kysely
@@ -339,7 +349,9 @@ export class SqlitePluginNotificationLedger implements PluginNotificationLedger 
           .where("plugin_id", "=", params.principal.pluginId)
           .where("emission_id", "=", params.emissionId),
       );
-      if (!emission) return [];
+      if (!emission) {
+        return [];
+      }
       for (const [targetId, outcome] of params.outcomes) {
         executeSqliteQuerySync(
           db,

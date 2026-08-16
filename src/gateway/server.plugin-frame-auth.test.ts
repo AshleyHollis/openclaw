@@ -366,11 +366,13 @@ describe("control ui plugin frame auth route boundaries", () => {
         }),
       isPrincipalCurrent: () => true,
     });
-    let binding: ReturnType<typeof emitter.bindCurrentOperator> = undefined;
+    const notificationState: {
+      binding: ReturnType<typeof emitter.bindCurrentOperator>;
+    } = { binding: undefined };
     let pluginVisibleScope: unknown;
     let foreignPluginPrincipal: unknown;
     const handlePluginRequest = createGatewayPluginRequestHandler({
-      registry: createTestRegistry({
+      registry: createGatewayTestRegistry({
         httpRoutes: [
           {
             pluginId,
@@ -383,9 +385,9 @@ describe("control ui plugin frame auth route boundaries", () => {
               foreignPluginPrincipal = withPluginRuntimePluginIdScope("other-plugin", () =>
                 getPluginRuntimeGatewayNotificationPrincipal(),
               );
-              binding = emitter.bindCurrentOperator();
-              res.statusCode = binding ? 200 : 500;
-              res.end(binding ? "bound" : "not bound");
+              notificationState.binding = emitter.bindCurrentOperator();
+              res.statusCode = notificationState.binding ? 200 : 500;
+              res.end("ok");
               return true;
             },
           },
@@ -445,12 +447,12 @@ describe("control ui plugin frame auth route boundaries", () => {
     expect(pluginVisibleScope).not.toHaveProperty("notificationPrincipal");
     expect(JSON.stringify(pluginVisibleScope)).not.toContain("auth-generation");
     expect(foreignPluginPrincipal).toBeUndefined();
-    expect(binding).toBeDefined();
-    if (!binding) {
+    expect(notificationState.binding).toBeDefined();
+    if (!notificationState.binding) {
       throw new Error("expected notification binding");
     }
     await expect(
-      binding.emit({
+      notificationState.binding.emit({
         version: 1,
         emissionId: "frame-ready",
         logicalOperationId: "frame-operation",

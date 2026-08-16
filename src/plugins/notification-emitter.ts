@@ -3,8 +3,16 @@ import { createHash } from "node:crypto";
 import { isOperatorScope, type OperatorScope } from "../gateway/operator-scopes.js";
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const CONTROL = /[\u0000-\u001f\u007f-\u009f]/u;
 const DAY = 86_400_000;
+
+function containsControlCharacter(value: string): boolean {
+  return [...value].some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f);
+  });
+}
+
+/* oxlint-disable max-lines -- TODO: split notification validation from coordination. */
 export type PluginNotificationDeclarationV1 = {
   version: 1;
   id: string;
@@ -150,8 +158,12 @@ const scalar = (value: string) => {
     const c = value.charCodeAt(i);
     if (c >= 0xd800 && c <= 0xdbff) {
       const n = value.charCodeAt(++i);
-      if (!(n >= 0xdc00 && n <= 0xdfff)) return false;
-    } else if (c >= 0xdc00 && c <= 0xdfff) return false;
+      if (!(n >= 0xdc00 && n <= 0xdfff)) {
+        return false;
+      }
+    } else if (c >= 0xdc00 && c <= 0xdfff) {
+      return false;
+    }
   }
   return true;
 };
@@ -160,7 +172,7 @@ const text = (value: unknown, max: number): value is string =>
   scalar(value) &&
   [...value].length > 0 &&
   [...value].length <= max &&
-  !CONTROL.test(value);
+  !containsControlCharacter(value);
 const failure = (): PluginNotificationEmitResult => ({
   status: "failed",
   attempted: 0,
@@ -190,8 +202,9 @@ export function validatePluginNotificationDeclaration(
     !Array.isArray(value.destinations) ||
     value.destinations.length === 0 ||
     value.destinations.length > 8
-  )
+  ) {
     return false;
+  }
   const destinationIds = new Set<string>();
   return value.destinations.every(
     (destination) =>
@@ -240,8 +253,9 @@ function snapshotPluginNotificationCandidate(value: unknown): unknown | undefine
       "deepLink",
       "expiresAtMs",
     ])
-  )
+  ) {
     return undefined;
+  }
   const preview = value.preview;
   const deepLink = value.deepLink;
   if (
@@ -249,8 +263,9 @@ function snapshotPluginNotificationCandidate(value: unknown): unknown | undefine
     !keys(preview, ["title", "body"]) ||
     !plain(deepLink) ||
     !keys(deepLink, ["kind", "destinationId", "recordId"])
-  )
+  ) {
     return undefined;
+  }
   return {
     version: value.version,
     emissionId: value.emissionId,
@@ -288,16 +303,18 @@ function isValidPluginNotificationCandidateSnapshot(
     typeof value.logicalOperationId !== "string" ||
     !ID.test(value.logicalOperationId) ||
     (value.attentionClass !== "active" && value.attentionClass !== "time-sensitive")
-  )
+  ) {
     return false;
+  }
   const preview = value.preview;
   if (
     !plain(preview) ||
     !keys(preview, ["title", "body"]) ||
     !text(preview.title, 80) ||
     !text(preview.body, 256)
-  )
+  ) {
     return false;
+  }
   const deepLink = value.deepLink;
   if (
     !plain(deepLink) ||
@@ -308,16 +325,18 @@ function isValidPluginNotificationCandidateSnapshot(
     !ID.test(deepLink.destinationId) ||
     !ID.test(deepLink.recordId) ||
     !declaration.destinations.some((destination) => destination.id === deepLink.destinationId)
-  )
+  ) {
     return false;
+  }
   const expiresAtMs = value.expiresAtMs;
   if (
     typeof expiresAtMs !== "number" ||
     !Number.isSafeInteger(expiresAtMs) ||
     expiresAtMs <= nowMs ||
     expiresAtMs > nowMs + DAY
-  )
+  ) {
     return false;
+  }
   return Buffer.byteLength(canonical(value as PluginNotificationCandidateV1), "utf8") <= 2048;
 }
 
@@ -332,7 +351,7 @@ export function validatePluginNotificationCandidate(
     isValidPluginNotificationCandidateSnapshot(snapshot, declaration, nowMs)
   );
 }
-export const pluginNotificationOperationTopic = (
+const pluginNotificationOperationTopic = (
   principal: Pick<PluginNotificationPrincipal, "operatorId" | "pluginId">,
   logicalOperationId: string,
   sourceId: string,
@@ -391,7 +410,9 @@ function deadlineOptions(
   cancel: () => void;
 } | null {
   const remainingMs = expiresAtMs - nowMs;
-  if (remainingMs <= 0) return null;
+  if (remainingMs <= 0) {
+    return null;
+  }
   const timeoutMs = Math.min(remainingMs, maximumTransportAttemptMs);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -407,7 +428,9 @@ async function sendWithinDeadline(
   }) => Promise<PluginNotificationAttemptOutcome>,
 ): Promise<PluginNotificationAttemptOutcome> {
   const deadline = deadlineOptions(expiresAtMs, now());
-  if (!deadline) return "suppressed";
+  if (!deadline) {
+    return "suppressed";
+  }
   try {
     const result = await Promise.race([
       run({ signal: deadline.signal, timeoutMs: deadline.timeoutMs }),
@@ -448,15 +471,20 @@ export class PluginNotificationCoordinator {
   ): Promise<PluginNotificationEmitResult> {
     const now = this.options.now?.() ?? Date.now();
     const c = snapshotPluginNotificationCandidate(candidate);
-    if (!isValidPluginNotificationCandidateSnapshot(c, this.options.declaration, now))
+    if (!validatePluginNotificationCandidate(c, this.options.declaration, now)) {
       return failure();
+    }
     const principal =
       typeof operator === "string"
         ? principalForLegacyOperator(this.options.pluginId, operator)
         : operator;
-    if (principal.pluginId !== this.options.pluginId) return failure();
+    if (principal.pluginId !== this.options.pluginId) {
+      return failure();
+    }
     const sourceId = resolveTransportSourceId(this.options.transportSourceId);
-    if (!sourceId) return failure();
+    if (!sourceId) {
+      return failure();
+    }
     const operatorKey = principal.operatorId;
     const key = JSON.stringify([operatorKey, this.options.pluginId, c.emissionId]);
     const hash = createHash("sha256").update(canonical(c)).digest("hex");
@@ -471,13 +499,19 @@ export class PluginNotificationCoordinator {
       targetIds: targets.map((target) => target.id),
       nowMs: now,
     });
-    if (claimed?.kind === "replay") return claimed.result;
-    if (claimed?.kind === "conflict") return failure();
-    if (claimed?.kind === "in-flight")
+    if (claimed?.kind === "replay") {
+      return claimed.result;
+    }
+    if (claimed?.kind === "conflict") {
+      return failure();
+    }
+    if (claimed?.kind === "in-flight") {
       return { status: "ambiguous", attempted: 0, delivered: 0, failed: 0, ambiguous: 1 };
-    if (claimed?.kind === "cleared")
+    }
+    if (claimed?.kind === "cleared") {
       return { status: "suppressed", attempted: 0, delivered: 0, failed: 0, ambiguous: 0 };
-    if (claimed?.kind === "rate-limited")
+    }
+    if (claimed?.kind === "rate-limited") {
       return {
         status: "rate-limited",
         attempted: 0,
@@ -486,11 +520,14 @@ export class PluginNotificationCoordinator {
         ambiguous: 0,
         retryAfterMs: claimed.retryAfterMs,
       };
+    }
     const old = this.emissions.get(key);
-    if (!this.options.ledger && old) return old.hash === hash ? old.result : failure();
+    if (!this.options.ledger && old) {
+      return old.hash === hash ? old.result : failure();
+    }
     const rateKey = JSON.stringify([operatorKey, this.options.pluginId]);
     const starts = (this.rates.get(rateKey) ?? []).filter((start) => start > now - 60_000);
-    if (!this.options.ledger && starts.length >= 12)
+    if (!this.options.ledger && starts.length >= 12) {
       return {
         status: "rate-limited",
         attempted: 0,
@@ -499,6 +536,7 @@ export class PluginNotificationCoordinator {
         ambiguous: 0,
         retryAfterMs: starts[0]! + 60_000 - now,
       };
+    }
     if (!this.options.ledger) {
       starts.push(now);
       this.rates.set(rateKey, starts);
@@ -538,7 +576,9 @@ export class PluginNotificationCoordinator {
           (entry) => entry.id === c.deepLink.destinationId,
         );
         // Candidate validation above guarantees this declaration-owned destination exists.
-        if (!destination) return undefined;
+        if (!destination) {
+          return undefined;
+        }
         return {
           kind: "plugin-detail" as const,
           pluginId: this.options.pluginId,
@@ -613,17 +653,20 @@ export class PluginNotificationCoordinator {
     operator: string | PluginNotificationPrincipal,
     request: unknown,
   ): Promise<PluginNotificationClearResult> {
-    if (!validClear(request))
+    if (!validClear(request)) {
       return { status: "partial", attempted: 0, cleared: 0, failed: 1, ambiguous: 0 };
+    }
     const principal =
       typeof operator === "string"
         ? principalForLegacyOperator(this.options.pluginId, operator)
         : operator;
-    if (principal.pluginId !== this.options.pluginId)
+    if (principal.pluginId !== this.options.pluginId) {
       return { status: "partial", attempted: 0, cleared: 0, failed: 1, ambiguous: 0 };
+    }
     const sourceId = resolveTransportSourceId(this.options.transportSourceId);
-    if (!sourceId)
+    if (!sourceId) {
       return { status: "partial", attempted: 0, cleared: 0, failed: 1, ambiguous: 0 };
+    }
     const operatorKey = principal.operatorId;
     const key = JSON.stringify([operatorKey, request.logicalOperationId]);
     const claimed = this.options.ledger?.claimClear({
@@ -631,16 +674,21 @@ export class PluginNotificationCoordinator {
       logicalOperationId: request.logicalOperationId,
       nowMs: this.options.now?.() ?? Date.now(),
     });
-    if (claimed?.kind === "replay") return claimed.result;
-    if (claimed?.kind === "in-flight")
+    if (claimed?.kind === "replay") {
+      return claimed.result;
+    }
+    if (claimed?.kind === "in-flight") {
       return { status: "ambiguous", attempted: 0, cleared: 0, failed: 0, ambiguous: 1 };
-    if (!this.options.ledger && this.cleared.has(key))
+    }
+    if (!this.options.ledger && this.cleared.has(key)) {
       return { status: "already-cleared", attempted: 0, cleared: 0, failed: 0, ambiguous: 0 };
+    }
     const targets = this.options.ledger
       ? claimed!.targetIds.map((id) => ({ id }))
       : [...(this.targets.get(key)?.values() ?? [])];
-    if (!targets.length)
+    if (!targets.length) {
       return { status: "already-cleared", attempted: 0, cleared: 0, failed: 0, ambiguous: 0 };
+    }
     const payload: PluginNotificationTransportPayload = {
       version: 1,
       kind: "clear",
@@ -702,26 +750,33 @@ export function createPluginNotificationEmitter(params: {
   return {
     bindCurrentOperator: () => {
       const principal = params.capturePrincipal?.();
-      if (!params.isPluginActive() || !principal) return undefined;
+      if (!params.isPluginActive() || !principal) {
+        return undefined;
+      }
       const authorized = () =>
         params.isPluginActive() &&
         (params.isDeclarationActive?.() ?? true) &&
         params.declaration.requiredScopes.every((scope) => principal.scopes.includes(scope));
-      if (!authorized()) return undefined;
+      if (!authorized()) {
+        return undefined;
+      }
       return {
         emit: async (candidate) => {
           const current = params.isPrincipalCurrent
             ? await params.isPrincipalCurrent(principal)
             : true;
-          if (!authorized() || !current) return failure();
+          if (!authorized() || !current) {
+            return failure();
+          }
           return await params.coordinator.emit(principal, candidate);
         },
         clear: async (request) => {
           const current = params.isPrincipalCurrent
             ? await params.isPrincipalCurrent(principal)
             : true;
-          if (!authorized() || !current)
+          if (!authorized() || !current) {
             return { status: "partial", attempted: 0, cleared: 0, failed: 1, ambiguous: 0 };
+          }
           return await params.coordinator.clear(principal, request);
         },
       };

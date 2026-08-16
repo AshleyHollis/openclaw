@@ -68,15 +68,6 @@ export type {
   PluginTrustedToolPolicyRegistration,
 } from "./host-hooks.js";
 export type { PluginLogger } from "./logger-types.js";
-export type {
-  PluginNotificationBinding,
-  PluginNotificationCandidateV1,
-  PluginNotificationClearResult,
-  PluginNotificationClearV1,
-  PluginNotificationDeclarationV1,
-  PluginNotificationEmitter,
-  PluginNotificationEmitResult,
-} from "./notification-emitter.js";
 export type { PluginConfigUiHint } from "./manifest-types.js";
 export type { PluginOrigin } from "./plugin-origin.types.js";
 export type {

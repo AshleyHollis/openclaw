@@ -23,7 +23,7 @@ import {
 
 // --- Types ---
 
-export type WebPushSendResult = {
+type WebPushSendResult = {
   ok: boolean;
   subscriptionId: string;
   statusCode?: number;
@@ -167,7 +167,7 @@ export async function clearWebPushSubscriptionByEndpoint(
 
 // --- Sending ---
 
-export type WebPushPayload = {
+type WebPushPayload = {
   title: string;
   body?: string;
   tag?: string;

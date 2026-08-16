@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 
 const mocks = vi.hoisted(() => ({
   loadPairing: vi.fn(),
@@ -108,6 +109,7 @@ describe("host plugin notification principal", () => {
         }),
       ).toBe(true);
     } finally {
+      closeOpenClawStateDatabaseForTest();
       await rm(dir, { recursive: true, force: true });
     }
   });
@@ -290,9 +292,15 @@ describe("host plugin notification principal", () => {
       },
     };
     mocks.loadPairing.mockImplementation((deviceId: string) => {
-      if (deviceId === "browser-1") return browser;
-      if (deviceId === "browser-rotated") return rotatedBrowser;
-      if (deviceId === "phone-1") return phone;
+      if (deviceId === "browser-1") {
+        return browser;
+      }
+      if (deviceId === "browser-rotated") {
+        return rotatedBrowser;
+      }
+      if (deviceId === "phone-1") {
+        return phone;
+      }
       return undefined;
     });
     mocks.listSubscriptions.mockReturnValue([{ subscriptionId: "browser-subscription" }]);
@@ -337,6 +345,7 @@ describe("host plugin notification principal", () => {
         { id: "apns:phone-1" },
       ]);
     } finally {
+      closeOpenClawStateDatabaseForTest();
       await rm(dir, { recursive: true, force: true });
     }
   });
@@ -380,6 +389,7 @@ describe("host plugin notification principal", () => {
         ),
       ).toEqual([]);
     } finally {
+      closeOpenClawStateDatabaseForTest();
       await rm(dir, { recursive: true, force: true });
     }
   });

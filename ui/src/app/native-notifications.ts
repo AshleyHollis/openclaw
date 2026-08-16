@@ -4,7 +4,7 @@ type NativeNotificationsSnapshot = {
   permission: NativeNotificationsPermission | "unknown";
 };
 
-export type PluginNotificationNavigation = {
+type PluginNotificationNavigation = {
   kind: "plugin-detail";
   pluginId: string;
   tabId: string;
@@ -57,7 +57,9 @@ function snapshotFrom(value: unknown): NativeNotificationsSnapshot | null {
 }
 
 function navigationFrom(value: unknown): PluginNotificationNavigation | null {
-  if (typeof value !== "object" || value === null) return null;
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
   const target = value as Record<string, unknown>;
   const validId = (item: unknown): item is string =>
     typeof item === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(item);
@@ -114,8 +116,12 @@ export function createNativeNotificationsCapability(): NativeNotificationsCapabi
   };
   const handleNavigation = (event: Event) => {
     const navigation = navigationFrom((event as CustomEvent<unknown>).detail);
-    if (!navigation) return;
-    for (const listener of navigationListeners) listener(navigation);
+    if (!navigation) {
+      return;
+    }
+    for (const listener of navigationListeners) {
+      listener(navigation);
+    }
   };
   // Permission may change in System Settings while the app is backgrounded.
   const refreshStatus = () => postMessage({ type: "status" });

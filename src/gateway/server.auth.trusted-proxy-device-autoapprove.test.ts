@@ -612,7 +612,7 @@ describe("trusted-proxy browser device auto-approval", () => {
         ).ok,
       ).toBe(true);
       const paired = await getPairedDevice(identity.deviceId);
-      expect(paired?.tokens.operator?.token).toEqual(expect.any(String));
+      expect(paired?.tokens?.operator?.token).toEqual(expect.any(String));
 
       const ws = await openBrowserWs(port, trustedProxyHeaders());
       try {
