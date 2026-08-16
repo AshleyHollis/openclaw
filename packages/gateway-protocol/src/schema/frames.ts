@@ -107,6 +107,28 @@ export const HelloOkSchema = closedObject({
         path: Type.Optional(Type.String()),
         placement: Type.Optional(Type.String()),
         requiresGatewayAuth: Type.Optional(Type.Boolean()),
+        capabilityBridge: Type.Optional(
+          closedObject({
+            protocolVersion: Type.Literal(1),
+            mode: Type.Union([Type.Literal("read-only"), Type.Literal("read-write")]),
+            methods: Type.Array(NonEmptyString),
+            /** Host-only classification; never forwarded to the iframe port. */
+            readMethods: Type.Array(NonEmptyString),
+            missingRequiredMethods: Type.Array(NonEmptyString),
+            upgradeRequired: Type.Boolean(),
+            /** Authenticated host binding; never forwarded to the iframe port. */
+            linkedSessionKeys: Type.Array(NonEmptyString),
+            limits: closedObject({
+              maxRequestBytes: Type.Integer({ minimum: 1 }),
+              maxResponseBytes: Type.Integer({ minimum: 1 }),
+              maxConcurrentRequests: Type.Integer({ minimum: 1 }),
+              maxRequestsPerMinute: Type.Integer({ minimum: 1 }),
+              maxMutationsPerMinute: Type.Integer({ minimum: 1 }),
+              handshakeTimeoutMs: Type.Integer({ minimum: 1 }),
+              requestTimeoutMs: Type.Integer({ minimum: 1 }),
+            }),
+          }),
+        ),
         group: Type.Optional(Type.Union([Type.Literal("control"), Type.Literal("agent")])),
         order: Type.Optional(Type.Number()),
       }),
@@ -124,6 +146,8 @@ export const HelloOkSchema = closedObject({
   ),
   pluginSurfaceUrls: Type.Optional(Type.Record(NonEmptyString, NonEmptyString)),
   auth: closedObject({
+    /** Opaque server-derived operator/authentication generation for host-only bindings. */
+    authorityId: Type.Optional(NonEmptyString),
     deviceToken: Type.Optional(NonEmptyString),
     recoveryMigrationAllowed: Type.Optional(Type.Literal(true)),
     recoveryScope: Type.Optional(NonEmptyString),
