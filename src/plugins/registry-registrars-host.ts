@@ -15,6 +15,12 @@ import {
   type PluginToolMetadataRegistration,
   type PluginTrustedToolPolicyRegistration,
 } from "./host-hooks.js";
+import {
+  isControlUiSurface,
+  normalizeCapabilityBridge,
+  normalizeHostHookString,
+  normalizeOptionalHostHookString,
+} from "./registry-control-ui-capability.js";
 import type { PluginRegistryState } from "./registry-state.js";
 import type {
   PluginRecord,
@@ -29,29 +35,6 @@ import {
 } from "./tool-contracts.js";
 import { normalizePluginToolMatcher } from "./tool-hook-matcher.js";
 import type { PluginConversationBindingResolvedEvent } from "./types.js";
-
-const controlUiSurfaces = new Set<PluginControlUiDescriptor["surface"]>([
-  "session",
-  "tool",
-  "run",
-  "settings",
-  "tab",
-  "widget",
-]);
-
-function normalizeHostHookString(value: unknown): string {
-  return typeof value === "string" ? normalizePluginHostHookId(value) : "";
-}
-
-function normalizeOptionalHostHookString(value: unknown): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value !== "string") {
-    return "";
-  }
-  return value.trim();
-}
 
 function normalizeHostHookStringList(value: unknown): string[] | undefined | null {
   if (value === undefined) {
@@ -360,12 +343,16 @@ export function createHostRegistrars(state: PluginRegistryState) {
     const description = normalizeOptionalHostHookString(descriptor.description);
     const placement = normalizeOptionalHostHookString(descriptor.placement);
     const requiredScopes = normalizeHostHookStringList(descriptor.requiredScopes);
+    const capabilityBridge = normalizeCapabilityBridge(
+      descriptor.capabilityBridge,
+      normalizeHostHookStringList,
+    );
     // The flat API predates required surface/label; preserve shipped JS-plugin behavior.
     const surface = typeof descriptor.surface === "string" ? descriptor.surface : "session";
     if (
       !id ||
       !label ||
-      !controlUiSurfaces.has(surface) ||
+      !isControlUiSurface(surface) ||
       description === "" ||
       placement === "" ||
       requiredScopes === null
@@ -378,6 +365,17 @@ export function createHostRegistrars(state: PluginRegistryState) {
           "control UI descriptor registration requires id, surface, label, and valid optional fields",
       });
       return;
+    }
+    if (capabilityBridge.kind === "invalid") {
+      // The gateway-authenticated iframe remains useful without this optional
+      // protocol. Dropping the descriptor here would turn a declaration typo
+      // into an unavailable tab rather than its documented read-only fallback.
+      pushDiagnostic({
+        level: "error",
+        pluginId: record.id,
+        source: record.source,
+        message: `control UI descriptor capabilityBridge is invalid and will be ignored: ${id}`,
+      });
     }
     if (requiredScopes !== undefined) {
       const unknownScope = requiredScopes.find((scope) => !isOperatorScope(scope));
@@ -433,11 +431,13 @@ export function createHostRegistrars(state: PluginRegistryState) {
       typeof descriptor.order === "number" && Number.isFinite(descriptor.order)
         ? descriptor.order
         : undefined;
+    const { capabilityBridge: _untrustedCapabilityBridge, ...descriptorWithoutCapabilityBridge } =
+      descriptor;
     registry.controlUiDescriptors.push({
       pluginId: record.id,
       pluginName: record.name,
       descriptor: {
-        ...descriptor,
+        ...descriptorWithoutCapabilityBridge,
         id,
         surface,
         label,
@@ -450,6 +450,7 @@ export function createHostRegistrars(state: PluginRegistryState) {
         path: tabPath,
         group,
         order,
+        ...(capabilityBridge.kind === "valid" ? { capabilityBridge: capabilityBridge.value } : {}),
       },
       source: record.source,
       rootDir: record.rootDir,

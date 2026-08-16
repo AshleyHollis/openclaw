@@ -9,7 +9,12 @@ import { buildControlUiSessionPath } from "@openclaw/session-url-contract";
 import type { ConsoleMessage, Locator, Page, Request } from "playwright";
 import type { InlineConfig, Plugin, PreviewServer, ViteDevServer } from "vite";
 import { PROTOCOL_VERSION } from "../../../packages/gateway-protocol/src/version.js";
-import { CONTROL_UI_BOOTSTRAP_CONFIG_PATH } from "../../../src/gateway/control-ui-contract.js";
+import {
+  CONTROL_UI_BOOTSTRAP_CONFIG_PATH,
+  type ControlUiEmbedSandboxMode,
+  type ControlUiPluginFrameGrantAck,
+} from "../../../src/gateway/control-ui-contract.js";
+import type { GatewayControlUiPluginTab } from "../api/gateway.ts";
 import type { ModelCatalogEntry } from "../api/types.ts";
 import { normalizeControlUiBuildInfo } from "../build-info-normalizers.ts";
 import type { ControlUiBuildInfo } from "../build-info.ts";
@@ -244,13 +249,7 @@ export type ControlUiMockGatewayScenario = {
   assistantAgentId?: string;
   assistantName?: string;
   basePath?: string;
-  controlUiTabs?: Array<{
-    group?: string;
-    icon?: string;
-    id: string;
-    label: string;
-    pluginId: string;
-  }>;
+  controlUiTabs?: GatewayControlUiPluginTab[];
   controlUiWidgetKinds?: Array<{
     kind: string;
     label: string;
@@ -267,8 +266,12 @@ export type ControlUiMockGatewayScenario = {
   serverBuildId?: string;
   controlUiBuildSource?: "bundled" | "configured";
   serverVersion?: string;
+  /** Bootstrap embed policy served to the browser. */
+  embedSandbox?: ControlUiEmbedSandboxMode;
   /** Simulate the one-time legacy Control UI device-auth pairing transition. */
   deviceAuthMigrationPending?: boolean;
+  /** Opaque server-derived operator/authentication generation from hello-ok. */
+  authAuthorityId?: string;
   deviceToken?: string;
   featureMethods?: string[];
   /** Simulate a legacy Gateway that predates the advertised method catalog. */
@@ -309,6 +312,8 @@ export type ControlUiMockGatewayScenario = {
   models?: ModelCatalogEntry[];
   /** Operator scopes returned by the mocked connect handshake. */
   operatorScopes?: string[];
+  /** Route-bound plugin authentication grants served by bootstrap refresh. */
+  pluginFrameGrants?: ControlUiPluginFrameGrantAck[];
   sessionKey?: string;
   /** Initial gateway-owned custom group catalog (sessions.groups.*), in order. */
   sessionGroups?: string[];
@@ -784,6 +789,7 @@ function normalizeScenario(
       scenario.agentModel === undefined ? "openai/gpt-5.5" : scenario.agentModel?.trim() || null,
     assistantAgentId: scenario.assistantAgentId?.trim() || defaultAgentId,
     assistantName: scenario.assistantName?.trim() || "OpenClaw",
+    authAuthorityId: scenario.authAuthorityId?.trim() || "e2e-auth-authority",
     basePath,
     controlUiTabs: scenario.controlUiTabs ?? [],
     controlUiWidgetKinds: scenario.controlUiWidgetKinds ?? [],
@@ -801,6 +807,7 @@ function normalizeScenario(
     serverBuildId: scenario.serverBuildId?.trim() || "e2e",
     controlUiBuildSource: scenario.controlUiBuildSource ?? "bundled",
     serverVersion: scenario.serverVersion?.trim() || "e2e",
+    embedSandbox: scenario.embedSandbox ?? "scripts",
     deviceAuthMigrationPending: scenario.deviceAuthMigrationPending ?? false,
     deviceToken: scenario.deviceToken?.trim() || "e2e-device-token",
     // Baseline scenarios represent a current Gateway. Tests for unsupported or
@@ -820,6 +827,7 @@ function normalizeScenario(
       "operator.approvals",
       "operator.pairing",
     ],
+    pluginFrameGrants: scenario.pluginFrameGrants ?? [],
     repeatingSessionEvents: scenario.repeatingSessionEvents ?? { events: [] },
     sessionInfo: scenario.sessionInfo ?? null,
     sessionArchiveFiltering: scenario.sessionArchiveFiltering ?? false,
@@ -841,12 +849,13 @@ export function createControlUiMockBootstrapConfig(scenario: ControlUiMockGatewa
     assistantName: normalizedScenario.assistantName,
     basePath: normalizedScenario.basePath,
     devGitBranch: normalizedScenario.devGitBranch || undefined,
-    embedSandbox: "scripts",
+    embedSandbox: normalizedScenario.embedSandbox,
     localMediaPreviewRoots: [],
     serverVersion: normalizedScenario.serverVersion,
     serverBuildId: normalizedScenario.serverBuildId,
     terminalEnabled: normalizedScenario.terminalEnabled,
     cliAgentsEnabled: normalizedScenario.cliAgentsEnabled,
+    pluginFrameGrants: normalizedScenario.pluginFrameGrants,
   };
 }
 
@@ -1583,6 +1592,7 @@ function installControlUiMockGateway(
           auth && typeof auth.deviceToken === "string" ? auth.deviceToken : scenario.deviceToken;
         return {
           auth: {
+            authorityId: scenario.authAuthorityId,
             ...(deviceAuthMigrationPending
               ? {}
               : { deviceToken: connectedDeviceToken, recoveryMigrationAllowed: true as const }),
