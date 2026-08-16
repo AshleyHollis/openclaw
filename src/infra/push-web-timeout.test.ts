@@ -43,7 +43,9 @@ function createStalledTlsServer() {
       });
     },
     async stop(): Promise<void> {
-      if (!listening) return;
+      if (!listening) {
+        return;
+      }
       sockets.forEach((socket) => socket.destroy());
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
@@ -65,7 +67,9 @@ async function settleWithin<T>(operation: Promise<T>, timeoutMs: number): Promis
       }),
     ]);
   } finally {
-    if (timer) clearTimeout(timer);
+    if (timer) {
+      clearTimeout(timer);
+    }
   }
 }
 

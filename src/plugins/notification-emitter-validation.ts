@@ -42,18 +42,19 @@ function scalar(value: string): boolean {
 }
 
 function containsControlCharacter(value: string): boolean {
-  return [...value].some((character) => {
+  return Array.from(value).some((character) => {
     const codePoint = character.codePointAt(0) ?? 0;
     return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f);
   });
 }
 
-export const boundedText = (value: unknown, max: number): value is string =>
-  typeof value === "string" &&
-  scalar(value) &&
-  [...value].length > 0 &&
-  [...value].length <= max &&
-  !containsControlCharacter(value);
+export const boundedText = (value: unknown, max: number): value is string => {
+  if (typeof value !== "string" || !scalar(value) || containsControlCharacter(value)) {
+    return false;
+  }
+  const codePointLength = Array.from(value).length;
+  return codePointLength > 0 && codePointLength <= max;
+};
 
 export function canonical(candidate: NotificationCandidateShape): string {
   return JSON.stringify({

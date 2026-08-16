@@ -181,7 +181,7 @@ export function validatePluginNotificationDeclaration(
  * and mutate its input after emit(), so validation and delivery must share this
  * host-owned plain snapshot rather than the plugin's object graph.
  */
-function snapshotPluginNotificationCandidate(value: unknown): unknown | undefined {
+function snapshotPluginNotificationCandidate(value: unknown): unknown {
   if (
     !plain(value) ||
     !keys(value, [
@@ -421,7 +421,7 @@ export class PluginNotificationCoordinator {
     if (principal.pluginId !== this.options.pluginId) {
       return failure();
     }
-    const sourceId = resolveTransportSourceId(this.options.transportSourceId);
+    const sourceId = resolveTransportSourceId(() => this.options.transportSourceId());
     if (!sourceId) {
       return failure();
     }
@@ -603,7 +603,7 @@ export class PluginNotificationCoordinator {
     if (principal.pluginId !== this.options.pluginId) {
       return { status: "partial", attempted: 0, cleared: 0, failed: 1, ambiguous: 0 };
     }
-    const sourceId = resolveTransportSourceId(this.options.transportSourceId);
+    const sourceId = resolveTransportSourceId(() => this.options.transportSourceId());
     if (!sourceId) {
       return { status: "partial", attempted: 0, cleared: 0, failed: 1, ambiguous: 0 };
     }
