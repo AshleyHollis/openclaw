@@ -3022,6 +3022,13 @@ NODE
     expect(evaluateWorkflowExpression(expression, { ...base, matrix: { task: "lint" } })).toBe(
       "ubuntu-24.04",
     );
+    expect(
+      evaluateWorkflowExpression(expression, {
+        ...base,
+        matrix: { task: "test-types" },
+        runnerBackend: "",
+      }),
+    ).toBe("ubuntu-24.04");
     for (const task of ["dependencies", "guards"]) {
       expect(evaluateWorkflowExpression(expression, { ...base, matrix: { task } }), task).toBe(
         "ubuntu-24.04",
