@@ -26,23 +26,25 @@ private final class PluginNotificationMockCenter: NotificationCentering, @unchec
 }
 
 struct PluginNotificationBridgeTests {
-    private static let destinationUserInfo: [AnyHashable: Any] = [
-        "openclaw": [
-            "version": 1,
-            "kind": PluginNotificationBridge.notificationKind,
-            "nodeId": "ios-node",
-            "sourceId": "gateway-a",
-            "tag": "operation-tag",
-            "target": [
-                "kind": "plugin-detail",
-                "pluginId": "board",
-                "tabId": "items",
-                "destinationId": "item",
-                "recordId": "record-1",
+    private static var destinationUserInfo: [AnyHashable: Any] {
+        [
+            "openclaw": [
+                "version": 1,
+                "kind": PluginNotificationBridge.notificationKind,
+                "nodeId": "ios-node",
+                "sourceId": "gateway-a",
+                "tag": "operation-tag",
+                "target": [
+                    "kind": "plugin-detail",
+                    "pluginId": "board",
+                    "tabId": "items",
+                    "destinationId": "item",
+                    "recordId": "record-1",
+                ],
+                "ts": 1,
             ],
-            "ts": 1,
-        ],
-    ]
+        ]
+    }
 
     @Test func `default taps accept only bounded plugin destinations`() throws {
         let destination = try #require(PluginNotificationBridge.parseDestination(
