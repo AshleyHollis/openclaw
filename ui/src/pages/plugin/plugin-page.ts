@@ -1138,7 +1138,7 @@ export class PluginPage extends OpenClawLightDomContentsElement {
         <section class="plugin-tab-embed">
           ${info.requiresGatewayAuth === true && (!bridgeEnabled || bridge.upgradeRequired)
             ? html`<p class="plugin-tab-embed__notice" role="status">
-                Capability bridge unavailable or needs an update; read-only mode is active.
+                ${t("pluginTabs.bridgeReadOnlyNotice")}
               </p>`
             : nothing}
           ${keyed(
