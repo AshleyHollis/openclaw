@@ -90,6 +90,8 @@ function pluginFrameGrantCoversTab(
   );
 }
 
+/* oxlint-disable max-lines -- TODO: extract the capability-bridge lifecycle into its own controller. */
+
 function isSameOriginFramePath(path: string): boolean {
   try {
     return new URL(path, window.location.href).origin === window.location.origin;
@@ -705,7 +707,9 @@ export class PluginPage extends OpenClawLightDomContentsElement {
 
   private capabilityBridgeAuthIdentity() {
     const auth = this.context?.gateway.snapshot.hello?.auth;
-    if (!auth?.authorityId) return null;
+    if (!auth?.authorityId) {
+      return null;
+    }
     // The server derives this opaque marker from the authenticated operator and
     // generation. Older hellos lack it and therefore retain the read-only route.
     return { authorityId: auth.authorityId };
@@ -955,10 +959,10 @@ export class PluginPage extends OpenClawLightDomContentsElement {
       context.gateway.snapshot.phase !== "connected" ||
       frame.getAttribute("sandbox") !== AUTHENTICATED_EXTERNAL_TAB_SANDBOX ||
       frame.getAttribute("srcdoc") !== document.markup
-    )
+    ) {
       return;
-    let capabilityBridge: ExternalTabCapabilityBridgeController;
-    capabilityBridge = new ExternalTabCapabilityBridgeController({
+    }
+    const capabilityBridge = new ExternalTabCapabilityBridgeController({
       client,
       grant,
       mutationNamespace: document.mutationNamespace,
@@ -976,7 +980,9 @@ export class PluginPage extends OpenClawLightDomContentsElement {
         window.location.assign(target.href);
       },
       onHandshakeFailure: () => {
-        if (this.capabilityBridge !== capabilityBridge) return;
+        if (this.capabilityBridge !== capabilityBridge) {
+          return;
+        }
         // An absent or incompatible plugin handshake must not leave a dead
         // sandbox mounted. Keep the authenticated direct route read-only until
         // a connection epoch refreshes the declared bridge contract.

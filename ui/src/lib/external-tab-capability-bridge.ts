@@ -126,6 +126,9 @@ function searchResultNumber(value: unknown, field: "score" | "timestamp"): numbe
  * identity remains outside every iframe-visible envelope.
  */
 export class ExternalTabCapabilityBridgeController {
+  private readonly handlePortMessage = (event: MessageEvent) => {
+    this.onMessage(event.data);
+  };
   private port: MessagePort | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private hello = false;
@@ -161,15 +164,21 @@ export class ExternalTabCapabilityBridgeController {
     this.mutationOperations = options.mutationState?.operations ?? new Map();
     this.mutationTombstones = options.mutationState?.tombstones ?? new Map();
     for (const key of options.linkedSessionKeys ?? []) {
-      if (this.links.size === 200) break;
-      if (isNonEmptyString(key)) this.links.add(key);
+      if (this.links.size === 200) {
+        break;
+      }
+      if (isNonEmptyString(key)) {
+        this.links.add(key);
+      }
     }
   }
 
   connect(port: MessagePort): void {
-    if (this.revoked) return;
+    if (this.revoked) {
+      return;
+    }
     this.port = port;
-    this.port.onmessage = (event) => this.onMessage(event.data);
+    this.port.addEventListener("message", this.handlePortMessage);
     this.port.start();
     this.timer = setTimeout(
       () => this.failHandshake(),
@@ -179,34 +188,52 @@ export class ExternalTabCapabilityBridgeController {
 
   revoke(): void {
     this.revoked = true;
-    if (this.timer) clearTimeout(this.timer);
+    if (this.timer) {
+      clearTimeout(this.timer);
+    }
     this.timer = null;
+    this.port?.removeEventListener("message", this.handlePortMessage);
     this.port?.close();
     this.port = null;
   }
 
   private post(value: unknown): void {
-    if (!this.port || this.revoked) return;
-    if ((byteLength(value) ?? Infinity) > EXTERNAL_TAB_BRIDGE_LIMITS.maxResponseBytes) {
-      this.port.postMessage({
-        type: "openclaw:capability-bridge-response",
-        requestId: (value as { requestId?: string }).requestId ?? "",
-        error: error("RESULT_TOO_LARGE", "Bridge response exceeds the public limit"),
-      });
+    if (!this.port || this.revoked) {
       return;
     }
-    this.port.postMessage(value);
+    if ((byteLength(value) ?? Infinity) > EXTERNAL_TAB_BRIDGE_LIMITS.maxResponseBytes) {
+      this.port.postMessage(
+        {
+          type: "openclaw:capability-bridge-response",
+          requestId: (value as { requestId?: string }).requestId ?? "",
+          error: error("RESULT_TOO_LARGE", "Bridge response exceeds the public limit"),
+        },
+        [],
+      );
+      return;
+    }
+    this.port.postMessage(value, []);
   }
 
   private onMessage(value: unknown): void {
-    if (this.revoked || !this.port) return;
+    if (this.revoked || !this.port) {
+      return;
+    }
     const message = asRecord(value);
-    if (message?.type === "openclaw:capability-bridge-revoke") return this.revoke();
+    if (message?.type === "openclaw:capability-bridge-revoke") {
+      return this.revoke();
+    }
     if (message?.type === "openclaw:capability-bridge-hello") {
-      if (this.hello) return this.revoke();
-      if (message.protocolVersion !== 1) return this.failHandshake();
+      if (this.hello) {
+        return this.revoke();
+      }
+      if (message.protocolVersion !== 1) {
+        return this.failHandshake();
+      }
       this.hello = true;
-      if (this.timer) clearTimeout(this.timer);
+      if (this.timer) {
+        clearTimeout(this.timer);
+      }
       this.timer = null;
       // Build the iframe envelope field-by-field. The grant also carries the
       // host-only read classification and linked-session bindings used below.
@@ -221,12 +248,16 @@ export class ExternalTabCapabilityBridgeController {
       });
       return;
     }
-    if (!this.hello) return this.failHandshake();
+    if (!this.hello) {
+      return this.failHandshake();
+    }
     void this.handle(value);
   }
 
   private failHandshake(): void {
-    if (this.revoked || this.hello) return;
+    if (this.revoked || this.hello) {
+      return;
+    }
     this.revoke();
     this.options.onHandshakeFailure?.();
   }
@@ -234,7 +265,11 @@ export class ExternalTabCapabilityBridgeController {
   private trim(now: number): void {
     this.requests = this.requests.filter((at) => now - at < 60_000);
     this.mutations = this.mutations.filter((at) => now - at < 60_000);
-    for (const [id, at] of this.requestIds) if (now - at >= 60_000) this.requestIds.delete(id);
+    for (const [id, at] of this.requestIds) {
+      if (now - at >= 60_000) {
+        this.requestIds.delete(id);
+      }
+    }
     for (const operation of this.mutationOperations.values()) {
       if (
         operation.outcome &&
@@ -267,20 +302,22 @@ export class ExternalTabCapabilityBridgeController {
       !Object.keys(request).every((key) =>
         ["type", "requestId", "method", "params", "operationId"].includes(key),
       )
-    )
+    ) {
       return this.respond(
         requestId,
         undefined,
         error("INVALID_PARAMS", "Malformed capability bridge request"),
       );
+    }
     const now = this.options.now?.() ?? Date.now();
     this.trim(now);
-    if (this.requestIds.has(requestId))
+    if (this.requestIds.has(requestId)) {
       return this.respond(
         requestId,
         undefined,
         error("INVALID_PARAMS", "Request id has already been used"),
       );
+    }
     const mutation = !this.reads.has(request.method);
     const operationFingerprint = mutation
       ? JSON.stringify({ method: request.method, params: request.params })
@@ -288,23 +325,25 @@ export class ExternalTabCapabilityBridgeController {
     const existingOperation = mutation
       ? this.mutationOperations.get(request.operationId as string)
       : undefined;
-    if (existingOperation && existingOperation.fingerprint !== operationFingerprint)
+    if (existingOperation && existingOperation.fingerprint !== operationFingerprint) {
       return this.respond(
         requestId,
         undefined,
         error("OPERATION_CONFLICT", "Operation id has already been used for a different mutation"),
       );
+    }
     const tombstoneMethod =
       mutation && !existingOperation
         ? this.mutationTombstones.get(request.operationId as string)
         : undefined;
-    if (tombstoneMethod && tombstoneMethod !== request.method)
+    if (tombstoneMethod && tombstoneMethod !== request.method) {
       return this.respond(
         requestId,
         undefined,
         error("OPERATION_CONFLICT", "Operation id has already been used for a different mutation"),
       );
-    if (tombstoneMethod)
+    }
+    if (tombstoneMethod) {
       return this.respond(
         requestId,
         undefined,
@@ -313,45 +352,53 @@ export class ExternalTabCapabilityBridgeController {
           "Mutation outcome is unknown; reconcile before retrying",
         ),
       );
+    }
     // The 200-key link cap and ingress rate cap bound total host work.
     // Search groups dispatch serially, so they occupy one downstream slot.
     // Counting groups there would reject valid exact-set searches before Gateway sees them.
     const rateUnits = 1;
     const downstreamConcurrencyUnits = 1;
-    if (this.requests.length + rateUnits > EXTERNAL_TAB_BRIDGE_LIMITS.maxRequestsPerMinute)
+    if (this.requests.length + rateUnits > EXTERNAL_TAB_BRIDGE_LIMITS.maxRequestsPerMinute) {
       return this.respond(
         requestId,
         undefined,
         error("RATE_LIMITED", "Bridge request rate limit exceeded", true, 60_000),
       );
-    if (this.active + downstreamConcurrencyUnits > EXTERNAL_TAB_BRIDGE_LIMITS.maxConcurrentRequests)
+    }
+    if (
+      this.active + downstreamConcurrencyUnits >
+      EXTERNAL_TAB_BRIDGE_LIMITS.maxConcurrentRequests
+    ) {
       return this.respond(
         requestId,
         undefined,
         error("RATE_LIMITED", "Bridge request concurrency limit exceeded", true, 60_000),
       );
+    }
     this.requestIds.set(requestId, now);
     this.requests.push(now);
     if (
       mutation &&
       !existingOperation &&
       this.mutations.length >= EXTERNAL_TAB_BRIDGE_LIMITS.maxMutationsPerMinute
-    )
+    ) {
       return this.respond(
         requestId,
         undefined,
         error("RATE_LIMITED", "Bridge mutation rate limit exceeded", true, 60_000),
       );
-    if (!this.methods.has(request.method))
+    }
+    if (!this.methods.has(request.method)) {
       return this.respond(
         requestId,
         undefined,
         error("METHOD_NOT_GRANTED", "Method is not granted to this tab"),
       );
+    }
     if (
       (mutation && !isNonEmptyString(request.operationId, 128)) ||
       (!mutation && request.operationId !== undefined)
-    )
+    ) {
       return this.respond(
         requestId,
         undefined,
@@ -360,12 +407,13 @@ export class ExternalTabCapabilityBridgeController {
           "Mutation operation identifiers are required and read identifiers are forbidden",
         ),
       );
+    }
     if (
       mutation &&
       !existingOperation &&
       this.requiresDurableReconciliation(request.method) &&
       !this.reserveMutationTombstone(request.operationId as string, request.method)
-    )
+    ) {
       return this.respond(
         requestId,
         undefined,
@@ -374,12 +422,17 @@ export class ExternalTabCapabilityBridgeController {
           "Mutation requires durable reconciliation before it can be sent",
         ),
       );
-    if (mutation && !existingOperation) this.mutations.push(now);
+    }
+    if (mutation && !existingOperation) {
+      this.mutations.push(now);
+    }
     this.active += downstreamConcurrencyUnits;
     let executionStarted = false;
     let released = false;
     const releaseDownstreamSlot = () => {
-      if (released) return;
+      if (released) {
+        return;
+      }
       released = true;
       this.active -= downstreamConcurrencyUnits;
     };
@@ -394,7 +447,9 @@ export class ExternalTabCapabilityBridgeController {
       void execution.then(releaseDownstreamSlot, releaseDownstreamSlot);
       this.respond(requestId, await this.timed(execution));
     } catch (cause) {
-      if (!executionStarted) releaseDownstreamSlot();
+      if (!executionStarted) {
+        releaseDownstreamSlot();
+      }
       const timeout = cause instanceof Failure && cause.code === "TIMEOUT";
       const retryable = timeout && (!mutation || request.method === "chat.send");
       const unknown = timeout && mutation && !retryable;
@@ -433,7 +488,9 @@ export class ExternalTabCapabilityBridgeController {
         }),
       ]);
     } finally {
-      if (timer) clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+      }
     }
   }
 
@@ -441,8 +498,9 @@ export class ExternalTabCapabilityBridgeController {
     return Object.keys(params).every((key) => names.includes(key));
   }
   private linked(value: unknown): string {
-    if (typeof value !== "string" || !this.links.has(value))
+    if (typeof value !== "string" || !this.links.has(value)) {
       throw new Failure("SESSION_NOT_LINKED", "Session is not linked to this tab");
+    }
     return value;
   }
 
@@ -486,7 +544,8 @@ export class ExternalTabCapabilityBridgeController {
         return Promise.resolve(existing.outcome.result);
       }
       if (existing.outcome && !existing.outcome.ok) {
-        return Promise.reject(existing.outcome.cause);
+        const cause = existing.outcome.cause;
+        return Promise.reject(cause instanceof Error ? cause : new Error(String(cause)));
       }
       throw new Failure(
         "MUTATION_RECONCILIATION_REQUIRED",
@@ -512,7 +571,7 @@ export class ExternalTabCapabilityBridgeController {
         operation.pending = null;
         operation.outcome = { ok: true, result, completedAt: this.options.now?.() ?? Date.now() };
       },
-      (cause) => {
+      (cause: unknown) => {
         operation.pending = null;
         operation.outcome = { ok: false, cause, completedAt: this.options.now?.() ?? Date.now() };
       },
@@ -522,8 +581,12 @@ export class ExternalTabCapabilityBridgeController {
 
   private async dispatch(request: Request): Promise<unknown> {
     const params = asRecord(request.params);
-    if (!params) throw new Failure("INVALID_PARAMS", "Bridge parameters must be an object");
-    if (request.method === "sessions.search") return await this.search(params);
+    if (!params) {
+      throw new Failure("INVALID_PARAMS", "Bridge parameters must be an object");
+    }
+    if (request.method === "sessions.search") {
+      return await this.search(params);
+    }
     let allowed: Record<string, unknown>;
     if (request.method === "sessions.create") {
       if (
@@ -534,8 +597,9 @@ export class ExternalTabCapabilityBridgeController {
         !isOptionalNonEmptyString(params.thinkingLevel) ||
         !request.operationId ||
         !SESSION_CREATE_OPERATION_ID_RE.test(request.operationId)
-      )
+      ) {
         throw new Failure("INVALID_PARAMS", "Invalid session creation parameters");
+      }
       // sessions.create already adopts an explicit key atomically. Deriving it
       // from host tab authority plus the logical operation keeps retries safe
       // without allowing two authenticated tabs to adopt each other's key.
@@ -551,8 +615,9 @@ export class ExternalTabCapabilityBridgeController {
         (limit !== undefined &&
           (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 100)) ||
         (offset !== undefined && (!Number.isInteger(offset) || (offset as number) < 0))
-      )
+      ) {
         throw new Failure("INVALID_PARAMS", "Invalid chat history parameters");
+      }
       allowed = { ...params, sessionKey: this.linked(params.sessionKey), maxChars: 500_000 };
     } else if (request.method === "chat.send") {
       if (
@@ -563,25 +628,31 @@ export class ExternalTabCapabilityBridgeController {
           typeof params.fastMode !== "boolean" &&
           params.fastMode !== "auto") ||
         !request.operationId
-      )
+      ) {
         throw new Failure("INVALID_PARAMS", "Invalid chat send parameters");
+      }
       allowed = {
         ...params,
         sessionKey: this.linked(params.sessionKey),
         idempotencyKey: `bridge:${this.options.mutationNamespace}:${request.operationId}`,
       };
     } else if (request.method === "ui.session.navigate") {
-      if (!this.exact(params, ["sessionKey"]))
+      if (!this.exact(params, ["sessionKey"])) {
         throw new Failure("INVALID_PARAMS", "Invalid session navigation parameters");
+      }
       this.options.navigate(this.linked(params.sessionKey));
       return undefined;
-    } else allowed = params;
+    } else {
+      allowed = params;
+    }
     return await this.options.client.request(request.method, allowed);
   }
 
   private async search(params: Record<string, unknown>): Promise<unknown> {
     const plan = this.searchPlan(params);
-    if (plan.groups.length === 0) return { results: [] };
+    if (plan.groups.length === 0) {
+      return { results: [] };
+    }
     const candidates: unknown[] = [];
     let indexing = false;
     let truncated = false;
@@ -632,11 +703,13 @@ export class ExternalTabCapabilityBridgeController {
       !this.exact(params, ["query", "limit"]) ||
       typeof params.query !== "string" ||
       params.query.length > 4_000
-    )
+    ) {
       throw new Failure("INVALID_PARAMS", "Invalid session search parameters");
+    }
     const limit = params.limit === undefined ? 25 : params.limit;
-    if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 25)
+    if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 25) {
       throw new Failure("INVALID_PARAMS", "Invalid session search limit");
+    }
     const byAgent = new Map<string, string[]>();
     for (const key of this.links) {
       const agent = parseAgentSessionKey(key)?.agentId ?? "";

@@ -29,6 +29,8 @@ function bundledViewHost(page: PluginPage): object {
   return (page as unknown as { bundledViewHost: object }).bundledViewHost;
 }
 
+/* oxlint-disable max-lines -- TODO: split capability-bridge cases into a focused test module. */
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((resolvePromise) => {

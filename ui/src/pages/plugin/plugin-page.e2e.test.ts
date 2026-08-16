@@ -217,9 +217,8 @@ describeControlUiE2e("PluginPage external capability bridge E2E", () => {
     await frame.waitFor();
     expect(await frame.getAttribute("sandbox")).toBe("allow-scripts");
     expect(await frame.getAttribute("sandbox")).not.toContain("allow-same-origin");
-    const sandboxedFrame = await frame.contentFrame();
-    expect(sandboxedFrame).not.toBeNull();
-    expect(await sandboxedFrame?.evaluate(() => location.origin)).toBe("null");
+    const sandboxedFrame = frame.contentFrame();
+    expect(await sandboxedFrame.locator("html").evaluate(() => location.origin)).toBe("null");
     await expect
       .poll(async () => {
         return await page.evaluate(

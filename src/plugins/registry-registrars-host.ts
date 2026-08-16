@@ -43,6 +43,8 @@ function normalizeHostHookString(value: unknown): string {
   return typeof value === "string" ? normalizePluginHostHookId(value) : "";
 }
 
+/* oxlint-disable max-lines -- TODO: extract control-UI descriptor normalization. */
+
 function normalizeOptionalHostHookString(value: unknown): string | undefined {
   if (value === undefined) {
     return undefined;
@@ -73,8 +75,12 @@ type CapabilityBridgeNormalization =
   | { kind: "valid"; value: PluginControlUiDescriptor["capabilityBridge"] };
 
 function normalizeCapabilityBridge(value: unknown): CapabilityBridgeNormalization {
-  if (value === undefined) return { kind: "absent" };
-  if (!value || typeof value !== "object" || Array.isArray(value)) return { kind: "invalid" };
+  if (value === undefined) {
+    return { kind: "absent" };
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { kind: "invalid" };
+  }
   const bridge = value as {
     protocolVersion?: unknown;
     requiredMethods?: unknown;
@@ -84,12 +90,19 @@ function normalizeCapabilityBridge(value: unknown): CapabilityBridgeNormalizatio
     bridge.protocolVersion !== 1 ||
     !Array.isArray(bridge.requiredMethods) ||
     !Array.isArray(bridge.optionalMethods)
-  )
+  ) {
     return { kind: "invalid" };
+  }
   const requiredMethods = normalizeHostHookStringList(bridge.requiredMethods);
   const optionalMethods = normalizeHostHookStringList(bridge.optionalMethods);
-  if (requiredMethods === null || optionalMethods === null || !requiredMethods || !optionalMethods)
+  if (
+    requiredMethods === null ||
+    optionalMethods === null ||
+    !requiredMethods ||
+    !optionalMethods
+  ) {
     return { kind: "invalid" };
+  }
   const methods = [...requiredMethods, ...optionalMethods];
   return methods.length <= 32 && new Set(methods).size === methods.length
     ? {

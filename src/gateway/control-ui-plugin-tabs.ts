@@ -288,7 +288,9 @@ function projectCapabilityBridge(
   initialLinkedSessionKeys: readonly string[],
 ): ControlUiCapabilityBridgeGrant | undefined {
   const declaration = descriptor.capabilityBridge;
-  if (!declaration || descriptor.surface !== "tab") return undefined;
+  if (!declaration || descriptor.surface !== "tab") {
+    return undefined;
+  }
   const available = new Set(availableMethods);
   const registry = getActivePluginSessionExtensionRegistry();
   const registered = new Map(
@@ -296,21 +298,27 @@ function projectCapabilityBridge(
   );
   const kind = (method: string): "read" | "write" | "local" | undefined => {
     const core = CORE_BRIDGE_METHODS.get(method);
-    if (core) return core;
+    if (core) {
+      return core;
+    }
     const candidate = registered.get(method);
     if (
       candidate?.owner.kind === "plugin" &&
       candidate.owner.pluginId === pluginId &&
       (candidate.scope === READ_SCOPE || candidate.scope === "operator.write")
-    )
+    ) {
       return candidate.scope === READ_SCOPE ? "read" : "write";
+    }
     return undefined;
   };
   const permitted = (method: string) => {
     const methodKind = kind(method);
-    if (!methodKind) return false;
-    if (methodKind === "local")
+    if (!methodKind) {
+      return false;
+    }
+    if (methodKind === "local") {
       return authorizeOperatorScopesForRequiredScope(READ_SCOPE, scopes).allowed;
+    }
     return (
       available.has(method) &&
       authorizeOperatorScopesForRequiredScope(

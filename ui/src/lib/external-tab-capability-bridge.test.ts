@@ -58,11 +58,13 @@ function makeBridge(
 }
 function next(port: MessagePort) {
   return new Promise<Record<string, unknown>>((resolve) => {
-    port.onmessage = (event) => resolve(event.data as Record<string, unknown>);
+    port.addEventListener("message", (event) => resolve(event.data as Record<string, unknown>), {
+      once: true,
+    });
   });
 }
 async function hello(port: MessagePort) {
-  port.postMessage({ type: "openclaw:capability-bridge-hello", protocolVersion: 1 });
+  port.postMessage({ type: "openclaw:capability-bridge-hello", protocolVersion: 1 }, []);
   return await next(port);
 }
 
@@ -195,22 +197,28 @@ describe("ExternalTabCapabilityBridgeController", () => {
   it("returns local empty search and partitions multiple agents", async () => {
     const empty = makeBridge({ links: [] });
     await hello(empty.port);
-    empty.port.postMessage({
-      type: "openclaw:capability-bridge-request",
-      requestId: "empty",
-      method: "sessions.search",
-      params: { query: "x" },
-    });
+    empty.port.postMessage(
+      {
+        type: "openclaw:capability-bridge-request",
+        requestId: "empty",
+        method: "sessions.search",
+        params: { query: "x" },
+      },
+      [],
+    );
     expect(await next(empty.port)).toMatchObject({ result: { results: [] } });
     expect(empty.request).not.toHaveBeenCalled();
     const multi = makeBridge({ links: ["agent:main:a", "agent:work:b"] });
     await hello(multi.port);
-    multi.port.postMessage({
-      type: "openclaw:capability-bridge-request",
-      requestId: "multi",
-      method: "sessions.search",
-      params: { query: "x" },
-    });
+    multi.port.postMessage(
+      {
+        type: "openclaw:capability-bridge-request",
+        requestId: "multi",
+        method: "sessions.search",
+        params: { query: "x" },
+      },
+      [],
+    );
     await next(multi.port);
     expect(multi.request).toHaveBeenCalledWith(
       "sessions.search",
@@ -468,13 +476,16 @@ describe("ExternalTabCapabilityBridgeController", () => {
       mutationState,
     });
     await hello(first.port);
-    first.port.postMessage({
-      type: "openclaw:capability-bridge-request",
-      requestId: "first-request",
-      operationId: "stable-session-create",
-      method: "sessions.create",
-      params: { agentId: "work" },
-    });
+    first.port.postMessage(
+      {
+        type: "openclaw:capability-bridge-request",
+        requestId: "first-request",
+        operationId: "stable-session-create",
+        method: "sessions.create",
+        params: { agentId: "work" },
+      },
+      [],
+    );
     await next(first.port);
     first.controller.revoke();
 
@@ -486,13 +497,16 @@ describe("ExternalTabCapabilityBridgeController", () => {
       mutationState,
     });
     await hello(second.port);
-    second.port.postMessage({
-      type: "openclaw:capability-bridge-request",
-      requestId: "second-request",
-      operationId: "stable-session-create",
-      method: "sessions.create",
-      params: { agentId: "work" },
-    });
+    second.port.postMessage(
+      {
+        type: "openclaw:capability-bridge-request",
+        requestId: "second-request",
+        operationId: "stable-session-create",
+        method: "sessions.create",
+        params: { agentId: "work" },
+      },
+      [],
+    );
     await next(second.port);
 
     expect(request).toHaveBeenCalledOnce();
@@ -513,13 +527,16 @@ describe("ExternalTabCapabilityBridgeController", () => {
       request,
     });
     await hello(first.port);
-    first.port.postMessage({
-      type: "openclaw:capability-bridge-request",
-      requestId: "first-transport",
-      operationId: "stable-write",
-      method: "plugin.example.write",
-      params: { enabled: true },
-    });
+    first.port.postMessage(
+      {
+        type: "openclaw:capability-bridge-request",
+        requestId: "first-transport",
+        operationId: "stable-write",
+        method: "plugin.example.write",
+        params: { enabled: true },
+      },
+      [],
+    );
     await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
     first.controller.revoke();
 
@@ -531,13 +548,16 @@ describe("ExternalTabCapabilityBridgeController", () => {
     });
     await hello(second.port);
     const retry = next(second.port);
-    second.port.postMessage({
-      type: "openclaw:capability-bridge-request",
-      requestId: "second-transport",
-      operationId: "stable-write",
-      method: "plugin.example.write",
-      params: { enabled: true },
-    });
+    second.port.postMessage(
+      {
+        type: "openclaw:capability-bridge-request",
+        requestId: "second-transport",
+        operationId: "stable-write",
+        method: "plugin.example.write",
+        params: { enabled: true },
+      },
+      [],
+    );
     pending.resolve({ applied: true });
     expect(await retry).toMatchObject({ result: { applied: true } });
     expect(request).toHaveBeenCalledOnce();
@@ -553,13 +573,16 @@ describe("ExternalTabCapabilityBridgeController", () => {
       request,
     });
     await hello(first.port);
-    first.port.postMessage({
-      type: "openclaw:capability-bridge-request",
-      requestId: "first-page",
-      operationId: "stable-write",
-      method: "plugin.example.write",
-      params: { enabled: true },
-    });
+    first.port.postMessage(
+      {
+        type: "openclaw:capability-bridge-request",
+        requestId: "first-page",
+        operationId: "stable-write",
+        method: "plugin.example.write",
+        params: { enabled: true },
+      },
+      [],
+    );
     await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
     first.controller.revoke();
 
@@ -572,13 +595,16 @@ describe("ExternalTabCapabilityBridgeController", () => {
       request,
     });
     await hello(second.port);
-    second.port.postMessage({
-      type: "openclaw:capability-bridge-request",
-      requestId: "reloaded-page",
-      operationId: "stable-write",
-      method: "plugin.example.write",
-      params: { enabled: true },
-    });
+    second.port.postMessage(
+      {
+        type: "openclaw:capability-bridge-request",
+        requestId: "reloaded-page",
+        operationId: "stable-write",
+        method: "plugin.example.write",
+        params: { enabled: true },
+      },
+      [],
+    );
     expect(await next(second.port)).toMatchObject({
       error: { code: "MUTATION_RECONCILIATION_REQUIRED", retryable: false },
     });
@@ -602,21 +628,27 @@ describe("ExternalTabCapabilityBridgeController", () => {
     await Promise.all([hello(first.port), hello(second.port)]);
 
     for (const bridge of [first, second]) {
-      bridge.port.postMessage({
-        type: "openclaw:capability-bridge-request",
-        requestId: `create-${bridge === first ? "a" : "b"}`,
-        operationId: "create",
-        method: "sessions.create",
-        params: { agentId: "work" },
-      });
+      bridge.port.postMessage(
+        {
+          type: "openclaw:capability-bridge-request",
+          requestId: `create-${bridge === first ? "a" : "b"}`,
+          operationId: "create",
+          method: "sessions.create",
+          params: { agentId: "work" },
+        },
+        [],
+      );
       await next(bridge.port);
-      bridge.port.postMessage({
-        type: "openclaw:capability-bridge-request",
-        requestId: `send-${bridge === first ? "a" : "b"}`,
-        operationId: "send",
-        method: "chat.send",
-        params: { sessionKey: "agent:main:linked", message: "hello" },
-      });
+      bridge.port.postMessage(
+        {
+          type: "openclaw:capability-bridge-request",
+          requestId: `send-${bridge === first ? "a" : "b"}`,
+          operationId: "send",
+          method: "chat.send",
+          params: { sessionKey: "agent:main:linked", message: "hello" },
+        },
+        [],
+      );
       await next(bridge.port);
     }
 
@@ -650,7 +682,7 @@ describe("ExternalTabCapabilityBridgeController", () => {
 
     const incompatible = vi.fn();
     const bridge = makeBridge({ onHandshakeFailure: incompatible });
-    bridge.port.postMessage({ type: "openclaw:capability-bridge-hello", protocolVersion: 2 });
+    bridge.port.postMessage({ type: "openclaw:capability-bridge-hello", protocolVersion: 2 }, []);
     await vi.waitFor(() => expect(incompatible).toHaveBeenCalledOnce());
   });
 
@@ -680,7 +712,9 @@ describe("ExternalTabCapabilityBridgeController", () => {
     });
     expect(await next(port)).toMatchObject({ error: { code: "RATE_LIMITED" } });
     expect(request).toHaveBeenCalledTimes(8);
-    for (const operation of operations) operation.resolve({ messages: [] });
+    for (const operation of operations) {
+      operation.resolve({ messages: [] });
+    }
   });
 
   it("keeps timed-out Gateway work inside the downstream concurrency limit", async () => {
@@ -735,7 +769,9 @@ describe("ExternalTabCapabilityBridgeController", () => {
     await vi.waitFor(() =>
       expect(request).toHaveBeenCalledTimes(EXTERNAL_TAB_BRIDGE_LIMITS.maxConcurrentRequests + 1),
     );
-    for (const operation of operations) operation.resolve({ messages: [] });
+    for (const operation of operations) {
+      operation.resolve({ messages: [] });
+    }
   });
 
   it("limits mutations before their authoritative effects", async () => {
