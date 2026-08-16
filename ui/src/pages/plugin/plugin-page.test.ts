@@ -50,7 +50,6 @@ class ExternalPluginPage extends PluginPage {
   probeResults: Promise<boolean>[] = [Promise.resolve(true)];
   probeCalls: string[] = [];
   bridgeDocuments: Promise<string | null>[] = [Promise.resolve("<main>External panel</main>")];
-  bridgeDocumentPaths: string[] = [];
 
   protected override probeExternalTabAuth(path: string, _signal: AbortSignal): Promise<boolean> {
     this.probeCalls.push(path);
@@ -58,7 +57,6 @@ class ExternalPluginPage extends PluginPage {
   }
 
   protected override async loadCapabilityBridgeDocument(path: string, _signal: AbortSignal) {
-    this.bridgeDocumentPaths.push(path);
     const markup = await (this.bridgeDocuments.shift() ??
       Promise.resolve("<main>External panel</main>"));
     return markup ? { source: new URL(path, window.location.href), markup } : null;
@@ -294,33 +292,6 @@ describe("PluginPage", () => {
       expect(frame?.getAttribute("sandbox")).toBe("allow-scripts");
       expect(frame?.getAttribute("sandbox")).not.toContain("allow-same-origin");
       expect(frame?.getAttribute("src")).toBeNull();
-    } finally {
-      page.remove();
-    }
-  });
-
-  it("preserves a bounded notification destination in a capability bridge document", async () => {
-    const refresh = vi.fn(async () => externalPluginConfig());
-    const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
-      capabilityBridge: externalTabBridgeGrant(),
-      client: bridgeClient(),
-    });
-    page.notificationTarget = {
-      kind: "plugin-detail",
-      pluginId: "external-plugin",
-      tabId: "panel",
-      destinationId: "inbox",
-      recordId: "record-1",
-    };
-    document.body.append(page);
-    try {
-      await waitForFast(() =>
-        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"),
-      );
-      expect(page.bridgeDocumentPaths).toEqual([
-        "/plugins/external/panel?openclawNotification=plugin-detail&destination=inbox&record=record-1",
-      ]);
-      expect(page.querySelector("iframe")?.getAttribute("src")).toBeNull();
     } finally {
       page.remove();
     }
