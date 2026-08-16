@@ -111,4 +111,6 @@ repos:
         types: [swift]
 
 ci:
-  skip: [shellcheck, zizmor]
+  # pre-commit.ci does not provide Docker, Node/pnpm, or Apple toolchains.
+  # GitHub Actions runs these repository checks in their supported environments.
+  skip: [shellcheck, zizmor, pnpm-audit-prod, oxlint, oxfmt, swiftlint, swiftformat]
