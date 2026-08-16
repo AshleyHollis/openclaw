@@ -37,7 +37,9 @@ async function createPage(): Promise<Page> {
     (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents = [];
     window.addEventListener("message", (event) => {
       if (event.data?.type?.startsWith("external-bridge-e2e:")) {
-        (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents?.push(event.data);
+        (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents?.push(
+          event.data,
+        );
       }
     });
   });
@@ -177,7 +179,9 @@ function bridgeScenario(tab = externalTab) {
     embedSandbox: "trusted" as const,
     featureMethods: ["chat.history", "chat.metadata", "chat.startup", "plugin.example.write"],
     methodResponses: { "chat.history": { messages: [{ role: "assistant", content: "linked" }] } },
-    pluginFrameGrants: [{ pluginId: "external-plugin", path: "/plugins/external", match: "prefix" as const }],
+    pluginFrameGrants: [
+      { pluginId: "external-plugin", path: "/plugins/external", match: "prefix" as const },
+    ],
   };
 }
 
@@ -216,60 +220,76 @@ describeControlUiE2e("PluginPage external capability bridge E2E", () => {
     const sandboxedFrame = await frame.contentFrame();
     expect(sandboxedFrame).not.toBeNull();
     expect(await sandboxedFrame?.evaluate(() => location.origin)).toBe("null");
-    await expect.poll(async () => {
-      return await page.evaluate(
-        () => (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
+    await expect
+      .poll(async () => {
+        return await page.evaluate(
+          () =>
+            (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
+        );
+      })
+      .toContainEqual(
+        expect.objectContaining({ type: "external-bridge-e2e:isolation", parentReadable: false }),
       );
-    }).toContainEqual(
-      expect.objectContaining({ type: "external-bridge-e2e:isolation", parentReadable: false }),
-    );
     await captureProof(page, "external-bridge-mounted");
 
-    await expect.poll(async () => {
-      return await page.evaluate(
-        () => (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
+    await expect
+      .poll(async () => {
+        return await page.evaluate(
+          () =>
+            (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
+        );
+      })
+      .toContainEqual(
+        expect.objectContaining({
+          type: "external-bridge-e2e:ready",
+          relayProtocolVersion: 1,
+          value: expect.objectContaining({ methods: ["chat.history"] }),
+        }),
       );
-    }).toContainEqual(
-      expect.objectContaining({
-        type: "external-bridge-e2e:ready",
-        relayProtocolVersion: 1,
-        value: expect.objectContaining({ methods: ["chat.history"] }),
-      }),
-    );
     const history = await gateway.waitForRequest("chat.history");
     expect(history.params).toEqual({
       sessionKey: "agent:main:owned",
       limit: 1,
       maxChars: 500_000,
     });
-    await expect.poll(async () => {
-      return await page.evaluate(
-        () => (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
+    await expect
+      .poll(async () => {
+        return await page.evaluate(
+          () =>
+            (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
+        );
+      })
+      .toContainEqual(
+        expect.objectContaining({
+          type: "external-bridge-e2e:response",
+          value: expect.objectContaining({
+            result: { messages: [{ role: "assistant", content: "linked" }] },
+          }),
+        }),
       );
-    }).toContainEqual(
-      expect.objectContaining({
-        type: "external-bridge-e2e:response",
-        value: expect.objectContaining({ result: { messages: [{ role: "assistant", content: "linked" }] } }),
-      }),
-    );
 
     await gateway.emitGatewayEvent("config.changed");
     await expect.poll(() => frame.getAttribute("src")).toBe("/plugins/external/panel");
-    await expect.poll(() => page.frames().some((child) => child.url().includes("/plugins/external/panel"))).toBe(
-      true,
-    );
-    const readOnlyFrame = page.frames().find((child) => child.url().includes("/plugins/external/panel"));
+    await expect
+      .poll(() => page.frames().some((child) => child.url().includes("/plugins/external/panel")))
+      .toBe(true);
+    const readOnlyFrame = page
+      .frames()
+      .find((child) => child.url().includes("/plugins/external/panel"));
     if (!readOnlyFrame) {
       throw new Error("expected the read-only fallback frame");
     }
     await readOnlyFrame.evaluate(() => {
       window.postMessage({ type: "external-bridge-e2e:retry" }, "*");
     });
-    await expect.poll(async () => {
-      return await page.evaluate(
-        () => (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
-      );
-    }).toContainEqual(expect.objectContaining({ type: "external-bridge-e2e:retry-sent" }));
+    await expect
+      .poll(async () => {
+        return await page.evaluate(
+          () =>
+            (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
+        );
+      })
+      .toContainEqual(expect.objectContaining({ type: "external-bridge-e2e:retry-sent" }));
     expect(await gateway.getRequests("chat.history")).toHaveLength(1);
   });
 
@@ -297,12 +317,18 @@ describeControlUiE2e("PluginPage external capability bridge E2E", () => {
 
     await page.goto(`${server.baseUrl}plugin?plugin=external-plugin&id=panel`);
     await page.locator("openclaw-plugin-page iframe").waitFor();
-    await expect.poll(() => page.frames().some((frame) => frame.url().startsWith("https://attacker.invalid/"))).toBe(true);
+    await expect
+      .poll(() =>
+        page.frames().some((frame) => frame.url().startsWith("https://attacker.invalid/")),
+      )
+      .toBe(true);
     await captureProof(page, "external-bridge-redirect-fallback");
     const events = await page.evaluate(
       () => (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
     );
-    expect(events).not.toContainEqual(expect.objectContaining({ type: "external-bridge-e2e:foreign-port" }));
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "external-bridge-e2e:foreign-port" }),
+    );
     expect(await gateway.getRequests("chat.history")).toEqual([]);
   });
 
@@ -317,17 +343,20 @@ describeControlUiE2e("PluginPage external capability bridge E2E", () => {
 
     await gateway.closeLatest(1012, "test reconnect");
     await expect.poll(async () => await gateway.getSocketCount()).toBeGreaterThan(1);
-    await expect.poll(async () => {
-      const events = await page.evaluate(
-        () => (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
-      );
-      return events.filter(
-        (event) =>
-          typeof event === "object" &&
-          event !== null &&
-          (event as { type?: unknown }).type === "external-bridge-e2e:mutation-ready",
-      ).length;
-    }).toBeGreaterThanOrEqual(2);
+    await expect
+      .poll(async () => {
+        const events = await page.evaluate(
+          () =>
+            (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
+        );
+        return events.filter(
+          (event) =>
+            typeof event === "object" &&
+            event !== null &&
+            (event as { type?: unknown }).type === "external-bridge-e2e:mutation-ready",
+        ).length;
+      })
+      .toBeGreaterThanOrEqual(2);
     expect(await gateway.getRequests("plugin.example.write")).toHaveLength(1);
   });
 
@@ -342,18 +371,21 @@ describeControlUiE2e("PluginPage external capability bridge E2E", () => {
     expect(await gateway.getRequests("plugin.example.write")).toHaveLength(1);
 
     await page.reload();
-    await expect.poll(async () => {
-      return await page.evaluate(
-        () => (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
-      );
-    }).toContainEqual(
-      expect.objectContaining({
-        type: "external-bridge-e2e:mutation-response",
-        value: expect.objectContaining({
-          error: expect.objectContaining({ code: "MUTATION_RECONCILIATION_REQUIRED" }),
+    await expect
+      .poll(async () => {
+        return await page.evaluate(
+          () =>
+            (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
+        );
+      })
+      .toContainEqual(
+        expect.objectContaining({
+          type: "external-bridge-e2e:mutation-response",
+          value: expect.objectContaining({
+            error: expect.objectContaining({ code: "MUTATION_RECONCILIATION_REQUIRED" }),
+          }),
         }),
-      }),
-    );
+      );
     expect(await gateway.getRequests("plugin.example.write")).toEqual([]);
   });
 });

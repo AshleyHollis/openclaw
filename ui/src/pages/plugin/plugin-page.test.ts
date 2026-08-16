@@ -4,8 +4,8 @@ import type { GatewayBrowserClient, GatewayHelloOk } from "../../api/gateway.ts"
 import type { RouteId } from "../../app-route-paths.ts";
 import type { ApplicationConfigCapability } from "../../app/config.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "../../app/context.ts";
-import { waitForFast } from "../../test-helpers/wait-for.ts";
 import { EXTERNAL_TAB_BRIDGE_LIMITS } from "../../lib/external-tab-capability-bridge.ts";
+import { waitForFast } from "../../test-helpers/wait-for.ts";
 import { getLogbookState, stopLogbookPolling } from "./logbook-controller.ts";
 import { renderLogbook } from "./logbook-view.ts";
 import { PluginPage } from "./plugin-page.ts";
@@ -60,7 +60,8 @@ class ExternalPluginPage extends PluginPage {
   }
 
   protected override async loadCapabilityBridgeDocument(path: string, _signal: AbortSignal) {
-    const markup = await (this.bridgeDocuments.shift() ?? Promise.resolve("<main>External panel</main>"));
+    const markup = await (this.bridgeDocuments.shift() ??
+      Promise.resolve("<main>External panel</main>"));
     return markup ? { source: new URL(path, window.location.href), markup } : null;
   }
 }
@@ -311,7 +312,9 @@ describe("PluginPage", () => {
     });
     document.body.append(page);
     try {
-      await waitForFast(() => expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"));
+      await waitForFast(() =>
+        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"),
+      );
       const frame = page.querySelector("iframe");
       expect(frame?.getAttribute("sandbox")).toBe("allow-scripts");
       expect(frame?.getAttribute("sandbox")).not.toContain("allow-same-origin");
@@ -361,7 +364,9 @@ describe("PluginPage", () => {
     });
     document.body.append(page);
     try {
-      await waitForFast(() => expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"));
+      await waitForFast(() =>
+        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"),
+      );
       const frame = page.querySelector("iframe");
       if (!frame) {
         throw new Error("expected plugin frame");
@@ -386,7 +391,9 @@ describe("PluginPage", () => {
     });
     document.body.append(page);
     try {
-      await waitForFast(() => expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"));
+      await waitForFast(() =>
+        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"),
+      );
       const frame = page.querySelector("iframe");
       if (!frame?.contentWindow) {
         throw new Error("expected plugin frame");
@@ -418,7 +425,9 @@ describe("PluginPage", () => {
     });
     document.body.append(page);
     try {
-      await waitForFast(() => expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"));
+      await waitForFast(() =>
+        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"),
+      );
       const frame = page.querySelector("iframe");
       if (!frame) {
         throw new Error("expected plugin frame");
@@ -446,7 +455,9 @@ describe("PluginPage", () => {
     });
     document.body.append(page);
     try {
-      await waitForFast(() => expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"));
+      await waitForFast(() =>
+        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"),
+      );
       const frame = page.querySelector("iframe");
       if (!frame) {
         throw new Error("expected plugin frame");
@@ -482,7 +493,9 @@ describe("PluginPage", () => {
     };
     document.body.append(page);
     try {
-      await waitForFast(() => expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"));
+      await waitForFast(() =>
+        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"),
+      );
       const first = bridgeState(page).capabilityBridgeDocument;
       if (!first) {
         throw new Error("expected first bridge document");
@@ -538,7 +551,9 @@ describe("PluginPage", () => {
     });
     document.body.append(page);
     try {
-      await waitForFast(() => expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"));
+      await waitForFast(() =>
+        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"),
+      );
       const frame = page.querySelector("iframe");
       if (!frame) {
         throw new Error("expected plugin frame");
@@ -583,9 +598,7 @@ describe("PluginPage", () => {
 
       probe.resolve(true);
       await waitForFast(() =>
-        expect(page.querySelector("iframe")?.getAttribute("src")).toBe(
-          "/plugins/external/panel",
-        ),
+        expect(page.querySelector("iframe")?.getAttribute("src")).toBe("/plugins/external/panel"),
       );
       expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toBeNull();
     } finally {

@@ -93,7 +93,7 @@ export type PluginToolMetadataRegistration = {
 
 type PluginControlUiTabGroup = "control" | "agent";
 
-export type PluginControlUiCapabilityBridge = {
+type PluginControlUiCapabilityBridge = {
   protocolVersion: 1;
   requiredMethods: string[];
   optionalMethods: string[];

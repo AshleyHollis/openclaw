@@ -781,10 +781,7 @@ export class PluginPage extends OpenClawLightDomContentsElement {
         tombstones,
         persistTombstones: () => {
           try {
-            sessionStorage.setItem(
-              storageKey,
-              JSON.stringify(Object.fromEntries(tombstones)),
-            );
+            sessionStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(tombstones)));
             return true;
           } catch {
             return false;
@@ -883,7 +880,11 @@ export class PluginPage extends OpenClawLightDomContentsElement {
       this.capabilityBridgeReconnectRequired ||
       this.externalAuthReadyKey !== externalAuthKey
     ) {
-      if (this.capabilityBridgeFrame || this.capabilityBridgeBootstrapPort || this.capabilityBridge) {
+      if (
+        this.capabilityBridgeFrame ||
+        this.capabilityBridgeBootstrapPort ||
+        this.capabilityBridge
+      ) {
         // Auth renewal and tab projection changes can remove the iframe before
         // it loads again; closing the host side prevents that old port surviving.
         this.clearCapabilityBridge();
@@ -1108,9 +1109,12 @@ export class PluginPage extends OpenClawLightDomContentsElement {
         bridge !== undefined &&
         !this.capabilityBridgeReconnectRequired &&
         bridgeDocument?.key === bridgeIdentity;
-      const frameKey = [this.tabKey(), info.path, bridgeIdentity ?? "", bridgeEnabled ? "bridge" : "read"].join(
-        "\n",
-      );
+      const frameKey = [
+        this.tabKey(),
+        info.path,
+        bridgeIdentity ?? "",
+        bridgeEnabled ? "bridge" : "read",
+      ].join("\n");
       if (info.requiresGatewayAuth === true && !this.isExternalTabAuthSupported()) {
         return html`
           <section class="card lazy-view-state" role="status">
@@ -1146,7 +1150,7 @@ export class PluginPage extends OpenClawLightDomContentsElement {
             html`<iframe
               class="plugin-tab-embed__frame"
               src=${bridgeEnabled ? nothing : info.path}
-              srcdoc=${bridgeEnabled ? bridgeDocument?.markup ?? nothing : nothing}
+              srcdoc=${bridgeEnabled ? (bridgeDocument?.markup ?? nothing) : nothing}
               title=${info.label}
               sandbox=${sandbox}
               @load=${bridgeEnabled ? this.bindCapabilityBridge : nothing}

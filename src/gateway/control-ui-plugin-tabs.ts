@@ -26,7 +26,7 @@ type ControlUiPluginTab = {
   capabilityBridge?: ControlUiCapabilityBridgeGrant;
 };
 
-export const CONTROL_UI_CAPABILITY_BRIDGE_LIMITS = {
+const CONTROL_UI_CAPABILITY_BRIDGE_LIMITS = {
   maxRequestBytes: 64 * 1024,
   maxResponseBytes: 1024 * 1024,
   maxConcurrentRequests: 8,
@@ -36,9 +36,9 @@ export const CONTROL_UI_CAPABILITY_BRIDGE_LIMITS = {
   requestTimeoutMs: 30_000,
 } as const;
 
-export const CONTROL_UI_CAPABILITY_BRIDGE_MAX_LINKED_SESSION_KEYS = 200;
+const CONTROL_UI_CAPABILITY_BRIDGE_MAX_LINKED_SESSION_KEYS = 200;
 
-export type ControlUiCapabilityBridgeGrant = {
+type ControlUiCapabilityBridgeGrant = {
   protocolVersion: 1;
   mode: "read-only" | "read-write";
   methods: string[];

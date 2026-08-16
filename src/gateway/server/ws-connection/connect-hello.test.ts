@@ -12,8 +12,14 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../../config/sessions/combined-store-gateway.js", () => ({
   loadCombinedSessionStoreForGatewayCore: mocks.loadCombinedSessionStoreForGatewayCore,
 }));
-vi.mock("../../../state/user-profiles.js", () => ({ listProfiles: () => [] }));
-vi.mock("../../../version.js", () => ({ resolveRuntimeServiceVersion: () => "test" }));
+vi.mock("../../../state/user-profiles.js", () => ({
+  hasMultipleSessionSharingIdentities: () => false,
+  listProfiles: () => [],
+}));
+vi.mock("../../../version.js", () => ({
+  resolveRuntimeServiceBuildId: () => "test-build",
+  resolveRuntimeServiceVersion: () => "test",
+}));
 vi.mock("../../session-sharing.js", () => ({ allowedSessionVisibilities: () => ["shared"] }));
 vi.mock("../../ws-log.js", () => ({
   formatForLog: (value: unknown) => String(value),
@@ -139,11 +145,11 @@ describe("sendGatewayHello", () => {
     expect(sendFrame).toHaveBeenCalledWith(
       expect.objectContaining({
         payload: expect.objectContaining({
-          auth: {
+          auth: expect.objectContaining({
             authorityId: "token-auth-generation",
             role: "operator",
             scopes: ["operator.read"],
-          },
+          }),
         }),
       }),
     );

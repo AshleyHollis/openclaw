@@ -1,4 +1,5 @@
 /** Private MessagePort bridge for a single opaque sandboxed external tab. */
+import { asNullableRecord as asRecord } from "@openclaw/normalization-core/record-coerce";
 import { parseAgentSessionKey } from "./sessions/session-key.ts";
 
 export const EXTERNAL_TAB_BRIDGE_LIMITS = {
@@ -18,7 +19,7 @@ export const EXTERNAL_TAB_BRIDGE_MAX_MUTATION_OPERATIONS = 1_024;
 const MUTATION_RESULT_RETENTION_MS = 60_000;
 const SESSION_CREATE_OPERATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
-export type ExternalTabBridgeGatewayClient = {
+type ExternalTabBridgeGatewayClient = {
   request: (method: string, params?: unknown) => Promise<unknown>;
 };
 
@@ -40,7 +41,7 @@ type Request = {
   operationId?: string;
 };
 type PublicError = { code: string; message: string; retryable: boolean; retryAfterMs?: number };
-export type ExternalTabCapabilityBridgeMutationOperation = {
+type ExternalTabCapabilityBridgeMutationOperation = {
   fingerprint: string;
   pending: Promise<unknown> | null;
   outcome:
@@ -82,12 +83,6 @@ class Failure extends Error {
   ) {
     super(message);
   }
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
 }
 
 function byteLength(value: unknown): number | null {
@@ -297,10 +292,7 @@ export class ExternalTabCapabilityBridgeController {
       return this.respond(
         requestId,
         undefined,
-        error(
-          "OPERATION_CONFLICT",
-          "Operation id has already been used for a different mutation",
-        ),
+        error("OPERATION_CONFLICT", "Operation id has already been used for a different mutation"),
       );
     const tombstoneMethod =
       mutation && !existingOperation
@@ -310,10 +302,7 @@ export class ExternalTabCapabilityBridgeController {
       return this.respond(
         requestId,
         undefined,
-        error(
-          "OPERATION_CONFLICT",
-          "Operation id has already been used for a different mutation",
-        ),
+        error("OPERATION_CONFLICT", "Operation id has already been used for a different mutation"),
       );
     if (tombstoneMethod)
       return this.respond(
@@ -598,15 +587,14 @@ export class ExternalTabCapabilityBridgeController {
     let truncated = false;
     let responseBytes = 0;
     for (const group of plan.groups) {
-      const response =
-        asRecord(
-          await this.options.client.request("sessions.search", {
-            query: plan.query,
-            limit: plan.limit,
-            sessionKeys: group.sessionKeys,
-            ...(group.agentId ? { agentId: group.agentId } : {}),
-          }),
-        ) ?? { results: [] };
+      const response = asRecord(
+        await this.options.client.request("sessions.search", {
+          query: plan.query,
+          limit: plan.limit,
+          sessionKeys: group.sessionKeys,
+          ...(group.agentId ? { agentId: group.agentId } : {}),
+        }),
+      ) ?? { results: [] };
       const nextResponseBytes = byteLength(response);
       if (
         nextResponseBytes === null ||

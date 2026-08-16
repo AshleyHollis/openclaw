@@ -17,12 +17,6 @@ import {
 import type { GatewayControlUiPluginTab } from "../api/gateway.ts";
 import type { ModelCatalogEntry } from "../api/types.ts";
 import { normalizeControlUiBuildInfo } from "../build-info-normalizers.ts";
-import {
-  controlUiBrowserOnlySharedModuleAliases,
-  resolveExternalPackageAliasesForVite,
-  resolveSourcePackageAliasesForVite,
-  resolveTsconfigPathAliasesForVite,
-} from "../../vite.config.ts";
 import type { ControlUiBuildInfo } from "../build-info.ts";
 
 export function controlUiSessionPath(sessionKey: string, basePath = ""): string {

@@ -245,8 +245,8 @@ describe("ExternalTabCapabilityBridgeController", () => {
     expect(request).toHaveBeenCalledTimes(200);
     expect(peakActive).toBe(1);
     expect(
-      request.mock.calls.flatMap(([, params]) =>
-        ((params as { sessionKeys?: string[] }).sessionKeys ?? []),
+      request.mock.calls.flatMap(
+        ([, params]) => (params as { sessionKeys?: string[] }).sessionKeys ?? [],
       ),
     ).toEqual(links);
   });

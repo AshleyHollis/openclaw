@@ -1,19 +1,16 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PluginControlUiDescriptor } from "../plugins/host-hooks.js";
-import {
-  pinActivePluginSessionExtensionRegistry,
-  resetPluginRuntimeStateForTest,
-  setActivePluginRegistry,
-} from "../plugins/runtime.js";
+import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../plugins/runtime.js";
 import { createTestRegistry } from "../test-utils/channel-plugins.js";
 import {
-  CONTROL_UI_CAPABILITY_BRIDGE_MAX_LINKED_SESSION_KEYS,
   listControlUiCapabilityBridgeLinkedSessionKeys,
   listControlUiPluginTabAuthGrants,
   listControlUiPluginTabs,
   listControlUiPluginWidgetKinds,
 } from "./control-ui-plugin-tabs.js";
+
+const EXPECTED_MAX_LINKED_SESSION_KEYS = 200;
 
 function tabDescriptor(
   overrides: Partial<PluginControlUiDescriptor> = {},
@@ -130,7 +127,7 @@ describe("listControlUiPluginTabs", () => {
     ]);
   });
 
-  it("survives agent-turn active-registry swaps via the pinned session-extension registry", () => {
+  it("follows active-registry swaps without retaining stale descriptors", () => {
     const gatewayRegistry = createTestRegistry([]);
     gatewayRegistry.controlUiDescriptors = [
       {
@@ -145,16 +142,19 @@ describe("listControlUiPluginTabs", () => {
       },
       { pluginId: "logbook", descriptor: tabDescriptor(), source: "test:logbook" },
     ];
-    // Gateway startup pins its fully wired registry on the session-extension surface.
-    pinActivePluginSessionExtensionRegistry(gatewayRegistry);
-
-    // Agent-turn standalone loads install a registry without control-UI descriptors.
-    setActivePluginRegistry(createTestRegistry([]));
+    setActivePluginRegistry(gatewayRegistry);
 
     expect(listControlUiPluginWidgetKinds(["operator.read"]).map((kind) => kind.kind)).toEqual([
       "workboard:card",
     ]);
     expect(listControlUiPluginTabs(["operator.admin"]).map((tab) => tab.id)).toEqual(["logbook"]);
+
+    // The current runtime has one active registry rather than pinned per-surface
+    // compatibility registries, so swaps must not retain stale tab authorities.
+    setActivePluginRegistry(createTestRegistry([]));
+
+    expect(listControlUiPluginWidgetKinds(["operator.read"])).toEqual([]);
+    expect(listControlUiPluginTabs(["operator.admin"])).toEqual([]);
   });
 
   it("derives bounded linked-session inputs from durable plugin ownership", () => {
@@ -164,34 +164,36 @@ describe("listControlUiPluginTabs", () => {
       ["agent:main:b", { pluginOwnerId: "logbook" }],
       ["agent:main:a", { pluginOwnerId: "logbook" }],
       ...Array.from(
-        { length: CONTROL_UI_CAPABILITY_BRIDGE_MAX_LINKED_SESSION_KEYS + 2 },
-        (_, i) =>
-          [`agent:bulk:${String(i).padStart(3, "0")}`, { pluginOwnerId: "bulk" }] as const,
+        { length: EXPECTED_MAX_LINKED_SESSION_KEYS + 2 },
+        (_, i) => [`agent:bulk:${String(i).padStart(3, "0")}`, { pluginOwnerId: "bulk" }] as const,
       ),
     ] as const;
 
     const links = listControlUiCapabilityBridgeLinkedSessionKeys(entries);
     expect(links.get("logbook")).toEqual(["agent:main:a", "agent:main:b"]);
     expect(links.get("other")).toEqual(["agent:main:foreign"]);
-    expect(links.get("bulk")).toHaveLength(CONTROL_UI_CAPABILITY_BRIDGE_MAX_LINKED_SESSION_KEYS);
+    expect(links.get("bulk")).toHaveLength(EXPECTED_MAX_LINKED_SESSION_KEYS);
     expect(links.get("bulk")?.at(0)).toBe("agent:bulk:000");
     expect(links.get("bulk")?.at(-1)).toBe("agent:bulk:199");
   });
 
   it("includes only the authenticated host-provided links in a capability grant", () => {
-    activateDescriptors([
-      {
-        pluginId: "logbook",
-        descriptor: tabDescriptor({
-          path: "/plugins/logbook/panel",
-          capabilityBridge: {
-            protocolVersion: 1,
-            requiredMethods: ["chat.history"],
-            optionalMethods: ["chat.send"],
-          },
-        }),
-      },
-    ], [{ pluginId: "logbook", path: "/plugins/logbook", match: "prefix" }]);
+    activateDescriptors(
+      [
+        {
+          pluginId: "logbook",
+          descriptor: tabDescriptor({
+            path: "/plugins/logbook/panel",
+            capabilityBridge: {
+              protocolVersion: 1,
+              requiredMethods: ["chat.history"],
+              optionalMethods: ["chat.send"],
+            },
+          }),
+        },
+      ],
+      [{ pluginId: "logbook", path: "/plugins/logbook", match: "prefix" }],
+    );
 
     const [tab] = listControlUiPluginTabs(["operator.admin"], {
       availableMethods: ["chat.history", "chat.send"],
@@ -208,19 +210,22 @@ describe("listControlUiPluginTabs", () => {
   });
 
   it("falls back to declared reads when the operator cannot receive a required write", () => {
-    activateDescriptors([
-      {
-        pluginId: "logbook",
-        descriptor: tabDescriptor({
-          path: "/plugins/logbook/panel",
-          capabilityBridge: {
-            protocolVersion: 1,
-            requiredMethods: ["chat.send"],
-            optionalMethods: ["chat.history"],
-          },
-        }),
-      },
-    ], [{ pluginId: "logbook", path: "/plugins/logbook", match: "prefix" }]);
+    activateDescriptors(
+      [
+        {
+          pluginId: "logbook",
+          descriptor: tabDescriptor({
+            path: "/plugins/logbook/panel",
+            capabilityBridge: {
+              protocolVersion: 1,
+              requiredMethods: ["chat.send"],
+              optionalMethods: ["chat.history"],
+            },
+          }),
+        },
+      ],
+      [{ pluginId: "logbook", path: "/plugins/logbook", match: "prefix" }],
+    );
 
     const [tab] = listControlUiPluginTabs(["operator.read"], {
       availableMethods: ["chat.history", "chat.send"],

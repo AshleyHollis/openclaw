@@ -496,9 +496,7 @@ export function createHostRegistrars(state: PluginRegistryState) {
         path: tabPath,
         group,
         order,
-        ...(capabilityBridge.kind === "valid"
-          ? { capabilityBridge: capabilityBridge.value }
-          : {}),
+        ...(capabilityBridge.kind === "valid" ? { capabilityBridge: capabilityBridge.value } : {}),
       },
       source: record.source,
       rootDir: record.rootDir,
