@@ -3016,20 +3016,20 @@ NODE
       vpsRunner: "vps-openclaw-ci",
     };
 
-    expect(
-      evaluateWorkflowExpression(expression, { ...base, matrix: { task: "test-types" } }),
-    ).toBe("vps-openclaw-ci");
-    expect(evaluateWorkflowExpression(expression, { ...base, matrix: { task: "lint" } })).toBe(
-      "ubuntu-24.04",
-    );
-    expect(
-      evaluateWorkflowExpression(expression, {
-        ...base,
-        matrix: { task: "test-types" },
-        runnerBackend: "",
-      }),
-    ).toBe("ubuntu-24.04");
-    for (const task of ["dependencies", "guards"]) {
+    for (const task of ["guards", "bundled-channel-config-metadata"]) {
+      expect(evaluateWorkflowExpression(expression, { ...base, matrix: { task } }), task).toBe(
+        "vps-openclaw-ci",
+      );
+      expect(
+        evaluateWorkflowExpression(expression, {
+          ...base,
+          matrix: { task },
+          runnerBackend: "",
+        }),
+        `${task} without a hosted planner profile`,
+      ).toBe("vps-openclaw-ci");
+    }
+    for (const task of ["dependencies", "lint", "npm-lock", "prod-types", "test-types"]) {
       expect(evaluateWorkflowExpression(expression, { ...base, matrix: { task } }), task).toBe(
         "ubuntu-24.04",
       );
@@ -3038,20 +3038,20 @@ NODE
       evaluateWorkflowExpression(expression, {
         ...base,
         headRepository: "contributor/openclaw",
-        matrix: { task: "test-types" },
+        matrix: { task: "guards" },
       }),
     ).toBe("ubuntu-24.04");
     expect(
       evaluateWorkflowExpression(expression, {
         ...base,
-        matrix: { task: "test-types" },
+        matrix: { task: "guards" },
         runAttempt: 2,
       }),
     ).toBe("ubuntu-24.04");
     expect(
       evaluateWorkflowExpression(expression, {
         ...base,
-        matrix: { task: "test-types" },
+        matrix: { task: "guards" },
         vpsRunner: "",
       }),
     ).toBe("ubuntu-24.04");
