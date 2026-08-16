@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import {
   createExternalTabCapabilityBridgeMutationState,
   EXTERNAL_TAB_BRIDGE_LIMITS,
@@ -21,9 +21,9 @@ function makeBridge(
     links?: string[];
     mutationNamespace?: string;
     mutationState?: ExternalTabCapabilityBridgeMutationState;
-    onHandshakeFailure?: ReturnType<typeof vi.fn>;
+    onHandshakeFailure?: Mock<() => void>;
     now?: () => number;
-    request?: ReturnType<typeof vi.fn>;
+    request?: Mock<(method: string, params?: unknown) => Promise<unknown>>;
   } = {},
 ) {
   const request = params.request ?? vi.fn(async (_method: string, values: unknown) => values);
@@ -759,7 +759,7 @@ describe("ExternalTabCapabilityBridgeController", () => {
       ),
     );
     expect(request).toHaveBeenCalledTimes(EXTERNAL_TAB_BRIDGE_LIMITS.maxConcurrentRequests);
-    operations[0].resolve({ messages: [] });
+    operations[0]!.resolve({ messages: [] });
     port.postMessage({
       type: "openclaw:capability-bridge-request",
       requestId: "timeout-after-settle",

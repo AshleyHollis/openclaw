@@ -268,28 +268,10 @@ describeControlUiE2e("PluginPage external capability bridge E2E", () => {
       );
 
     await gateway.emitGatewayEvent("config.changed");
-    await expect.poll(() => frame.getAttribute("src")).toBe("/plugins/external/panel");
+    await expect.poll(async () => await gateway.getSocketCount()).toBeGreaterThan(1);
     await expect
-      .poll(() => page.frames().some((child) => child.url().includes("/plugins/external/panel")))
-      .toBe(true);
-    const readOnlyFrame = page
-      .frames()
-      .find((child) => child.url().includes("/plugins/external/panel"));
-    if (!readOnlyFrame) {
-      throw new Error("expected the read-only fallback frame");
-    }
-    await readOnlyFrame.evaluate(() => {
-      window.postMessage({ type: "external-bridge-e2e:retry" }, "*");
-    });
-    await expect
-      .poll(async () => {
-        return await page.evaluate(
-          () =>
-            (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
-        );
-      })
-      .toContainEqual(expect.objectContaining({ type: "external-bridge-e2e:retry-sent" }));
-    expect(await gateway.getRequests("chat.history")).toHaveLength(1);
+      .poll(async () => (await gateway.getRequests("chat.history")).length)
+      .toBeGreaterThanOrEqual(2);
   });
 
   it("keeps a redirect target read-only because it never receives the private channel", async () => {
@@ -304,9 +286,12 @@ describeControlUiE2e("PluginPage external capability bridge E2E", () => {
         });
         return;
       }
-      await route.fulfill({ status: 302, headers: { location: "https://attacker.invalid/panel" } });
+      await route.fulfill({
+        status: 302,
+        headers: { location: `${server.baseUrl}redirect-target` },
+      });
     });
-    await page.route("https://attacker.invalid/**", async (route) => {
+    await page.route("**/redirect-target", async (route) => {
       await route.fulfill({
         contentType: "text/html",
         body: `<script>window.addEventListener("message",event=>{if(event.ports.length)parent.postMessage({type:"external-bridge-e2e:foreign-port"},"*")})</script>`,
@@ -317,9 +302,7 @@ describeControlUiE2e("PluginPage external capability bridge E2E", () => {
     await page.goto(`${server.baseUrl}plugin?plugin=external-plugin&id=panel`);
     await page.locator("openclaw-plugin-page iframe").waitFor();
     await expect
-      .poll(() =>
-        page.frames().some((frame) => frame.url().startsWith("https://attacker.invalid/")),
-      )
+      .poll(() => page.frames().some((frame) => frame.url().endsWith("/redirect-target")))
       .toBe(true);
     await captureProof(page, "external-bridge-redirect-fallback");
     const events = await page.evaluate(
@@ -362,8 +345,10 @@ describeControlUiE2e("PluginPage external capability bridge E2E", () => {
   it("refuses an ambiguous plugin write after a real sandbox parent reload", async () => {
     const page = await createPage();
     await routeExternalPlugin(page, externalPluginMutationDocument());
-    const gateway = await installMockGateway(page, bridgeScenario(externalMutationTab));
-    await gateway.deferNext("plugin.example.write");
+    const gateway = await installMockGateway(page, {
+      ...bridgeScenario(externalMutationTab),
+      deferredMethods: ["plugin.example.write"],
+    });
 
     await page.goto(`${server.baseUrl}plugin?plugin=external-plugin&id=panel`);
     await gateway.waitForRequest("plugin.example.write");

@@ -357,7 +357,8 @@ describe("PluginPage", () => {
 
   it("does not accept a bootstrap for a source document whose mount changed", async () => {
     const refresh = vi.fn(async () => externalPluginConfig());
-    const client = bridgeClient();
+    const request = vi.fn();
+    const client = bridgeClient(request);
     const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
       capabilityBridge: externalTabBridgeGrant(),
       client,
@@ -383,7 +384,7 @@ describe("PluginPage", () => {
         ports: [channel.port1],
       } as unknown as MessageEvent);
       expect(bridgeState(page).capabilityBridge).toBeNull();
-      expect(client.request).not.toHaveBeenCalled();
+      expect(request).not.toHaveBeenCalled();
     } finally {
       page.remove();
     }
@@ -510,13 +511,14 @@ describe("PluginPage", () => {
   it("revokes an active bridge before reconnecting after a plugin runtime reload", async () => {
     const refresh = vi.fn(async () => externalPluginConfig());
     let emitGatewayEvent: ((event: { event: string }) => void) | undefined;
+    const forceReconnect = vi.fn();
     const client = {
       request: vi.fn(),
       addEventListener: vi.fn((listener) => {
         emitGatewayEvent = listener as (event: { event: string }) => void;
         return () => undefined;
       }),
-      forceReconnect: vi.fn(),
+      forceReconnect,
     } as unknown as GatewayBrowserClient;
     const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
       capabilityBridge: externalTabBridgeGrant(),
@@ -535,7 +537,7 @@ describe("PluginPage", () => {
       expect(bridgeState(page).capabilityBridge).not.toBeNull();
       emitGatewayEvent?.({ event: "config.changed" });
       expect(bridgeState(page).capabilityBridge).toBeNull();
-      expect(client.forceReconnect).toHaveBeenCalledWith("plugin runtime changed");
+      expect(forceReconnect).toHaveBeenCalledWith("plugin runtime changed");
     } finally {
       page.remove();
     }
@@ -545,13 +547,14 @@ describe("PluginPage", () => {
     const refresh = vi.fn(async () => externalPluginConfig());
     const probe = deferred<boolean>();
     let emitGatewayEvent: ((event: { event: string }) => void) | undefined;
+    const forceReconnect = vi.fn();
     const client = {
       request: vi.fn(),
       addEventListener: vi.fn((listener) => {
         emitGatewayEvent = listener as (event: { event: string }) => void;
         return () => undefined;
       }),
-      forceReconnect: vi.fn(),
+      forceReconnect,
     } as unknown as GatewayBrowserClient;
     const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
       capabilityBridge: externalTabBridgeGrant(),
@@ -567,7 +570,7 @@ describe("PluginPage", () => {
       expect(page.querySelector("iframe")).toBeNull();
 
       emitGatewayEvent?.({ event: "config.changed" });
-      expect(client.forceReconnect).toHaveBeenCalledWith("plugin runtime changed");
+      expect(forceReconnect).toHaveBeenCalledWith("plugin runtime changed");
 
       probe.resolve(true);
       await waitForFast(() =>

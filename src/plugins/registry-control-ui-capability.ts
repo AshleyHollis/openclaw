@@ -27,7 +27,7 @@ export function isControlUiSurface(value: string): value is PluginControlUiDescr
   return controlUiSurfaces.has(value as PluginControlUiDescriptor["surface"]);
 }
 
-export type CapabilityBridgeNormalization =
+type CapabilityBridgeNormalization =
   | { kind: "absent" }
   | { kind: "invalid" }
   | { kind: "valid"; value: PluginControlUiDescriptor["capabilityBridge"] };
