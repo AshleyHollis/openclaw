@@ -6,11 +6,11 @@ import {
 import { createTestRegistry } from "../../../test-utils/channel-plugins.js";
 
 const mocks = vi.hoisted(() => ({
-  loadCombinedSessionStoreForGateway: vi.fn(),
+  loadCombinedSessionStoreForGatewayCore: vi.fn(),
 }));
 
 vi.mock("../../../config/sessions/combined-store-gateway.js", () => ({
-  loadCombinedSessionStoreForGateway: mocks.loadCombinedSessionStoreForGateway,
+  loadCombinedSessionStoreForGatewayCore: mocks.loadCombinedSessionStoreForGatewayCore,
 }));
 vi.mock("../../../state/user-profiles.js", () => ({ listProfiles: () => [] }));
 vi.mock("../../../version.js", () => ({ resolveRuntimeServiceVersion: () => "test" }));
@@ -30,7 +30,7 @@ import { sendGatewayHello } from "./connect-hello.js";
 
 describe("sendGatewayHello", () => {
   afterEach(() => {
-    mocks.loadCombinedSessionStoreForGateway.mockReset();
+    mocks.loadCombinedSessionStoreForGatewayCore.mockReset();
     resetPluginRuntimeStateForTest();
     setActivePluginRegistry(createTestRegistry([]));
   });
@@ -66,7 +66,7 @@ describe("sendGatewayHello", () => {
       },
     ];
     setActivePluginRegistry(registry);
-    mocks.loadCombinedSessionStoreForGateway.mockReturnValue({
+    mocks.loadCombinedSessionStoreForGatewayCore.mockReturnValue({
       store: {
         "agent:main:foreign": { pluginOwnerId: "other" },
         "agent:main:owned": { pluginOwnerId: "journal" },
@@ -114,11 +114,14 @@ describe("sendGatewayHello", () => {
       {},
     );
 
-    expect(mocks.loadCombinedSessionStoreForGateway).toHaveBeenCalledWith({}, {
-      configuredAgentsOnly: true,
-      includeIncognito: false,
-      projection: "list",
-    });
+    expect(mocks.loadCombinedSessionStoreForGatewayCore).toHaveBeenCalledWith(
+      {},
+      {
+        configuredAgentsOnly: true,
+        includeIncognito: false,
+        projection: "list",
+      },
+    );
     expect(sendFrame).toHaveBeenCalledWith(
       expect.objectContaining({
         ok: true,

@@ -3,7 +3,9 @@ import {
   GATEWAY_SERVER_CAPS,
   PROTOCOL_VERSION,
 } from "../../../../packages/gateway-protocol/src/index.js";
-import { loadCombinedSessionStoreForGateway } from "../../../config/sessions/combined-store-gateway.js";
+import {
+  loadCombinedSessionStoreForGatewayCore,
+} from "../../../config/sessions/combined-store-gateway.js";
 import { sha256Base64Url } from "../../../infra/crypto-digest.js";
 import {
   redeemDeviceBootstrapTokenProfile,
@@ -130,7 +132,7 @@ export async function sendGatewayHello(
   if (controlUiTabs.some((tab) => tab.capabilityBridge)) {
     let linkedSessionKeysByPlugin: ReadonlyMap<string, readonly string[]> = new Map();
     try {
-      const { store } = loadCombinedSessionStoreForGateway(context.configSnapshot, {
+      const { store } = loadCombinedSessionStoreForGatewayCore(context.configSnapshot, {
         configuredAgentsOnly: true,
         includeIncognito: false,
         projection: "list",
