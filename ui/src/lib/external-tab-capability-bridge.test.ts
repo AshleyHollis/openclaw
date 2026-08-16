@@ -234,7 +234,7 @@ describe("ExternalTabCapabilityBridgeController", () => {
     const links = Array.from({ length: 200 }, (_, index) => `agent:agent-${index}:linked`);
     let active = 0;
     let peakActive = 0;
-    const request = vi.fn(async () => {
+    const request = vi.fn(async (_method: string, _params: unknown) => {
       active += 1;
       peakActive = Math.max(peakActive, active);
       await Promise.resolve();
