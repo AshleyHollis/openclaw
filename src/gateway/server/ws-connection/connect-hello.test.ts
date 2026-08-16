@@ -154,4 +154,62 @@ describe("sendGatewayHello", () => {
       }),
     );
   });
+
+  it("keeps effective connection scopes separate from a durable device grant", async () => {
+    const sendFrame = vi.fn(async () => undefined);
+    const log = { error: vi.fn(), warn: vi.fn() };
+
+    await sendGatewayHello(
+      {
+        configSnapshot: {},
+        connectParams: { client: { id: "ui", mode: "ui" } },
+        frame: { id: "connect" },
+        handler: {
+          advanceHandshakePhase: vi.fn(),
+          buildRequestContext: vi.fn(),
+          close: vi.fn(),
+          connId: "connection",
+          events: [],
+          gatewayMethods: [],
+          logGateway: log,
+          logHealth: log,
+          refreshHealthSnapshot: vi.fn(async () => undefined),
+          setCloseCause: vi.fn(),
+        },
+        pendingNodePairingCleanup: {},
+        releasePendingNodePairingCleanup: vi.fn(async () => undefined),
+        sendFrame,
+      } as never,
+      {
+        authMethod: "device-token",
+        authResult: { ok: true, method: "device-token" },
+        bootstrapDeviceTokens: [],
+        controlUiDeviceAuthMigrationPending: false,
+        device: null,
+        deviceToken: {
+          createdAtMs: 1,
+          scopes: ["operator.admin", "operator.read", "operator.write"],
+          token: "durable-device-token",
+        },
+        hasPasswordAuth: false,
+        hasTokenAuth: true,
+        resolvedAuth: { mode: "token" },
+        sessionSharedGatewaySessionGeneration: "token-auth-generation",
+        role: "operator",
+        scopes: ["operator.read"],
+      } as never,
+      {},
+    );
+
+    expect(sendFrame).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          auth: expect.objectContaining({
+            role: "operator",
+            scopes: ["operator.read"],
+          }),
+        }),
+      }),
+    );
+  });
 });

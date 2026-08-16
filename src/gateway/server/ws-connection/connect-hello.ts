@@ -111,7 +111,10 @@ export async function sendGatewayHello(
     snapshot.health = cachedHealth;
     snapshot.stateVersion.health = getHealthVersion();
   }
-  const helloOkAuthScopes = deviceToken ? deviceToken.scopes : scopes;
+  // Plugin UI grants are durable device capabilities. The authenticated
+  // connection scopes can additionally include (or cap) principal grants, so
+  // they must remain the authoritative scopes returned in hello-ok.
+  const controlUiGrantScopes = deviceToken ? deviceToken.scopes : scopes;
   // The parent uses this opaque marker to bind a sandbox bridge to the current
   // operator/auth generation. It intentionally never enters an iframe envelope.
   const authorityId = deviceToken
@@ -123,7 +126,7 @@ export async function sendGatewayHello(
         ? sha256Base64Url(`${sessionSharedGatewaySessionGeneration}\u0000${authResult.user}`)
         : sessionSharedGatewaySessionGeneration
       : undefined;
-  let controlUiTabs = listControlUiPluginTabs(helloOkAuthScopes, {
+  let controlUiTabs = listControlUiPluginTabs(controlUiGrantScopes, {
     requireGatewayAuthGrant: resolvedAuth.mode !== "none",
     availableMethods: gatewayMethods,
   });
@@ -143,13 +146,13 @@ export async function sendGatewayHello(
       // A read failure safely grants no links and leaves an operator-visible log.
       logGateway.warn(`control UI capability bridge link projection failed: ${formatForLog(err)}`);
     }
-    controlUiTabs = listControlUiPluginTabs(helloOkAuthScopes, {
+    controlUiTabs = listControlUiPluginTabs(controlUiGrantScopes, {
       requireGatewayAuthGrant: resolvedAuth.mode !== "none",
       availableMethods: gatewayMethods,
       linkedSessionKeysByPlugin,
     });
   }
-  const controlUiWidgetKinds = listControlUiPluginWidgetKinds(helloOkAuthScopes);
+  const controlUiWidgetKinds = listControlUiPluginWidgetKinds(controlUiGrantScopes);
   // A configured UI root can be built independently from the Gateway. Exact
   // comparison is authoritative only for the package-owned bundled artifact.
   const controlUiBuildSource = context.configSnapshot.gateway?.controlUi?.root
@@ -186,7 +189,7 @@ export async function sendGatewayHello(
       : {}),
     auth: {
       role,
-      scopes: helloOkAuthScopes,
+      scopes,
       ...(recoveryScope ? { recoveryScope } : {}),
       ...(canMigrateRecovery ? { recoveryMigrationAllowed: true as const } : {}),
       ...(authorityId ? { authorityId } : {}),
