@@ -101,7 +101,7 @@ struct PluginNotificationBridgeTests {
         #expect(!destination.isOwnedByGateway(deviceID: nil))
     }
 
-    @Test @MainActor func `silent clears remove matching delivered notifications idempotently`() async {
+    @Test @MainActor func `silent clears remove matching delivered notifications idempotently`() async throws {
         let center = PluginNotificationMockCenter()
         center.delivered = [
             NotificationSnapshot(identifier: "matching", userInfo: Self.destinationUserInfo),
@@ -143,7 +143,7 @@ struct PluginNotificationBridgeTests {
         #expect(center.deliveredRemovedIdentifiers == [["matching"], []])
     }
 
-    @Test @MainActor func `silent clears do not cross gateway sources`() async {
+    @Test @MainActor func `silent clears do not cross gateway sources`() async throws {
         let center = PluginNotificationMockCenter()
         var otherGateway = Self.destinationUserInfo
         otherGateway["openclaw"] = [
