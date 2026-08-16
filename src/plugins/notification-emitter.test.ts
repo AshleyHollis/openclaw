@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createPluginNotificationEmitter,
   PluginNotificationCoordinator,
-  validatePluginNotificationCandidate,
   validatePluginNotificationDeclaration,
   type PluginNotificationCandidateV1,
   type PluginNotificationDeclarationV1,
@@ -29,7 +28,7 @@ const candidate = (
 });
 
 describe("plugin notification emitter", () => {
-  it("rejects closed malformed candidates and declaration ownership violations", () => {
+  it("rejects closed malformed candidates and declaration ownership violations", async () => {
     expect(
       validatePluginNotificationDeclaration(declaration, {
         pluginId: "board",
@@ -43,23 +42,29 @@ describe("plugin notification emitter", () => {
         { pluginId: "board", existingCount: 0, resolveTab: () => false },
       ),
     ).toBe(false);
+    const service = new PluginNotificationCoordinator({
+      pluginId: "board",
+      declaration,
+      now: () => 1,
+      targets: () => [],
+      transportSourceId: () => "gateway-test",
+      transport: {
+        send: async () => "accepted",
+        clear: async () => "accepted",
+      },
+    });
     expect(
-      validatePluginNotificationCandidate(
-        { ...candidate(), url: "https://example.test" },
-        declaration,
-        1,
-      ),
-    ).toBe(false);
+      await service.emit("operator", {
+        ...candidate(),
+        url: "https://example.test",
+      } as PluginNotificationCandidateV1),
+    ).toMatchObject({ status: "failed" });
     expect(
-      validatePluginNotificationCandidate(
-        candidate({ preview: { title: "\ud800", body: "body" } }),
-        declaration,
-        1,
-      ),
-    ).toBe(false);
-    expect(validatePluginNotificationCandidate(candidate({ expiresAtMs: 1 }), declaration, 1)).toBe(
-      false,
-    );
+      await service.emit("operator", candidate({ preview: { title: "\ud800", body: "body" } })),
+    ).toMatchObject({ status: "failed" });
+    expect(await service.emit("operator", candidate({ expiresAtMs: 1 }))).toMatchObject({
+      status: "failed",
+    });
   });
   it("deduplicates, prevents identity conflicts, rate limits, unions targets, and classifies ambiguity", async () => {
     let now = 1_000;
@@ -100,11 +105,12 @@ describe("plugin notification emitter", () => {
       await service.clear("operator", { version: 1, logicalOperationId: "operation-1" }),
     ).toMatchObject({ status: "cleared", attempted: 2 });
     expect(clears).toEqual(["web", "ios"]);
-    for (let index = 3; index <= 13; index++)
+    for (let index = 3; index <= 13; index++) {
       await service.emit(
         "operator",
         candidate({ emissionId: `event-${index}`, logicalOperationId: `operation-${index}` }),
       );
+    }
     expect(
       await service.emit(
         "operator",

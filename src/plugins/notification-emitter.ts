@@ -95,7 +95,7 @@ export type PluginNotificationTransport = {
   ): Promise<"accepted" | "failed" | "ambiguous">;
 };
 
-export type PluginNotificationAttemptOutcome = "accepted" | "failed" | "ambiguous" | "suppressed";
+type PluginNotificationAttemptOutcome = "accepted" | "failed" | "ambiguous" | "suppressed";
 export type PluginNotificationLedger = {
   claimEmission(params: {
     principal: PluginNotificationPrincipal;
@@ -280,7 +280,7 @@ function isValidPluginNotificationCandidateSnapshot(
   return Buffer.byteLength(canonical(value as PluginNotificationCandidateV1), "utf8") <= 2048;
 }
 
-export function validatePluginNotificationCandidate(
+function validatePluginNotificationCandidate(
   value: unknown,
   declaration: PluginNotificationDeclarationV1,
   nowMs = Date.now(),
