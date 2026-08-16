@@ -8,6 +8,7 @@ import { EXTERNAL_TAB_BRIDGE_LIMITS } from "../../lib/external-tab-capability-br
 import { waitForFast } from "../../test-helpers/wait-for.ts";
 import { getLogbookState, stopLogbookPolling } from "./logbook-controller.ts";
 import { renderLogbook } from "./logbook-view.ts";
+import { externalTabBridgeGrant, type ExternalTabBridgeGrant } from "./plugin-page.test-helpers.ts";
 import { PluginPage } from "./plugin-page.ts";
 
 type TestBundledView = {
@@ -16,10 +17,6 @@ type TestBundledView = {
 };
 
 type ApplicationConfig = ApplicationConfigCapability["current"];
-type ExternalTabBridgeGrant = NonNullable<
-  NonNullable<GatewayHelloOk["controlUiTabs"]>[number]["capabilityBridge"]
->;
-
 const logbookBundledView = {
   render: renderLogbook,
   stop: stopLogbookPolling,
@@ -28,8 +25,6 @@ const logbookBundledView = {
 function bundledViewHost(page: PluginPage): object {
   return (page as unknown as { bundledViewHost: object }).bundledViewHost;
 }
-
-/* oxlint-disable max-lines -- TODO: split capability-bridge cases into a focused test module. */
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -172,30 +167,6 @@ function createExternalPluginPage(
     },
   } as unknown as ApplicationContext<RouteId>;
   return page;
-}
-
-function externalTabBridgeGrant(
-  overrides: Partial<ExternalTabBridgeGrant> = {},
-): ExternalTabBridgeGrant {
-  return {
-    protocolVersion: 1,
-    mode: "read-only",
-    methods: ["chat.history"],
-    readMethods: ["chat.history"],
-    missingRequiredMethods: [],
-    upgradeRequired: false,
-    linkedSessionKeys: ["agent:main:owned"],
-    limits: {
-      maxRequestBytes: 64 * 1024,
-      maxResponseBytes: 1024 * 1024,
-      maxConcurrentRequests: 8,
-      maxRequestsPerMinute: 60,
-      maxMutationsPerMinute: 12,
-      handshakeTimeoutMs: 10_000,
-      requestTimeoutMs: 30_000,
-    },
-    ...overrides,
-  };
 }
 
 function bridgeClient(request = vi.fn()) {

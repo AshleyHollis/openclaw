@@ -90,8 +90,6 @@ function pluginFrameGrantCoversTab(
   );
 }
 
-/* oxlint-disable max-lines -- TODO: extract the capability-bridge lifecycle into its own controller. */
-
 function isSameOriginFramePath(path: string): boolean {
   try {
     return new URL(path, window.location.href).origin === window.location.origin;

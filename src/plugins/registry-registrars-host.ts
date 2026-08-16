@@ -15,6 +15,12 @@ import {
   type PluginToolMetadataRegistration,
   type PluginTrustedToolPolicyRegistration,
 } from "./host-hooks.js";
+import {
+  isControlUiSurface,
+  normalizeCapabilityBridge,
+  normalizeHostHookString,
+  normalizeOptionalHostHookString,
+} from "./registry-control-ui-capability.js";
 import type { PluginRegistryState } from "./registry-state.js";
 import type {
   PluginRecord,
@@ -30,31 +36,6 @@ import {
 import { normalizePluginToolMatcher } from "./tool-hook-matcher.js";
 import type { PluginConversationBindingResolvedEvent } from "./types.js";
 
-const controlUiSurfaces = new Set<PluginControlUiDescriptor["surface"]>([
-  "session",
-  "tool",
-  "run",
-  "settings",
-  "tab",
-  "widget",
-]);
-
-function normalizeHostHookString(value: unknown): string {
-  return typeof value === "string" ? normalizePluginHostHookId(value) : "";
-}
-
-/* oxlint-disable max-lines -- TODO: extract control-UI descriptor normalization. */
-
-function normalizeOptionalHostHookString(value: unknown): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value !== "string") {
-    return "";
-  }
-  return value.trim();
-}
-
 function normalizeHostHookStringList(value: unknown): string[] | undefined | null {
   if (value === undefined) {
     return undefined;
@@ -67,49 +48,6 @@ function normalizeHostHookStringList(value: unknown): string[] | undefined | nul
     return null;
   }
   return normalized as string[];
-}
-
-type CapabilityBridgeNormalization =
-  | { kind: "absent" }
-  | { kind: "invalid" }
-  | { kind: "valid"; value: PluginControlUiDescriptor["capabilityBridge"] };
-
-function normalizeCapabilityBridge(value: unknown): CapabilityBridgeNormalization {
-  if (value === undefined) {
-    return { kind: "absent" };
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { kind: "invalid" };
-  }
-  const bridge = value as {
-    protocolVersion?: unknown;
-    requiredMethods?: unknown;
-    optionalMethods?: unknown;
-  };
-  if (
-    bridge.protocolVersion !== 1 ||
-    !Array.isArray(bridge.requiredMethods) ||
-    !Array.isArray(bridge.optionalMethods)
-  ) {
-    return { kind: "invalid" };
-  }
-  const requiredMethods = normalizeHostHookStringList(bridge.requiredMethods);
-  const optionalMethods = normalizeHostHookStringList(bridge.optionalMethods);
-  if (
-    requiredMethods === null ||
-    optionalMethods === null ||
-    !requiredMethods ||
-    !optionalMethods
-  ) {
-    return { kind: "invalid" };
-  }
-  const methods = [...requiredMethods, ...optionalMethods];
-  return methods.length <= 32 && new Set(methods).size === methods.length
-    ? {
-        kind: "valid",
-        value: { protocolVersion: 1, requiredMethods, optionalMethods },
-      }
-    : { kind: "invalid" };
 }
 
 export function createHostRegistrars(state: PluginRegistryState) {
@@ -405,13 +343,16 @@ export function createHostRegistrars(state: PluginRegistryState) {
     const description = normalizeOptionalHostHookString(descriptor.description);
     const placement = normalizeOptionalHostHookString(descriptor.placement);
     const requiredScopes = normalizeHostHookStringList(descriptor.requiredScopes);
-    const capabilityBridge = normalizeCapabilityBridge(descriptor.capabilityBridge);
+    const capabilityBridge = normalizeCapabilityBridge(
+      descriptor.capabilityBridge,
+      normalizeHostHookStringList,
+    );
     // The flat API predates required surface/label; preserve shipped JS-plugin behavior.
     const surface = typeof descriptor.surface === "string" ? descriptor.surface : "session";
     if (
       !id ||
       !label ||
-      !controlUiSurfaces.has(surface) ||
+      !isControlUiSurface(surface) ||
       description === "" ||
       placement === "" ||
       requiredScopes === null
