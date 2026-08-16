@@ -111,4 +111,4 @@ repos:
         types: [swift]
 
 ci:
-  skip: [shellcheck]
+  skip: [shellcheck, zizmor]
