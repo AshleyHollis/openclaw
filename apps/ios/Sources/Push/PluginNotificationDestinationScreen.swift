@@ -28,7 +28,10 @@ struct PluginNotificationDestinationScreen: View {
                    pageURL: url,
                    storedOperatorToken: storedOperatorToken)
             {
-                AuthenticatedControlUIWebView(url: url, authScript: authScript)
+                AuthenticatedControlUIWebView(
+                    url: url,
+                    authScript: authScript,
+                    tls: config?.tls)
                     .id(AuthenticatedControlUI.webContentIdentity(
                         config: config,
                         storedOperatorToken: storedOperatorToken))
