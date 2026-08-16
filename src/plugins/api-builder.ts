@@ -18,9 +18,11 @@ type BuildPluginApiParams = {
   logger: PluginLogger;
   resolvePath: (input: string) => string;
   handlers?: Partial<Pick<OpenClawPluginApi, keyof typeof noops>>;
+  registerNotificationEmitter?: OpenClawPluginApi["notifications"]["registerEmitter"];
 };
 
 const noops = {
+  notifications: { registerEmitter: () => undefined },
   registerTool: () => {},
   registerHook: () => {},
   registerHttpRoute: () => {},
@@ -137,6 +139,10 @@ export function buildPluginApi(params: BuildPluginApiParams): OpenClawPluginApi 
     pluginConfig: params.pluginConfig,
     runtime: params.runtime,
     logger: params.logger,
+    notifications: {
+      registerEmitter:
+        params.registerNotificationEmitter ?? noops.notifications.registerEmitter,
+    },
     registerTool: handlers.registerTool ?? noops.registerTool,
     registerHook: handlers.registerHook ?? noops.registerHook,
     registerHttpRoute: handlers.registerHttpRoute ?? noops.registerHttpRoute,

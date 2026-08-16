@@ -11,6 +11,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { verifyDeviceToken } from "../infra/device-pairing-tokens.js";
 import { listDevicePairing } from "../infra/device-pairing.js";
 import { verifyPairingToken } from "../infra/pairing-token.js";
+import type { PluginNotificationPrincipalBinding } from "../plugins/notification-emitter-host.js";
 import { roleScopesAllow } from "../shared/operator-scope-compat.js";
 import {
   ensureProfileForEmail,
@@ -33,6 +34,7 @@ import type { ControlUiPluginFrameGrantAck } from "./control-ui-contract.js";
 import {
   resolveControlUiPluginAuthCookieGrants,
   setControlUiPluginAuthCookie,
+  type ControlUiPluginTabAuthRequestGrant,
 } from "./control-ui-plugin-auth-cookie.js";
 import {
   listControlUiPluginTabAuthGrants,
@@ -86,8 +88,8 @@ export type AuthorizedGatewayHttpRequest = {
   trustDeclaredOperatorScopes: boolean;
   authenticatedUserProfile?: GatewayClient["authenticatedUserProfile"];
   operatorRolePolicy?: GatewayOperatorRoleDefinition;
-  controlUiPluginGrants?: ControlUiPluginTabAuthGrant[];
-  controlUiPluginGrant?: ControlUiPluginTabAuthGrant;
+  controlUiPluginGrants?: ControlUiPluginTabAuthRequestGrant[];
+  controlUiPluginGrant?: ControlUiPluginTabAuthRequestGrant;
 };
 type AuthenticatedHttpUserProfile = Pick<
   AuthorizedGatewayHttpRequest,
@@ -468,6 +470,7 @@ export function setControlUiPluginAuthCookieForRequest(
   authGeneration: string | undefined,
   authenticatedScopes?: readonly string[],
   authenticatedProfileId?: string,
+  notificationBinding?: PluginNotificationPrincipalBinding,
 ): ControlUiPluginTabAuthGrant[] {
   const scopes =
     authenticatedScopes ??
@@ -483,6 +486,7 @@ export function setControlUiPluginAuthCookieForRequest(
     return setControlUiPluginAuthCookie(res, grants, {
       generation: authGeneration,
       ...(authenticatedProfileId ? { profileId: authenticatedProfileId } : {}),
+      notificationBinding,
     });
   }
   return [];

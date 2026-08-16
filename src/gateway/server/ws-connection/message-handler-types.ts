@@ -138,6 +138,7 @@ export type AuthenticatedGatewayConnect = {
   hasTokenAuth: boolean;
   hasPasswordAuth: boolean;
   bootstrapTokenCandidate?: string;
+  deviceTokenAuthenticated: boolean;
   deviceTokenSharedGatewaySessionGeneration?: string;
   authResult: GatewayAuthResult;
   authOk: boolean;
