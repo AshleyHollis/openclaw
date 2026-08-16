@@ -84,6 +84,7 @@ function evaluateWorkflowExpression(
     repository: string;
     runnerBackend?: "" | "blacksmith" | "github" | "hybrid";
     runAttempt: number;
+    vpsRunner?: string;
   },
 ) {
   if (typeof expression !== "string") {
@@ -113,6 +114,7 @@ function evaluateWorkflowExpression(
     matrix: context.matrix ?? {},
     vars: {
       OPENCLAW_CI_RUNNER_BACKEND: context.runnerBackend ?? "",
+      OPENCLAW_CI_VPS_RUNNER: context.vpsRunner ?? "",
     },
   });
 }
@@ -3001,6 +3003,50 @@ NODE
     expect(workflow.jobs.preflight["runs-on"]).toContain("blacksmith-4vcpu-ubuntu-2404");
     expect(workflow.jobs["security-fast"]["runs-on"]).toBe("ubuntu-24.04");
     expect(workflow.jobs["pnpm-store-warmup"]["runs-on"]).toContain("blacksmith-4vcpu-ubuntu-2404");
+  });
+
+  it("uses additive VPS capacity only for trusted first-attempt static lanes", () => {
+    const expression = readCiWorkflow().jobs["check-shard"]["runs-on"];
+    const base = {
+      eventName: "pull_request" as const,
+      headRepository: "AshleyHollis/openclaw",
+      repository: "AshleyHollis/openclaw",
+      runnerBackend: "github" as const,
+      runAttempt: 1,
+      vpsRunner: "vps-openclaw-ci",
+    };
+
+    for (const task of ["lint", "test-types"]) {
+      expect(evaluateWorkflowExpression(expression, { ...base, matrix: { task } }), task).toBe(
+        "vps-openclaw-ci",
+      );
+    }
+    for (const task of ["dependencies", "guards"]) {
+      expect(evaluateWorkflowExpression(expression, { ...base, matrix: { task } }), task).toBe(
+        "ubuntu-24.04",
+      );
+    }
+    expect(
+      evaluateWorkflowExpression(expression, {
+        ...base,
+        headRepository: "contributor/openclaw",
+        matrix: { task: "lint" },
+      }),
+    ).toBe("ubuntu-24.04");
+    expect(
+      evaluateWorkflowExpression(expression, {
+        ...base,
+        matrix: { task: "lint" },
+        runAttempt: 2,
+      }),
+    ).toBe("ubuntu-24.04");
+    expect(
+      evaluateWorkflowExpression(expression, {
+        ...base,
+        matrix: { task: "lint" },
+        vpsRunner: "",
+      }),
+    ).toBe("ubuntu-24.04");
   });
 
   it("encodes GitHub, Blacksmith, and hybrid runner-backend shapes", () => {
