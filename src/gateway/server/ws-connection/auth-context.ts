@@ -53,6 +53,8 @@ type ConnectAuthDecision = {
   authResult: GatewayAuthResult;
   authOk: boolean;
   authMethod: GatewayAuthResult["method"];
+  /** Independently verified device proof may accompany identity-bearing shared auth. */
+  deviceTokenAuthenticated: boolean;
   deviceTokenSharedGatewaySessionGeneration?: string;
 };
 
@@ -211,6 +213,7 @@ async function resolveConnectAuthDecisionCore(
   let authResult = params.state.authResult;
   let authOk = params.state.authOk;
   let authMethod = params.state.authMethod;
+  let deviceTokenAuthenticated = false;
   let deviceTokenSharedGatewaySessionGeneration: string | undefined;
   let pendingBootstrapFailure = false;
 
@@ -222,6 +225,7 @@ async function resolveConnectAuthDecisionCore(
       authResult,
       authOk,
       authMethod,
+      deviceTokenAuthenticated,
       deviceTokenSharedGatewaySessionGeneration,
     };
   }
@@ -277,7 +281,17 @@ async function resolveConnectAuthDecisionCore(
   }
 
   const deviceTokenCandidate = params.state.deviceTokenCandidate;
-  if (!params.hasDeviceIdentity || !params.deviceId || authOk || !deviceTokenCandidate) {
+  // An explicit device token is an additional proof, even after user auth succeeds.
+  // Keep the identity-bearing auth method so existing policy remains unchanged while
+  // exposing the independently verified pairing credential to host-owned features.
+  const verifyAdditionalDeviceToken =
+    params.state.deviceTokenCandidateSource === "explicit-device-token";
+  if (
+    !params.hasDeviceIdentity ||
+    !params.deviceId ||
+    !deviceTokenCandidate ||
+    (authOk && !verifyAdditionalDeviceToken)
+  ) {
     return finish();
   }
 
@@ -289,12 +303,14 @@ async function resolveConnectAuthDecisionCore(
     );
     if (!deviceRateCheck.allowed) {
       deviceTokenRateLimited = true;
-      authResult = {
-        ok: false,
-        reason: "rate_limited",
-        rateLimited: true,
-        retryAfterMs: deviceRateCheck.retryAfterMs,
-      };
+      if (!authOk) {
+        authResult = {
+          ok: false,
+          reason: "rate_limited",
+          rateLimited: true,
+          retryAfterMs: deviceRateCheck.retryAfterMs,
+        };
+      }
     }
   }
   if (!deviceTokenRateLimited) {
@@ -305,8 +321,11 @@ async function resolveConnectAuthDecisionCore(
       scopes: params.scopes,
     });
     if (tokenCheck.ok) {
-      authOk = true;
-      authMethod = "device-token";
+      deviceTokenAuthenticated = true;
+      if (!authOk) {
+        authOk = true;
+        authMethod = "device-token";
+      }
       if (tokenCheck.issuer?.kind === "shared-gateway-auth") {
         deviceTokenSharedGatewaySessionGeneration = tokenCheck.issuer.generation;
       }
@@ -315,14 +334,16 @@ async function resolveConnectAuthDecisionCore(
         params.rateLimiter?.reset(params.clientIp, AUTH_RATE_LIMIT_SCOPE_SHARED_SECRET);
       }
     } else {
-      authResult = {
-        ok: false,
-        reason: mapDeviceTokenAuthFailureReason({
-          tokenCheckReason: tokenCheck.reason,
-          candidateSource: params.state.deviceTokenCandidateSource,
-          fallbackReason: authResult.reason,
-        }),
-      };
+      if (!authOk) {
+        authResult = {
+          ok: false,
+          reason: mapDeviceTokenAuthFailureReason({
+            tokenCheckReason: tokenCheck.reason,
+            candidateSource: params.state.deviceTokenCandidateSource,
+            fallbackReason: authResult.reason,
+          }),
+        };
+      }
       params.rateLimiter?.recordFailure(params.clientIp, AUTH_RATE_LIMIT_SCOPE_DEVICE_TOKEN);
     }
   }

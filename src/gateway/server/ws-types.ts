@@ -39,6 +39,8 @@ export type GatewayWsClient = PluginNodeCapabilityClient & {
   usesSharedGatewayAuth: boolean;
   sharedGatewaySessionGeneration?: string;
   presenceKey?: string;
+  /** Stable host operator subject; unlike user identity, this exists for all authenticated modes. */
+  authenticatedOperatorId?: string;
   authenticatedUserId?: string;
   /** Verified Tailscale provider identity; generic proxy identities must not infer this. */
   authenticatedUserIsTailscaleProvider?: boolean;

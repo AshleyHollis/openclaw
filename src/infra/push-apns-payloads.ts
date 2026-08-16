@@ -5,6 +5,14 @@ import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 const EXEC_APPROVAL_GENERIC_ALERT_BODY = "Open OpenClaw to review this request.";
 const PLUGIN_APPROVAL_ALERT_BODY_MAX_LENGTH = 256;
 
+export type PluginNotificationApnsTarget = {
+  kind: "plugin-detail";
+  pluginId: string;
+  tabId: string;
+  destinationId: string;
+  recordId: string;
+};
+
 function toPushMetadata(params: {
   kind: "push.test" | "node.wake";
   nodeId: string;
@@ -106,6 +114,57 @@ export function createApnsApprovalResolvedPayload(params: {
       kind: `${params.kind}.approval.resolved`,
       approvalId: params.approvalId,
       gatewayDeviceId: params.gatewayDeviceId,
+      ts: Date.now(),
+    },
+  };
+}
+
+/** Create the host-owned typed navigation payload for a plugin notification alert. */
+export function createApnsPluginNotificationAlertPayload(params: {
+  nodeId: string;
+  title: string;
+  body: string;
+  sourceId: string;
+  tag: string;
+  target: PluginNotificationApnsTarget;
+}): object {
+  return {
+    aps: {
+      alert: {
+        title: params.title,
+        body: params.body,
+      },
+      sound: "default",
+      "thread-id": params.tag,
+    },
+    openclaw: {
+      version: 1,
+      kind: "plugin.notification",
+      nodeId: params.nodeId,
+      sourceId: params.sourceId,
+      tag: params.tag,
+      target: params.target,
+      ts: Date.now(),
+    },
+  };
+}
+
+/** Create the idempotent silent clear payload for a plugin notification operation. */
+export function createApnsPluginNotificationClearedPayload(params: {
+  nodeId: string;
+  sourceId: string;
+  tag: string;
+}): object {
+  return {
+    aps: {
+      "content-available": 1,
+    },
+    openclaw: {
+      version: 1,
+      kind: "plugin.notification.cleared",
+      nodeId: params.nodeId,
+      sourceId: params.sourceId,
+      tag: params.tag,
       ts: Date.now(),
     },
   };

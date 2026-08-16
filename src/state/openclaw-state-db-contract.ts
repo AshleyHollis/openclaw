@@ -42,12 +42,21 @@ export const LAZY_ADDITIVE_STATE_TABLES = [
   "skill_workshop_proposal_rollbacks",
   "skill_workshop_proposals",
   "worker_environment_ssh_fallback_ports",
+  "plugin_notification_emissions",
+  "plugin_notification_delivery_attempts",
+  "plugin_notification_clear_attempts",
+  "plugin_notification_clear_operations",
+  "plugin_notification_device_associations",
 ] as const;
 export const LAZY_ADDITIVE_STATE_INDEXES = [
   ...FIRST_USE_STATE_INDEXES,
   "idx_cron_run_receipts_active_job",
   "idx_cron_run_receipts_job_history",
   "secret_store_entries_live_idx",
+  "idx_plugin_notification_emissions_rate",
+  "idx_plugin_notification_emissions_retention",
+  "idx_plugin_notification_delivery_operations",
+  "idx_plugin_notification_device_associations_owner",
 ] as const;
 /** Maximum time one synchronous SQLite call may wait for a lock. */
 export const OPENCLAW_SQLITE_BUSY_TIMEOUT_MS = 5_000;

@@ -86,6 +86,8 @@ export type GatewayClient = {
   clientIp?: string;
   /** Client id verified against the server-approved device pairing record. */
   pairedClientId?: string;
+  /** Stable host operator subject; unlike user identity, this exists for all authenticated modes. */
+  authenticatedOperatorId?: string;
   authenticatedUserId?: string;
   /** Verified Tailscale provider identity; generic proxy identities must not infer this. */
   authenticatedUserIsTailscaleProvider?: boolean;
@@ -100,6 +102,11 @@ export type GatewayClient = {
   pluginNodeCapabilitySurfaces?: Record<string, PluginNodeCapabilitySurface>;
   pluginNodeCapabilities?: Record<string, { capability: string; expiresAtMs: number }>;
   isDeviceTokenAuth?: boolean;
+  usesSharedGatewayAuth?: boolean;
+  /** Issuer epoch for device tokens minted from shared Gateway authentication. */
+  sharedGatewaySessionGeneration?: string;
+  /** Set before dispatch once the backing device or credential is revoked. */
+  invalidated?: boolean;
   /** Temporary legacy migration session closed when normal enforcement resumes. */
   isControlUiDeviceAuthMigrationSession?: boolean;
   /** Signed shared-auth session admitted only to approve its own upgrade pairing. */
