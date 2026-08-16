@@ -3016,11 +3016,12 @@ NODE
       vpsRunner: "vps-openclaw-ci",
     };
 
-    for (const task of ["lint", "test-types"]) {
-      expect(evaluateWorkflowExpression(expression, { ...base, matrix: { task } }), task).toBe(
-        "vps-openclaw-ci",
-      );
-    }
+    expect(
+      evaluateWorkflowExpression(expression, { ...base, matrix: { task: "test-types" } }),
+    ).toBe("vps-openclaw-ci");
+    expect(evaluateWorkflowExpression(expression, { ...base, matrix: { task: "lint" } })).toBe(
+      "ubuntu-24.04",
+    );
     for (const task of ["dependencies", "guards"]) {
       expect(evaluateWorkflowExpression(expression, { ...base, matrix: { task } }), task).toBe(
         "ubuntu-24.04",
@@ -3030,20 +3031,20 @@ NODE
       evaluateWorkflowExpression(expression, {
         ...base,
         headRepository: "contributor/openclaw",
-        matrix: { task: "lint" },
+        matrix: { task: "test-types" },
       }),
     ).toBe("ubuntu-24.04");
     expect(
       evaluateWorkflowExpression(expression, {
         ...base,
-        matrix: { task: "lint" },
+        matrix: { task: "test-types" },
         runAttempt: 2,
       }),
     ).toBe("ubuntu-24.04");
     expect(
       evaluateWorkflowExpression(expression, {
         ...base,
-        matrix: { task: "lint" },
+        matrix: { task: "test-types" },
         vpsRunner: "",
       }),
     ).toBe("ubuntu-24.04");
