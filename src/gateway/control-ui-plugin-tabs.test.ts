@@ -4,10 +4,13 @@ import type { PluginControlUiDescriptor } from "../plugins/host-hooks.js";
 import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../plugins/runtime.js";
 import { createTestRegistry } from "../test-utils/channel-plugins.js";
 import {
+  listControlUiCapabilityBridgeLinkedSessionKeys,
   listControlUiPluginTabAuthGrants,
   listControlUiPluginTabs,
   listControlUiPluginWidgetKinds,
 } from "./control-ui-plugin-tabs.js";
+
+const EXPECTED_MAX_LINKED_SESSION_KEYS = 200;
 
 function tabDescriptor(
   overrides: Partial<PluginControlUiDescriptor> = {},
@@ -129,6 +132,142 @@ describe("listControlUiPluginTabs", () => {
       { pluginId: "workboard", kind: "workboard:card", label: "Workboard card" },
       { pluginId: "workboard", kind: "workboard:mini", label: "Workboard summary" },
     ]);
+  });
+
+  it("follows active-registry swaps without retaining stale descriptors", () => {
+    const gatewayRegistry = createTestRegistry([]);
+    gatewayRegistry.controlUiDescriptors = [
+      {
+        pluginId: "workboard",
+        descriptor: tabDescriptor({
+          id: "card",
+          surface: "widget",
+          label: "Workboard card",
+          requiredScopes: ["operator.read"],
+        }),
+        source: "test:workboard",
+      },
+      { pluginId: "logbook", descriptor: tabDescriptor(), source: "test:logbook" },
+    ];
+    setActivePluginRegistry(gatewayRegistry);
+
+    expect(listControlUiPluginWidgetKinds(["operator.read"]).map((kind) => kind.kind)).toEqual([
+      "workboard:card",
+    ]);
+    expect(listControlUiPluginTabs(["operator.admin"]).map((tab) => tab.id)).toEqual(["logbook"]);
+
+    // The current runtime has one active registry rather than pinned per-surface
+    // compatibility registries, so swaps must not retain stale tab authorities.
+    setActivePluginRegistry(createTestRegistry([]));
+
+    expect(listControlUiPluginWidgetKinds(["operator.read"])).toEqual([]);
+    expect(listControlUiPluginTabs(["operator.admin"])).toEqual([]);
+  });
+
+  it("derives bounded linked-session inputs from durable plugin ownership", () => {
+    const entries = [
+      ["agent:main:foreign", { pluginOwnerId: "other" }],
+      ["agent:main:pending", { pluginOwnerId: "logbook", initializationPending: true }],
+      ["agent:main:b", { pluginOwnerId: "logbook" }],
+      ["agent:main:a", { pluginOwnerId: "logbook" }],
+      ...Array.from(
+        { length: EXPECTED_MAX_LINKED_SESSION_KEYS + 2 },
+        (_, i) => [`agent:bulk:${String(i).padStart(3, "0")}`, { pluginOwnerId: "bulk" }] as const,
+      ),
+    ] as const;
+
+    const links = listControlUiCapabilityBridgeLinkedSessionKeys(entries);
+    expect(links.get("logbook")).toEqual(["agent:main:a", "agent:main:b"]);
+    expect(links.get("other")).toEqual(["agent:main:foreign"]);
+    expect(links.get("bulk")).toHaveLength(EXPECTED_MAX_LINKED_SESSION_KEYS);
+    expect(links.get("bulk")?.at(0)).toBe("agent:bulk:000");
+    expect(links.get("bulk")?.at(-1)).toBe("agent:bulk:199");
+  });
+
+  it("includes only the authenticated host-provided links in a capability grant", () => {
+    activateDescriptors(
+      [
+        {
+          pluginId: "logbook",
+          descriptor: tabDescriptor({
+            path: "/plugins/logbook/panel",
+            capabilityBridge: {
+              protocolVersion: 1,
+              requiredMethods: ["chat.history"],
+              optionalMethods: ["chat.send"],
+            },
+          }),
+        },
+      ],
+      [{ pluginId: "logbook", path: "/plugins/logbook", match: "prefix" }],
+    );
+
+    const [tab] = listControlUiPluginTabs(["operator.admin"], {
+      availableMethods: ["chat.history", "chat.send"],
+      linkedSessionKeysByPlugin: new Map([
+        ["logbook", ["agent:main:owned"]],
+        ["other", ["agent:main:foreign"]],
+      ]),
+    });
+
+    expect(tab?.capabilityBridge).toMatchObject({
+      methods: ["chat.history", "chat.send"],
+      linkedSessionKeys: ["agent:main:owned"],
+    });
+  });
+
+  it("falls back to declared reads when the operator cannot receive a required write", () => {
+    activateDescriptors(
+      [
+        {
+          pluginId: "logbook",
+          descriptor: tabDescriptor({
+            path: "/plugins/logbook/panel",
+            capabilityBridge: {
+              protocolVersion: 1,
+              requiredMethods: ["chat.send"],
+              optionalMethods: ["chat.history"],
+            },
+          }),
+        },
+      ],
+      [{ pluginId: "logbook", path: "/plugins/logbook", match: "prefix" }],
+    );
+
+    const [tab] = listControlUiPluginTabs(["operator.read"], {
+      availableMethods: ["chat.history", "chat.send"],
+    });
+
+    expect(tab?.capabilityBridge).toMatchObject({
+      methods: ["chat.history"],
+      missingRequiredMethods: ["chat.send"],
+      mode: "read-only",
+      upgradeRequired: true,
+    });
+  });
+
+  it("keeps an otherwise-visible tab read-only without a same-plugin authenticated route", () => {
+    activateDescriptors([
+      {
+        pluginId: "logbook",
+        descriptor: tabDescriptor({
+          path: "/plugins/logbook/panel",
+          capabilityBridge: {
+            protocolVersion: 1,
+            requiredMethods: ["chat.history"],
+            optionalMethods: [],
+          },
+        }),
+      },
+    ]);
+
+    const [tab] = listControlUiPluginTabs(["operator.read"], {
+      availableMethods: ["chat.history"],
+    });
+
+    expect(tab).toMatchObject({ pluginId: "logbook" });
+    expect(tab).not.toHaveProperty("capabilityBridge");
+    expect(tab).not.toHaveProperty("requiresGatewayAuth");
   });
 
   it("grants only same-plugin gateway routes with least-privilege scopes", () => {
