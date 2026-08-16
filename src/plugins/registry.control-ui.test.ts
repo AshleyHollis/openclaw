@@ -103,6 +103,47 @@ describe("plugin registry Control UI descriptors", () => {
     );
   });
 
+  it("keeps an authenticated tab when its optional capability bridge is incompatible", () => {
+    const { config, registry } = createPluginRegistryFixture();
+    registerTestPlugin({
+      registry,
+      config,
+      record: createPluginRecord({ id: "tab-fixture", name: "Tab Fixture" }),
+      register(api) {
+        api.registerControlUiDescriptor({
+          surface: "tab",
+          id: "journal",
+          label: "Journal",
+          path: "/plugins/tab-fixture/journal",
+          capabilityBridge: {
+            protocolVersion: 2,
+            requiredMethods: [],
+            optionalMethods: [],
+          },
+        } as never);
+      },
+    });
+
+    expect(registry.registry.controlUiDescriptors).toEqual([
+      expect.objectContaining({
+        pluginId: "tab-fixture",
+        descriptor: expect.objectContaining({
+          id: "journal",
+          path: "/plugins/tab-fixture/journal",
+        }),
+      }),
+    ]);
+    expect(registry.registry.controlUiDescriptors[0]?.descriptor).not.toHaveProperty(
+      "capabilityBridge",
+    );
+    expect(registry.registry.diagnostics).toContainEqual(
+      expect.objectContaining({
+        level: "error",
+        message: expect.stringContaining("capabilityBridge is invalid and will be ignored"),
+      }),
+    );
+  });
+
   it("accepts trusted dashboard widget descriptors", () => {
     const { config, registry } = createPluginRegistryFixture();
     registerTestPlugin({

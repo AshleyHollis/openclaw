@@ -114,3 +114,8 @@ repos:
         language: system
         pass_filenames: false
         types: [swift]
+
+ci:
+  # pre-commit.ci does not provide Docker, Node/pnpm, or Apple toolchains.
+  # GitHub Actions runs these repository checks in their supported environments.
+  skip: [shellcheck, zizmor, pnpm-audit-prod, oxlint, oxfmt, swiftlint, swiftformat]

@@ -520,6 +520,12 @@ describe("oxlint config", () => {
         },
       },
       {
+        files: ["ui/src/pages/plugin/plugin-page.ts"],
+        rules: {
+          "max-lines": ["error", { max: 1100, skipBlankLines: true, skipComments: true }],
+        },
+      },
+      {
         files: ["extensions/copilot/src/attempt-transcript-journal.test.ts"],
         rules: {
           "max-lines": ["error", { max: 1200, skipBlankLines: true, skipComments: true }],

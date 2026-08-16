@@ -3,6 +3,7 @@ import {
   GATEWAY_SERVER_CAPS,
   PROTOCOL_VERSION,
 } from "../../../../packages/gateway-protocol/src/index.js";
+import { loadCombinedSessionStoreForGatewayCore } from "../../../config/sessions/combined-store-gateway.js";
 import { sha256Base64Url } from "../../../infra/crypto-digest.js";
 import {
   redeemDeviceBootstrapTokenProfile,
@@ -17,6 +18,7 @@ import { hasMultipleSessionSharingIdentities } from "../../../state/user-profile
 import { resolveRuntimeServiceBuildId, resolveRuntimeServiceVersion } from "../../../version.js";
 import { resolveChatAttachmentPolicy } from "../../chat-attachment-policy.js";
 import {
+  listControlUiCapabilityBridgeLinkedSessionKeys,
   listControlUiPluginTabs,
   listControlUiPluginWidgetKinds,
 } from "../../control-ui-plugin-tabs.js";
@@ -79,11 +81,12 @@ export async function sendGatewayHello(
     bootstrapTokenCandidate,
     authResult,
     authMethod,
-    sessionSharedGatewaySessionGeneration,
     issuedBootstrapProfile,
     handoffBootstrapProfile,
     deviceToken,
     bootstrapDeviceTokens,
+    controlUiDeviceAuthMigrationPending,
+    sessionSharedGatewaySessionGeneration,
   } = state;
   // Prefer the authenticated human; principal scopes never inherit device-token rows.
   const authenticatedPrincipal = authenticatedUserProfileId ?? authResult.user;
@@ -112,12 +115,51 @@ export async function sendGatewayHello(
     snapshot.health = cachedHealth;
     snapshot.stateVersion.health = getHealthVersion();
   }
-  const controlUiTabs = listControlUiPluginTabs(scopes, {
+  // Plugin UI grants are durable device capabilities. The authenticated
+  // connection scopes can additionally include (or cap) principal grants, so
+  // they must remain the authoritative scopes returned in hello-ok.
+  const controlUiGrantScopes = deviceToken ? deviceToken.scopes : scopes;
+  // The parent uses this opaque marker to bind a sandbox bridge to the current
+  // operator/auth generation. It intentionally never enters an iframe envelope.
+  const authorityId = deviceToken
+    ? sha256Base64Url(
+        `device-token\u0000${sessionSharedGatewaySessionGeneration ?? ""}\u0000${deviceToken.token}\u0000${deviceToken.rotatedAtMs ?? deviceToken.createdAtMs}`,
+      )
+    : sessionSharedGatewaySessionGeneration
+      ? authMethod === "trusted-proxy" && authResult.user
+        ? sha256Base64Url(`${sessionSharedGatewaySessionGeneration}\u0000${authResult.user}`)
+        : sessionSharedGatewaySessionGeneration
+      : undefined;
+  let controlUiTabs = listControlUiPluginTabs(controlUiGrantScopes, {
     requireGatewayAuthGrant: resolvedAuth.mode !== "none",
+    availableMethods: gatewayMethods,
   });
-  const controlUiWidgetKinds = listControlUiPluginWidgetKinds(scopes);
-  // Gateway runtime provenance is independent of the UI artifact source.
-  // Consumers use the source field to decide whether UI build comparison applies.
+  if (controlUiTabs.some((tab) => tab.capabilityBridge)) {
+    let linkedSessionKeysByPlugin: ReadonlyMap<string, readonly string[]> = new Map();
+    try {
+      const { store } = loadCombinedSessionStoreForGatewayCore(context.configSnapshot, {
+        configuredAgentsOnly: true,
+        includeIncognito: false,
+        projection: "list",
+      });
+      linkedSessionKeysByPlugin = listControlUiCapabilityBridgeLinkedSessionKeys(
+        Object.entries(store),
+      );
+    } catch (err) {
+      // The session owner is a capability input, never best-effort iframe state.
+      // A read failure safely grants no links and leaves an operator-visible log.
+      logGateway.warn(`control UI capability bridge link projection failed: ${formatForLog(err)}`);
+    }
+    controlUiTabs = listControlUiPluginTabs(controlUiGrantScopes, {
+      requireGatewayAuthGrant: resolvedAuth.mode !== "none",
+      availableMethods: gatewayMethods,
+      linkedSessionKeysByPlugin,
+    });
+  }
+  const controlUiWidgetKinds = listControlUiPluginWidgetKinds(controlUiGrantScopes);
+  // Gateway runtime provenance is independent of the UI artifact source. A
+  // configured UI root can be built independently from the Gateway, so exact
+  // comparison is authoritative only for the package-owned bundled artifact.
   const controlUiBuildSource = context.configSnapshot.gateway?.controlUi?.root
     ? ("configured" as const)
     : ("bundled" as const);
@@ -163,6 +205,7 @@ export async function sendGatewayHello(
       scopes,
       ...(recoveryScope ? { recoveryScope } : {}),
       ...(canMigrateRecovery ? { recoveryMigrationAllowed: true as const } : {}),
+      ...(authorityId ? { authorityId } : {}),
       ...(deviceToken
         ? {
             deviceToken: deviceToken.token,

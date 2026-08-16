@@ -237,13 +237,18 @@ describe("sendGatewayHello update detail scope", () => {
       scopes: ["operator.pairing"],
       recoveryMigrationAllowed: true,
       recoveryScope: expect.stringMatching(/^[A-Za-z0-9_-]+$/u),
+      authorityId: expect.stringMatching(/^[A-Za-z0-9_-]+$/u),
       deviceToken: "paired-token",
       issuedAtMs: 1,
     });
-    expect(listControlUiPluginTabsMock).toHaveBeenCalledWith(["operator.pairing"], {
+    expect(listControlUiPluginTabsMock).toHaveBeenCalledWith(["operator.read", "operator.admin"], {
+      availableMethods: [],
       requireGatewayAuthGrant: false,
     });
-    expect(listControlUiPluginWidgetKindsMock).toHaveBeenCalledWith(["operator.pairing"]);
+    expect(listControlUiPluginWidgetKindsMock).toHaveBeenCalledWith([
+      "operator.read",
+      "operator.admin",
+    ]);
     expect(emitGatewayAuthSecurityEventMock).toHaveBeenCalledWith(
       expect.objectContaining({ role: "operator", scopes: ["operator.pairing"] }),
     );
