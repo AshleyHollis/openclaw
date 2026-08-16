@@ -7,6 +7,7 @@ import {
 } from "@openclaw/normalization-core/string-coerce";
 import { getRuntimeConfig } from "../config/io.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import type { PluginNotificationPrincipalBinding } from "../plugins/notification-emitter-host.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
 import {
   authorizeHttpGatewayConnect,
@@ -17,6 +18,7 @@ import {
 import {
   resolveControlUiPluginAuthCookieGrants,
   setControlUiPluginAuthCookie,
+  type ControlUiPluginTabAuthRequestGrant,
 } from "./control-ui-plugin-auth-cookie.js";
 import {
   listControlUiPluginTabAuthGrants,
@@ -54,8 +56,8 @@ export type AuthorizedGatewayHttpRequest = {
   authMethod?: GatewayAuthResult["method"];
   user?: string;
   trustDeclaredOperatorScopes: boolean;
-  controlUiPluginGrants?: ControlUiPluginTabAuthGrant[];
-  controlUiPluginGrant?: ControlUiPluginTabAuthGrant;
+  controlUiPluginGrants?: ControlUiPluginTabAuthRequestGrant[];
+  controlUiPluginGrant?: ControlUiPluginTabAuthRequestGrant;
 };
 
 export type GatewayHttpRequestAuthCheckResult =
@@ -143,6 +145,7 @@ export function setControlUiPluginAuthCookieForRequest(
   trustDeclaredOperatorScopes: boolean,
   authGeneration: string | undefined,
   authenticatedScopes?: readonly string[],
+  notificationBinding?: PluginNotificationPrincipalBinding,
 ): ControlUiPluginTabAuthGrant[] {
   const scopes = usesSharedSecretGatewayMethod(authMethod)
     ? [...CLI_DEFAULT_OPERATOR_SCOPES]
@@ -155,7 +158,10 @@ export function setControlUiPluginAuthCookieForRequest(
         : [];
   const grants = listControlUiPluginTabAuthGrants(scopes);
   if (grants.length > 0) {
-    return setControlUiPluginAuthCookie(res, grants, { generation: authGeneration });
+    return setControlUiPluginAuthCookie(res, grants, {
+      generation: authGeneration,
+      notificationBinding,
+    });
   }
   return [];
 }

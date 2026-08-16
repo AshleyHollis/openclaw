@@ -378,6 +378,7 @@ export async function authenticateGatewayConnect(
     },
   });
   ({ authResult, authOk, authMethod } = authDecision);
+  const deviceTokenAuthenticated = authDecision.deviceTokenAuthenticated;
   const deviceTokenSharedGatewaySessionGeneration =
     authDecision.deviceTokenSharedGatewaySessionGeneration;
   pairingLocality = resolvePairingLocality({
@@ -498,6 +499,7 @@ export async function authenticateGatewayConnect(
     hasTokenAuth,
     hasPasswordAuth,
     bootstrapTokenCandidate,
+    deviceTokenAuthenticated,
     deviceTokenSharedGatewaySessionGeneration,
     authResult,
     authOk,

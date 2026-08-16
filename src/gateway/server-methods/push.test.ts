@@ -8,6 +8,9 @@ import { pushHandlers } from "./push.js";
 
 const mocks = vi.hoisted(() => ({
   getRuntimeConfig: vi.fn(() => ({})),
+  registerWebPushSubscription: vi.fn(),
+  clearWebPushSubscriptionByEndpoint: vi.fn(),
+  associatePluginNotificationWebTarget: vi.fn(),
 }));
 
 vi.mock("../../config/config.js", () => ({
@@ -26,11 +29,20 @@ vi.mock("../../infra/push-apns.js", () => ({
 
 vi.mock("../../infra/push-web.js", () => ({
   broadcastWebPush: vi.fn(),
-  clearWebPushSubscriptionByEndpoint: vi.fn(),
-  registerWebPushSubscription: vi.fn(),
+  clearWebPushSubscriptionByEndpoint: mocks.clearWebPushSubscriptionByEndpoint,
+  registerWebPushSubscription: mocks.registerWebPushSubscription,
   resolveVapidKeys: vi.fn(),
 }));
 
+vi.mock("../../infra/push-web-store.js", () => ({
+  listWebPushSubscriptions: vi.fn(() => []),
+}));
+
+vi.mock("../../plugins/notification-emitter-host.js", () => ({
+  associatePluginNotificationApnsTarget: vi.fn(),
+  associatePluginNotificationWebTarget: mocks.associatePluginNotificationWebTarget,
+  removePluginNotificationWebTarget: vi.fn(),
+}));
 import {
   type ApnsRegistration,
   clearApnsRegistrationIfCurrent,
@@ -178,12 +190,47 @@ describe("push.test handler", () => {
     vi.mocked(sendApnsAlert).mockClear();
     vi.mocked(clearApnsRegistrationIfCurrent).mockClear();
     vi.mocked(shouldClearStoredApnsRegistration).mockReturnValue(false);
+    mocks.registerWebPushSubscription.mockReset();
+    mocks.clearWebPushSubscriptionByEndpoint.mockReset();
+    mocks.associatePluginNotificationWebTarget.mockReset();
   });
 
   it("rejects invalid params", async () => {
     const { respond, invoke } = createInvokeParams({ title: "hello" });
     await invoke();
     expectInvalidRequestResponse(respond, "invalid push.test params");
+  });
+
+  it("keeps the general Web Push subscription when plugin association is unavailable", async () => {
+    mocks.registerWebPushSubscription.mockResolvedValue({ subscriptionId: "subscription-1" });
+    mocks.associatePluginNotificationWebTarget.mockReturnValue(false);
+    const respond = vi.fn();
+
+    await expectDefined(
+      pushHandlers["push.web.subscribe"],
+      'pushHandlers["push.web.subscribe"] test invariant',
+    )({
+      params: {
+        endpoint: "https://push.example.test/subscription",
+        keys: { p256dh: "p256dh", auth: "auth" },
+      },
+      respond: respond as never,
+      client: null,
+      context: {} as never,
+      req: { type: "req", id: "req-web-subscribe", method: "push.web.subscribe" },
+      isWebchatConnect: () => false,
+    });
+
+    expect(mocks.associatePluginNotificationWebTarget).toHaveBeenCalledWith({
+      subscriptionId: "subscription-1",
+      client: null,
+    });
+    expect(mocks.clearWebPushSubscriptionByEndpoint).not.toHaveBeenCalled();
+    expect(firstRespondCall(respond)).toEqual([
+      true,
+      { subscriptionId: "subscription-1" },
+      undefined,
+    ]);
   });
 
   it("returns invalid request when node has no APNs registration", async () => {

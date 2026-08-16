@@ -16,6 +16,7 @@ import {
   clearWebPushSubscriptionByEndpoint,
   registerWebPushSubscription,
   resolveVapidKeys,
+  sendWebPushNotification,
 } from "./push-web.js";
 
 let tmpDir: string;
@@ -303,6 +304,53 @@ describe("sending", () => {
     expect(results.every((result) => result.ok)).toBe(true);
     expect(vi.mocked(webPush.setVapidDetails)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(webPush.sendNotification)).toHaveBeenCalledTimes(2);
+  });
+
+  it("passes the host-owned remaining TTL to one-subscription Web Push delivery", async () => {
+    const subscription = await registerWebPushSubscription({
+      endpoint: "https://push.example.com/ttl",
+      keys,
+      baseDir: tmpDir,
+    });
+
+    await expect(
+      sendWebPushNotification({
+        subscriptionId: subscription.subscriptionId,
+        payload: { title: "TTL" },
+        ttlMs: 1_500,
+        baseDir: tmpDir,
+      }),
+    ).resolves.toMatchObject({ ok: true, subscriptionId: subscription.subscriptionId });
+
+    expect(vi.mocked(webPush.sendNotification)).toHaveBeenCalledWith(
+      expect.any(Object),
+      JSON.stringify({ title: "TTL" }),
+      { TTL: 2 },
+    );
+  });
+
+  it("passes the host transport deadline to the Web Push socket", async () => {
+    const subscription = await registerWebPushSubscription({
+      endpoint: "https://push.example.com/deadline",
+      keys,
+      baseDir: tmpDir,
+    });
+
+    await expect(
+      sendWebPushNotification({
+        subscriptionId: subscription.subscriptionId,
+        payload: { title: "Deadline" },
+        ttlMs: 1_500,
+        timeoutMs: 750,
+        baseDir: tmpDir,
+      }),
+    ).resolves.toMatchObject({ ok: true, subscriptionId: subscription.subscriptionId });
+
+    expect(vi.mocked(webPush.sendNotification)).toHaveBeenCalledWith(
+      expect.any(Object),
+      JSON.stringify({ title: "Deadline" }),
+      { TTL: 2, timeout: 750 },
+    );
   });
 
   it("does not delete a subscription re-registered during an expired send", async () => {

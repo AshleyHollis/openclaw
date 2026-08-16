@@ -276,7 +276,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +11: Computer Use schemas/types plus parsers, compiler, and provider registration.
       // +6: Computer Use v2 action, result, and capability contracts.
       // +1: opaque channel participant evidence preservation without mint authority.
-      4324,
+      // +14: host-owned plugin notification emitter contracts and bounded destination types.
+      4338,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(

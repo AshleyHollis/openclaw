@@ -28237,6 +28237,10 @@
           "path": "apps/ios/Sources/Gateway/GatewayProblemView.swift"
         },
         {
+          "kind": "ui-call",
+          "path": "apps/ios/Sources/Push/PluginNotificationDestinationScreen.swift"
+        },
+        {
           "kind": "ui-localized-call",
           "path": "apps/ios/Sources/RootSidebar.swift"
         },
@@ -35870,6 +35874,28 @@
       ]
     },
     {
+      "id": "native.apple.1415625500eff6a3",
+      "source": "Notification",
+      "surface": "apple",
+      "sites": [
+        {
+          "kind": "ui-modifier",
+          "path": "apps/ios/Sources/Push/PluginNotificationDestinationScreen.swift"
+        }
+      ]
+    },
+    {
+      "id": "native.apple.e8620e8f18a22ce5",
+      "source": "Notification needs gateway authentication",
+      "surface": "apple",
+      "sites": [
+        {
+          "kind": "ui-call",
+          "path": "apps/ios/Sources/Push/PluginNotificationDestinationScreen.swift"
+        }
+      ]
+    },
+    {
       "id": "native.apple.deebeb1717b97adf",
       "source": "Notifications",
       "surface": "apple",
@@ -39884,6 +39910,17 @@
         {
           "kind": "ui-localized-call",
           "path": "apps/ios/WatchApp/Sources/WatchInboxView.swift"
+        }
+      ]
+    },
+    {
+      "id": "native.apple.3b5e8c30d1b10922",
+      "source": "Reconnect to your gateway to view this plugin destination.",
+      "surface": "apple",
+      "sites": [
+        {
+          "kind": "ui-call",
+          "path": "apps/ios/Sources/Push/PluginNotificationDestinationScreen.swift"
         }
       ]
     },
