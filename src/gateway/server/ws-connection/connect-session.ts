@@ -128,6 +128,7 @@ export async function attachAuthenticatedGatewayConnect(
     device,
     devicePublicKey,
     deviceToken,
+    deviceTokenAuthenticated,
     authResult,
     authMethod,
     pairingLocality,
@@ -141,10 +142,9 @@ export async function attachAuthenticatedGatewayConnect(
   let nodePairingAdmission: AuthenticatedNodePairingAdmission | undefined;
   if (role === "node") {
     const nodeId = device?.id ?? connectParams.client.id;
-    const authenticatedNodeToken =
-      authMethod === "device-token"
-        ? normalizeOptionalString(connectParams.auth?.deviceToken ?? connectParams.auth?.token)
-        : deviceToken?.token;
+    const authenticatedNodeToken = deviceTokenAuthenticated
+      ? normalizeOptionalString(connectParams.auth?.deviceToken ?? connectParams.auth?.token)
+      : deviceToken?.token;
     if (!device || !devicePublicKey || !authenticatedNodeToken) {
       const message = "authenticated node pairing identity unavailable";
       markHandshakeFailure("node-pairing-generation-changed", {});
@@ -212,6 +212,10 @@ export async function attachAuthenticatedGatewayConnect(
       `security audit: identity scope grant elevated connection identity=${formatForLog(authenticatedUserId)} addedScopes=${effectiveScopes.addedIdentityScopes.join(",")} conn=${connId}`,
     );
   }
+  // Gateway token/password authentication represents the configured host operator but
+  // deliberately has no profile identity. Keep that privacy boundary while giving
+  // host-owned capabilities a stable subject across every authenticated mode.
+  const authenticatedOperatorId = authenticatedUserId ?? "gateway:default-operator";
 
   if (isClosed()) {
     await releasePendingNodePairingCleanup();
@@ -388,13 +392,19 @@ export async function attachAuthenticatedGatewayConnect(
     connect: connectParams,
     connId,
     connectionKind: "gateway",
-    isDeviceTokenAuth: authMethod === "device-token",
+    isDeviceTokenAuth: deviceTokenAuthenticated,
+    isControlUiDeviceAuthMigrationSession: state.controlUiDeviceAuthMigrationPending,
+    // Only identity-bearing migration sessions may use bounded self-pairing.
+    // Device-less sessions remain pairing-scoped until reopened securely.
+    isControlUiDeviceAuthMigration:
+      state.controlUiDeviceAuthMigrationPending && Boolean(connectParams.device),
     pairedClientId: isBrowserCopilotClient(connectParams.client)
       ? connectParams.client.id
       : undefined,
     usesSharedGatewayAuth: sessionUsesSharedGatewayAuth,
     sharedGatewaySessionGeneration: sessionSharedGatewaySessionGeneration,
     presenceKey,
+    authenticatedOperatorId,
     ...(authenticatedUserId ? { authenticatedUserId } : {}),
     ...(authenticatedUserIsTailscaleProvider ? { authenticatedUserIsTailscaleProvider: true } : {}),
     ...(authenticatedUserProfile ? { authenticatedUserProfile } : {}),

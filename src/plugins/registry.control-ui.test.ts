@@ -103,6 +103,52 @@ describe("plugin registry Control UI descriptors", () => {
     );
   });
 
+  it("captures up to eight notification declarations before validating their eventual tab ownership", () => {
+    const { config, registry } = createPluginRegistryFixture();
+    registerTestPlugin({
+      registry,
+      config,
+      record: createPluginRecord({ id: "notification-fixture", name: "Notification Fixture" }),
+      register(api) {
+        const declaration = {
+          version: 1 as const,
+          id: "ready",
+          requiredScopes: ["operator.read" as const],
+          destinations: [{ id: "item", tabId: "board" }],
+        };
+        expect(api.notifications.registerEmitter(declaration)).toBeDefined();
+        // The registry owns a structural copy, not this plugin-controlled object.
+        declaration.destinations[0]!.tabId = "foreign";
+        for (let index = 1; index < 8; index += 1) {
+          expect(
+            api.notifications.registerEmitter({
+              version: 1,
+              id: `ready-${index}`,
+              requiredScopes: ["operator.read"],
+              destinations: [{ id: `item-${index}`, tabId: "board" }],
+            }),
+          ).toBeDefined();
+        }
+        expect(
+          api.notifications.registerEmitter({
+            version: 1,
+            id: "too-many",
+            requiredScopes: ["operator.read"],
+            destinations: [{ id: "overflow", tabId: "board" }],
+          }),
+        ).toBeUndefined();
+        // Destination registration intentionally follows declaration registration.
+        api.registerControlUiDescriptor({ surface: "tab", id: "board", label: "Board" });
+      },
+    });
+
+    expect(registry.registry.notificationEmitters).toHaveLength(8);
+    expect(registry.registry.notificationEmitters[0]).toMatchObject({
+      pluginId: "notification-fixture",
+      declaration: { destinations: [{ id: "item", tabId: "board" }] },
+    });
+  });
+
   it("keeps an authenticated tab when its optional capability bridge is incompatible", () => {
     const { config, registry } = createPluginRegistryFixture();
     registerTestPlugin({

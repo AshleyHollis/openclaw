@@ -32,6 +32,11 @@ struct ChatProTab: View {
         let sessionKey: String
     }
 
+    private struct PluginNotificationPresentation: Identifiable {
+        let id = UUID()
+        let destination: PluginNotificationDestination
+    }
+
     @Environment(NodeAppModel.self) private var appModel
     @AppStorage("openclaw.webchat.showAssistantTrace")
     private var showsAssistantTrace = true
@@ -43,6 +48,7 @@ struct ChatProTab: View {
     @State private var showsSessions = false
     @State private var showsNewSessionOptions = false
     @State private var sessionDashboardPresentation: SessionDashboardPresentation?
+    @State private var pluginNotificationPresentation: PluginNotificationPresentation?
     // Transport can start unscoped while the UI uses its "main" fallback.
     // Track the real agent so gateway metadata replaces the captured transport.
     @State private var viewModelTransportAgentID = ""
@@ -89,6 +95,8 @@ struct ChatProTab: View {
             await self.appModel.restoreChatSessionRoutingIdentityIfNeeded()
             self.syncChatViewModel()
             await self.handleNewChatRequest(self.appModel.newChatRequestID)
+            self.handlePluginNotificationNavigationRequest(
+                self.appModel.pluginNotificationNavigationRequestID)
             if self.speech == nil {
                 let gateway = self.appModel.operatorSession
                 self.speech = OpenClawChatSpeechController { text in
@@ -134,6 +142,9 @@ struct ChatProTab: View {
         }
         .onChange(of: self.appModel.newChatRequestID) { _, requestID in
             Task { await self.handleNewChatRequest(requestID) }
+        }
+        .onChange(of: self.appModel.pluginNotificationNavigationRequestID) { _, requestID in
+            self.handlePluginNotificationNavigationRequest(requestID)
         }
     }
 
@@ -193,6 +204,11 @@ struct ChatProTab: View {
                     SessionDashboardScreen(sessionKey: presentation.sessionKey)
                 }
             }
+            .sheet(item: self.$pluginNotificationPresentation) { presentation in
+                NavigationStack {
+                    PluginNotificationDestinationScreen(destination: presentation.destination)
+                }
+            }
             .alert(
                 String(localized: "Unable to Export Transcript"),
                 isPresented: self.$showsTranscriptExportError)
@@ -205,6 +221,11 @@ struct ChatProTab: View {
                 Text("OpenClaw could not prepare the Markdown file.")
                     .font(OpenClawType.body)
             }
+    }
+
+    private func handlePluginNotificationNavigationRequest(_ requestID: Int) {
+        guard let destination = self.appModel.consumePluginNotificationDestination(requestID) else { return }
+        self.pluginNotificationPresentation = PluginNotificationPresentation(destination: destination)
     }
 
     @ViewBuilder

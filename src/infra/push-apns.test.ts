@@ -19,6 +19,8 @@ import {
   sendApnsBackgroundWake,
   sendApnsExecApprovalAlert,
   sendApnsExecApprovalResolvedWake,
+  sendApnsPluginNotificationAlert,
+  sendApnsPluginNotificationClear,
   sendApnsPluginApprovalAlert,
   sendApnsPluginApprovalResolvedWake,
 } from "./push-apns.js";
@@ -360,6 +362,109 @@ describe("push APNs send semantics", () => {
     expect(result.ok).toBe(true);
     expect(result.status).toBe(200);
     expect(result.transport).toBe("direct");
+  });
+
+  it("passes an absolute expiry to the direct APNs request seam", async () => {
+    const { send, registration, auth } = createDirectApnsSendFixture({
+      nodeId: "ios-node-expiry",
+      environment: "sandbox",
+      sendResult: { status: 200, apnsId: "apns-expiry-id", body: "" },
+    });
+
+    await sendApnsAlert({
+      registration,
+      nodeId: "ios-node-expiry",
+      title: "Wake",
+      body: "Ping",
+      auth,
+      requestSender: send,
+      expirationUnixSeconds: 1_700_000_000,
+    });
+
+    expect(requireSendRequest(send).expirationUnixSeconds).toBe(1_700_000_000);
+  });
+
+  it("sends bounded plugin destinations as typed APNs alerts", async () => {
+    const { send, registration, auth } = createDirectApnsSendFixture({
+      nodeId: "ios-node-plugin-notification",
+      environment: "sandbox",
+      sendResult: { status: 200, apnsId: "apns-plugin-notification-id", body: "" },
+    });
+
+    await sendApnsPluginNotificationAlert({
+      registration,
+      nodeId: "ios-node-plugin-notification",
+      title: "Ready",
+      body: "One item is ready",
+      sourceId: "gateway-test",
+      tag: "operation-tag",
+      target: {
+        kind: "plugin-detail",
+        pluginId: "board",
+        tabId: "items",
+        destinationId: "item",
+        recordId: "record-1",
+      },
+      auth,
+      requestSender: send,
+      expirationUnixSeconds: 1_700_000_000,
+    });
+
+    const sent = requireSendRequest(send);
+    expect(sent.pushType).toBe("alert");
+    expect(sent.priority).toBe("10");
+    expect(sent.expirationUnixSeconds).toBe(1_700_000_000);
+    const payload = requirePayload(sent);
+    expect(payload.aps).toEqual({
+      alert: { title: "Ready", body: "One item is ready" },
+      sound: "default",
+      "thread-id": "operation-tag",
+    });
+    expectRecordFields(requireRecord(payload.openclaw, "openclaw payload"), {
+      version: 1,
+      kind: "plugin.notification",
+      nodeId: "ios-node-plugin-notification",
+      sourceId: "gateway-test",
+      tag: "operation-tag",
+      target: {
+        kind: "plugin-detail",
+        pluginId: "board",
+        tabId: "items",
+        destinationId: "item",
+        recordId: "record-1",
+      },
+    });
+  });
+
+  it("sends plugin clears as silent APNs pushes", async () => {
+    const { send, registration, auth } = createDirectApnsSendFixture({
+      nodeId: "ios-node-plugin-clear",
+      environment: "production",
+      sendResult: { status: 200, apnsId: "apns-plugin-clear-id", body: "" },
+    });
+
+    await sendApnsPluginNotificationClear({
+      registration,
+      nodeId: "ios-node-plugin-clear",
+      sourceId: "gateway-test",
+      tag: "operation-tag",
+      auth,
+      requestSender: send,
+      expirationUnixSeconds: 1_700_000_000,
+    });
+
+    const sent = requireSendRequest(send);
+    expect(sent.pushType).toBe("background");
+    expect(sent.priority).toBe("5");
+    expect(sent.expirationUnixSeconds).toBe(1_700_000_000);
+    expect(requirePayload(sent).aps).toEqual({ "content-available": 1 });
+    expectRecordFields(requireRecord(requirePayload(sent).openclaw, "openclaw payload"), {
+      version: 1,
+      kind: "plugin.notification.cleared",
+      nodeId: "ios-node-plugin-clear",
+      sourceId: "gateway-test",
+      tag: "operation-tag",
+    });
   });
 
   it("routes direct APNs HTTP/2 requests through the active managed proxy", async () => {

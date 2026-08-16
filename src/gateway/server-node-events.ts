@@ -1217,6 +1217,7 @@ export const handleNodeEvent = async (
             expectedPairingGeneration,
           });
         }
+        await ctx.onApnsRegistrationAccepted?.(nodeId);
       } catch (err) {
         if (err instanceof ApnsRegistrationPairingChangedError) {
           ctx.logGateway.warn(
