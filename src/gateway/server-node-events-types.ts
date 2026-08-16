@@ -52,6 +52,8 @@ export type NodeEventContext = {
     saturated?: boolean;
   }) => { lastActiveAtMs: number; presenceUpdatedAtMs: number } | null;
   clearNodePresenceActivity?: (params: { nodeId: string; connId?: string }) => boolean | null;
+  /** Runs only after an APNs registration commits for the current paired node. */
+  onApnsRegistrationAccepted?: (nodeId: string) => void | Promise<void>;
   logGateway: { warn: (msg: string) => void };
 };
 

@@ -793,7 +793,8 @@ describe("node exec events", () => {
   });
 
   it("stores direct APNs registrations from node events", async () => {
-    const ctx = buildCtx();
+    const onApnsRegistrationAccepted = vi.fn();
+    const ctx: NodeEventContext = { ...buildCtx(), onApnsRegistrationAccepted };
     await handleNodeEvent(
       ctx,
       "node-direct",
@@ -816,6 +817,7 @@ describe("node exec events", () => {
       environment: "sandbox",
       expectedPairingGeneration: "generation-node-direct",
     });
+    expect(onApnsRegistrationAccepted).toHaveBeenCalledWith("node-direct");
   });
 
   it("stores relay APNs registrations from node events", async () => {
