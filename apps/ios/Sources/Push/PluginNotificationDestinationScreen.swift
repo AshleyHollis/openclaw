@@ -6,7 +6,7 @@ import SwiftUI
 struct PluginNotificationDestinationScreen: View {
     @Environment(NodeAppModel.self) private var appModel
     @Environment(\.dismiss) private var dismiss
-    @State private var verifiedGatewayConfig: GatewayConnectConfig? = nil
+    @State private var verifiedGatewayConfig: GatewayConnectConfig?
     let destination: PluginNotificationDestination
 
     var body: some View {
