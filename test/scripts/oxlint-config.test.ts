@@ -265,6 +265,12 @@ describe("oxlint config", () => {
         },
       },
       {
+        files: ["ui/src/pages/plugin/plugin-page.ts"],
+        rules: {
+          "max-lines": ["error", { max: 1100, skipBlankLines: true, skipComments: true }],
+        },
+      },
+      {
         files: ["src/infra/push-apns.ts"],
         rules: {
           "max-lines": ["error", { max: 760, skipBlankLines: true, skipComments: true }],
