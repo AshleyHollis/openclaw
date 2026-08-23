@@ -277,6 +277,7 @@ function isValidPluginNotificationCandidateSnapshot(
   ) {
     return false;
   }
+  // SAFETY: the closed key and field checks above establish the complete v1 candidate shape.
   return Buffer.byteLength(canonical(value as PluginNotificationCandidateV1), "utf8") <= 2048;
 }
 
@@ -557,13 +558,15 @@ export class PluginNotificationCoordinator {
             ? "partial"
             : values.every((x) => x === "suppressed")
               ? "expired"
-              : "failed") as PluginNotificationEmitResult["status"],
+              : "failed") as PluginNotificationEmitResult["status"], // SAFETY: every branch is a declared status literal.
       attempted: targets.length,
       delivered,
       failed,
       ambiguous,
     };
+    // SAFETY: Promise.all preserves target order and produces one declared outcome per target.
     const outcomes = new Map(targets.map((target, index) => [target.id, values[index]!])) as Map<
+      // SAFETY: Promise.all preserves target order and outcome type.
       string,
       PluginNotificationAttemptOutcome
     >;
@@ -660,7 +663,9 @@ export class PluginNotificationCoordinator {
       failed,
       ambiguous,
     };
+    // SAFETY: Promise.all preserves target order and this branch excludes suppressed outcomes.
     const outcomes = new Map(targets.map((target, index) => [target.id, values[index]!])) as Map<
+      // SAFETY: Promise.all preserves target order and excludes suppressed outcomes.
       string,
       Exclude<PluginNotificationAttemptOutcome, "suppressed">
     >;

@@ -79,6 +79,17 @@ describe("check-assertion-safety-ratchet", () => {
     expect(isGovernedAssertionSourcePath("scripts/example.ts")).toBe(false);
   });
 
+  it("recognizes safety comments after interpolated template literals", () => {
+    const source = [
+      "const rendered = `prefix ${value}`;",
+      "// SAFETY: the parser established Shape after rendering.",
+      "const safe = value as Shape;",
+      "const unsafe = other as Shape;",
+    ].join("\n");
+
+    expect(countUnsafeAssertions(source, "src/example.ts")).toBe(1);
+  });
+
   it("blocks new debt, accepts SAFETY comments, and prunes reduced counts", () => {
     const root = tempDirs.make("openclaw-assertion-safety-");
     fs.mkdirSync(path.join(root, "config"), { recursive: true });
