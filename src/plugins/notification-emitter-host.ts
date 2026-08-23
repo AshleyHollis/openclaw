@@ -5,6 +5,7 @@ import type { GatewayConfig } from "../config/types.gateway.js";
 import { isOperatorScope, type OperatorScope } from "../gateway/operator-scopes.js";
 import type { GatewayClient } from "../gateway/server-methods/shared-types.js";
 import { loadPairedDevicePairingStoreRecord } from "../infra/device-pairing-store.js";
+import type { PairedDevice } from "../infra/device-pairing.types.js";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "../infra/kysely-sync.js";
 import { listWebPushSubscriptions } from "../infra/push-web-store.js";
 import { sendWebPushNotification } from "../infra/push-web.js";
@@ -129,9 +130,13 @@ function capturePluginNotificationTargetOwnerFromAuthenticatedDevice(params: {
   role: string;
   scopes: readonly string[];
   sharedGatewaySessionGeneration?: string;
+  verifiedDevice?: PairedDevice;
 }): PluginNotificationTargetOwner | undefined {
   const { deviceId, role, operatorId } = params;
-  const device = loadPairedDevicePairingStoreRecord(deviceId);
+  const device =
+    params.verifiedDevice?.deviceId === deviceId
+      ? params.verifiedDevice
+      : loadPairedDevicePairingStoreRecord(deviceId);
   const token = device?.tokens?.[role];
   const scopes = operatorScopes(params.scopes);
   const tokenScopes = operatorScopes(token?.scopes ?? []);
@@ -301,6 +306,7 @@ export function capturePluginNotificationPrincipalBindingFromControlUiDevice(par
   deviceId: string;
   scopes: readonly string[];
   sharedGatewaySessionGeneration?: string;
+  verifiedDevice?: PairedDevice;
 }): PluginNotificationPrincipalBinding | undefined {
   const owner = capturePluginNotificationTargetOwnerFromAuthenticatedDevice({
     operatorId: params.operatorId,
@@ -310,6 +316,7 @@ export function capturePluginNotificationPrincipalBindingFromControlUiDevice(par
     ...(params.sharedGatewaySessionGeneration
       ? { sharedGatewaySessionGeneration: params.sharedGatewaySessionGeneration }
       : {}),
+    ...(params.verifiedDevice ? { verifiedDevice: params.verifiedDevice } : {}),
   });
   if (!owner || owner.scopes.length === 0) {
     return undefined;
