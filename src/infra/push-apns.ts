@@ -120,6 +120,7 @@ function parseReason(body: string): string | undefined {
     return undefined;
   }
   try {
+    // SAFETY: APNS error bodies are inspected only through the optional unknown reason field.
     const parsed = JSON.parse(trimmed) as { reason?: unknown };
     return typeof parsed.reason === "string" && parsed.reason.trim().length > 0
       ? parsed.reason.trim()
@@ -589,6 +590,7 @@ export async function sendApnsAlert(
   });
 
   if (params.registration.transport === "relay") {
+    // SAFETY: the relay discriminator above narrows the transport-specific parameter variant.
     const relayParams = params as RelayApnsAlertParams;
     return await sendRelayApnsPush({
       relayConfig: relayParams.relayConfig,
@@ -603,6 +605,7 @@ export async function sendApnsAlert(
       ...(relayParams.isCurrent ? { isCurrent: relayParams.isCurrent } : {}),
     });
   }
+  // SAFETY: excluding relay leaves the direct APNS parameter variant.
   const directParams = params as DirectApnsAlertParams;
   return await sendDirectApnsPush({
     auth: directParams.auth,
@@ -630,6 +633,7 @@ async function sendApnsPluginNotificationPush(params: {
 }): Promise<ApnsPushResult> {
   const transport = params.transport;
   if (transport.registration.transport === "relay") {
+    // SAFETY: the relay registration discriminator narrows both supported plugin variants.
     const relayParams = transport as
       | RelayApnsPluginNotificationAlertParams
       | RelayApnsPluginNotificationClearParams;
@@ -646,6 +650,7 @@ async function sendApnsPluginNotificationPush(params: {
       ...(relayParams.isCurrent ? { isCurrent: relayParams.isCurrent } : {}),
     });
   }
+  // SAFETY: excluding relay leaves one of the two direct plugin variants.
   const directParams = transport as
     | DirectApnsPluginNotificationAlertParams
     | DirectApnsPluginNotificationClearParams;
@@ -708,6 +713,7 @@ export async function sendApnsBackgroundWake(
   });
 
   if (params.registration.transport === "relay") {
+    // SAFETY: the relay discriminator above narrows the transport-specific parameter variant.
     const relayParams = params as RelayApnsBackgroundWakeParams;
     return await sendRelayApnsPush({
       relayConfig: relayParams.relayConfig,
@@ -721,6 +727,7 @@ export async function sendApnsBackgroundWake(
       ...(relayParams.isCurrent ? { isCurrent: relayParams.isCurrent } : {}),
     });
   }
+  // SAFETY: excluding relay leaves the direct APNS parameter variant.
   const directParams = params as DirectApnsBackgroundWakeParams;
   return await sendDirectApnsPush({
     auth: directParams.auth,
@@ -743,6 +750,7 @@ async function sendApnsApprovalPush(params: {
 }): Promise<ApnsPushResult> {
   const transport = params.transport;
   if (transport.registration.transport === "relay") {
+    // SAFETY: the relay discriminator above narrows the transport-specific parameter variant.
     const relayParams = transport as RelayApnsApprovalParams;
     return await sendRelayApnsPush({
       relayConfig: relayParams.relayConfig,
@@ -754,6 +762,7 @@ async function sendApnsApprovalPush(params: {
       requestSender: relayParams.relayRequestSender,
     });
   }
+  // SAFETY: excluding relay leaves the direct APNS parameter variant.
   const directParams = transport as DirectApnsApprovalParams;
   return await sendDirectApnsPush({
     auth: directParams.auth,

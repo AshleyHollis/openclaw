@@ -2,8 +2,8 @@ import { consume } from "@lit/context";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
-import type { ControlUiPluginFrameGrantAck } from "../../../../src/gateway/control-ui-bootstrap-contract.js";
 import { keyed } from "lit/directives/keyed.js";
+import type { ControlUiPluginFrameGrantAck } from "../../../../src/gateway/control-ui-bootstrap-contract.js";
 import {
   CONTROL_UI_PLUGIN_AUTH_GRANT_TTL_MS,
   CONTROL_UI_PLUGIN_AUTH_PROBE_MESSAGE,

@@ -205,7 +205,8 @@ export class ExternalTabCapabilityBridgeController {
       this.port.postMessage(
         {
           type: "openclaw:capability-bridge-response",
-          requestId: (value as { requestId?: string }).requestId ?? "",
+          // SAFETY: only the optional request id is read before the full request is validated.
+          requestId: (value as { requestId?: string }).requestId ?? "", // SAFETY: only an optional id is read pre-validation.
           error: error("RESULT_TOO_LARGE", "Bridge response exceeds the public limit"),
         },
         [],
@@ -289,7 +290,8 @@ export class ExternalTabCapabilityBridgeController {
   }
 
   private async handle(value: unknown): Promise<void> {
-    const request = asRecord(value) as Request | null;
+    // SAFETY: every Request field is validated by the closed-envelope checks immediately below.
+    const request = asRecord(value) as Request | null; // SAFETY: the closed Request envelope is validated below.
     const requestId = typeof request?.requestId === "string" ? request.requestId : "";
     if (
       !request ||
@@ -323,7 +325,8 @@ export class ExternalTabCapabilityBridgeController {
       ? JSON.stringify({ method: request.method, params: request.params })
       : null;
     const existingOperation = mutation
-      ? this.mutationOperations.get(request.operationId as string)
+      ? // SAFETY: mutation is true only after operationId passes the non-empty string guard below.
+        this.mutationOperations.get(request.operationId as string) // SAFETY: mutation admission requires a string id.
       : undefined;
     if (existingOperation && existingOperation.fingerprint !== operationFingerprint) {
       return this.respond(
@@ -334,7 +337,8 @@ export class ExternalTabCapabilityBridgeController {
     }
     const tombstoneMethod =
       mutation && !existingOperation
-        ? this.mutationTombstones.get(request.operationId as string)
+        ? // SAFETY: mutation requests require a non-empty operationId before reconciliation.
+          this.mutationTombstones.get(request.operationId as string) // SAFETY: mutation admission requires a string id.
         : undefined;
     if (tombstoneMethod && tombstoneMethod !== request.method) {
       return this.respond(
@@ -412,7 +416,8 @@ export class ExternalTabCapabilityBridgeController {
       mutation &&
       !existingOperation &&
       this.requiresDurableReconciliation(request.method) &&
-      !this.reserveMutationTombstone(request.operationId as string, request.method)
+      // SAFETY: this branch is reachable only for a validated mutation operation id.
+      !this.reserveMutationTombstone(request.operationId as string, request.method) // SAFETY: mutation admission requires a string id.
     ) {
       return this.respond(
         requestId,
@@ -438,7 +443,8 @@ export class ExternalTabCapabilityBridgeController {
     };
     try {
       const execution = mutation
-        ? this.reconcileMutation(request, operationFingerprint as string)
+        ? // SAFETY: mutation fingerprinting above always returns a string for valid mutations.
+          this.reconcileMutation(request, operationFingerprint as string) // SAFETY: valid mutations always produce a fingerprint.
         : this.dispatch(request);
       executionStarted = true;
       // A timeout stops waiting for the sandbox response, not Gateway work.
@@ -613,8 +619,15 @@ export class ExternalTabCapabilityBridgeController {
       if (
         !this.exact(params, ["sessionKey", "limit", "offset"]) ||
         (limit !== undefined &&
-          (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 100)) ||
-        (offset !== undefined && (!Number.isInteger(offset) || (offset as number) < 0))
+          (!Number.isInteger(limit) ||
+            // SAFETY: Number.isInteger proves the unknown value is numeric before range checks.
+            (limit as number) < 1 || // SAFETY: Number.isInteger established a number.
+            // SAFETY: Number.isInteger proves the unknown value is numeric before range checks.
+            (limit as number) > 100)) || // SAFETY: Number.isInteger established a number.
+        (offset !== undefined &&
+          (!Number.isInteger(offset) ||
+            // SAFETY: Number.isInteger proves the unknown value is numeric before the range check.
+            (offset as number) < 0)) // SAFETY: Number.isInteger established a number.
       ) {
         throw new Failure("INVALID_PARAMS", "Invalid chat history parameters");
       }
@@ -707,7 +720,13 @@ export class ExternalTabCapabilityBridgeController {
       throw new Failure("INVALID_PARAMS", "Invalid session search parameters");
     }
     const limit = params.limit === undefined ? 25 : params.limit;
-    if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 25) {
+    if (
+      !Number.isInteger(limit) ||
+      // SAFETY: Number.isInteger proves the unknown value is numeric before range checks.
+      (limit as number) < 1 || // SAFETY: Number.isInteger established a number.
+      // SAFETY: Number.isInteger proves the unknown value is numeric before range checks.
+      (limit as number) > 25 // SAFETY: Number.isInteger established a number.
+    ) {
       throw new Failure("INVALID_PARAMS", "Invalid session search limit");
     }
     const byAgent = new Map<string, string[]>();
@@ -717,7 +736,8 @@ export class ExternalTabCapabilityBridgeController {
     }
     return {
       query: params.query,
-      limit: limit as number,
+      // SAFETY: the integer and bounded-range checks above establish a numeric limit.
+      limit: limit as number, // SAFETY: the bounded integer checks above establish the type.
       groups: [...byAgent.entries()].map(([agentId, sessionKeys]) => ({ agentId, sessionKeys })),
     };
   }
