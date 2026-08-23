@@ -237,7 +237,10 @@ function resolveControlUiReadAuthToken(
 async function verifyControlUiDeviceReadToken(
   token: string,
   requiredSharedGatewaySessionGeneration: string | undefined,
-): Promise<string[] | null> {
+): Promise<{
+  scopes: string[];
+  notificationBinding?: import("../plugins/notification-emitter-host.js").PluginNotificationPrincipalBinding;
+} | null> {
   const pairing = await listDevicePairing();
   for (const device of pairing.paired) {
     const operatorToken = device.tokens?.[CONTROL_UI_OPERATOR_ROLE];
@@ -255,7 +258,24 @@ async function verifyControlUiDeviceReadToken(
       scopes: [CONTROL_UI_OPERATOR_READ_SCOPE],
       requiredSharedGatewaySessionGeneration,
     });
-    return verified.ok ? [...operatorToken.scopes] : null;
+    if (!verified.ok) {
+      return null;
+    }
+    const scopes = [...operatorToken.scopes];
+    const { capturePluginNotificationPrincipalBindingFromControlUiDevice } =
+      await import("../plugins/notification-emitter-host.js");
+    return {
+      scopes,
+      notificationBinding: capturePluginNotificationPrincipalBindingFromControlUiDevice({
+        operatorId: "gateway:default-operator",
+        deviceId: device.deviceId,
+        scopes,
+        verifiedDevice: device,
+        ...(requiredSharedGatewaySessionGeneration
+          ? { sharedGatewaySessionGeneration: requiredSharedGatewaySessionGeneration }
+          : {}),
+      }),
+    };
   }
   return null;
 }
@@ -317,6 +337,9 @@ export async function authorizeControlUiReadRequestOrReply(
     const authGeneration = resolveSharedGatewaySessionGeneration(auth, params.trustedProxies);
     let resolvedAuthResult = authResult;
     let deviceScopes: string[] | undefined;
+    let notificationBinding:
+      | import("../plugins/notification-emitter-host.js").PluginNotificationPrincipalBinding
+      | undefined;
     if (
       !authResult.ok &&
       authResult.reason !== PROXY_ATTRIBUTION_REQUIRED_REASON &&
@@ -344,9 +367,10 @@ export async function authorizeControlUiReadRequestOrReply(
           retryAfterMs: deviceRateCheck.retryAfterMs,
         };
       } else {
-        const verifiedScopes = await verifyControlUiDeviceReadToken(token, authGeneration);
-        if (verifiedScopes) {
-          deviceScopes = verifiedScopes;
+        const verifiedDevice = await verifyControlUiDeviceReadToken(token, authGeneration);
+        if (verifiedDevice) {
+          deviceScopes = verifiedDevice.scopes;
+          notificationBinding = verifiedDevice.notificationBinding;
           params.rateLimiter?.reset(clientIp, AUTH_RATE_LIMIT_SCOPE_DEVICE_TOKEN);
           resolvedAuthResult = { ok: true, method: "device-token" };
         } else {
@@ -393,6 +417,7 @@ export async function authorizeControlUiReadRequestOrReply(
         authGeneration,
         operatorScopes,
         authenticatedProfile.authenticatedUserProfile?.profileId,
+        notificationBinding,
       ),
     );
     const scopeAuth = authorizeOperatorScopesForMethod(
