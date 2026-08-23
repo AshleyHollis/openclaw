@@ -1,5 +1,28 @@
 {
-  "fallbacks": {},
-  "sourceHash": "21ce1d4ba7464be5ee454abc2ed1249c197fe3cad19200aaeb46f44063d7949c",
+  "fallbacks": {
+    "pluginTabs.bridgeReadOnlyNotice": [
+      "ar",
+      "de",
+      "es",
+      "fa",
+      "fr",
+      "hi",
+      "id",
+      "it",
+      "ja-JP",
+      "ko",
+      "nl",
+      "pl",
+      "pt-BR",
+      "ru",
+      "th",
+      "tr",
+      "uk",
+      "vi",
+      "zh-CN",
+      "zh-TW"
+    ]
+  },
+  "sourceHash": "0ef70d2917f3c030e77b150b3e60304e1c79341dae3b92974a35b2a19d1050bd",
   "version": 1
 }
