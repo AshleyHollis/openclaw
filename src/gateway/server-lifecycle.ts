@@ -29,10 +29,10 @@ import {
 } from "./server-plugin-runtime-generation.js";
 import type { GatewayCloseOptions } from "./server-public.js";
 import type { prepareGatewayKernelState } from "./server-runtime-state-prepare.js";
+import { getRequiredSharedGatewaySessionGeneration } from "./server-shared-auth-generation.js";
 import { runGatewayShutdownSteps } from "./server-shutdown.js";
 import type { GatewayShutdownRuntime } from "./server-shutdown.runtime.js";
 import { createGatewaySidecarStopOwner } from "./server-sidecar-owners.js";
-import { getRequiredSharedGatewaySessionGeneration } from "./server-shared-auth-generation.js";
 import {
   getHealthVersion,
   incrementPresenceVersion,

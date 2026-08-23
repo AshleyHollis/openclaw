@@ -24,6 +24,7 @@ const controlUiSurfaces = new Set<PluginControlUiDescriptor["surface"]>([
 ]);
 
 export function isControlUiSurface(value: string): value is PluginControlUiDescriptor["surface"] {
+  // SAFETY: Set membership is the runtime proof that value is a declared surface literal.
   return controlUiSurfaces.has(value as PluginControlUiDescriptor["surface"]);
 }
 
@@ -42,6 +43,7 @@ export function normalizeCapabilityBridge(
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return { kind: "invalid" };
   }
+  // SAFETY: bridge fields remain unknown and are validated individually below.
   const bridge = value as {
     protocolVersion?: unknown;
     requiredMethods?: unknown;
