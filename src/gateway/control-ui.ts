@@ -84,6 +84,7 @@ import {
   sendControlUiHtmlBody,
   serveControlUiAsset,
 } from "./control-ui-static.js";
+import { setControlUiPluginAuthCookieForRequest as setPluginAuthCookie } from "./http-auth-utils.js";
 import {
   createGatewayByteStream,
   resolveByteResponse,
