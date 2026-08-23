@@ -85,7 +85,6 @@ export async function sendGatewayHello(
     handoffBootstrapProfile,
     deviceToken,
     bootstrapDeviceTokens,
-    controlUiDeviceAuthMigrationPending,
     sessionSharedGatewaySessionGeneration,
   } = state;
   // Prefer the authenticated human; principal scopes never inherit device-token rows.
