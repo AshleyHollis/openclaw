@@ -127,10 +127,6 @@ export type GatewayClient = {
   sharedGatewaySessionGeneration?: string;
   /** Set before dispatch once the backing device or credential is revoked. */
   invalidated?: boolean;
-  /** Temporary legacy migration session closed when normal enforcement resumes. */
-  isControlUiDeviceAuthMigrationSession?: boolean;
-  /** Signed shared-auth session admitted only to approve its own upgrade pairing. */
-  isControlUiDeviceAuthMigration?: boolean;
   internal?: {
     /** Handshake-attested direct-local transport; never accepted from wire params. */
     isLocalClient?: true;
