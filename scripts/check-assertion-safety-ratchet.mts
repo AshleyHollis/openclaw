@@ -71,11 +71,15 @@ function collectSafetyCommentLines(sourceFile: ts.SourceFile, source: string) {
         templateExpressionBraceDepth.push(0);
       } else if (templateExpressionBraceDepth.length > 0) {
         const current = templateExpressionBraceDepth.length - 1;
+        const braceDepth = templateExpressionBraceDepth[current];
+        if (braceDepth === undefined) {
+          throw new Error("template expression scanner state is invalid");
+        }
         if (token === ts.SyntaxKind.OpenBraceToken) {
-          templateExpressionBraceDepth[current] += 1;
+          templateExpressionBraceDepth[current] = braceDepth + 1;
         } else if (token === ts.SyntaxKind.CloseBraceToken) {
-          if (templateExpressionBraceDepth[current] > 0) {
-            templateExpressionBraceDepth[current] -= 1;
+          if (braceDepth > 0) {
+            templateExpressionBraceDepth[current] = braceDepth - 1;
           } else {
             const templateToken = scanner.reScanTemplateToken(false);
             if (templateToken === ts.SyntaxKind.TemplateTail) {
