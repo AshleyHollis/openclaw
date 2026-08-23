@@ -91,6 +91,7 @@ function navigationFrom(value: unknown): PluginNotificationNavigation | null {
   if (typeof value !== "object" || value === null) {
     return null;
   }
+  // SAFETY: the object/null guard above establishes an unknown-valued record for closed validation.
   const target = value as Record<string, unknown>;
   const validId = (item: unknown): item is string =>
     typeof item === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(item);
@@ -147,6 +148,7 @@ export function createNativeNotificationsCapability(): NativeNotificationsCapabi
     }
   };
   const handleNavigation = (event: Event) => {
+    // SAFETY: this listener is registered only for the named native navigation custom event.
     const navigation = navigationFrom((event as CustomEvent<unknown>).detail);
     if (!navigation) {
       return;

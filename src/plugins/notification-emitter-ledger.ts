@@ -88,13 +88,15 @@ function parseEmitResult(value: string | null): PluginNotificationEmitResult | n
     return null;
   }
   try {
+    // SAFETY: every required field is checked below before the complete result is returned.
     const result = JSON.parse(value) as Partial<PluginNotificationEmitResult>;
     return typeof result.status === "string" &&
       typeof result.attempted === "number" &&
       typeof result.delivered === "number" &&
       typeof result.failed === "number" &&
       typeof result.ambiguous === "number"
-      ? (result as PluginNotificationEmitResult)
+      ? // SAFETY: the preceding predicate validates every required persisted result field.
+        (result as PluginNotificationEmitResult) // SAFETY: the preceding predicate validates every field.
       : null;
   } catch {
     return null;
@@ -106,13 +108,15 @@ function parseClearResult(value: string | null): PluginNotificationClearResult |
     return null;
   }
   try {
+    // SAFETY: every required field is checked below before the complete result is returned.
     const result = JSON.parse(value) as Partial<PluginNotificationClearResult>;
     return typeof result.status === "string" &&
       typeof result.attempted === "number" &&
       typeof result.cleared === "number" &&
       typeof result.failed === "number" &&
       typeof result.ambiguous === "number"
-      ? (result as PluginNotificationClearResult)
+      ? // SAFETY: the preceding predicate validates every required persisted result field.
+        (result as PluginNotificationClearResult) // SAFETY: the preceding predicate validates every field.
       : null;
   } catch {
     return null;

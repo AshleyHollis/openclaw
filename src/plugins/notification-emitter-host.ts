@@ -500,7 +500,8 @@ export function listPluginNotificationTargets(
     // each target so revoking one browser cannot leak its preview via another.
     return isPluginNotificationDeviceBindingCurrent({
       binding: {
-        authenticationMethod: row.authentication_method as "device-token",
+        // SAFETY: persisted bindings are admitted only with the device-token literal.
+        authenticationMethod: row.authentication_method as "device-token", // SAFETY: admission requires this literal.
         authenticationGeneration: row.authentication_generation,
         pairedDeviceId: row.paired_device_id,
         pairingGeneration: row.pairing_generation,

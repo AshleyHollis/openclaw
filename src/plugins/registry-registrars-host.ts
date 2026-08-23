@@ -16,13 +16,13 @@ import {
   type PluginToolMetadataRegistration,
   type PluginTrustedToolPolicyRegistration,
 } from "./host-hooks.js";
-import { validateControlUiNativeRoutePlacement } from "./registry-control-ui-policy.js";
 import {
   isControlUiSurface,
   normalizeCapabilityBridge,
   normalizeHostHookString,
   normalizeOptionalHostHookString,
 } from "./registry-control-ui-capability.js";
+import { validateControlUiNativeRoutePlacement } from "./registry-control-ui-policy.js";
 import type { PluginRegistryState } from "./registry-state.js";
 import type {
   PluginRecord,
