@@ -152,6 +152,7 @@ describe("listControlUiPluginTabs", () => {
     setActivePluginRegistry(gatewayRegistry);
 
     expect(listControlUiPluginWidgetKinds(["operator.read"]).map((kind) => kind.kind)).toEqual([
+      "session:progress",
       "workboard:card",
     ]);
     expect(listControlUiPluginTabs(["operator.admin"]).map((tab) => tab.id)).toEqual(["logbook"]);
@@ -160,7 +161,9 @@ describe("listControlUiPluginTabs", () => {
     // compatibility registries, so swaps must not retain stale tab authorities.
     setActivePluginRegistry(createTestRegistry([]));
 
-    expect(listControlUiPluginWidgetKinds(["operator.read"])).toEqual([]);
+    expect(listControlUiPluginWidgetKinds(["operator.read"])).toEqual([
+      { pluginId: "session", kind: "session:progress", label: "Session progress" },
+    ]);
     expect(listControlUiPluginTabs(["operator.admin"])).toEqual([]);
   });
 
