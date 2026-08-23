@@ -365,14 +365,7 @@ async function authorizeControlUiReadRequest(
       const deviceAuth = await authorizeControlUiDeviceReadToken(token, sharedAuthGeneration);
       if (deviceAuth) {
         verifiedDeviceScopes = deviceAuth.scopes;
-        const { capturePluginNotificationPrincipalBindingFromControlUiDevice } =
-          await import("../plugins/notification-emitter-host.js");
-        notificationBinding = capturePluginNotificationPrincipalBindingFromControlUiDevice({
-          operatorId: "gateway:default-operator",
-          deviceId: deviceAuth.deviceId,
-          scopes: deviceAuth.scopes,
-          ...(sharedAuthGeneration ? { sharedGatewaySessionGeneration: sharedAuthGeneration } : {}),
-        });
+        notificationBinding = deviceAuth.notificationBinding;
         opts.rateLimiter?.reset(clientIp, AUTH_RATE_LIMIT_SCOPE_DEVICE_TOKEN);
         opts.rateLimiter?.reset(clientIp, AUTH_RATE_LIMIT_SCOPE_SHARED_SECRET);
         resolvedAuthResult = { ok: true, method: "device-token" };
@@ -430,7 +423,11 @@ async function authorizeControlUiReadRequest(
 async function authorizeControlUiDeviceReadToken(
   token: string,
   requiredSharedGatewaySessionGeneration: string | undefined,
-): Promise<{ deviceId: string; scopes: string[] } | null> {
+): Promise<{
+  deviceId: string;
+  scopes: string[];
+  notificationBinding?: import("../plugins/notification-emitter-host.js").PluginNotificationPrincipalBinding;
+} | null> {
   const pairing = await listDevicePairing();
   for (const device of pairing.paired) {
     const operatorToken = device.tokens?.[CONTROL_UI_OPERATOR_ROLE];
@@ -448,7 +445,22 @@ async function authorizeControlUiDeviceReadToken(
       requiredSharedGatewaySessionGeneration,
     });
     if (verified.ok) {
-      return { deviceId: device.deviceId, scopes: [...operatorToken.scopes] };
+      const scopes = [...operatorToken.scopes];
+      const { capturePluginNotificationPrincipalBindingFromControlUiDevice } =
+        await import("../plugins/notification-emitter-host.js");
+      return {
+        deviceId: device.deviceId,
+        scopes,
+        notificationBinding: capturePluginNotificationPrincipalBindingFromControlUiDevice({
+          operatorId: "gateway:default-operator",
+          deviceId: device.deviceId,
+          scopes,
+          verifiedDevice: device,
+          ...(requiredSharedGatewaySessionGeneration
+            ? { sharedGatewaySessionGeneration: requiredSharedGatewaySessionGeneration }
+            : {}),
+        }),
+      };
     }
   }
   return null;
