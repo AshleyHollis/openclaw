@@ -1,13 +1,11 @@
 {
-  "fallbackKeys": [
-    "pluginTabs.bridgeReadOnlyNotice"
-  ],
-  "generatedAt": "2026-08-24T09:52:19.930Z",
+  "fallbackKeys": [],
+  "generatedAt": "2026-08-23T15:21:22.867Z",
   "locale": "ru",
   "model": "gpt-5.6-sol",
   "provider": "openai",
-  "sourceHash": "0ef70d2917f3c030e77b150b3e60304e1c79341dae3b92974a35b2a19d1050bd",
-  "totalKeys": 5623,
+  "sourceHash": "21ce1d4ba7464be5ee454abc2ed1249c197fe3cad19200aaeb46f44063d7949c",
+  "totalKeys": 5622,
   "translatedKeys": 5622,
   "workflow": 1
 }
