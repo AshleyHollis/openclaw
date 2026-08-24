@@ -22,17 +22,23 @@ import {
   sendApnsAlert,
   shouldClearStoredApnsRegistration,
 } from "../../infra/push-apns.js";
+import { listWebPushSubscriptions } from "../../infra/push-web-store.js";
 import {
   broadcastWebPush,
   clearWebPushSubscriptionByEndpoint,
   registerWebPushSubscription,
   resolveVapidKeys,
 } from "../../infra/push-web.js";
+import {
+  associatePluginNotificationApnsTarget,
+  associatePluginNotificationWebTarget,
+  removePluginNotificationWebTarget,
+} from "../../plugins/notification-emitter-host.js";
 import { respondInvalidParams, respondUnavailableOnThrow } from "./nodes.helpers.js";
 import type { GatewayRequestHandlers } from "./types.js";
 
 export const pushHandlers: GatewayRequestHandlers = {
-  "push.test": async ({ params, respond, context }) => {
+  "push.test": async ({ params, respond, context, client }) => {
     if (!validatePushTestParams(params)) {
       respondInvalidParams({
         respond,
@@ -64,6 +70,9 @@ export const pushHandlers: GatewayRequestHandlers = {
         );
         return;
       }
+      // An authenticated operator explicitly testing this paired mobile node establishes
+      // the host-owned association used by later plugin notification candidates.
+      associatePluginNotificationApnsTarget({ nodeId, client });
 
       const overrideEnvironment = normalizeApnsEnvironment(params.environment);
       const result =
@@ -144,7 +153,7 @@ export const pushHandlers: GatewayRequestHandlers = {
     });
   },
 
-  "push.web.subscribe": async ({ params, respond }) => {
+  "push.web.subscribe": async ({ params, respond, client }) => {
     if (!validateWebPushSubscribeParams(params)) {
       respondInvalidParams({
         respond,
@@ -159,6 +168,9 @@ export const pushHandlers: GatewayRequestHandlers = {
         endpoint: params.endpoint,
         keys: params.keys,
       });
+      // General Web Push remains available when the optional plugin-notification
+      // association cannot be created (for example before a paired device exists).
+      associatePluginNotificationWebTarget({ subscriptionId: subscription.subscriptionId, client });
       respond(true, { subscriptionId: subscription.subscriptionId }, undefined);
     });
   },
@@ -174,7 +186,13 @@ export const pushHandlers: GatewayRequestHandlers = {
     }
 
     await respondUnavailableOnThrow(respond, async () => {
+      const subscriptionId = listWebPushSubscriptions().find(
+        (subscription) => subscription.endpoint === params.endpoint,
+      )?.subscriptionId;
       const removed = await clearWebPushSubscriptionByEndpoint(params.endpoint);
+      if (subscriptionId) {
+        removePluginNotificationWebTarget({ subscriptionId });
+      }
       respond(true, { removed }, undefined);
     });
   },

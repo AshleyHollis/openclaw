@@ -10,6 +10,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { verifyDeviceToken } from "../infra/device-pairing-tokens.js";
 import { listDevicePairing } from "../infra/device-pairing.js";
 import { verifyPairingToken } from "../infra/pairing-token.js";
+import type { PluginNotificationPrincipalBinding } from "../plugins/notification-emitter-host.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
 import {
   AUTH_RATE_LIMIT_SCOPE_DEVICE_TOKEN,
@@ -25,6 +26,7 @@ import type { ControlUiPluginFrameGrantAck } from "./control-ui-contract.js";
 import {
   resolveControlUiPluginAuthCookieGrants,
   setControlUiPluginAuthCookie,
+  type ControlUiPluginTabAuthRequestGrant,
 } from "./control-ui-plugin-auth-cookie.js";
 import {
   listControlUiPluginTabAuthGrants,
@@ -73,8 +75,8 @@ export type AuthorizedGatewayHttpRequest = {
   authMethod?: GatewayAuthResult["method"];
   user?: string;
   trustDeclaredOperatorScopes: boolean;
-  controlUiPluginGrants?: ControlUiPluginTabAuthGrant[];
-  controlUiPluginGrant?: ControlUiPluginTabAuthGrant;
+  controlUiPluginGrants?: ControlUiPluginTabAuthRequestGrant[];
+  controlUiPluginGrant?: ControlUiPluginTabAuthRequestGrant;
 };
 
 export type GatewayHttpRequestAuthCheckResult =
@@ -162,7 +164,10 @@ function resolveControlUiReadAuthToken(
 async function verifyControlUiDeviceReadToken(
   token: string,
   requiredSharedGatewaySessionGeneration: string | undefined,
-): Promise<string[] | null> {
+): Promise<{
+  scopes: string[];
+  notificationBinding?: import("../plugins/notification-emitter-host.js").PluginNotificationPrincipalBinding;
+} | null> {
   const pairing = await listDevicePairing();
   for (const device of pairing.paired) {
     const operatorToken = device.tokens?.[CONTROL_UI_OPERATOR_ROLE];
@@ -180,7 +185,24 @@ async function verifyControlUiDeviceReadToken(
       scopes: [CONTROL_UI_OPERATOR_READ_SCOPE],
       requiredSharedGatewaySessionGeneration,
     });
-    return verified.ok ? [...operatorToken.scopes] : null;
+    if (!verified.ok) {
+      return null;
+    }
+    const scopes = [...operatorToken.scopes];
+    const { capturePluginNotificationPrincipalBindingFromControlUiDevice } =
+      await import("../plugins/notification-emitter-host.js");
+    return {
+      scopes,
+      notificationBinding: capturePluginNotificationPrincipalBindingFromControlUiDevice({
+        operatorId: "gateway:default-operator",
+        deviceId: device.deviceId,
+        scopes,
+        verifiedDevice: device,
+        ...(requiredSharedGatewaySessionGeneration
+          ? { sharedGatewaySessionGeneration: requiredSharedGatewaySessionGeneration }
+          : {}),
+      }),
+    };
   }
   return null;
 }
@@ -238,6 +260,9 @@ export async function authorizeControlUiReadRequestOrReply(
     const authGeneration = resolveSharedGatewaySessionGeneration(auth, params.trustedProxies);
     let resolvedAuthResult = authResult;
     let deviceScopes: string[] | undefined;
+    let notificationBinding:
+      | import("../plugins/notification-emitter-host.js").PluginNotificationPrincipalBinding
+      | undefined;
     if (
       !authResult.ok &&
       authResult.reason !== PROXY_ATTRIBUTION_REQUIRED_REASON &&
@@ -265,9 +290,10 @@ export async function authorizeControlUiReadRequestOrReply(
           retryAfterMs: deviceRateCheck.retryAfterMs,
         };
       } else {
-        const verifiedScopes = await verifyControlUiDeviceReadToken(token, authGeneration);
-        if (verifiedScopes) {
-          deviceScopes = verifiedScopes;
+        const verifiedDevice = await verifyControlUiDeviceReadToken(token, authGeneration);
+        if (verifiedDevice) {
+          deviceScopes = verifiedDevice.scopes;
+          notificationBinding = verifiedDevice.notificationBinding;
           params.rateLimiter?.reset(clientIp, AUTH_RATE_LIMIT_SCOPE_DEVICE_TOKEN);
           resolvedAuthResult = { ok: true, method: "device-token" };
         } else {
@@ -295,6 +321,7 @@ export async function authorizeControlUiReadRequestOrReply(
         trustDeclaredOperatorScopes,
         authGeneration,
         deviceScopes,
+        notificationBinding,
       ),
     );
     const operatorScopes = resolveControlUiReadOperatorScopes(params.req, authMethod, deviceScopes);
@@ -372,6 +399,7 @@ export function setControlUiPluginAuthCookieForRequest(
   trustDeclaredOperatorScopes: boolean,
   authGeneration: string | undefined,
   authenticatedScopes?: readonly string[],
+  notificationBinding?: PluginNotificationPrincipalBinding,
 ): ControlUiPluginTabAuthGrant[] {
   const scopes = usesSharedSecretGatewayMethod(authMethod)
     ? [...CLI_DEFAULT_OPERATOR_SCOPES]
@@ -384,7 +412,10 @@ export function setControlUiPluginAuthCookieForRequest(
         : [];
   const grants = listControlUiPluginTabAuthGrants(scopes);
   if (grants.length > 0) {
-    return setControlUiPluginAuthCookie(res, grants, { generation: authGeneration });
+    return setControlUiPluginAuthCookie(res, grants, {
+      generation: authGeneration,
+      notificationBinding,
+    });
   }
   return [];
 }

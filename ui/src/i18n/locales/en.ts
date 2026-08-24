@@ -3838,6 +3838,8 @@ export const en: TranslationMap = {
     unavailableTitle: "Plugin panel unavailable",
     unavailableSubtitle:
       "The plugin that owns this tab is not active on the connected gateway, or it did not provide a panel.",
+    bridgeReadOnlyNotice:
+      "Capability bridge unavailable or needs an update; read-only mode is active.",
   },
   logbook: {
     nav: {

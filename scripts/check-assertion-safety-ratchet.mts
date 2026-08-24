@@ -64,12 +64,36 @@ function collectSafetyCommentLines(sourceFile: ts.SourceFile, source: string) {
   );
   const sameLine = new Set<number>();
   const standalone = new Set<number>();
-  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+  const templateExpressionBraceDepth: number[] = [];
+  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken;) {
     if (token !== ts.SyntaxKind.SingleLineCommentTrivia) {
+      if (token === ts.SyntaxKind.TemplateHead) {
+        templateExpressionBraceDepth.push(0);
+      } else if (templateExpressionBraceDepth.length > 0) {
+        const current = templateExpressionBraceDepth.length - 1;
+        const braceDepth = templateExpressionBraceDepth[current];
+        if (braceDepth === undefined) {
+          throw new Error("template expression scanner state is invalid");
+        }
+        if (token === ts.SyntaxKind.OpenBraceToken) {
+          templateExpressionBraceDepth[current] = braceDepth + 1;
+        } else if (token === ts.SyntaxKind.CloseBraceToken) {
+          if (braceDepth > 0) {
+            templateExpressionBraceDepth[current] = braceDepth - 1;
+          } else {
+            const templateToken = scanner.reScanTemplateToken(false);
+            if (templateToken === ts.SyntaxKind.TemplateTail) {
+              templateExpressionBraceDepth.pop();
+            }
+          }
+        }
+      }
+      token = scanner.scan();
       continue;
     }
     const comment = source.slice(scanner.getTokenPos(), scanner.getTextPos()).trim();
     if (!/^\/\/\s*SAFETY:\s*\S/u.test(comment)) {
+      token = scanner.scan();
       continue;
     }
     const position = scanner.getTokenPos();
@@ -79,6 +103,7 @@ function collectSafetyCommentLines(sourceFile: ts.SourceFile, source: string) {
     if (source.slice(lineStart, position).trim() === "") {
       standalone.add(line);
     }
+    token = scanner.scan();
   }
   return { sameLine, standalone };
 }

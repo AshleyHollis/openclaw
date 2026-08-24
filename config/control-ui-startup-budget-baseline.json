@@ -1,5 +1,5 @@
 {
-  "startupJsGzipBytes": 345049,
-  "reason": "streamed-markdown highlighting changes (#127749, #127754) consumed the ratchet",
-  "updatedAt": "2026-08-22"
+  "startupJsGzipBytes": 345745,
+  "reason": "authenticated external-tab capability bridge adds the bounded global Command Center transport",
+  "updatedAt": "2026-08-23"
 }

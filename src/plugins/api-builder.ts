@@ -88,9 +88,12 @@ type BuildPluginApiParams = {
       | "on"
     >
   >;
+  registerNotificationEmitter?: OpenClawPluginApi["notifications"]["registerEmitter"];
 };
 
 const noopRegisterTool: OpenClawPluginApi["registerTool"] = () => {};
+const noopRegisterNotificationEmitter: OpenClawPluginApi["notifications"]["registerEmitter"] = () =>
+  undefined;
 const noopRegisterHook: OpenClawPluginApi["registerHook"] = () => {};
 const noopRegisterHttpRoute: OpenClawPluginApi["registerHttpRoute"] = () => {};
 const noopRegisterHostedMediaResolver: OpenClawPluginApi["registerHostedMediaResolver"] = () => {};
@@ -201,6 +204,9 @@ export function buildPluginApi(params: BuildPluginApiParams): OpenClawPluginApi 
     pluginConfig: params.pluginConfig,
     runtime: params.runtime,
     logger: params.logger,
+    notifications: {
+      registerEmitter: params.registerNotificationEmitter ?? noopRegisterNotificationEmitter,
+    },
     registerTool: handlers.registerTool ?? noopRegisterTool,
     registerHook: handlers.registerHook ?? noopRegisterHook,
     registerHttpRoute: handlers.registerHttpRoute ?? noopRegisterHttpRoute,

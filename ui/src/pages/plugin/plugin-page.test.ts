@@ -4,9 +4,11 @@ import type { GatewayBrowserClient, GatewayHelloOk } from "../../api/gateway.ts"
 import type { RouteId } from "../../app-route-paths.ts";
 import type { ApplicationConfigCapability } from "../../app/config.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "../../app/context.ts";
+import { EXTERNAL_TAB_BRIDGE_LIMITS } from "../../lib/external-tab-capability-bridge.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
 import { getLogbookState, stopLogbookPolling } from "./logbook-controller.ts";
 import { renderLogbook } from "./logbook-view.ts";
+import { externalTabBridgeGrant, type ExternalTabBridgeGrant } from "./plugin-page.test-helpers.ts";
 import { PluginPage } from "./plugin-page.ts";
 
 type TestBundledView = {
@@ -15,7 +17,6 @@ type TestBundledView = {
 };
 
 type ApplicationConfig = ApplicationConfigCapability["current"];
-
 const logbookBundledView = {
   render: renderLogbook,
   stop: stopLogbookPolling,
@@ -48,10 +49,17 @@ class DeferredPluginPage extends PluginPage {
 class ExternalPluginPage extends PluginPage {
   probeResults: Promise<boolean>[] = [Promise.resolve(true)];
   probeCalls: string[] = [];
+  bridgeDocuments: Promise<string | null>[] = [Promise.resolve("<main>External panel</main>")];
 
   protected override probeExternalTabAuth(path: string, _signal: AbortSignal): Promise<boolean> {
     this.probeCalls.push(path);
     return this.probeResults.shift() ?? Promise.resolve(true);
+  }
+
+  protected override async loadCapabilityBridgeDocument(path: string, _signal: AbortSignal) {
+    const markup = await (this.bridgeDocuments.shift() ??
+      Promise.resolve("<main>External panel</main>"));
+    return markup ? { source: new URL(path, window.location.href), markup } : null;
   }
 }
 
@@ -83,6 +91,7 @@ function externalPluginConfig(
       match: "prefix",
     },
   ],
+  embedSandboxMode: ApplicationConfig["embedSandboxMode"] = "scripts",
 ): ApplicationConfig {
   return {
     assistantIdentity: {
@@ -97,7 +106,7 @@ function externalPluginConfig(
     devGitBranch: null,
     environment: null,
     localMediaPreviewRoots: [],
-    embedSandboxMode: "scripts",
+    embedSandboxMode,
     allowExternalEmbedUrls: false,
     automaticallyFetchFavicons: false,
     terminalEnabled: false,
@@ -109,23 +118,34 @@ function createExternalPluginPage(
   refresh: ApplicationConfigCapability["refresh"],
   requiresGatewayAuth = true,
   path = "/plugins/external/panel",
+  options: {
+    auth?: GatewayHelloOk["auth"];
+    capabilityBridge?: ExternalTabBridgeGrant;
+    client?: GatewayBrowserClient | null;
+    embedSandboxMode?: ApplicationConfig["embedSandboxMode"];
+  } = {},
 ) {
   const hello: GatewayHelloOk = {
     type: "hello-ok",
     protocol: 3,
-    auth: { role: "operator", scopes: ["operator.write"] },
+    auth: options.auth ?? {
+      authorityId: "test-auth-authority",
+      role: "operator",
+      scopes: ["operator.write"],
+    },
     controlUiTabs: [
       {
         pluginId: "external-plugin",
         id: "panel",
         label: "External panel",
         path,
+        ...(options.capabilityBridge ? { capabilityBridge: options.capabilityBridge } : {}),
         ...(requiresGatewayAuth ? { requiresGatewayAuth: true } : {}),
       },
     ],
   };
   const snapshot: ApplicationGatewaySnapshot = {
-    client: null,
+    client: options.client ?? null,
     phase: "connected",
     offlineStable: false,
     canvasPluginSurfaceUrl: null,
@@ -144,11 +164,56 @@ function createExternalPluginPage(
       subscribe: () => () => undefined,
     },
     config: {
-      current: externalPluginConfig([]),
+      current: externalPluginConfig([], options.embedSandboxMode),
       refresh,
     },
   } as unknown as ApplicationContext<RouteId>;
   return page;
+}
+
+function bridgeClient(request = vi.fn()) {
+  return {
+    request,
+    addEventListener: vi.fn(() => () => undefined),
+    forceReconnect: vi.fn(),
+  } as unknown as GatewayBrowserClient;
+}
+
+function bridgeState(page: PluginPage) {
+  return page as unknown as {
+    capabilityBridge: unknown;
+    capabilityBridgeDocument: {
+      key: string;
+      markup: string;
+      bootstrapId: string;
+      mutationNamespace: string;
+    } | null;
+    capabilityBridgeFrameLoadSeen: boolean;
+    handleCapabilityBridgeBootstrap: (event: MessageEvent) => void;
+  };
+}
+
+function mountCapabilityBridge(page: PluginPage, frame: HTMLIFrameElement): MessagePort {
+  const document = bridgeState(page).capabilityBridgeDocument;
+  if (!document || !frame.contentWindow) {
+    throw new Error("expected a provenance-bound bridge document");
+  }
+  const channel = new MessageChannel();
+  bridgeState(page).handleCapabilityBridgeBootstrap({
+    source: frame.contentWindow,
+    data: { type: "openclaw:capability-bridge-bootstrap", id: document.bootstrapId },
+    ports: [channel.port1],
+  } as unknown as MessageEvent);
+  if (!bridgeState(page).capabilityBridgeFrameLoadSeen) {
+    frame.dispatchEvent(new Event("load"));
+  }
+  bridgeState(page).handleCapabilityBridgeBootstrap({
+    source: frame.contentWindow,
+    data: { type: "openclaw:capability-bridge-bootstrap-mounted", id: document.bootstrapId },
+    ports: [],
+  } as unknown as MessageEvent);
+  channel.port2.start();
+  return channel.port2;
 }
 
 describe("PluginPage", () => {
@@ -207,6 +272,313 @@ describe("PluginPage", () => {
     try {
       await waitForFast(() => expect(page.querySelector("iframe")?.getAttribute("src")).toBe(path));
       expect(page.probeCalls).toEqual([path]);
+    } finally {
+      page.remove();
+    }
+  });
+
+  it("keeps authenticated bridge frames origin-opaque even in trusted embed mode", async () => {
+    const refresh = vi.fn(async () => externalPluginConfig(undefined, "trusted"));
+    const client = bridgeClient();
+    const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
+      capabilityBridge: externalTabBridgeGrant(),
+      client,
+      embedSandboxMode: "trusted",
+    });
+    document.body.append(page);
+    try {
+      await waitForFast(() =>
+        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"),
+      );
+      const frame = page.querySelector("iframe");
+      expect(frame?.getAttribute("sandbox")).toBe("allow-scripts");
+      expect(frame?.getAttribute("sandbox")).not.toContain("allow-same-origin");
+      expect(frame?.getAttribute("src")).toBeNull();
+    } finally {
+      page.remove();
+    }
+  });
+
+  it("keeps an incompatible bridge declaration on the authenticated read-only frame", async () => {
+    const refresh = vi.fn(async () => externalPluginConfig());
+    const page = createExternalPluginPage(refresh);
+    document.body.append(page);
+    try {
+      await waitForFast(() => expect(page.querySelector("iframe")).not.toBeNull());
+      expect(page.querySelector("iframe")?.getAttribute("sandbox")).toBe("allow-scripts");
+      expect(page.textContent).toContain("Capability bridge unavailable");
+    } finally {
+      page.remove();
+    }
+  });
+
+  it("keeps a bridge declaration on the authenticated read-only route without an authority marker", async () => {
+    const refresh = vi.fn(async () => externalPluginConfig());
+    const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
+      auth: { role: "operator", scopes: ["operator.write"] },
+      capabilityBridge: externalTabBridgeGrant(),
+      client: bridgeClient(),
+    });
+    document.body.append(page);
+    try {
+      await waitForFast(() => expect(page.querySelector("iframe")).not.toBeNull());
+      expect(page.querySelector("iframe")?.getAttribute("src")).toBe("/plugins/external/panel");
+      expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toBeNull();
+      expect(page.textContent).toContain("Capability bridge unavailable");
+    } finally {
+      page.remove();
+    }
+  });
+
+  it("grants one validated iframe mount and terminally revokes later loads", async () => {
+    const refresh = vi.fn(async () => externalPluginConfig());
+    const client = bridgeClient();
+    const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
+      capabilityBridge: externalTabBridgeGrant(),
+      client,
+    });
+    document.body.append(page);
+    try {
+      await waitForFast(() =>
+        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"),
+      );
+      const frame = page.querySelector("iframe");
+      if (!frame) {
+        throw new Error("expected plugin frame");
+      }
+      mountCapabilityBridge(page, frame);
+      const bridge = bridgeState(page);
+      expect(bridge.capabilityBridge).not.toBeNull();
+
+      frame.dispatchEvent(new Event("load"));
+      expect(bridge.capabilityBridge).toBeNull();
+    } finally {
+      page.remove();
+    }
+  });
+
+  it("does not accept a bootstrap for a source document whose mount changed", async () => {
+    const refresh = vi.fn(async () => externalPluginConfig());
+    const request = vi.fn();
+    const client = bridgeClient(request);
+    const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
+      capabilityBridge: externalTabBridgeGrant(),
+      client,
+    });
+    document.body.append(page);
+    try {
+      await waitForFast(() =>
+        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"),
+      );
+      const frame = page.querySelector("iframe");
+      if (!frame?.contentWindow) {
+        throw new Error("expected plugin frame");
+      }
+      const document = bridgeState(page).capabilityBridgeDocument;
+      if (!document) {
+        throw new Error("expected bridge document");
+      }
+      const channel = new MessageChannel();
+      frame.setAttribute("srcdoc", "<main>redirected</main>");
+      bridgeState(page).handleCapabilityBridgeBootstrap({
+        source: frame.contentWindow,
+        data: { type: "openclaw:capability-bridge-bootstrap", id: document.bootstrapId },
+        ports: [channel.port1],
+      } as unknown as MessageEvent);
+      expect(bridgeState(page).capabilityBridge).toBeNull();
+      expect(request).not.toHaveBeenCalled();
+    } finally {
+      page.remove();
+    }
+  });
+
+  it("falls back to the authenticated read-only route after an incompatible bridge handshake", async () => {
+    const refresh = vi.fn(async () => externalPluginConfig());
+    const client = bridgeClient();
+    const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
+      capabilityBridge: externalTabBridgeGrant(),
+      client,
+    });
+    document.body.append(page);
+    try {
+      await waitForFast(() =>
+        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"),
+      );
+      const frame = page.querySelector("iframe");
+      if (!frame) {
+        throw new Error("expected plugin frame");
+      }
+      const port = mountCapabilityBridge(page, frame);
+      expect(bridgeState(page).capabilityBridge).not.toBeNull();
+      port.postMessage({ type: "openclaw:capability-bridge-hello", protocolVersion: 2 });
+      await waitForFast(() => {
+        expect(bridgeState(page).capabilityBridge).toBeNull();
+        expect(page.querySelector("iframe")?.getAttribute("src")).toBe("/plugins/external/panel");
+        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toBeNull();
+        expect(page.textContent).toContain("Capability bridge unavailable");
+      });
+    } finally {
+      page.remove();
+    }
+  });
+
+  it("falls back to the authenticated read-only route when the bridge hello is absent", async () => {
+    const refresh = vi.fn(async () => externalPluginConfig());
+    const client = bridgeClient();
+    const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
+      capabilityBridge: externalTabBridgeGrant(),
+      client,
+    });
+    document.body.append(page);
+    try {
+      await waitForFast(() =>
+        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"),
+      );
+      const frame = page.querySelector("iframe");
+      if (!frame) {
+        throw new Error("expected plugin frame");
+      }
+      vi.useFakeTimers();
+      mountCapabilityBridge(page, frame);
+      await vi.advanceTimersByTimeAsync(EXTERNAL_TAB_BRIDGE_LIMITS.handshakeTimeoutMs);
+      await page.updateComplete;
+
+      expect(bridgeState(page).capabilityBridge).toBeNull();
+      expect(page.querySelector("iframe")?.getAttribute("src")).toBe("/plugins/external/panel");
+      expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toBeNull();
+      expect(page.textContent).toContain("Capability bridge unavailable");
+    } finally {
+      page.remove();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps tokenless mutation identity through a reconnect but rotates it for a new auth authority", async () => {
+    const refresh = vi.fn(async () => externalPluginConfig());
+    const client = bridgeClient();
+    const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
+      capabilityBridge: externalTabBridgeGrant(),
+      client,
+    });
+    const context = (page as unknown as { context: ApplicationContext<RouteId> }).context;
+    context.gateway.snapshot.hello!.server = { connId: "connection-one" };
+    context.gateway.snapshot.hello!.auth = {
+      authorityId: "token-auth-generation-one",
+      role: "operator",
+      scopes: ["operator.write"],
+    };
+    document.body.append(page);
+    try {
+      await waitForFast(() =>
+        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"),
+      );
+      const first = bridgeState(page).capabilityBridgeDocument;
+      if (!first) {
+        throw new Error("expected first bridge document");
+      }
+
+      const firstHello = context.gateway.snapshot.hello!;
+      context.gateway.snapshot.phase = "reconnecting";
+      context.gateway.snapshot.hello = null;
+      page.requestUpdate();
+      await page.updateComplete;
+
+      context.gateway.snapshot.phase = "connected";
+      context.gateway.snapshot.hello = {
+        ...firstHello,
+        server: { connId: "connection-two" },
+      };
+      page.requestUpdate();
+      await waitForFast(() => {
+        const next = bridgeState(page).capabilityBridgeDocument;
+        expect(next?.key).not.toBe(first.key);
+        expect(next?.mutationNamespace).toBe(first.mutationNamespace);
+      });
+
+      context.gateway.snapshot.hello!.auth = {
+        authorityId: "token-auth-generation-two",
+        role: "operator",
+        scopes: ["operator.write"],
+      };
+      page.requestUpdate();
+      await waitForFast(() => {
+        const next = bridgeState(page).capabilityBridgeDocument;
+        expect(next?.mutationNamespace).not.toBe(first.mutationNamespace);
+      });
+    } finally {
+      page.remove();
+    }
+  });
+
+  it("revokes an active bridge before reconnecting after a plugin runtime reload", async () => {
+    const refresh = vi.fn(async () => externalPluginConfig());
+    let emitGatewayEvent: ((event: { event: string }) => void) | undefined;
+    const forceReconnect = vi.fn();
+    const client = {
+      request: vi.fn(),
+      addEventListener: vi.fn((listener) => {
+        emitGatewayEvent = listener as (event: { event: string }) => void;
+        return () => undefined;
+      }),
+      forceReconnect,
+    } as unknown as GatewayBrowserClient;
+    const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
+      capabilityBridge: externalTabBridgeGrant(),
+      client,
+    });
+    document.body.append(page);
+    try {
+      await waitForFast(() =>
+        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"),
+      );
+      const frame = page.querySelector("iframe");
+      if (!frame) {
+        throw new Error("expected plugin frame");
+      }
+      mountCapabilityBridge(page, frame);
+      expect(bridgeState(page).capabilityBridge).not.toBeNull();
+      emitGatewayEvent?.({ event: "config.changed" });
+      expect(bridgeState(page).capabilityBridge).toBeNull();
+      expect(forceReconnect).toHaveBeenCalledWith("plugin runtime changed");
+    } finally {
+      page.remove();
+    }
+  });
+
+  it("reconnects during auth probing before a stale bridge grant can mount", async () => {
+    const refresh = vi.fn(async () => externalPluginConfig());
+    const probe = deferred<boolean>();
+    let emitGatewayEvent: ((event: { event: string }) => void) | undefined;
+    const forceReconnect = vi.fn();
+    const client = {
+      request: vi.fn(),
+      addEventListener: vi.fn((listener) => {
+        emitGatewayEvent = listener as (event: { event: string }) => void;
+        return () => undefined;
+      }),
+      forceReconnect,
+    } as unknown as GatewayBrowserClient;
+    const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
+      capabilityBridge: externalTabBridgeGrant(),
+      client,
+    });
+    page.probeResults = [probe.promise];
+    document.body.append(page);
+    try {
+      await waitForFast(() => {
+        expect(page.probeCalls).toEqual(["/plugins/external/panel"]);
+        expect(emitGatewayEvent).toBeTypeOf("function");
+      });
+      expect(page.querySelector("iframe")).toBeNull();
+
+      emitGatewayEvent?.({ event: "config.changed" });
+      expect(forceReconnect).toHaveBeenCalledWith("plugin runtime changed");
+
+      probe.resolve(true);
+      await waitForFast(() =>
+        expect(page.querySelector("iframe")?.getAttribute("src")).toBe("/plugins/external/panel"),
+      );
+      expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toBeNull();
     } finally {
       page.remove();
     }
@@ -495,7 +867,11 @@ describe("PluginPage", () => {
     const secondRequest = vi.fn(async (method: string) => responseFor(method));
     const createContext = (request: typeof firstRequest) => {
       const snapshot: ApplicationGatewaySnapshot = {
-        client: { request } as unknown as GatewayBrowserClient,
+        client: {
+          request,
+          addEventListener: () => () => undefined,
+          forceReconnect: () => undefined,
+        } as unknown as GatewayBrowserClient,
         phase: "connected",
         offlineStable: false,
         canvasPluginSurfaceUrl: null,
@@ -575,7 +951,11 @@ describe("PluginPage", () => {
       const deferredResponse = pending.get(method);
       return deferredResponse ? deferredResponse.promise : Promise.resolve(responseFor(method));
     });
-    const client = { request } as unknown as GatewayBrowserClient;
+    const client = {
+      request,
+      addEventListener: () => () => undefined,
+      forceReconnect: () => undefined,
+    } as unknown as GatewayBrowserClient;
     const snapshot: ApplicationGatewaySnapshot = {
       client,
       phase: "connected",

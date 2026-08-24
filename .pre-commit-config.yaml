@@ -4,6 +4,11 @@
 #
 # See https://pre-commit.com for more information
 
+# This branch carries a deliberately minimal host patch. Report hook failures,
+# but never let pre-commit.ci rewrite unrelated generated/platform files into it.
+ci:
+  autofix_prs: false
+
 repos:
   # Basic file hygiene
   - repo: https://github.com/pre-commit/pre-commit-hooks

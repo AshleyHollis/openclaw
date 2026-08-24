@@ -8,6 +8,7 @@ import {
 
 // Wire contract shared with the Mac app bridge; asserted literally on purpose.
 const NATIVE_NOTIFICATIONS_STATUS_EVENT = "openclaw:native-notifications-status";
+const NATIVE_NOTIFICATIONS_NAVIGATION_EVENT = "openclaw:native-notification-navigation";
 
 type NativeNotificationsMessage = {
   type: "status" | "request-permission" | "send-test";
@@ -92,6 +93,45 @@ describe("native notifications", () => {
 
     expect(capability?.snapshot).toEqual({ permission: "unknown", test: null });
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("forwards only bounded typed native notification navigation", () => {
+    installBridge();
+    capability = createNativeNotificationsCapability();
+    const listener = vi.fn();
+    capability?.subscribeNavigation(listener);
+
+    window.dispatchEvent(
+      new CustomEvent(NATIVE_NOTIFICATIONS_NAVIGATION_EVENT, {
+        detail: {
+          kind: "plugin-detail",
+          pluginId: "board",
+          tabId: "items",
+          destinationId: "item",
+          recordId: "record-1",
+        },
+      }),
+    );
+    window.dispatchEvent(
+      new CustomEvent(NATIVE_NOTIFICATIONS_NAVIGATION_EVENT, {
+        detail: {
+          kind: "plugin-detail",
+          pluginId: "board",
+          tabId: "items",
+          destinationId: "item",
+          recordId: "https://outside.test",
+        },
+      }),
+    );
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledWith({
+      kind: "plugin-detail",
+      pluginId: "board",
+      tabId: "items",
+      destinationId: "item",
+      recordId: "record-1",
+    });
   });
 
   it("reposts status when the window focuses", () => {

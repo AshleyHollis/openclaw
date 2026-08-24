@@ -352,6 +352,31 @@ describe("resolveConnectAuthDecision", () => {
     expect(rateLimiter.reset).toHaveBeenCalledWith(CLIENT_IP, "device-token");
   });
 
+  it("retains authenticated operator identity while verifying an explicit device token", async () => {
+    const verifyDeviceToken = createVerifyDeviceToken({
+      ok: true,
+      issuer: { kind: "shared-gateway-auth", generation: "issuer-1" },
+    });
+    const decision = await resolveDeviceTokenDecision({
+      verifyDeviceToken,
+      stateOverrides: {
+        authResult: { ok: true, method: "trusted-proxy", user: "operator@example.test" },
+        authOk: true,
+        authMethod: "trusted-proxy",
+        deviceTokenCandidateSource: "explicit-device-token",
+      },
+    });
+
+    expect(decision).toMatchObject({
+      authOk: true,
+      authMethod: "trusted-proxy",
+      authResult: { ok: true, user: "operator@example.test" },
+      deviceTokenAuthenticated: true,
+      deviceTokenSharedGatewaySessionGeneration: "issuer-1",
+    });
+    expect(verifyDeviceToken).toHaveBeenCalledOnce();
+  });
+
   it("accepts valid bootstrap tokens before device-token fallback", async () => {
     const verifyBootstrapToken = createVerifyBootstrapToken({ ok: true });
     const verifyDeviceToken = createVerifyDeviceToken({ ok: true });
