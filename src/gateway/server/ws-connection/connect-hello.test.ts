@@ -89,7 +89,7 @@ describe("sendGatewayHello", () => {
         frame: { id: "connect" },
         handler: {
           advanceHandshakePhase: vi.fn(),
-          buildRequestContext: vi.fn(),
+          buildRequestContext: vi.fn(() => ({ configRevisionProjector: undefined })),
           close: vi.fn(),
           connId: "connection",
           events: [],
@@ -166,7 +166,7 @@ describe("sendGatewayHello", () => {
         frame: { id: "connect" },
         handler: {
           advanceHandshakePhase: vi.fn(),
-          buildRequestContext: vi.fn(),
+          buildRequestContext: vi.fn(() => ({ configRevisionProjector: undefined })),
           close: vi.fn(),
           connId: "connection",
           events: [],
