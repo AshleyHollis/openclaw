@@ -14,8 +14,8 @@ struct ChatMarkdownDisplayPreprocessorTests {
 
         #expect(
             prepared == """
-            alpha  
-            beta  
+            alpha
+            beta
             gamma
             """)
         #expect(try self.renderedCharacters(prepared) == "alpha\nbeta\ngamma")
@@ -35,7 +35,7 @@ struct ChatMarkdownDisplayPreprocessorTests {
 
     @Test func `does not duplicate existing hard breaks`() {
         let markdown = """
-        alpha  
+        alpha
         beta\\
         gamma
         """
@@ -100,7 +100,7 @@ struct ChatMarkdownDisplayPreprocessorTests {
 
         #expect(
             prepared == """
-            Use foo | bar  
+            Use foo | bar
             then continue
             """)
     }
