@@ -824,9 +824,9 @@ describe("plugin authoring commands", () => {
     });
 
     const indexSource = fs.readFileSync(path.join(projectDir, "src/index.ts"), "utf8");
-    expect(indexSource).toContain("definePluginEntry");
-    expect(indexSource).toContain("api.registerProvider");
-    expect(indexSource).toContain("buildSingleProviderApiKeyCatalog");
+    expect(indexSource).toContain("defineSingleProviderPluginEntry");
+    expect(indexSource).toContain("export default defineSingleProviderPluginEntry");
+    expect(indexSource).toContain("allowExplicitBaseUrl: true");
 
     expect(fs.readFileSync(path.join(projectDir, "src/index.test.ts"), "utf8")).toContain(
       "OpenClawPluginApi",
