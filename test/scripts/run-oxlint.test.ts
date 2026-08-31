@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { runWithFailedTrailer } from "../../scripts/lib/failed-trailer.mts";
 import {
   createOxlintShards,
+  createNarrowedExtensionTsConfig,
   filterOxlintShards,
   parseShardRunnerArgs,
   createWindowsExtensionShards,
@@ -17,6 +18,7 @@ import {
   resolveWindowsExtensionChunkSize,
   runShard,
   selectCoreOxlintStripe,
+  shouldChunkExtensionOxlintShards,
   shouldPrepareExtensionPackageBoundaryArtifactsForShards,
   shouldRunOxlintShardsSerial,
 } from "../../scripts/run-oxlint-shards.mts";
@@ -500,12 +502,80 @@ describe("run-oxlint", () => {
     ]);
   });
 
+  it("chunks every extension exactly once on constrained Linux CI", () => {
+    const extensionNames = Array.from(
+      { length: 49 },
+      (_, index) => `extension-${String(index + 1).padStart(2, "0")}`,
+    );
+    const shards = createOxlintShards({
+      cwd: "/repo",
+      env: { CI: "true" },
+      hostResources: CONSTRAINED_HOST,
+      platform: "linux",
+      readDir: (target: string) =>
+        /[\\/]extensions$/u.test(target)
+          ? (extensionNames.map((name) => ({
+              name,
+              isDirectory: () => true,
+              isFile: () => false,
+            })) as never)
+          : [],
+    });
+    const extensionShards = shards.filter((shard) => shard.name.startsWith("extensions:"));
+    const extensionTargets = extensionShards.flatMap((shard) => shard.args.slice(2));
+
+    expect(extensionShards.map((shard) => shard.name)).toEqual([
+      "extensions:01",
+      "extensions:02",
+      "extensions:03",
+    ]);
+    expect(extensionTargets).toEqual(extensionNames.map((name) => `extensions/${name}`));
+    expect(new Set(extensionTargets)).toHaveProperty("size", extensionNames.length);
+    expect(
+      createNarrowedExtensionTsConfig(extensionShards[0]!, {
+        cwd: "/repo",
+        isDirectory: () => true,
+      }),
+    ).toEqual({
+      extends: expect.stringMatching(/\/repo\/config\/tsconfig\/oxlint\.extensions\.json$/u),
+      include: extensionNames
+        .slice(0, 24)
+        .map((name) =>
+          expect.stringMatching(new RegExp(`/repo/extensions/${name}/\\*\\*/\\*$`, "u")),
+        ),
+    });
+  });
+
+  it("keeps one extension Program on capable Linux CI", () => {
+    const shards = createOxlintShards({
+      cwd: "/repo",
+      env: { GITHUB_ACTIONS: "true" },
+      hostResources: ROOMY_HOST,
+      platform: "linux",
+      readDir: () => [{ name: "alpha", isDirectory: () => true, isFile: () => false }] as never,
+    });
+
+    expect(shards.find((shard) => shard.name.startsWith("extensions"))).toEqual(
+      oxlintShard("extensions", "extensions", "extensions"),
+    );
+    expect(
+      shouldChunkExtensionOxlintShards({
+        env: { GITHUB_ACTIONS: "true" },
+        hostResources: ROOMY_HOST,
+        platform: "linux",
+      }),
+    ).toBe(false);
+    expect(
+      createNarrowedExtensionTsConfig(oxlintShard("extensions", "extensions", "extensions")),
+    ).toBeNull();
+  });
+
   it("splits core oxlint shards when requested", () => {
     const shards = createOxlintShards({
       cwd: "/repo",
       splitCore: true,
       readDir: (target: string) => {
-        if (target.endsWith("/src")) {
+        if (/[\\/]src$/u.test(target)) {
           return [
             { name: "zeta.ts", isDirectory: () => false, isFile: () => true },
             { name: "omega.ts", isDirectory: () => false, isFile: () => true },

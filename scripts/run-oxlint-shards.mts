@@ -21,6 +21,7 @@ import {
 import { shouldPrepareExtensionPackageBoundaryArtifacts } from "./run-oxlint.mts";
 
 const DEFAULT_WINDOWS_EXTENSION_CHUNK_SIZE = 8;
+const DEFAULT_CONSTRAINED_EXTENSION_CHUNK_SIZE = 24;
 const DEFAULT_SHARD_HEARTBEAT_MS = 30_000;
 const DEFAULT_SHARD_TIMEOUT_MS = 15 * 60_000;
 const DEFAULT_SHARD_KILL_GRACE_MS = 5_000;
@@ -46,7 +47,8 @@ type DirectoryOptions = { cwd?: string; readDir?: ReadDirectoryEntries };
 type DirectoryLookup = Required<DirectoryOptions>;
 type ShardOptions = DirectoryOptions & { env?: NodeJS.ProcessEnv };
 type PlatformOptions = { env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform };
-type PlatformShardOptions = ShardOptions & PlatformOptions & { splitCore?: boolean };
+type PlatformShardOptions = ShardOptions &
+  PlatformOptions & { hostResources?: HostResources; splitCore?: boolean };
 type ResourceOptions = PlatformOptions & { hostResources?: HostResources };
 type RunnerOptions = {
   env: NodeJS.ProcessEnv;
@@ -56,6 +58,10 @@ type RunnerOptions = {
 type ShardRunnerOptions = RunnerOptions & { shard: OxlintShard };
 type ShardBatchOptions = RunnerOptions & { concurrency: number; entries: OxlintShard[] };
 type ActiveShardChild = { child: ChildProcess; killGraceMs: number };
+type NarrowedExtensionTsConfigOptions = {
+  cwd?: string;
+  isDirectory?: (target: string) => boolean;
+};
 
 const ACTIVE_SHARD_CHILDREN = new Set<ActiveShardChild>();
 let parentTerminationSignal: (typeof PARENT_TERMINATION_SIGNALS)[number] | null = null;
@@ -83,13 +89,22 @@ const SCRIPTS_SHARD = {
 export function createOxlintShards({
   cwd = process.cwd(),
   env = process.env,
+  hostResources,
   platform = process.platform,
   readDir = fs.readdirSync,
   splitCore = false,
 }: PlatformShardOptions = {}) {
   const coreShards = splitCore ? createCoreOxlintShards({ cwd, readDir }) : [CORE_SHARD];
-  const extensionShards =
-    platform === "win32" ? createWindowsExtensionShards({ cwd, env, readDir }) : [EXTENSIONS_SHARD];
+  const extensionShards = shouldChunkExtensionOxlintShards({ env, hostResources, platform })
+    ? createExtensionOxlintShards({
+        chunkSize:
+          platform === "win32"
+            ? resolveWindowsExtensionChunkSize(env)
+            : DEFAULT_CONSTRAINED_EXTENSION_CHUNK_SIZE,
+        cwd,
+        readDir,
+      })
+    : [EXTENSIONS_SHARD];
 
   return [...coreShards, ...extensionShards, SCRIPTS_SHARD];
 }
@@ -125,12 +140,26 @@ export function createWindowsExtensionShards({
   env = process.env,
   readDir = fs.readdirSync,
 }: ShardOptions = {}) {
+  return createExtensionOxlintShards({
+    chunkSize: resolveWindowsExtensionChunkSize(env),
+    cwd,
+    readDir,
+  });
+}
+
+/**
+ * Chunks extension lint targets into deterministic, disjoint Programs.
+ */
+function createExtensionOxlintShards({
+  chunkSize,
+  cwd = process.cwd(),
+  readDir = fs.readdirSync,
+}: DirectoryOptions & { chunkSize: number }) {
   const entries = listExtensionEntries({ cwd, readDir });
   if (entries.dirs.length === 0 && entries.rootFiles.length === 0) {
     return [EXTENSIONS_SHARD];
   }
 
-  const chunkSize = resolveWindowsExtensionChunkSize(env);
   const shards: OxlintShard[] = [];
 
   if (entries.rootFiles.length > 0) {
@@ -149,6 +178,62 @@ export function createWindowsExtensionShards({
     });
   }
   return shards;
+}
+
+/**
+ * Builds the type-aware Program boundary for one extension shard. Explicit
+ * oxlint targets alone do not narrow the Program loaded from --tsconfig.
+ */
+export function createNarrowedExtensionTsConfig(
+  shard: OxlintShard,
+  {
+    cwd = process.cwd(),
+    isDirectory = (target) => fs.statSync(target).isDirectory(),
+  }: NarrowedExtensionTsConfigOptions = {},
+) {
+  if (
+    !shard.name.startsWith("extensions:") ||
+    shard.args[0] !== "--tsconfig" ||
+    shard.args[1] !== EXTENSION_TS_CONFIG
+  ) {
+    return null;
+  }
+  const targets = shard.args.slice(2);
+  if (targets.length === 0) {
+    return null;
+  }
+
+  return {
+    extends: normalizeTsConfigPath(path.resolve(cwd, EXTENSION_TS_CONFIG)),
+    include: targets.map((target) => {
+      const absoluteTarget = path.resolve(cwd, target);
+      return normalizeTsConfigPath(
+        isDirectory(absoluteTarget) ? path.join(absoluteTarget, "**", "*") : absoluteTarget,
+      );
+    }),
+  };
+}
+
+function normalizeTsConfigPath(target: string) {
+  return target.replaceAll("\\", "/");
+}
+
+/**
+ * Keeps the fast single-Program path on capable Linux runners while bounding
+ * type-aware extension lint memory on Windows and constrained CI hosts.
+ */
+export function shouldChunkExtensionOxlintShards({
+  env = process.env,
+  hostResources,
+  platform = process.platform,
+}: ResourceOptions = {}) {
+  if (platform === "win32") {
+    return true;
+  }
+  if (env.CI !== "true" && env.GITHUB_ACTIONS !== "true") {
+    return false;
+  }
+  return shouldRunOxlintShardsSerial({ env, hostResources, platform });
 }
 
 /**
@@ -515,11 +600,13 @@ export async function runShard({ env, extraArgs, runner, shard }: ShardRunnerOpt
   const timeoutMs = resolveShardTimeoutMs(env);
   const killGraceMs = resolveShardKillGraceMs(env);
   // The shard batch holds ownership through preparation and every consumer.
+  const narrowedTsConfig = materializeNarrowedExtensionTsConfig(shard);
+  const shardArgs = narrowedTsConfig?.args ?? shard.args;
   const args =
     runner === path.resolve("scripts", "run-oxlint.mjs") &&
     shouldPrepareExtensionPackageBoundaryArtifactsForShards([shard], extraArgs)
-      ? distArtifactEntryArgs(path.resolve("scripts/run-oxlint.mts"), [...shard.args, ...extraArgs])
-      : [runner, ...shard.args, ...extraArgs];
+      ? distArtifactEntryArgs(path.resolve("scripts/run-oxlint.mts"), [...shardArgs, ...extraArgs])
+      : [runner, ...shardArgs, ...extraArgs];
   const child = spawn(process.execPath, args, {
     stdio: ["inherit", "pipe", "pipe"],
     detached: process.platform !== "win32",
@@ -583,6 +670,7 @@ export async function runShard({ env, extraArgs, runner, shard }: ShardRunnerOpt
       }
       forceKillAt = null;
       unregisterShardChild();
+      narrowedTsConfig?.cleanup();
       console.error(`[oxlint:${shard.name}] finished`);
       if (error) {
         reject(error);
@@ -629,6 +717,22 @@ export async function runShard({ env, extraArgs, runner, shard }: ShardRunnerOpt
       finish(exitStatus);
     });
   });
+}
+
+function materializeNarrowedExtensionTsConfig(shard: OxlintShard) {
+  const config = createNarrowedExtensionTsConfig(shard);
+  if (!config) {
+    return null;
+  }
+  const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-oxlint-extension-"));
+  const configPath = path.join(scratchRoot, "tsconfig.json");
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  const args = [...shard.args];
+  args[1] = configPath;
+  return {
+    args,
+    cleanup: () => fs.rmSync(scratchRoot, { force: true, recursive: true }),
+  };
 }
 
 /**
