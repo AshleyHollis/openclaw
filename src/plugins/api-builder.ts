@@ -140,8 +140,7 @@ export function buildPluginApi(params: BuildPluginApiParams): OpenClawPluginApi 
     runtime: params.runtime,
     logger: params.logger,
     notifications: {
-      registerEmitter:
-        params.registerNotificationEmitter ?? noops.notifications.registerEmitter,
+      registerEmitter: params.registerNotificationEmitter ?? noops.notifications.registerEmitter,
     },
     registerTool: handlers.registerTool ?? noops.registerTool,
     registerHook: handlers.registerHook ?? noops.registerHook,
