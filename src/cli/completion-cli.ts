@@ -255,7 +255,7 @@ function generateZshCompletion(program: Command): string {
 _${rootCmd}_root_completion() {
   local -a commands
   local -a options
-  
+
   _arguments -C \\
     ${generateZshArgs(program)} \\
     ${generateZshSubcmdList(program)} \\
@@ -360,7 +360,7 @@ function generateZshSubcommands(program: Command, prefix: string): string {
 ${funcName}() {
   local -a commands
   local -a options
-  
+
   _arguments -C \\
     ${generateZshArgs(cmd)} \\
     ${generateZshSubcmdList(cmd)} \\
@@ -622,7 +622,7 @@ ${optionChoiceCases}
   return `
 Register-ArgumentCompleter -Native -CommandName ${rootCmd} -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
-    
+
     $commandElements = $commandAst.CommandElements
     $commandPath = ""
     $valueOptions = ${formatPowerShellArray(rootValueOptions)}
@@ -679,7 +679,7 @@ ${commandPathUpdate}
     }
 
 ${choiceCompletion}
-    
+
     # Root command
     if ($commandPath -eq "") {
          $completions = ${formatPowerShellArray(root.completions)}
@@ -687,7 +687,7 @@ ${choiceCompletion}
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterName', $_)
          }
     }
-    
+
     ${rootBody}
 }
 `;
