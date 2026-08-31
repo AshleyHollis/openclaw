@@ -15,8 +15,13 @@ type InspectorReport = {
 const artifactRoot = path.resolve(
   process.env.OPENCLAW_PLUGIN_INIT_VALIDATE_ROOT ?? ".artifacts/plugin-init-provider-scaffold",
 );
+const repositoryRoot = path.resolve(import.meta.dirname, "..");
 const projectDir = path.join(artifactRoot, "plugin-init-test");
 const reportPath = path.join(projectDir, ".clawhub-validation", "plugin-inspector-report.json");
+
+function platformCommand(command: "npm" | "pnpm"): string {
+  return process.platform === "win32" ? `${command}.cmd` : command;
+}
 
 function run(command: string, args: string[], cwd: string): void {
   console.log(`$ ${[command, ...args].join(" ")}`);
@@ -53,19 +58,36 @@ function assertCleanInspectorReport(report: InspectorReport): void {
   }
 }
 
+function bindGeneratedPluginToCurrentHost(): void {
+  const packagePath = path.join(projectDir, "package.json");
+  const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8")) as {
+    devDependencies?: Record<string, string>;
+  };
+  packageJson.devDependencies ??= {};
+  packageJson.devDependencies.openclaw = `file:${repositoryRoot.replaceAll(path.sep, "/")}`;
+  fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
+}
+
 fs.rmSync(projectDir, { force: true, recursive: true });
 fs.mkdirSync(artifactRoot, { recursive: true });
+
+// The scaffold must compile against the exact package under validation. Installing
+// `openclaw@latest` here can both hide a PR regression and reject a valid PR whose
+// public declarations have not been published yet.
+run(platformCommand("pnpm"), ["build"], repositoryRoot);
 
 await runPluginsInitCommand("plugin-init-test", {
   directory: projectDir,
   name: "Plugin Init Test",
   type: "provider",
 });
+bindGeneratedPluginToCurrentHost();
 
-run("npm", ["install", "--no-audit", "--fund=false"], projectDir);
-run("npm", ["run", "build"], projectDir);
-run("npm", ["test"], projectDir);
-run("npm", ["run", "validate"], projectDir);
+const npm = platformCommand("npm");
+run(npm, ["install", "--no-audit", "--fund=false"], projectDir);
+run(npm, ["run", "build"], projectDir);
+run(npm, ["test"], projectDir);
+run(npm, ["run", "validate"], projectDir);
 assertCleanInspectorReport(readInspectorReport());
 
 console.log(`Generated provider scaffold passed ClawHub validation: ${projectDir}`);

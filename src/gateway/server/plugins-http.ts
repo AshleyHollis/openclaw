@@ -7,6 +7,7 @@ import {
 } from "../../../packages/gateway-protocol/src/client-info.js";
 import { PROTOCOL_VERSION } from "../../../packages/gateway-protocol/src/index.js";
 import type { createSubsystemLogger } from "../../logging/subsystem.js";
+import type { PluginNotificationPrincipal } from "../../plugins/notification-emitter.js";
 import type { PluginHttpRouteRegistration, PluginRegistry } from "../../plugins/registry.js";
 import { withPluginRuntimeGatewayRequestScope } from "../../plugins/runtime/gateway-request-scope.js";
 import { respondControlUiPluginAuthCookieProbe } from "../control-ui-plugin-auth-cookie.js";
@@ -155,6 +156,21 @@ function createPluginRouteRuntimeScope(params: {
   };
 }
 
+function capturePluginRouteNotificationPrincipal(params: {
+  route: PluginHttpRouteRegistration;
+  gatewayRequestAuth?: AuthorizedGatewayHttpRequest;
+}): PluginNotificationPrincipal | undefined {
+  const binding = params.gatewayRequestAuth?.controlUiPluginGrant?.notificationBinding;
+  if (!binding || params.route.auth !== "gateway" || !params.route.pluginId) {
+    return undefined;
+  }
+  return {
+    ...binding,
+    pluginId: params.route.pluginId,
+    scopes: [...binding.scopes],
+  };
+}
+
 export type PluginRouteDispatchContext = {
   gatewayAuthSatisfied?: boolean;
   gatewayRequestAuth?: AuthorizedGatewayHttpRequest;
@@ -264,19 +280,28 @@ export function createGatewayPluginRequestHandler(params: {
         continue;
       }
       try {
-        const runRoute = async () =>
-          (await withPluginRuntimeGatewayRequestScope(
-            createPluginRouteRuntimeScope({
-              registry: params.registry,
-              route,
-              req,
-              gatewayRequestContext,
-              gatewayRequestAuth,
-              gatewayRequestOperatorScopes,
-              gatewayRequestClientIp: dispatchContext?.gatewayRequestClientIp,
-            }),
-            async () => route.handler(req, res),
-          )) !== false;
+        const runRoute = async () => {
+          const runtimeScope = createPluginRouteRuntimeScope({
+            registry: params.registry,
+            route,
+            req,
+            gatewayRequestContext,
+            gatewayRequestAuth,
+            gatewayRequestOperatorScopes,
+            gatewayRequestClientIp: dispatchContext?.gatewayRequestClientIp,
+          });
+          const notificationPrincipal = capturePluginRouteNotificationPrincipal({
+            route,
+            gatewayRequestAuth,
+          });
+          return (
+            (await withPluginRuntimeGatewayRequestScope(
+              runtimeScope,
+              async () => route.handler(req, res),
+              notificationPrincipal ? { notificationPrincipal } : undefined,
+            )) !== false
+          );
+        };
         // Entitled trusted-operator routes delegate substantive work through Gateway dispatch.
         // An outer root would make gateway.suspend.prepare nested and permanently unreachable.
         const handled = canRunPluginHttpRouteWithoutAdmission(route)

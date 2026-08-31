@@ -52,7 +52,10 @@ import { createApplicationGateway } from "./gateway-store.ts";
 import { createInitialUserMessageHandoff } from "./initial-user-message-handoff.ts";
 import { createNativeChatDrafts } from "./native-bridge.ts";
 import { startNativeLinkRouting } from "./native-link-routing.ts";
-import { createNativeNotificationsCapability } from "./native-notifications.ts";
+import {
+  createNativeNotificationsCapability,
+  subscribeNativeNotificationNavigation,
+} from "./native-notifications.ts";
 import { createApplicationOverlays } from "./overlays.ts";
 import { isBrowserPanelAvailable } from "./panel-availability.ts";
 import { createApplicationPlacementStartup } from "./session-placement-startup.ts";
@@ -614,6 +617,9 @@ export function bootstrapApplication(
     revalidate: (routeId) => router.revalidate(context, routeId),
     preload: (routeId, options) => router.preloadLocation(routeLocation(routeId, options), context),
   };
+  subscribeNativeNotificationNavigation(nativeNotifications, (search) =>
+    context.navigate("plugin", { search }),
+  );
   return {
     context,
     router,

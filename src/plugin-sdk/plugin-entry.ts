@@ -7,6 +7,15 @@ import type {
 } from "../plugins/types.js";
 import { createCachedLazyValueGetter } from "./lazy-value.js";
 export type { OpenClawConfig } from "../config/types.openclaw.js";
+export type {
+  PluginNotificationBinding,
+  PluginNotificationCandidateV1,
+  PluginNotificationClearResult,
+  PluginNotificationClearV1,
+  PluginNotificationDeclarationV1,
+  PluginNotificationEmitter,
+  PluginNotificationEmitResult,
+} from "../plugins/notification-emitter.js";
 
 export type {
   AgentHarness,

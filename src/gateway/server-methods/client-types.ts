@@ -35,6 +35,8 @@ export type GatewayClient = {
   clientIp?: string;
   /** Client id verified against the server-approved device pairing record. */
   pairedClientId?: string;
+  /** Stable host operator subject captured by the authenticated server connection. */
+  authenticatedOperatorId?: string;
   authenticatedUserId?: string;
   /** Verified Tailscale provider identity; generic proxy identities must not infer this. */
   authenticatedUserIsTailscaleProvider?: boolean;
@@ -50,6 +52,12 @@ export type GatewayClient = {
   pluginNodeCapabilitySurfaces?: Record<string, PluginNodeCapabilitySurface>;
   pluginNodeCapabilities?: Record<string, { capability: string; expiresAtMs: number }>;
   isDeviceTokenAuth?: boolean;
+  /** True when the server authenticated this connection through the shared gateway secret. */
+  usesSharedGatewayAuth?: boolean;
+  /** Exact shared-auth epoch bound during the handshake. */
+  sharedGatewaySessionGeneration?: string;
+  /** Server-owned invalidation fence; invalidated clients cannot authorize later work. */
+  invalidatedReason?: string;
   internal?: {
     /** Handshake-attested direct-local transport; never accepted from wire params. */
     isLocalClient?: true;

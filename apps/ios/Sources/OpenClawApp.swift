@@ -79,6 +79,7 @@ final class OpenClawAppDelegate: NSObject, UIApplicationDelegate, @preconcurrenc
     private var pendingExecApprovalPrompts: [PendingExecApprovalPrompt] = []
     private var pendingExecApprovalRequestedPushes: [ExecApprovalNotificationPrompt] = []
     private var pendingExecApprovalResolvedPushes: [ExecApprovalNotificationPrompt] = []
+    private var pendingPluginNotificationDestinations: [PluginNotificationDestination] = []
     private var pendingOpenURLs: [URL] = []
 
     weak var appModel: NodeAppModel? {
@@ -128,6 +129,15 @@ final class OpenClawAppDelegate: NSObject, UIApplicationDelegate, @preconcurrenc
                 Task { @MainActor in
                     for push in pending {
                         _ = await model.handleExecApprovalResolvedRemotePush(push)
+                    }
+                }
+            }
+            if !self.pendingPluginNotificationDestinations.isEmpty {
+                let pending = self.pendingPluginNotificationDestinations
+                self.pendingPluginNotificationDestinations.removeAll()
+                Task { @MainActor in
+                    for destination in pending {
+                        model.stagePluginNotificationDestination(destination)
                     }
                 }
             }
@@ -245,6 +255,13 @@ final class OpenClawAppDelegate: NSObject, UIApplicationDelegate, @preconcurrenc
     {
         self.logger.info("APNs remote notification received keys=\(userInfo.keys.count, privacy: .public)")
         Task { @MainActor in
+            if let operation = PluginNotificationBridge.parseClearOperation(userInfo: userInfo) {
+                await PluginNotificationBridge.removeNotifications(
+                    for: operation,
+                    notificationCenter: LiveNotificationCenter())
+                completionHandler(.newData)
+                return
+            }
             if let push = ApprovalNotificationBridge.parseResolvedPush(userInfo: userInfo) {
                 if let appModel = self.resolvedAppModel() {
                     let handled = await appModel.handleExecApprovalResolvedRemotePush(push)
@@ -432,6 +449,16 @@ final class OpenClawAppDelegate: NSObject, UIApplicationDelegate, @preconcurrenc
         }
     }
 
+    private func routePluginNotificationDestination(_ destination: PluginNotificationDestination) {
+        guard let appModel = resolvedAppModel() else {
+            self.pendingPluginNotificationDestinations.append(destination)
+            return
+        }
+        Task { @MainActor in
+            appModel.stagePluginNotificationDestination(destination)
+        }
+    }
+
     func userNotificationCenter(
         _: UNUserNotificationCenter,
         willPresent notification: UNNotification,
@@ -441,6 +468,7 @@ final class OpenClawAppDelegate: NSObject, UIApplicationDelegate, @preconcurrenc
         if Self.isWatchPromptNotification(userInfo)
             || ExecApprovalNotificationBridge.shouldPresentNotification(userInfo: userInfo)
             || PluginApprovalNotificationBridge.shouldPresentNotification(userInfo: userInfo)
+            || PluginNotificationBridge.shouldPresentNotification(userInfo: userInfo)
         {
             completionHandler([.banner, .list, .sound])
             return
@@ -453,6 +481,20 @@ final class OpenClawAppDelegate: NSObject, UIApplicationDelegate, @preconcurrenc
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void)
     {
+        if let destination = PluginNotificationBridge.parseDestination(
+            actionIdentifier: response.actionIdentifier,
+            userInfo: response.notification.request.content.userInfo)
+        {
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    completionHandler()
+                    return
+                }
+                self.routePluginNotificationDestination(destination)
+                completionHandler()
+            }
+            return
+        }
         if let action = Self.parseWatchPromptAction(from: response) {
             Task { @MainActor [weak self] in
                 guard let self else {
