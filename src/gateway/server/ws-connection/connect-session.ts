@@ -262,6 +262,10 @@ export async function attachAuthenticatedGatewayConnect(
       `security audit: identity scope grant elevated connection identity=${formatForLog(authenticatedUserId)} addedScopes=${addedIdentityScopes.join(",")} conn=${connId}`,
     );
   }
+  // Gateway token/password authentication represents the configured host operator but
+  // deliberately has no profile identity. Keep that privacy boundary while giving
+  // host-owned capabilities a stable subject across every authenticated mode.
+  const authenticatedOperatorId = authenticatedUserId ?? "gateway:default-operator";
 
   if (isClosed()) {
     await releasePendingNodePairingCleanup();
@@ -421,6 +425,7 @@ export async function attachAuthenticatedGatewayConnect(
     usesSharedGatewayAuth: sessionUsesSharedGatewayAuth,
     sharedGatewaySessionGeneration: sessionSharedGatewaySessionGeneration,
     presenceKey,
+    authenticatedOperatorId,
     ...(authenticatedUserId ? { authenticatedUserId } : {}),
     ...(authenticatedUserIsTailscaleProvider ? { authenticatedUserIsTailscaleProvider: true } : {}),
     ...(authenticatedUserProfile ? { authenticatedUserProfile } : {}),

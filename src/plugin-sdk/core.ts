@@ -31,6 +31,14 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { buildOutboundBaseSessionKey } from "../infra/outbound/base-session-key.js";
 import type { OutboundDeliveryResult } from "../infra/outbound/deliver.js";
 import { normalizeOutboundThreadId } from "../infra/outbound/thread-id.js";
+import type { PluginRuntime } from "../plugins/runtime/types.js";
+import type { OpenClawPluginApi } from "../plugins/types.js";
+import { resolveThreadSessionKeys } from "../routing/session-key.js";
+import {
+  normalizeSessionKeyPreservingOpaquePeerIds,
+  parseThreadSessionSuffix,
+} from "../sessions/session-key-utils.js";
+import { createCachedLazyValueGetter } from "./lazy-value.js";
 export type {
   PluginNotificationBinding,
   PluginNotificationCandidateV1,
@@ -40,14 +48,6 @@ export type {
   PluginNotificationEmitter,
   PluginNotificationEmitResult,
 } from "../plugins/notification-emitter.js";
-import type { PluginRuntime } from "../plugins/runtime/types.js";
-import type { OpenClawPluginApi } from "../plugins/types.js";
-import { resolveThreadSessionKeys } from "../routing/session-key.js";
-import {
-  normalizeSessionKeyPreservingOpaquePeerIds,
-  parseThreadSessionSuffix,
-} from "../sessions/session-key-utils.js";
-import { createCachedLazyValueGetter } from "./lazy-value.js";
 export type {
   AgentPromptGuidance,
   AgentPromptGuidanceEntry,

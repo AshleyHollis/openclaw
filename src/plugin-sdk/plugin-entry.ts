@@ -1,5 +1,12 @@
 // Plugin entry contracts define the manifest-facing hooks implemented by plugin packages.
 import { emptyPluginConfigSchema } from "../plugins/config-schema.js";
+import type {
+  OpenClawPluginConfigSchema,
+  OpenClawPluginDefinition,
+  ProviderBuiltInModelSuppressionContext as ProviderBuiltInModelSuppressionContextType,
+} from "../plugins/types.js";
+import { createCachedLazyValueGetter } from "./lazy-value.js";
+export type { OpenClawConfig } from "../config/types.openclaw.js";
 export type {
   PluginNotificationBinding,
   PluginNotificationCandidateV1,
@@ -9,13 +16,6 @@ export type {
   PluginNotificationEmitter,
   PluginNotificationEmitResult,
 } from "../plugins/notification-emitter.js";
-import type {
-  OpenClawPluginConfigSchema,
-  OpenClawPluginDefinition,
-  ProviderBuiltInModelSuppressionContext as ProviderBuiltInModelSuppressionContextType,
-} from "../plugins/types.js";
-import { createCachedLazyValueGetter } from "./lazy-value.js";
-export type { OpenClawConfig } from "../config/types.openclaw.js";
 
 export type {
   AgentHarness,

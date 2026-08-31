@@ -132,10 +132,14 @@ struct RootTabs: View {
     private enum PresentedSheet: Identifiable {
         case quickSetup
         case sessionDashboard(sessionKey: String, agentId: String?)
+        case pluginNotification(PluginNotificationDestination)
 
         var id: String {
             switch self {
-            case .quickSetup: "quick-setup"
+            case .quickSetup:
+                "quick-setup"
+            case let .pluginNotification(destination):
+                "plugin-notification:\(destination.sourceID):\(destination.tag)"
             case let .sessionDashboard(sessionKey, agentId):
                 "session-dashboard:\(agentId ?? ""):\(sessionKey)"
             }
@@ -739,8 +743,9 @@ struct RootTabs: View {
     }
 
     private func handlePluginNotificationNavigationRequest(_ requestID: Int) {
-        guard self.appModel.hasPendingPluginNotificationDestination(requestID) else { return }
+        guard let destination = self.appModel.consumePluginNotificationDestination(requestID) else { return }
         self.selectSidebarDestination(.chat)
+        self.presentedSheet = .pluginNotification(destination)
     }
 
     private func rootPresentation(_ content: some View) -> some View {
@@ -768,6 +773,11 @@ struct RootTabs: View {
                 case let .sessionDashboard(sessionKey, agentId):
                     NavigationStack {
                         SessionDashboardScreen(sessionKey: sessionKey, agentId: agentId)
+                    }
+                case let .pluginNotification(destination):
+                    NavigationStack {
+                        PluginNotificationDestinationScreen(destination: destination)
+                            .environment(self.appModel)
                     }
                 }
             }

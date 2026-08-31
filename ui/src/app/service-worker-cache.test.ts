@@ -755,7 +755,6 @@ type ServiceWorkerPushPayload = {
   renotify?: boolean;
   tag?: string;
   url?: string;
-  tag?: string;
   notification?: {
     version: 1;
     kind: "notify" | "clear";

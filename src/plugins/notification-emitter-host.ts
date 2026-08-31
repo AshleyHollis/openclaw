@@ -750,6 +750,5 @@ export function createHostPluginNotificationTransport(
   };
 }
 
-export function createHostPluginNotificationLedger(params: { stateDir?: string } = {}) {
-  return new SqlitePluginNotificationLedger(params);
-}
+export const createHostPluginNotificationLedger = (params: { stateDir?: string } = {}) =>
+  new SqlitePluginNotificationLedger(params);

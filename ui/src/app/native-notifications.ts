@@ -57,6 +57,23 @@ export type NativeNotificationsCapability = {
   dispose(): void;
 };
 
+export function subscribeNativeNotificationNavigation(
+  capability: NativeNotificationsCapability | null,
+  navigate: (search: string) => void,
+): (() => void) | undefined {
+  return capability?.subscribeNavigation((target) => {
+    navigate(
+      `?${new URLSearchParams({
+        plugin: target.pluginId,
+        id: target.tabId,
+        notification: "plugin-detail",
+        destination: target.destinationId,
+        record: target.recordId,
+      }).toString()}`,
+    );
+  });
+}
+
 function isNativeNotificationsPermission(value: unknown): value is NativeNotificationsPermission {
   return value === "granted" || value === "denied" || value === "notDetermined";
 }

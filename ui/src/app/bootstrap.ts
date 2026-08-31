@@ -51,7 +51,10 @@ import { startGatewayPageActivation } from "./gateway-page-activation.ts";
 import { createApplicationGateway } from "./gateway-store.ts";
 import { createNativeChatDrafts } from "./native-bridge.ts";
 import { startNativeLinkRouting } from "./native-link-routing.ts";
-import { createNativeNotificationsCapability } from "./native-notifications.ts";
+import {
+  createNativeNotificationsCapability,
+  subscribeNativeNotificationNavigation,
+} from "./native-notifications.ts";
 import { createApplicationOverlays } from "./overlays.ts";
 import { isBrowserPanelAvailable } from "./panel-availability.ts";
 import { createApplicationPlacementStartup } from "./session-placement-startup.ts";
@@ -495,19 +498,9 @@ export function bootstrapApplication(
     revalidate: (routeId) => router.revalidate(context, routeId),
     preload: (routeId, options) => router.preloadLocation(routeLocation(routeId, options), context),
   };
-  const stopNativeNotificationNavigation = nativeNotifications?.subscribeNavigation((target) => {
-    // The native bridge may only select a declared plugin record. Route loading rechecks
-    // the current authenticated tab projection and this navigation issues no Gateway mutation.
-    context.navigate("plugin", {
-      search: `?${new URLSearchParams({
-        plugin: target.pluginId,
-        id: target.tabId,
-        notification: "plugin-detail",
-        destination: target.destinationId,
-        record: target.recordId,
-      }).toString()}`,
-    });
-  });
+  subscribeNativeNotificationNavigation(nativeNotifications, (search) =>
+    context.navigate("plugin", { search }),
+  );
   return {
     context,
     router,
@@ -617,7 +610,6 @@ export function bootstrapApplication(
       theme.dispose();
       nativeChatDrafts.dispose();
       nativeLinkRouting.dispose();
-      stopNativeNotificationNavigation?.();
       nativeNotifications?.dispose();
       webPush.dispose();
       chatSubmissions.clear();
