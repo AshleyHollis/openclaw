@@ -162,6 +162,12 @@ describe("host plugin notification principal", () => {
         }),
       }),
     ).toBeUndefined();
+    expect(
+      capturePluginNotificationPrincipal({
+        pluginId: "board",
+        client: client({ invalidatedReason: "device-token-revoked" }),
+      }),
+    ).toBeUndefined();
   });
 
   it("keeps a bound principal usable after its request closes, then rejects shared auth rotation and revocation", async () => {
@@ -437,6 +443,20 @@ describe("host plugin notification transport", () => {
       }),
     );
     const call = mocks.sendWebPush.mock.calls[0]?.[0] as { payload: unknown };
+    expect(call.payload).toMatchObject({
+      notification: {
+        version: 1,
+        kind: "notify",
+        expiresAtMs: 20_000,
+        target: {
+          kind: "plugin-detail",
+          pluginId: "board",
+          tabId: "items",
+          destinationId: "item",
+          recordId: "record-1",
+        },
+      },
+    });
     expect(JSON.stringify(call.payload)).not.toMatch(/vapid|private.?key|token|authorization/i);
   });
 

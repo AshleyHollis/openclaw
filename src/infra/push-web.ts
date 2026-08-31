@@ -186,6 +186,19 @@ type WebPushPayload = {
   renotify?: boolean;
   tag?: string;
   url?: string;
+  /** Typed host navigation data, consumed by the Control UI service worker. */
+  notification?: {
+    version: 1;
+    kind: "notify" | "clear";
+    expiresAtMs: number;
+    target?: {
+      kind: "plugin-detail";
+      pluginId: string;
+      tabId: string;
+      destinationId: string;
+      recordId: string;
+    };
+  };
 };
 
 function applyVapidDetails(webPush: WebPushRuntime, keys: VapidKeyPair): void {

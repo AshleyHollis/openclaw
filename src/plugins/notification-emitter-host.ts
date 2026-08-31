@@ -188,7 +188,7 @@ function capturePluginNotificationTargetOwner(
   const operatorId = (client?.authenticatedOperatorId ?? client?.authenticatedUserId)?.trim();
   if (
     !client ||
-    client.invalidated ||
+    client.invalidatedReason !== undefined ||
     (!client.isDeviceTokenAuth && !client.usesSharedGatewayAuth) ||
     !deviceId ||
     !role ||
