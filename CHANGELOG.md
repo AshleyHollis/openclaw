@@ -34,6 +34,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- **Optional image decoding:** update the release’s managed Sharp dependency to 0.35.4 with libheif 1.23.2, fixing vulnerabilities in image decoding while preserving optional installation. See the plugin dependency caveat under Known issues.
 - **Workspace permissions:** apply permission changes to active runs and preserve session tool policies on cloud workers, so changing where work runs does not widen what it may do. Related #131947, #131661. (#132407, #131669) Thanks @jalehman, @anyech, and @sallyom.
 - **Private diagnostics:** redact values explicitly marked private in macOS app logs, keep credential values and prefixes out of routine Clawdock diagnostics, and preserve safe redaction of long secrets. Related #133736, #133535. (#133739, #133547, #134168)
 - **MCP response limits:** reject oversized HTTP responses and SSE events before parsing while preserving healthy long-lived streams and keepalives. Related #101554. (#123194) Thanks @SebTardif, @obviyus, and @aniruddhaadak80.
@@ -128,6 +129,7 @@ Docs: https://docs.openclaw.ai
 
 ### Known issues
 
+- **Optional memory plugin dependency:** standalone `@openclaw/memory-lancedb` installs can still resolve an older vulnerable Sharp version through an optional Transformers dependency. The plugin’s reviewed text-embedding and vector-storage path does not load that image adapter; this dependency exposure remains a packaging follow-up.
 - **Hindi and Korean token labels:** the native app’s token-usage label reverses the wording for used and total tokens; the counts and calculations are unchanged.
 
 ### Upcoming deprecations
@@ -142,7 +144,7 @@ These already-deprecated Plugin SDK import paths remain available in **2026.8.2*
 
 ### Complete contribution record
 
-This audited record covers the complete 0a6c013be5f50981b12d021b387b4fd1ea7e491e..5a40f4756e6170914a28402a6845335ed2bcd09d history: 783 in-range PRs + 0 retained seed-only PRs = 783 unique PRs. The generation manifest also supplies direct commits as editorial input; the grouped notes above prioritize user impact.
+This audited record covers the complete 0a6c013be5f50981b12d021b387b4fd1ea7e491e..e01f53cfa01302f03fed4797b0715d11945ddd41 history: 784 in-range PRs + 0 retained seed-only PRs = 784 unique PRs. The generation manifest also supplies direct commits as editorial input; the grouped notes above prioritize user impact.
 
 Shipped baseline exclusions: v2026.8.1 (10 PRs: #111111, #119051, #122346, #124471, #127978, #129694, #132960, #133260, #133454, #133471).
 
@@ -931,6 +933,7 @@ Shipped baseline exclusions: v2026.8.1 (10 PRs: #111111, #119051, #122346, #1244
 - **PR #134635** [test(openai): signal transcription socket creation and own cleanup](https://github.com/openclaw/openclaw/pull/134635)
 - **PR #134640** [refactor(migrate-hermes): consolidate provider and config plumbing](https://github.com/openclaw/openclaw/pull/134640)
 - **PR #134624** [test(memory): remove duplicate nested batch error case](https://github.com/openclaw/openclaw/pull/134624)
+- **PR #134870** [fix(release): restore evidence reuse and reconcile advisory ranges](https://github.com/openclaw/openclaw/pull/134870)
 ## 2026.8.1
 
 > **Release correction:** The package published as `2026.9.1-beta.1` was incorrectly versioned and is actually `2026.8.1-beta.4`. It should not be interpreted as newer than stable `2026.8.1`.
