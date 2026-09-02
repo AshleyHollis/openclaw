@@ -608,13 +608,9 @@ export function bootstrapApplication(
     skillWorkshopRevisionAdmissions,
     chatSubmissions,
     chatAttachmentHandoff,
-    navigate: (routeId, options) => {
-      void navigateAndWait(routeId, options);
-    },
+    navigate: (routeId, options) => void navigateAndWait(routeId, options),
     navigateAndWait,
-    replace: (routeId, options) => {
-      void navigateWithMode(routeId, options, "replace");
-    },
+    replace: (routeId, options) => void navigateWithMode(routeId, options, "replace"),
     revalidate: (routeId) => router.revalidate(context, routeId),
     preload: (routeId, options) => router.preloadLocation(routeLocation(routeId, options), context),
   };

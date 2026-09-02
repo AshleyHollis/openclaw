@@ -390,6 +390,13 @@ describe("push APNs send semantics", () => {
       environment: "sandbox",
       sendResult: { status: 200, apnsId: "apns-plugin-notification-id", body: "" },
     });
+    const target = {
+      kind: "plugin-detail" as const,
+      pluginId: "board",
+      tabId: "items",
+      destinationId: "item",
+      recordId: "record-1",
+    };
 
     await sendApnsPluginNotificationAlert({
       registration,
@@ -398,13 +405,7 @@ describe("push APNs send semantics", () => {
       body: "One item is ready",
       sourceId: "gateway-test",
       tag: "operation-tag",
-      target: {
-        kind: "plugin-detail",
-        pluginId: "board",
-        tabId: "items",
-        destinationId: "item",
-        recordId: "record-1",
-      },
+      target,
       auth,
       requestSender: send,
       expirationUnixSeconds: 1_700_000_000,
@@ -426,13 +427,7 @@ describe("push APNs send semantics", () => {
       nodeId: "ios-node-plugin-notification",
       sourceId: "gateway-test",
       tag: "operation-tag",
-      target: {
-        kind: "plugin-detail",
-        pluginId: "board",
-        tabId: "items",
-        destinationId: "item",
-        recordId: "record-1",
-      },
+      target,
     });
   });
 
