@@ -5,14 +5,18 @@ import { routePageSpec } from "../../app-route-paths.ts";
 type PluginTabRef = {
   pluginId: string;
   id: string;
+  notificationSearch?: string;
 };
 
 /** Reads the plugin tab reference from a `/plugin?plugin=<pluginId>&id=<tab>` search string. */
 export function pluginTabRefFromSearch(search: string): PluginTabRef {
   const params = new URLSearchParams(search);
+  const pluginId = params.get("plugin")?.trim() ?? "";
+  const id = params.get("id")?.trim() ?? "";
   return {
-    pluginId: params.get("plugin")?.trim() ?? "",
-    id: params.get("id")?.trim() ?? "",
+    pluginId,
+    id,
+    ...(params.has("notification") ? { notificationSearch: search } : {}),
   };
 }
 
@@ -32,11 +36,19 @@ export const page = definePage({
   loaderDeps: (_context, location) => location.search,
   loader: (_context, options) => pluginTabRefFromSearch(options.location.search),
   component: () =>
-    import("./plugin-page.ts").then(() => ({
+    import("./plugin-page.ts").then((pluginPage) => ({
       header: true,
       render: (data: unknown) => {
         const ref = (data ?? { pluginId: "", id: "" }) as PluginTabRef;
-        return html`<openclaw-plugin-page .pluginId=${ref.pluginId} .tabId=${ref.id}>
+        return html`<openclaw-plugin-page
+          .pluginId=${ref.pluginId}
+          .tabId=${ref.id}
+          .notificationTarget=${pluginPage.pluginNotificationNavigationFromSearch(
+            ref.notificationSearch,
+            ref.pluginId,
+            ref.id,
+          )}
+        >
         </openclaw-plugin-page>`;
       },
     })),

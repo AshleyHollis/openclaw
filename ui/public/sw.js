@@ -189,6 +189,43 @@ self.addEventListener("push", (event) => {
     data = { title: "OpenClaw", body: event.data.text() };
   }
 
+  const notification = data.notification;
+  const validTarget =
+    notification &&
+    notification.version === 1 &&
+    notification.kind === "notify" &&
+    notification.target &&
+    notification.target.kind === "plugin-detail" &&
+    typeof notification.target.pluginId === "string" &&
+    typeof notification.target.tabId === "string" &&
+    typeof notification.target.destinationId === "string" &&
+    typeof notification.target.recordId === "string" &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(notification.target.pluginId) &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(notification.target.tabId) &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(notification.target.destinationId) &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(notification.target.recordId)
+      ? notification.target
+      : null;
+  if (notification && notification.version === 1 && notification.kind === "clear") {
+    // A clear has no navigation or side effect beyond closing this host-owned tag.
+    event.waitUntil(
+      self.registration
+        .getNotifications({ tag: data.tag || "openclaw-notification" })
+        .then((items) => items.forEach((item) => item.close())),
+    );
+    return;
+  }
+  if (
+    notification &&
+    notification.version === 1 &&
+    notification.kind === "notify" &&
+    (!Number.isSafeInteger(notification.expiresAtMs) || notification.expiresAtMs <= Date.now())
+  ) {
+    // The host transport TTL is authoritative, but do not surface a delayed payload
+    // if a provider delivered it after its declared notification lifetime.
+    return;
+  }
+
   const title = data.title || "OpenClaw";
   const options = {
     body: data.body || "",
@@ -199,6 +236,7 @@ self.addEventListener("push", (event) => {
     data: {
       url: data.url || self.registration.scope,
       explicitUrl: Boolean(data.url),
+      pluginNotificationTarget: validTarget,
     },
   };
 

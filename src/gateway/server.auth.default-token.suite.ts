@@ -342,6 +342,7 @@ export function registerDefaultAuthTokenSuite(): void {
       const wsInitial = await openWs(port);
       let pairedDeviceToken: string | undefined;
       let recoveryScope: string | undefined;
+      let authorityId: string | undefined;
       try {
         const initial = await connectReq(wsInitial, {
           token,
@@ -355,7 +356,9 @@ export function registerDefaultAuthTokenSuite(): void {
         expect(typeof auth?.deviceToken).toBe("string");
         expect(auth?.recoveryScope).toMatch(/^[A-Za-z0-9_-]+$/u);
         expect(auth?.recoveryMigrationAllowed).toBe(true);
+        expect(auth?.authorityId).toMatch(/^[A-Za-z0-9_-]+$/u);
         expect(Object.keys(auth ?? {}).toSorted()).toEqual([
+          "authorityId",
           "deviceToken",
           "issuedAtMs",
           "recoveryMigrationAllowed",
@@ -365,6 +368,7 @@ export function registerDefaultAuthTokenSuite(): void {
         ]);
         pairedDeviceToken = auth?.deviceToken as string | undefined;
         recoveryScope = auth?.recoveryScope;
+        authorityId = auth?.authorityId;
       } finally {
         wsInitial.close();
       }
@@ -382,8 +386,10 @@ export function registerDefaultAuthTokenSuite(): void {
         expect(auth?.deviceToken).toBe(pairedDeviceToken);
         expect(auth?.recoveryScope).toBe(recoveryScope);
         expect(auth?.recoveryMigrationAllowed).toBe(true);
+        expect(auth?.authorityId).toBe(authorityId);
         expect(auth?.scopes).toEqual(["operator.read"]);
         expect(Object.keys(auth ?? {}).toSorted()).toEqual([
+          "authorityId",
           "deviceToken",
           "issuedAtMs",
           "recoveryMigrationAllowed",

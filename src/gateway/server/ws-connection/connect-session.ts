@@ -74,10 +74,6 @@ type AuthenticatedNodePairingAdmission = {
   generation?: NodePairingGeneration;
 };
 
-function isReleasedVersion(version: string): boolean {
-  return RELEASED_VERSION_RE.test(version);
-}
-
 export async function attachAuthenticatedGatewayConnect(
   context: GatewayConnectPhaseContext,
   state: DeviceAuthorizedGatewayConnect,
@@ -261,7 +257,9 @@ export async function attachAuthenticatedGatewayConnect(
       `security audit: identity scope grant elevated connection identity=${formatForLog(authenticatedUserId)} addedScopes=${addedIdentityScopes.join(",")} conn=${connId}`,
     );
   }
-
+  // Gateway token/password authentication represents the configured host operator but
+  // deliberately has no profile identity. Keep that privacy boundary while giving
+  // host-owned capabilities a stable subject across every authenticated mode.
   if (isClosed()) {
     await releasePendingNodePairingCleanup();
     setCloseCause("connect-aborted-before-register", {
@@ -420,6 +418,7 @@ export async function attachAuthenticatedGatewayConnect(
     usesSharedGatewayAuth: sessionUsesSharedGatewayAuth,
     sharedGatewaySessionGeneration: sessionSharedGatewaySessionGeneration,
     presenceKey,
+    authenticatedOperatorId: authenticatedUserId ?? "gateway:default-operator",
     ...(authenticatedUserId ? { authenticatedUserId } : {}),
     ...(authenticatedUserIsTailscaleProvider ? { authenticatedUserIsTailscaleProvider: true } : {}),
     ...(authenticatedUserProfile ? { authenticatedUserProfile } : {}),
@@ -490,8 +489,8 @@ export async function attachAuthenticatedGatewayConnect(
         clientVersion &&
         gatewayVersion &&
         clientVersion !== gatewayVersion &&
-        isReleasedVersion(gatewayVersion) &&
-        isReleasedVersion(clientVersion)
+        RELEASED_VERSION_RE.test(gatewayVersion) &&
+        RELEASED_VERSION_RE.test(clientVersion)
       ) {
         logWsControl.info(
           `node version mismatch conn=${connId} client=${formatForLog(clientLabel)} clientVersion=${formatForLog(clientVersion)} gatewayVersion=${gatewayVersion}; closing for supervisor restart`,

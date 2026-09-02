@@ -420,6 +420,70 @@ Telegram-specific; other channels keep their own interactive result contracts.
 
 ### Host hooks for workflow plugins
 
+### Sandboxed external-tab capability bridge
+
+An external Control UI tab may statically opt into protocol v1 with
+`capabilityBridge: { protocolVersion: 1, requiredMethods, optionalMethods }`.
+The arrays are disjoint and contain at most 32 method names. The host grants
+only the declared intersection of `sessions.create`, `chat.history`,
+`sessions.search`, `chat.send`, `ui.session.navigate`, and same-plugin
+`operator.read`/`operator.write` methods. There is no raw RPC, URL, shell,
+subscription, session-list/delete, or global-presentation capability.
+
+The host keeps the private `MessagePort` in its provenance-bound bootstrap so
+a source document that later navigates cannot inherit it. A tab sends bridge
+messages through its own window with:
+
+```ts
+window.postMessage(
+  {
+    type: "openclaw:capability-bridge-send",
+    protocolVersion: 1,
+    payload: { type: "openclaw:capability-bridge-hello", protocolVersion: 1 },
+  },
+  "*",
+);
+```
+
+The tab receives host envelopes as self-window messages with
+`type: "openclaw:capability-bridge-receive"`, `protocolVersion: 1`, and the
+bridge envelope in `payload`. Ignore messages whose `source` is not `window`
+or whose relay protocol version is not `1`. It must send the hello within ten
+seconds. The host responds only with:
+
+```ts
+{ type: "openclaw:capability-bridge-ready", protocolVersion: 1,
+  mode: "read-only" | "read-write", methods, missingRequiredMethods,
+  upgradeRequired, limits }
+```
+
+Requests are `{ type: "openclaw:capability-bridge-request", requestId,
+method, params, operationId? }`; responses echo `requestId` with either
+`result` or `{ code, message, retryable, retryAfterMs? }`. Reads use a fresh
+request id for retry. Mutations require a stable operation id; `chat.send`
+maps its host-derived plugin/tab/current-auth authority namespace to Gateway
+idempotency and can retry only with a fresh request id and the same operation
+id. The host retains each tab authority's bounded mutation reconciliation
+ledger across a transport remount. Its host-only namespace is stable across a
+parent reload for the same authenticated plugin/tab authority, so Core Session
+creation and chat idempotency remain safe. Plugin-owned writes without an
+authoritative idempotency contract receive a durable operation tombstone before
+dispatch; after a parent reload, retrying that operation returns
+`MUTATION_RECONCILIATION_REQUIRED` rather than invoking the method again.
+The namespace rotates for a different authenticated operator/generation.
+Older Gateways that do not provide the required opaque authority binding leave
+the tab on the authenticated read-only route. The same host namespace also
+scopes explicit Session keys, so identical logical operation ids from different
+tabs or operators never collide. Limits are 64 KiB
+request, 1 MiB response, eight concurrent requests, 60 requests/12 mutations
+per minute, ten-second hello, and 30-second request.
+
+Linked session authority is host-owned, tab-scoped, and frozen per port (zero
+to 200 keys); the current UI selection is never a grant. Search receives only
+the host-injected exact set, and history/send/navigation reject unlinked keys.
+An absent/incompatible bridge remains on the existing authenticated read-only
+route and never gains a GET write or trusted-sandbox fallback.
+
 Host hooks are the SDK seams for plugins that need to participate in the host
 lifecycle rather than only adding a provider, channel, or tool. They are
 generic contracts; Plan Mode can use them, but so can approval workflows,

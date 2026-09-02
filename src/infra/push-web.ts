@@ -199,6 +199,19 @@ type WebPushPayload = {
   renotify?: boolean;
   tag?: string;
   url?: string;
+  /** Typed host navigation data, consumed by the Control UI service worker. */
+  notification?: {
+    version: 1;
+    kind: "notify" | "clear";
+    expiresAtMs: number;
+    target?: {
+      kind: "plugin-detail";
+      pluginId: string;
+      tabId: string;
+      destinationId: string;
+      recordId: string;
+    };
+  };
 };
 
 function applyVapidDetails(webPush: WebPushRuntime, keys: VapidKeyPair): void {
@@ -319,6 +332,70 @@ export async function prepareWebPushNotificationSender(
   const webPush = await loadWebPushRuntime();
   applyVapidDetails(webPush, vapidKeys);
   return (params) => sendPreparedWebPushNotifications({ ...params, webPush, baseDir });
+}
+
+/** Deliver to one host-owned subscription without exposing VAPID material. */
+export async function sendWebPushNotification(params: {
+  subscriptionId: string;
+  payload: WebPushPayload;
+  ttlMs?: number;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  baseDir?: string;
+}): Promise<WebPushSendResult> {
+  assertLegacyWebPushMigrationComplete(params.baseDir);
+  const subscription = listWebPushSubscriptions(params.baseDir).find(
+    (entry) => entry.subscriptionId === params.subscriptionId,
+  );
+  if (!subscription) {
+    return {
+      ok: false,
+      subscriptionId: params.subscriptionId,
+      statusCode: 404,
+      error: "unknown subscription",
+    };
+  }
+  if (params.signal?.aborted) {
+    return {
+      ok: false,
+      subscriptionId: params.subscriptionId,
+      error: "notification attempt aborted before Web Push delivery",
+    };
+  }
+  const send = await prepareWebPushNotificationSender(params.baseDir);
+  const delivery = send({
+    subscriptions: [subscription],
+    payload: params.payload,
+    deliveryOptions: {
+      ...(params.ttlMs === undefined ? {} : { TTL: Math.max(0, Math.ceil(params.ttlMs / 1000)) }),
+      ...(params.timeoutMs === undefined ? {} : { timeout: params.timeoutMs }),
+    },
+  }).then(
+    (results) =>
+      results[0] ?? {
+        ok: false,
+        subscriptionId: params.subscriptionId,
+        error: "Web Push delivery produced no result",
+      },
+  );
+  if (!params.signal) {
+    return await delivery;
+  }
+  return await Promise.race([
+    delivery,
+    new Promise<WebPushSendResult>((resolve) => {
+      params.signal?.addEventListener(
+        "abort",
+        () =>
+          resolve({
+            ok: false,
+            subscriptionId: params.subscriptionId,
+            error: "notification attempt aborted during Web Push delivery",
+          }),
+        { once: true },
+      );
+    }),
+  ]);
 }
 
 export async function broadcastWebPush(

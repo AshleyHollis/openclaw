@@ -130,10 +130,14 @@ struct RootTabs: View {
 
     private enum PresentedSheet: Identifiable {
         case quickSetup
+        case pluginNotification(PluginNotificationDestination)
 
-        var id: Int {
+        var id: String {
             switch self {
-            case .quickSetup: 0
+            case .quickSetup:
+                "quick-setup"
+            case let .pluginNotification(destination):
+                "plugin-notification:\(destination.sourceID):\(destination.tag)"
             }
         }
     }
@@ -699,6 +703,8 @@ struct RootTabs: View {
         content
             .onAppear {
                 self.handleDashboardNavigationRequest(self.appModel.dashboardNavigationRequestID)
+                self.handlePluginNotificationNavigationRequest(
+                    self.appModel.pluginNotificationNavigationRequestID)
             }
             .onChange(of: self.onboardingRequestID) { _, _ in
                 self.evaluateOnboardingPresentation(force: true)
@@ -713,6 +719,9 @@ struct RootTabs: View {
             .onChange(of: self.appModel.dashboardNavigationRequestID) { _, requestID in
                 self.handleDashboardNavigationRequest(requestID)
             }
+            .onChange(of: self.appModel.pluginNotificationNavigationRequestID) { _, requestID in
+                self.handlePluginNotificationNavigationRequest(requestID)
+            }
             .onChange(of: self.appModel.gatewaySetupRequestID) { _, _ in
                 self.maybeOpenSettingsForGatewaySetup()
             }
@@ -726,6 +735,12 @@ struct RootTabs: View {
     private func handleDashboardNavigationRequest(_ requestID: Int) {
         guard self.appModel.consumeDashboardNavigationRequest(requestID) else { return }
         self.selectSidebarDestination(.overview)
+    }
+
+    private func handlePluginNotificationNavigationRequest(_ requestID: Int) {
+        guard let destination = self.appModel.consumePluginNotificationDestination(requestID) else { return }
+        self.selectSidebarDestination(.chat)
+        self.presentedSheet = .pluginNotification(destination)
     }
 
     private func rootPresentation(_ content: some View) -> some View {
@@ -750,6 +765,11 @@ struct RootTabs: View {
                     .environment(self.appModel)
                     .environment(self.gatewayController)
                     .openClawSheetChrome()
+                case let .pluginNotification(destination):
+                    NavigationStack {
+                        PluginNotificationDestinationScreen(destination: destination)
+                            .environment(self.appModel)
+                    }
                 }
             }
             .fullScreenCover(isPresented: self.$showOnboarding) {

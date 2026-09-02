@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { loadOrCreateProcessDeviceIdentity } from "../infra/device-identity.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
 import { resolveUserPath } from "../utils.js";
@@ -14,6 +15,19 @@ import {
   schedulePluginSessionTurn,
   unschedulePluginSessionTurnsByTag,
 } from "./host-hook-scheduled-turns.js";
+import {
+  capturePluginNotificationPrincipal,
+  createHostPluginNotificationLedger,
+  createHostPluginNotificationTransport,
+  isPluginNotificationPrincipalCurrent,
+  listPluginNotificationTargets,
+} from "./notification-emitter-host.js";
+import {
+  createPluginNotificationEmitter,
+  PluginNotificationCoordinator,
+  validatePluginNotificationDeclaration,
+  type PluginNotificationDeclarationV1,
+} from "./notification-emitter.js";
 import { isPluginRegistryActivated, isPluginRegistryRetired } from "./registry-lifecycle.js";
 import type { PluginRegistrars } from "./registry-registrars.js";
 import type { PluginRuntimeResolver } from "./registry-runtime.js";
@@ -24,6 +38,10 @@ import {
   type PluginSideEffectGuard,
 } from "./registry-state.js";
 import type { PluginRecord } from "./registry-types.js";
+import {
+  getPluginRuntimeGatewayNotificationPrincipal,
+  getPluginRuntimeGatewayRequestScope,
+} from "./runtime/gateway-request-scope.js";
 import type { OpenClawPluginApi, PluginLogger, PluginRegistrationMode } from "./types.js";
 
 // Registration exposes these async operations without loading session storage or delivery.
@@ -45,6 +63,19 @@ function resolvePluginPath(input: string, rootDir: string | undefined): string {
     return resolveUserPath(input);
   }
   return rootDir ? path.resolve(rootDir, trimmed) : resolveUserPath(input);
+}
+
+function capturePluginNotificationDeclaration(
+  declaration: PluginNotificationDeclarationV1,
+): PluginNotificationDeclarationV1 {
+  // Registry state is host-owned. Do not retain a plugin-controlled declaration object
+  // that could be modified after its bounded destination/permission validation succeeds.
+  return {
+    version: 1,
+    id: declaration.id,
+    requiredScopes: [...declaration.requiredScopes],
+    destinations: declaration.destinations.map((destination) => ({ ...destination })),
+  };
 }
 
 export function createPluginApiFactory(
@@ -176,6 +207,79 @@ export function createPluginApiFactory(
       pluginConfig: params.pluginConfig,
       runtime: resolvePluginRuntime(record.id),
       logger: normalizeLogger(registryParams.logger),
+      registerNotificationEmitter: (declaration) => {
+        const existingDeclarations = registry.notificationEmitters.filter(
+          (entry) => entry.pluginId === record.id,
+        );
+        const valid = validatePluginNotificationDeclaration(declaration, {
+          pluginId: record.id,
+          existingCount: existingDeclarations.length,
+        });
+        if (
+          !valid ||
+          existingDeclarations.some((entry) => entry.declaration.id === declaration.id)
+        ) {
+          pushDiagnostic({
+            level: "error",
+            pluginId: record.id,
+            source: record.source,
+            message: "invalid notification emitter declaration",
+          });
+          return undefined;
+        }
+        const capturedDeclaration = capturePluginNotificationDeclaration(declaration);
+        // Registration order is intentionally irrelevant: control UI tabs can be registered
+        // before or after this declaration, so ownership is checked at use after activation.
+        registry.notificationEmitters.push({
+          pluginId: record.id,
+          declaration: capturedDeclaration,
+        });
+        return createPluginNotificationEmitter({
+          declaration: capturedDeclaration,
+          coordinator: new PluginNotificationCoordinator({
+            pluginId: record.id,
+            declaration: capturedDeclaration,
+            targets: (principal) =>
+              typeof principal === "string"
+                ? []
+                : listPluginNotificationTargets(
+                    principal,
+                    undefined,
+                    registryParams.hostServices?.getRequiredSharedGatewaySessionGeneration,
+                  ),
+            transport: createHostPluginNotificationTransport({
+              gatewayConfig: params.config.gateway,
+            }),
+            transportSourceId: () => loadOrCreateProcessDeviceIdentity().deviceId,
+            ledger: createHostPluginNotificationLedger(),
+          }),
+          isPluginActive: isLoadedRecordInLiveRegistry,
+          isDeclarationActive: () =>
+            validatePluginNotificationDeclaration(capturedDeclaration, {
+              pluginId: record.id,
+              existingCount: existingDeclarations.length,
+              resolveTab: (pluginId, tabId) =>
+                registry.controlUiDescriptors.some(
+                  (entry) =>
+                    entry.pluginId === pluginId &&
+                    entry.descriptor.surface === "tab" &&
+                    entry.descriptor.id === tabId,
+                ),
+            }),
+          capturePrincipal: () =>
+            capturePluginNotificationPrincipal({
+              pluginId: record.id,
+              client: getPluginRuntimeGatewayRequestScope()?.client,
+              binding: getPluginRuntimeGatewayNotificationPrincipal(),
+            }),
+          isPrincipalCurrent: (principal) =>
+            isPluginNotificationPrincipalCurrent({
+              principal,
+              getRequiredSharedGatewaySessionGeneration:
+                registryParams.hostServices?.getRequiredSharedGatewaySessionGeneration,
+            }),
+        });
+      },
       resolvePath: (input: string) => resolvePluginPath(input, record.rootDir),
       handlers: {
         ...(registrationCapabilities.capabilityHandlers

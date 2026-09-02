@@ -20,6 +20,7 @@ import {
   installGatewayTestHooks,
   onceMessage,
   readConnectChallengeNonce,
+  rpcReq,
   testState,
   trackConnectChallengeNonce,
   withGatewayServer,
@@ -97,6 +98,7 @@ async function connectBrowser(params: {
   identityPath: string;
   scopes?: string[];
   token?: string;
+  deviceToken?: string;
   trustedProxy?: boolean;
   declaredProxyScopes?: string;
 }) {
@@ -109,6 +111,7 @@ async function connectBrowser(params: {
   try {
     return await connectReq(ws, {
       ...(params.token ? { token: params.token } : { skipDefaultAuth: true }),
+      ...(params.deviceToken ? { deviceToken: params.deviceToken } : {}),
       ...(params.scopes === undefined ? {} : { scopes: params.scopes }),
       client: CONTROL_UI_CLIENT,
       deviceIdentityPath: params.identityPath,
@@ -642,5 +645,48 @@ describe("trusted-proxy browser device auto-approval", () => {
     const paired = await getPairedDevice(identity.deviceId);
     expect(paired?.approvedScopes).toEqual(["operator.read"]);
     expect(paired?.approvedVia).not.toBe("trusted-proxy");
+  });
+
+  test("binds a proxy-authenticated paired browser without sending its stored device token", async () => {
+    await writeGatewayAuthConfig({
+      mode: "trusted-proxy",
+      deviceAutoApprove: { enabled: true },
+    });
+    const identityPath = deviceIdentityPath("trusted-proxy-device-binding");
+    const identity = loadOrCreateDeviceIdentity({ path: identityPath });
+
+    await withGatewayServer(async ({ port }) => {
+      expect(
+        (
+          await connectBrowser({
+            port,
+            identityPath,
+            scopes: ["operator.write"],
+          })
+        ).ok,
+      ).toBe(true);
+      const paired = await getPairedDevice(identity.deviceId);
+      expect(paired?.tokens?.operator?.token).toEqual(expect.any(String));
+
+      const ws = await openBrowserWs(port, trustedProxyHeaders());
+      try {
+        const connected = await connectReq(ws, {
+          skipDefaultAuth: true,
+          scopes: ["operator.write"],
+          client: CONTROL_UI_CLIENT,
+          deviceIdentityPath: identityPath,
+        });
+        expect(connected.ok).toBe(true);
+        const subscribed = await rpcReq(ws, "push.web.subscribe", {
+          endpoint: "https://push.example.test/subscription",
+          keys: { p256dh: "p256dh", auth: "auth" },
+        });
+        // The shared-auth handshake re-verifies the paired browser generation;
+        // the browser never sends its stored device token back to the gateway.
+        expect(subscribed.ok).toBe(true);
+      } finally {
+        ws.close();
+      }
+    });
   });
 });

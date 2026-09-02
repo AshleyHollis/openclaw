@@ -493,6 +493,24 @@ describe("plugin tabs route", () => {
     // Distinct plugins with the same local tab id stay distinct.
     expect(pluginTabKey({ pluginId: "other", id: "logbook" })).not.toBe(pluginTabKey(ref));
   });
+
+  it("preserves a notification query for the lazy plugin page", () => {
+    expect(
+      pluginTabRefFromSearch(
+        "?plugin=board&id=items&notification=plugin-detail&destination=item&record=record-1",
+      ),
+    ).toMatchObject({
+      notificationSearch:
+        "?plugin=board&id=items&notification=plugin-detail&destination=item&record=record-1",
+    });
+  });
+
+  it("stays out of the customizable static sidebar routes", () => {
+    expect(SIDEBAR_NAV_ROUTES).not.toContain("plugin");
+    expect(SIDEBAR_NAV_ROUTES).toContain("plugins");
+    expect(routeIdFromPath("/settings/plugins")).toBe("plugins");
+    expect(routeIdFromPath("/plugins")).toBeNull();
+  });
 });
 
 describe("SIDEBAR_NAV_ROUTES", () => {

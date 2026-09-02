@@ -24,7 +24,40 @@ type ControlUiPluginTab = {
   group?: "control" | "agent";
   order?: number;
   requiresGatewayAuth?: boolean;
+  capabilityBridge?: ControlUiCapabilityBridgeGrant;
 };
+
+const CONTROL_UI_CAPABILITY_BRIDGE_LIMITS = {
+  maxRequestBytes: 64 * 1024,
+  maxResponseBytes: 1024 * 1024,
+  maxConcurrentRequests: 8,
+  maxRequestsPerMinute: 60,
+  maxMutationsPerMinute: 12,
+  handshakeTimeoutMs: 10_000,
+  requestTimeoutMs: 30_000,
+} as const;
+
+const CONTROL_UI_CAPABILITY_BRIDGE_MAX_LINKED_SESSION_KEYS = 200;
+
+type ControlUiCapabilityBridgeGrant = {
+  protocolVersion: 1;
+  mode: "read-only" | "read-write";
+  methods: string[];
+  readMethods: string[];
+  missingRequiredMethods: string[];
+  upgradeRequired: boolean;
+  /** Authenticated plugin/tab links; never rendered into the iframe document. */
+  linkedSessionKeys: string[];
+  limits: typeof CONTROL_UI_CAPABILITY_BRIDGE_LIMITS;
+};
+
+const CORE_BRIDGE_METHODS = new Map<string, "read" | "write" | "local">([
+  ["sessions.create", "write"],
+  ["chat.history", "read"],
+  ["sessions.search", "read"],
+  ["chat.send", "write"],
+  ["ui.session.navigate", "local"],
+]);
 
 type ControlUiPluginWidgetKind = {
   pluginId: string;
@@ -64,6 +97,37 @@ type ControlUiDescriptorEntry = {
   descriptor: PluginControlUiDescriptor;
 };
 
+type PluginOwnedSessionEntry = {
+  initializationPending?: unknown;
+  pluginOwnerId?: unknown;
+};
+
+/**
+ * Projects the durable plugin ownership fact into a bounded tab input. The
+ * caller supplies only the host's session-store snapshot; iframe input never
+ * reaches this function or expands a port's initial authority.
+ */
+export function listControlUiCapabilityBridgeLinkedSessionKeys(
+  entries: Iterable<readonly [string, PluginOwnedSessionEntry]>,
+): ReadonlyMap<string, readonly string[]> {
+  const linksByPlugin = new Map<string, string[]>();
+  for (const [sessionKey, entry] of [...entries].toSorted(([left], [right]) =>
+    left.localeCompare(right),
+  )) {
+    const pluginId = typeof entry.pluginOwnerId === "string" ? entry.pluginOwnerId.trim() : "";
+    if (!pluginId || entry.initializationPending === true || !sessionKey) {
+      continue;
+    }
+    const links = linksByPlugin.get(pluginId) ?? [];
+    if (links.length >= CONTROL_UI_CAPABILITY_BRIDGE_MAX_LINKED_SESSION_KEYS) {
+      continue;
+    }
+    links.push(sessionKey);
+    linksByPlugin.set(pluginId, links);
+  }
+  return linksByPlugin;
+}
+
 export type ControlUiPluginTabAuthGrant = {
   pluginId: string;
   path: string;
@@ -76,6 +140,8 @@ export type ControlUiPluginTabAuthGrant = {
 function projectControlUiPluginTabs(
   entries: readonly ControlUiDescriptorEntry[],
   scopes: readonly string[],
+  availableMethods: readonly string[],
+  linkedSessionKeysByPlugin: ReadonlyMap<string, readonly string[]>,
 ): ControlUiPluginTab[] {
   const tabs: ControlUiPluginTab[] = [];
   for (const entry of entries) {
@@ -89,6 +155,13 @@ function projectControlUiPluginTabs(
     if (!visible) {
       continue;
     }
+    const capabilityBridge = projectCapabilityBridge(
+      entry.pluginId,
+      descriptor,
+      scopes,
+      availableMethods,
+      linkedSessionKeysByPlugin.get(entry.pluginId) ?? [],
+    );
     tabs.push({
       pluginId: entry.pluginId,
       id: descriptor.id,
@@ -99,6 +172,7 @@ function projectControlUiPluginTabs(
       placement: descriptor.placement,
       group: descriptor.group,
       order: descriptor.order,
+      ...(capabilityBridge ? { capabilityBridge } : {}),
     });
   }
   // Deterministic ordering keeps hello payloads stable across connects.
@@ -113,19 +187,36 @@ function projectControlUiPluginTabs(
 /** Lists active plugins' tab descriptors visible to the presented scopes. */
 export function listControlUiPluginTabs(
   scopes: readonly string[],
-  opts: { requireGatewayAuthGrant?: boolean } = {},
+  opts: {
+    requireGatewayAuthGrant?: boolean;
+    availableMethods?: readonly string[];
+    linkedSessionKeysByPlugin?: ReadonlyMap<string, readonly string[]>;
+  } = {},
 ): ControlUiPluginTab[] {
   const registry = getActivePluginSessionExtensionRegistry();
-  return projectControlUiPluginTabs(registry?.controlUiDescriptors ?? [], scopes).flatMap((tab) => {
+  return projectControlUiPluginTabs(
+    registry?.controlUiDescriptors ?? [],
+    scopes,
+    opts.availableMethods ?? [],
+    opts.linkedSessionKeysByPlugin ?? new Map(),
+  ).flatMap((tab) => {
     const route = registry ? findControlUiTabGatewayRoute(registry, tab) : undefined;
     if (route === null) {
       // Dispatch authenticates against its first matching gateway route. Hide
       // a descriptor whose owning plugin cannot receive that request.
       return [];
     }
-    return route && opts.requireGatewayAuthGrant !== false
-      ? [{ ...tab, requiresGatewayAuth: true }]
-      : [tab];
+    const { capabilityBridge, ...tabWithoutCapabilityBridge } = tab;
+    const authenticatedRoute = route && opts.requireGatewayAuthGrant !== false;
+    return authenticatedRoute
+      ? [
+          {
+            ...tabWithoutCapabilityBridge,
+            ...(capabilityBridge ? { capabilityBridge } : {}),
+            requiresGatewayAuth: true,
+          },
+        ]
+      : [tabWithoutCapabilityBridge];
   });
 }
 
@@ -169,7 +260,12 @@ export function listControlUiPluginTabAuthGrants(
     return [];
   }
   const grants = new Map<string, ControlUiPluginTabAuthGrant>();
-  for (const tab of projectControlUiPluginTabs(registry.controlUiDescriptors ?? [], callerScopes)) {
+  for (const tab of projectControlUiPluginTabs(
+    registry.controlUiDescriptors ?? [],
+    callerScopes,
+    [],
+    new Map(),
+  )) {
     if (!tab.path) {
       continue;
     }
@@ -193,4 +289,81 @@ export function listControlUiPluginTabAuthGrants(
     });
   }
   return [...grants.values()];
+}
+
+function projectCapabilityBridge(
+  pluginId: string,
+  descriptor: PluginControlUiDescriptor,
+  scopes: readonly string[],
+  availableMethods: readonly string[],
+  initialLinkedSessionKeys: readonly string[],
+): ControlUiCapabilityBridgeGrant | undefined {
+  const declaration = descriptor.capabilityBridge;
+  if (!declaration || descriptor.surface !== "tab") {
+    return undefined;
+  }
+  const available = new Set(availableMethods);
+  const registry = getActivePluginSessionExtensionRegistry();
+  const registered = new Map(
+    (registry?.gatewayMethodDescriptors ?? []).map((method) => [method.name, method]),
+  );
+  const kind = (method: string): "read" | "write" | "local" | undefined => {
+    const core = CORE_BRIDGE_METHODS.get(method);
+    if (core) {
+      return core;
+    }
+    const candidate = registered.get(method);
+    if (
+      candidate?.owner.kind === "plugin" &&
+      candidate.owner.pluginId === pluginId &&
+      (candidate.scope === READ_SCOPE || candidate.scope === "operator.write")
+    ) {
+      return candidate.scope === READ_SCOPE ? "read" : "write";
+    }
+    return undefined;
+  };
+  const permitted = (method: string) => {
+    const methodKind = kind(method);
+    if (!methodKind) {
+      return false;
+    }
+    if (methodKind === "local") {
+      return authorizeOperatorScopesForRequiredScope(READ_SCOPE, scopes).allowed;
+    }
+    return (
+      available.has(method) &&
+      authorizeOperatorScopesForRequiredScope(
+        methodKind === "read" ? READ_SCOPE : "operator.write",
+        scopes,
+      ).allowed
+    );
+  };
+  const declared = [...declaration.requiredMethods, ...declaration.optionalMethods];
+  const missingRequiredMethods = declaration.requiredMethods.filter((method) => !permitted(method));
+  // Unknown required plugin methods are conservative mutations: never leave an
+  // optional write enabled when a required capability disappeared after upgrade.
+  const missingRequiredWrite = declaration.requiredMethods.some(
+    (method) => kind(method) !== "read" && kind(method) !== "local" && !permitted(method),
+  );
+  const methods = declared.filter(
+    (method) => permitted(method) && !(missingRequiredWrite && kind(method) === "write"),
+  );
+  const readMethods = methods.filter(
+    (method) => kind(method) === "read" || kind(method) === "local",
+  );
+  return {
+    protocolVersion: 1,
+    mode: methods.some((method) => kind(method) === "write") ? "read-write" : "read-only",
+    methods,
+    readMethods,
+    missingRequiredMethods,
+    upgradeRequired: missingRequiredWrite,
+    // The authenticated server supplies this immutable, tab-owned input from
+    // durable plugin ownership. A browser selection or iframe request is never
+    // consulted when granting a port.
+    linkedSessionKeys: [...new Set(initialLinkedSessionKeys)]
+      .filter((key): key is string => typeof key === "string" && key.length > 0)
+      .slice(0, CONTROL_UI_CAPABILITY_BRIDGE_MAX_LINKED_SESSION_KEYS),
+    limits: CONTROL_UI_CAPABILITY_BRIDGE_LIMITS,
+  };
 }
