@@ -3,6 +3,7 @@ import type { GatewayControlUiPluginTab, GatewayHelloOk } from "../../api/gatewa
 import type { RouteId } from "../../app-route-paths.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "../../app/context.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
+import { pluginNotificationNavigationFromSearch } from "./plugin-notification-navigation.ts";
 import { externalTabBridgeGrant } from "./plugin-page.test-helpers.ts";
 import { PluginPage } from "./plugin-page.ts";
 
@@ -28,6 +29,29 @@ describe("PluginPage notification capability bridge", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("accepts only bounded typed notification targets for the declared tab", () => {
+    expect(
+      pluginNotificationNavigationFromSearch(
+        "?notification=plugin-detail&destination=item&record=record-1",
+        "board",
+        "items",
+      ),
+    ).toEqual({
+      kind: "plugin-detail",
+      pluginId: "board",
+      tabId: "items",
+      destinationId: "item",
+      recordId: "record-1",
+    });
+    expect(
+      pluginNotificationNavigationFromSearch(
+        "?notification=plugin-detail&destination=item&record=https://outside.test",
+        "board",
+        "items",
+      ),
+    ).toBeUndefined();
   });
 
   it("loads the provenance-bound bridge document with the bounded notification destination", async () => {
