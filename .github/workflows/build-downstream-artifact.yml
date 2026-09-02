@@ -81,7 +81,9 @@ jobs:
           git -C candidate archive --format=tar.gz --prefix=openclaw/ \
             --output "$RUNNER_TEMP/openclaw-source.tar.gz" "$EXPECTED_SOURCE_COMMIT"
           source_digest="sha256:$(sha256sum "$RUNNER_TEMP/openclaw-source.tar.gz" | cut -d ' ' -f1)"
-          build_timestamp="$(git -C candidate show -s --format=%cI "$EXPECTED_SOURCE_COMMIT")"
+          commit_epoch="$(git -C candidate show -s --format=%ct "$EXPECTED_SOURCE_COMMIT")"
+          [[ "$commit_epoch" =~ ^[0-9]+$ ]]
+          build_timestamp="$(date -u -d "@$commit_epoch" +%Y-%m-%dT%H:%M:%SZ)"
           short_commit="${EXPECTED_SOURCE_COMMIT:0:8}"
           {
             printf 'source_digest=%s\n' "$source_digest"
