@@ -184,10 +184,12 @@ jobs:
               openclaw --version | grep -F "$EXPECTED_VERSION"
               ! command -v qmd
               test ! -e /opt/qmd-runtime
-              command -v chromium
+              browser_path="$(node -e "const { chromium } = require(\"playwright-core\"); process.stdout.write(chromium.executablePath())")"
+              test -n "$browser_path"
+              test -x "$browser_path"
               for plugin in codex discord llama-cpp; do
                 test -f "/app/extensions/$plugin/package.json"
-                test -f "/app/extensions/$plugin/dist/index.js"
+                test -f "/app/extensions/$plugin/index.ts"
                 test "$(node -p "require(\"/app/extensions/$plugin/package.json\").version")" = "$EXPECTED_VERSION"
               done
               state="$(mktemp -d)"
@@ -197,9 +199,32 @@ jobs:
                 openclaw plugins list --json > "$state/plugins.json"
               node - "$state/plugins.json" <<"NODE"
           const fs = require("node:fs");
+          const path = require("node:path");
+          const { createRequire } = require("node:module");
           const plugins = JSON.parse(fs.readFileSync(process.argv[2], "utf8")).plugins ?? [];
           for (const id of ["codex", "discord", "llama-cpp"]) {
             if (!plugins.some((plugin) => plugin.id === id)) throw new Error(`missing ${id} plugin`);
+          }
+
+          function resolvedPackageVersion(pluginDir, packageName) {
+            const requireFromPlugin = createRequire(`/app/extensions/${pluginDir}/package.json`);
+            let current = path.dirname(requireFromPlugin.resolve(packageName));
+            while (current !== path.dirname(current)) {
+              const manifest = path.join(current, "package.json");
+              if (fs.existsSync(manifest)) {
+                const parsed = JSON.parse(fs.readFileSync(manifest, "utf8"));
+                if (parsed.name === packageName) return parsed.version;
+              }
+              current = path.dirname(current);
+            }
+            throw new Error(`could not resolve ${packageName} from ${pluginDir}`);
+          }
+
+          if (resolvedPackageVersion("codex", "@openai/codex") !== "0.151.0") {
+            throw new Error("packaged Codex runtime is not 0.151.0");
+          }
+          for (const dependency of ["@discordjs/voice", "discord-api-types", "libopus-wasm"]) {
+            resolvedPackageVersion("discord", dependency);
           }
           NODE
             '
