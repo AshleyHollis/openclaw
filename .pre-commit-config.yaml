@@ -10,9 +10,12 @@ repos:
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
-        exclude: '^(docs/|dist/|vendor/|.*\.snap$)'
+        # These paths contain generated, opaque, or whitespace-sensitive data.
+        # Keep file-hygiene hooks from rewriting released fixtures and patches.
+        exclude: &file_hygiene_exclusions >-
+          ^(docs/|dist/|vendor/|.*\.snap$|appcast\.xml$|apps/android/THIRD_PARTY_LICENSES/|apps/android/app/schemas/|apps/android/app/src/main/assets/katex/katex\.min\.js$|apps/ios/(ActivityWidget|ShareExtension)/[^/]+\.lproj/InfoPlist\.strings$|apps/shared/OpenClawKit/Tests/OpenClawKitTests/ChatMarkdownDisplayPreprocessorTests\.swift$|patches/|scripts/docs-i18n/testdata/|ui/public/)
       - id: end-of-file-fixer
-        exclude: '^(docs/|dist/|vendor/|.*\.snap$)'
+        exclude: *file_hygiene_exclusions
       - id: check-yaml
         args: [--allow-multiple-documents]
       - id: check-added-large-files
