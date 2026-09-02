@@ -494,25 +494,15 @@ describe("plugin tabs route", () => {
     expect(pluginTabKey({ pluginId: "other", id: "logbook" })).not.toBe(pluginTabKey(ref));
   });
 
-  it("accepts only bounded typed notification targets for the declared tab", () => {
+  it("preserves a notification query for the lazy plugin page", () => {
     expect(
       pluginTabRefFromSearch(
         "?plugin=board&id=items&notification=plugin-detail&destination=item&record=record-1",
       ),
     ).toMatchObject({
-      notificationTarget: {
-        kind: "plugin-detail",
-        pluginId: "board",
-        tabId: "items",
-        destinationId: "item",
-        recordId: "record-1",
-      },
+      notificationSearch:
+        "?plugin=board&id=items&notification=plugin-detail&destination=item&record=record-1",
     });
-    expect(
-      pluginTabRefFromSearch(
-        "?plugin=board&id=items&notification=plugin-detail&destination=item&record=https://outside.test",
-      ).notificationTarget,
-    ).toBeUndefined();
   });
 
   it("stays out of the customizable static sidebar routes", () => {

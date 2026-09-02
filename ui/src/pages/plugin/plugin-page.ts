@@ -34,7 +34,13 @@ import {
 import { sessionNavigationTarget } from "../../lib/sessions/route-navigation.ts";
 import { OpenClawLightDomContentsElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
-import { pluginTabKey, type PluginNotificationNavigation } from "./route.ts";
+import type { PluginNotificationNavigation } from "./plugin-notification-navigation.ts";
+import { pluginTabKey } from "./route.ts";
+
+export { pluginNotificationNavigationFromSearch } from "./plugin-notification-navigation.ts";
+
+const BRIDGE_READ_ONLY_NOTICE =
+  "Capability bridge unavailable or needs an update; read-only mode is active.";
 
 /**
  * Bundled plugin tab views ship with the Control UI and render natively; every
@@ -1167,9 +1173,7 @@ export class PluginPage extends OpenClawLightDomContentsElement {
       return html`
         <section class="plugin-tab-embed">
           ${info.requiresGatewayAuth === true && (!bridgeEnabled || bridge.upgradeRequired)
-            ? html`<p class="plugin-tab-embed__notice" role="status">
-                ${t("pluginTabs.bridgeReadOnlyNotice")}
-              </p>`
+            ? html`<p class="plugin-tab-embed__notice" role="status">${BRIDGE_READ_ONLY_NOTICE}</p>`
             : nothing}
           ${keyed(
             frameKey,
