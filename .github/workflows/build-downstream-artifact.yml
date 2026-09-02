@@ -145,13 +145,23 @@ jobs:
             src/components/exec-approval.test.ts \
             src/components/terminal/terminal-file-upload.test.ts
 
+      - name: Prepare the source-matched plugin runtime recipe
+        id: packaging
+        run: |
+          set -euo pipefail
+          node downstream/scripts/render-stable-runtime-dockerfile.mjs \
+            candidate/Dockerfile "$RUNNER_TEMP/Dockerfile.stable-runtime"
+          grep -F 'FROM upstream-runtime AS production' "$RUNNER_TEMP/Dockerfile.stable-runtime"
+          grep -F '/opt/openclaw-plugin-runtime' "$RUNNER_TEMP/Dockerfile.stable-runtime"
+          printf 'recipe_digest=sha256:%s\n' "$(sha256sum "$RUNNER_TEMP/Dockerfile.stable-runtime" | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
-      - name: Build the clean upstream OCI image once with SBOM and provenance
+      - name: Build the clean upstream OCI image with source-matched plugin runtimes
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: candidate
-          file: candidate/Dockerfile
+          file: ${{ runner.temp }}/Dockerfile.stable-runtime
           platforms: linux/amd64
           outputs: type=oci,dest=${{ runner.temp }}/openclaw-stable.oci.tar
           sbom: true
@@ -161,6 +171,7 @@ jobs:
             OPENCLAW_BUILD_TIMESTAMP=${{ steps.source.outputs.build_timestamp }}
             OPENCLAW_EXTENSIONS=${{ env.OPENCLAW_EXTENSIONS }}
             OPENCLAW_INSTALL_BROWSER=1
+            OPENCLAW_VERSION=${{ env.EXPECTED_VERSION }}
 
       - name: Load the exact OCI image for local checks
         env:
@@ -184,6 +195,7 @@ jobs:
               openclaw --version | grep -F "$EXPECTED_VERSION"
               ! command -v qmd
               test ! -e /opt/qmd-runtime
+              test -d /opt/openclaw-plugin-runtime
               browser_path="$(node -e "const { chromium } = require(\"playwright-core\"); process.stdout.write(chromium.executablePath())")"
               test -n "$browser_path"
               test -x "$browser_path"
@@ -194,20 +206,43 @@ jobs:
               done
               state="$(mktemp -d)"
               trap "rm -rf \"$state\"" EXIT
-              mkdir -p "$state/home"
+              mkdir -p "$state/home" "$state/npm"
+              cp -a /opt/openclaw-plugin-runtime/. "$state/npm/"
+              node - "$state/openclaw.json" <<"NODE"
+          const fs = require("node:fs");
+          fs.writeFileSync(process.argv[2], `${JSON.stringify({
+            plugins: {
+              allow: ["codex", "discord", "llama-cpp"],
+              entries: {
+                codex: { enabled: true },
+                discord: { enabled: true },
+                "llama-cpp": { enabled: true },
+              },
+            },
+          })}\n`, { mode: 0o600 });
+          NODE
               HOME="$state/home" OPENCLAW_STATE_DIR="$state" OPENCLAW_SKIP_CHANNELS=1 OPENCLAW_SKIP_CRON=1 \
-                openclaw plugins list --json > "$state/plugins.json"
-              node - "$state/plugins.json" <<"NODE"
+                openclaw plugins list --enabled --json > "$state/plugins.json"
+              node - "$state/plugins.json" "$state/npm" <<"NODE"
           const fs = require("node:fs");
           const path = require("node:path");
           const { createRequire } = require("node:module");
           const plugins = JSON.parse(fs.readFileSync(process.argv[2], "utf8")).plugins ?? [];
           for (const id of ["codex", "discord", "llama-cpp"]) {
-            if (!plugins.some((plugin) => plugin.id === id)) throw new Error(`missing ${id} plugin`);
+            const plugin = plugins.find((entry) => entry.id === id);
+            if (!plugin) throw new Error(`missing ${id} plugin`);
+            if (plugin.status !== "loaded" || plugin.enabled !== true) {
+              throw new Error(`${id} plugin is not enabled and loaded`);
+            }
+            if (plugin.dependencyStatus?.requiredInstalled !== true) {
+              throw new Error(`${id} plugin runtime dependencies are incomplete`);
+            }
           }
 
           function resolvedPackageVersion(pluginDir, packageName) {
-            const requireFromPlugin = createRequire(`/app/extensions/${pluginDir}/package.json`);
+            const requireFromPlugin = createRequire(
+              `${process.argv[3]}/node_modules/${pluginDir}/package.json`,
+            );
             let current = path.dirname(requireFromPlugin.resolve(packageName));
             while (current !== path.dirname(current)) {
               const manifest = path.join(current, "package.json");
@@ -220,11 +255,11 @@ jobs:
             throw new Error(`could not resolve ${packageName} from ${pluginDir}`);
           }
 
-          if (resolvedPackageVersion("codex", "@openai/codex") !== "0.151.0") {
+          if (resolvedPackageVersion("@openclaw/codex", "@openai/codex") !== "0.151.0") {
             throw new Error("packaged Codex runtime is not 0.151.0");
           }
           for (const dependency of ["@discordjs/voice", "discord-api-types", "libopus-wasm"]) {
-            resolvedPackageVersion("discord", dependency);
+            resolvedPackageVersion("@openclaw/discord", dependency);
           }
           NODE
             '
@@ -260,6 +295,7 @@ jobs:
         env:
           IMAGE: ${{ steps.publish.outputs.image }}
           IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+          PACKAGING_RECIPE_DIGEST: ${{ steps.packaging.outputs.recipe_digest }}
           SOURCE_DIGEST: ${{ steps.source.outputs.source_digest }}
           TAG_OBJECT: ${{ steps.source.outputs.tag_object }}
         run: |
@@ -277,6 +313,8 @@ jobs:
             image: process.env.IMAGE,
             imageDigest: process.env.IMAGE_DIGEST,
             selectedPlugins: process.env.OPENCLAW_EXTENSIONS.split(","),
+            sourceMatchedPluginRuntime: true,
+            packagingRecipeDigest: process.env.PACKAGING_RECIPE_DIGEST,
             qmdIncluded: false,
             downstreamPatchesApplied: false,
             sbom: true,
@@ -307,6 +345,7 @@ jobs:
         if: inputs.publish
         env:
           IMAGE: ${{ steps.publish.outputs.image }}
+          PACKAGING_RECIPE_DIGEST: ${{ steps.packaging.outputs.recipe_digest }}
           SOURCE_DIGEST: ${{ steps.source.outputs.source_digest }}
         run: |
           {
@@ -316,6 +355,7 @@ jobs:
             echo "- Source commit: \`$APPROVED_SOURCE_COMMIT\`"
             echo "- Source bundle: \`$SOURCE_DIGEST\`"
             echo "- Image: \`$IMAGE\`"
+            echo "- Packaging recipe: \`$PACKAGING_RECIPE_DIGEST\`"
             echo '- Downstream patches: `none`'
             echo '- QMD runtime: `not included`'
           } >> "$GITHUB_STEP_SUMMARY"
