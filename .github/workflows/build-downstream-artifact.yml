@@ -1,16 +1,14 @@
-# GitHub dispatches only workflow paths that also exist on the default branch.
-# This personal branch replaces that path temporarily; main remains unchanged.
-name: Manual owner beta image
+name: Manual owner stable image
 
-run-name: OpenClaw owner beta at ${{ inputs.expected_source_commit }}
+run-name: OpenClaw owner stable at ${{ inputs.expected_source_commit }}
 
 on:
   workflow_dispatch:
     inputs:
       expected_source_commit:
-        description: Exact approved upstream source commit
+        description: Exact approved upstream stable source commit
         required: true
-        default: 4d6bdbdbf33fe3ece3c53853fab9931882ff3f3c
+        default: 0965053fe6b9341776df147a6934b7485c60b5ca
         type: string
       publish:
         description: Publish the verified OCI image to GHCR
@@ -21,56 +19,77 @@ on:
 permissions: {}
 
 concurrency:
-  group: manual-owner-beta-${{ inputs.expected_source_commit }}
+  group: manual-owner-stable-${{ inputs.expected_source_commit }}
   cancel-in-progress: false
 
 jobs:
   build:
     if: github.actor == github.repository_owner
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
     permissions:
       contents: read
       packages: write
     env:
-      APPROVED_SOURCE_COMMIT: 4d6bdbdbf33fe3ece3c53853fab9931882ff3f3c
-      APPROVED_SOURCE_TAG: v2026.7.2-beta.6
+      APPROVED_SOURCE_COMMIT: 0965053fe6b9341776df147a6934b7485c60b5ca
+      APPROVED_SOURCE_TAG: v2026.8.2
       CANDIDATE_REPOSITORY: https://github.com/openclaw/openclaw.git
-      CODEX_VERSION: 2026.7.2-beta.6
-      DISCORD_VERSION: 2026.7.2-beta.6
-      EXPECTED_VERSION: 2026.7.2-beta.6
+      EXPECTED_VERSION: 2026.8.2
       IMAGE_REPOSITORY: ghcr.io/ashleyhollis/openclaw
-      LLAMA_CPP_VERSION: 2026.7.2-beta.6
-      QMD_ARTIFACT_SHA256: 4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a
-      QMD_ARTIFACT_URL: https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-qmd-2.1.0-nas.6.tgz
-      QMD_VERSION: 2.1.0
+      OPENCLAW_EXTENSIONS: codex,discord,llama-cpp
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
 
-      - name: Resolve and fetch the exact approved source
+      - name: Resolve the signed upstream tag and fetch its exact commit
         id: source
         env:
           EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           [[ "$EXPECTED_SOURCE_COMMIT" =~ ^[a-f0-9]{40}$ ]]
           test "$EXPECTED_SOURCE_COMMIT" = "$APPROVED_SOURCE_COMMIT"
+
+          tag_ref="$(curl --fail --silent --show-error \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/openclaw/openclaw/git/ref/tags/$APPROVED_SOURCE_TAG")"
+          test "$(jq -r .object.type <<<"$tag_ref")" = tag
+          tag_object="$(jq -r .object.sha <<<"$tag_ref")"
+          [[ "$tag_object" =~ ^[a-f0-9]{40}$ ]]
+          tag_metadata="$(curl --fail --silent --show-error \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/openclaw/openclaw/git/tags/$tag_object")"
+          test "$(jq -r .verification.verified <<<"$tag_metadata")" = true
+          test "$(jq -r .verification.reason <<<"$tag_metadata")" = valid
+          test "$(jq -r .object.type <<<"$tag_metadata")" = commit
+          test "$(jq -r .object.sha <<<"$tag_metadata")" = "$EXPECTED_SOURCE_COMMIT"
           tagged_commit="$(git ls-remote "$CANDIDATE_REPOSITORY" "refs/tags/$APPROVED_SOURCE_TAG^{}" | cut -f1)"
           test "$tagged_commit" = "$EXPECTED_SOURCE_COMMIT"
+
           git init --initial-branch=source candidate
           git -C candidate remote add origin "$CANDIDATE_REPOSITORY"
-          git -C candidate fetch --depth=1 --no-tags origin "$EXPECTED_SOURCE_COMMIT"
-          git -C candidate checkout --detach FETCH_HEAD
+          git -C candidate fetch --depth=1 origin "refs/tags/$APPROVED_SOURCE_TAG:refs/tags/$APPROVED_SOURCE_TAG"
+          git -C candidate checkout --detach "$EXPECTED_SOURCE_COMMIT"
           test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_SOURCE_COMMIT"
+          test -z "$(git -C candidate status --porcelain)"
           test "$(node -p "require('./candidate/package.json').version")" = "$EXPECTED_VERSION"
+
           git -C candidate archive --format=tar.gz --prefix=openclaw/ \
             --output "$RUNNER_TEMP/openclaw-source.tar.gz" "$EXPECTED_SOURCE_COMMIT"
           source_digest="sha256:$(sha256sum "$RUNNER_TEMP/openclaw-source.tar.gz" | cut -d ' ' -f1)"
+          build_timestamp="$(git -C candidate show -s --format=%cI "$EXPECTED_SOURCE_COMMIT")"
           short_commit="${EXPECTED_SOURCE_COMMIT:0:8}"
-          printf 'source_digest=%s\nimage_tag=manual-%s-%s\nlocal_image=openclaw-owner-beta:%s-%s\n' \
-            "$source_digest" "$EXPECTED_VERSION" "$short_commit" "$EXPECTED_VERSION" "$short_commit" >> "$GITHUB_OUTPUT"
+          {
+            printf 'source_digest=%s\n' "$source_digest"
+            printf 'build_timestamp=%s\n' "$build_timestamp"
+            printf 'image_tag=stable-%s-%s\n' "$EXPECTED_VERSION" "$short_commit"
+            printf 'local_image=openclaw-owner-stable:%s-%s\n' "$EXPECTED_VERSION" "$short_commit"
+            printf 'tag_object=%s\n' "$tag_object"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Fail-closed source secret scan
         uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
@@ -84,7 +103,7 @@ jobs:
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: 22.23.1
+          node-version: 24.15.0
 
       - name: Install without package lifecycle scripts
         working-directory: candidate
@@ -93,106 +112,41 @@ jobs:
           corepack enable
           corepack pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Run focused Control UI and protocol checks
+      - name: Run migration, memory, session, Control UI, and protocol checks
         working-directory: candidate
         run: |
           set -euo pipefail
+          corepack pnpm test \
+            src/infra/sqlite-schema-contract.test.ts \
+            src/commands/doctor-state-migrations.test.ts \
+            src/commands/doctor-agent-memory-schema.test.ts \
+            src/commands/doctor-memory-search.test.ts \
+            src/agents/memory-search.test.ts \
+            src/agents/openclaw-tools.sessions-visibility.test.ts \
+            packages/gateway-protocol/src/schema/sessions-create.test.ts \
+            packages/gateway-protocol/src/exec-approvals-validators.test.ts
           corepack pnpm --dir ui exec vitest run \
             src/api/gateway-browser-socket.test.ts \
             src/components/login-gate.test.ts \
             src/components/exec-approval.test.ts \
             src/components/terminal/terminal-file-upload.test.ts
-          corepack pnpm exec vitest run \
-            packages/gateway-protocol/src/schema/sessions-create.test.ts \
-            packages/gateway-protocol/src/exec-approvals-validators.test.ts
-
-      - name: Build and package the exact candidate
-        id: package
-        working-directory: candidate
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/image-context"
-          node scripts/package-openclaw-for-docker.mjs \
-            --allow-unreleased-changelog \
-            --output-dir "$RUNNER_TEMP/image-context" \
-            --output-name openclaw-current.tgz
-          tar -xOf "$RUNNER_TEMP/image-context/openclaw-current.tgz" package/package.json \
-            > "$RUNNER_TEMP/openclaw-package.json"
-          test "$(node -p "require('$RUNNER_TEMP/openclaw-package.json').version")" = "$EXPECTED_VERSION"
-          package_digest="$(sha256sum "$RUNNER_TEMP/image-context/openclaw-current.tgz" | cut -d ' ' -f1)"
-          printf 'package_digest=%s\n' "$package_digest" >> "$GITHUB_OUTPUT"
-
-      - name: Pack matching Codex, Discord, and llama.cpp plugins from the exact candidate
-        id: plugins
-        working-directory: candidate
-        run: |
-          set -euo pipefail
-          plugin_output="$RUNNER_TEMP/plugin-pack"
-          mkdir -p "$plugin_output"
-          OPENCLAW_PLUGIN_NPM_PACK_OUTPUT_DIR="$plugin_output" \
-            bash scripts/plugin-npm-publish.sh --pack extensions/codex
-          OPENCLAW_PLUGIN_NPM_PACK_OUTPUT_DIR="$plugin_output" \
-            bash scripts/plugin-npm-publish.sh --pack extensions/discord
-          OPENCLAW_PLUGIN_NPM_PACK_OUTPUT_DIR="$plugin_output" \
-            bash scripts/plugin-npm-publish.sh --pack extensions/llama-cpp
-          shopt -s nullglob
-          codex_tarballs=("$plugin_output"/openclaw-codex-*.tgz)
-          discord_tarballs=("$plugin_output"/openclaw-discord-*.tgz)
-          llama_cpp_tarballs=("$plugin_output"/openclaw-llama-cpp-provider-*.tgz)
-          test "${#codex_tarballs[@]}" -eq 1
-          test "${#discord_tarballs[@]}" -eq 1
-          test "${#llama_cpp_tarballs[@]}" -eq 1
-          mv "${codex_tarballs[0]}" "$RUNNER_TEMP/image-context/codex-current.tgz"
-          mv "${discord_tarballs[0]}" "$RUNNER_TEMP/image-context/discord-current.tgz"
-          mv "${llama_cpp_tarballs[0]}" "$RUNNER_TEMP/image-context/llama-cpp-current.tgz"
-          for package_name in codex discord llama-cpp; do
-            tarball="$RUNNER_TEMP/image-context/$package_name-current.tgz"
-            tar -tzf "$tarball" | grep -Fx 'package/dist/index.js'
-            tar -xOf "$tarball" package/package.json > "$RUNNER_TEMP/$package_name-package.json"
-          done
-          node -e "const p=require('$RUNNER_TEMP/codex-package.json');if(p.version!==process.env.CODEX_VERSION||p.openclaw?.build?.openclawVersion!==process.env.EXPECTED_VERSION)throw new Error('Codex package identity mismatch')"
-          node -e "const p=require('$RUNNER_TEMP/discord-package.json');if(p.version!==process.env.DISCORD_VERSION||p.openclaw?.build?.openclawVersion!==process.env.EXPECTED_VERSION)throw new Error('Discord package identity mismatch')"
-          node -e "const p=require('$RUNNER_TEMP/llama-cpp-package.json');if(p.version!==process.env.LLAMA_CPP_VERSION||p.openclaw?.build?.openclawVersion!==process.env.EXPECTED_VERSION||p.optionalDependencies?.['node-llama-cpp']!=='3.19.1')throw new Error('llama.cpp package identity mismatch')"
-          codex_digest="$(sha256sum "$RUNNER_TEMP/image-context/codex-current.tgz" | cut -d ' ' -f1)"
-          discord_digest="$(sha256sum "$RUNNER_TEMP/image-context/discord-current.tgz" | cut -d ' ' -f1)"
-          llama_cpp_digest="$(sha256sum "$RUNNER_TEMP/image-context/llama-cpp-current.tgz" | cut -d ' ' -f1)"
-          printf 'codex_digest=%s\ndiscord_digest=%s\nllama_cpp_digest=%s\n' \
-            "$codex_digest" "$discord_digest" "$llama_cpp_digest" >> "$GITHUB_OUTPUT"
-
-      - name: Assemble the minimal trusted image context
-        run: |
-          set -euo pipefail
-          context="$RUNNER_TEMP/image-context"
-          curl --fail --location --proto '=https' --tlsv1.2 \
-            "$QMD_ARTIFACT_URL" --output "$context/qmd-current.tgz"
-          printf '%s  %s\n' "$QMD_ARTIFACT_SHA256" "$context/qmd-current.tgz" | sha256sum -c -
-          mkdir -p "$context/downstream/scripts"
-          cp downstream/Dockerfile.artifact "$context/downstream/Dockerfile.artifact"
-          cp downstream/scripts/smoke-image-runtime.mjs "$context/downstream/scripts/smoke-image-runtime.mjs"
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
-      - name: Build the OCI image once with SBOM and provenance
+      - name: Build the clean upstream OCI image once with SBOM and provenance
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
-          context: ${{ runner.temp }}/image-context
-          file: ${{ runner.temp }}/image-context/downstream/Dockerfile.artifact
+          context: candidate
+          file: candidate/Dockerfile
           platforms: linux/amd64
-          outputs: type=oci,dest=${{ runner.temp }}/openclaw-beta.oci.tar
+          outputs: type=oci,dest=${{ runner.temp }}/openclaw-stable.oci.tar
           sbom: true
           provenance: mode=max
           build-args: |
-            CODEX_TARBALL_SHA256=${{ steps.plugins.outputs.codex_digest }}
-            CODEX_VERSION=${{ env.CODEX_VERSION }}
-            DISCORD_TARBALL_SHA256=${{ steps.plugins.outputs.discord_digest }}
-            DISCORD_VERSION=${{ env.DISCORD_VERSION }}
-            LLAMA_CPP_TARBALL_SHA256=${{ steps.plugins.outputs.llama_cpp_digest }}
-            LLAMA_CPP_VERSION=${{ env.LLAMA_CPP_VERSION }}
-            OPENCLAW_TARBALL_SHA256=${{ steps.package.outputs.package_digest }}
-            OPENCLAW_SOURCE_COMMIT=${{ env.APPROVED_SOURCE_COMMIT }}
-            OPENCLAW_VERSION=${{ env.EXPECTED_VERSION }}
-            QMD_TARBALL_SHA256=${{ env.QMD_ARTIFACT_SHA256 }}
-            QMD_VERSION=${{ env.QMD_VERSION }}
+            GIT_COMMIT=${{ env.APPROVED_SOURCE_COMMIT }}
+            OPENCLAW_BUILD_TIMESTAMP=${{ steps.source.outputs.build_timestamp }}
+            OPENCLAW_EXTENSIONS=${{ env.OPENCLAW_EXTENSIONS }}
+            OPENCLAW_INSTALL_BROWSER=1
 
       - name: Load the exact OCI image for local checks
         env:
@@ -201,7 +155,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install --yes --no-install-recommends skopeo
-          skopeo copy "oci-archive:$RUNNER_TEMP/openclaw-beta.oci.tar" "docker-daemon:$LOCAL_IMAGE"
+          skopeo copy "oci-archive:$RUNNER_TEMP/openclaw-stable.oci.tar" "docker-daemon:$LOCAL_IMAGE"
 
       - name: Network-disabled production image smoke
         env:
@@ -209,13 +163,32 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm --network none \
-            --volume "$RUNNER_TEMP/image-context/downstream/scripts/smoke-image-runtime.mjs:/tmp/smoke-image-runtime.mjs:ro" \
-            --env EXPECTED_CODEX_VERSION="$CODEX_VERSION" \
-            --env EXPECTED_DISCORD_VERSION="$DISCORD_VERSION" \
-            --env EXPECTED_LLAMA_CPP_VERSION="$LLAMA_CPP_VERSION" \
-            --env EXPECTED_OPENCLAW_VERSION="$EXPECTED_VERSION" \
-            --env EXPECTED_QMD_VERSION="$QMD_VERSION" \
-            --entrypoint node "$LOCAL_IMAGE" /tmp/smoke-image-runtime.mjs
+            --env EXPECTED_VERSION="$EXPECTED_VERSION" \
+            --entrypoint sh "$LOCAL_IMAGE" -lc '
+              set -eu
+              test "$(node -p "require(\"/app/package.json\").version")" = "$EXPECTED_VERSION"
+              openclaw --version | grep -F "$EXPECTED_VERSION"
+              ! command -v qmd
+              test ! -e /opt/qmd-runtime
+              command -v chromium
+              for plugin in codex discord llama-cpp; do
+                test -f "/app/extensions/$plugin/package.json"
+                test -f "/app/extensions/$plugin/dist/index.js"
+                test "$(node -p "require(\"/app/extensions/$plugin/package.json\").version")" = "$EXPECTED_VERSION"
+              done
+              state="$(mktemp -d)"
+              trap "rm -rf \"$state\"" EXIT
+              mkdir -p "$state/home"
+              HOME="$state/home" OPENCLAW_STATE_DIR="$state" OPENCLAW_SKIP_CHANNELS=1 OPENCLAW_SKIP_CRON=1 \
+                openclaw plugins list --json > "$state/plugins.json"
+              node - "$state/plugins.json" <<"NODE"
+          const fs = require("node:fs");
+          const plugins = JSON.parse(fs.readFileSync(process.argv[2], "utf8")).plugins ?? [];
+          for (const id of ["codex", "discord", "llama-cpp"]) {
+            if (!plugins.some((plugin) => plugin.id === id)) throw new Error(`missing ${id} plugin`);
+          }
+          NODE
+            '
 
       - name: Scan fixable critical vulnerabilities
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
@@ -238,42 +211,46 @@ jobs:
           printf '%s' "$GH_TOKEN" | skopeo login ghcr.io \
             --username "${{ github.repository_owner }}" --password-stdin
           destination="$IMAGE_REPOSITORY:$IMAGE_TAG"
-          skopeo copy --all "oci-archive:$RUNNER_TEMP/openclaw-beta.oci.tar" "docker://$destination"
+          skopeo copy --all "oci-archive:$RUNNER_TEMP/openclaw-stable.oci.tar" "docker://$destination"
           digest="$(skopeo inspect "docker://$destination" --format '{{.Digest}}')"
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
           printf 'digest=%s\nimage=%s@%s\n' "$digest" "$IMAGE_REPOSITORY" "$digest" >> "$GITHUB_OUTPUT"
 
-      - name: Record separate owner-override evidence
+      - name: Record immutable stable image evidence
         if: inputs.publish
         env:
-          CODEX_PACKAGE_DIGEST: sha256:${{ steps.plugins.outputs.codex_digest }}
-          DISCORD_PACKAGE_DIGEST: sha256:${{ steps.plugins.outputs.discord_digest }}
-          LLAMA_CPP_PACKAGE_DIGEST: sha256:${{ steps.plugins.outputs.llama_cpp_digest }}
           IMAGE: ${{ steps.publish.outputs.image }}
           IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
-          PACKAGE_DIGEST: sha256:${{ steps.package.outputs.package_digest }}
           SOURCE_DIGEST: ${{ steps.source.outputs.source_digest }}
+          TAG_OBJECT: ${{ steps.source.outputs.tag_object }}
         run: |
           set -euo pipefail
-          node - "$RUNNER_TEMP/manual-beta-owner-override.json" <<'NODE'
+          node - "$RUNNER_TEMP/manual-stable-image.json" <<'NODE'
           const fs = require("node:fs");
           const evidence = {
             schemaVersion: 1,
-            ownerOverride: true,
-            normalReleaseReceipt: false,
             sourceTag: process.env.APPROVED_SOURCE_TAG,
+            sourceTagObject: process.env.TAG_OBJECT,
+            sourceTagSignatureVerified: true,
             sourceCommit: process.env.APPROVED_SOURCE_COMMIT,
-            version: process.env.EXPECTED_VERSION,
             sourceBundleDigest: process.env.SOURCE_DIGEST,
-            packageDigest: process.env.PACKAGE_DIGEST,
-            codexPackageDigest: process.env.CODEX_PACKAGE_DIGEST,
-            discordPackageDigest: process.env.DISCORD_PACKAGE_DIGEST,
-            llamaCppPackageDigest: process.env.LLAMA_CPP_PACKAGE_DIGEST,
+            version: process.env.EXPECTED_VERSION,
             image: process.env.IMAGE,
             imageDigest: process.env.IMAGE_DIGEST,
+            selectedPlugins: process.env.OPENCLAW_EXTENSIONS.split(","),
+            qmdIncluded: false,
+            downstreamPatchesApplied: false,
             sbom: true,
             provenance: true,
-            focusedChecks: ["control-ui-unit", "gateway-browser-socket-unit", "login-gate-unit", "approval-component-unit", "terminal-file-upload-unit", "session-create-validator-unit", "exec-approval-validator-unit", "llama-cpp-plugin-runtime", "configured-local-memory-provider-startup", "image-runtime-smoke", "critical-vulnerability-scan"],
+            focusedChecks: [
+              "global-and-agent-schema-contracts",
+              "doctor-state-migrations",
+              "local-memory-and-session-visibility",
+              "control-ui-and-browser-socket",
+              "gateway-protocol",
+              "network-disabled-image-runtime",
+              "critical-vulnerability-scan",
+            ],
           };
           fs.writeFileSync(process.argv[2], `${JSON.stringify(evidence, null, 2)}\n`);
           NODE
@@ -281,22 +258,24 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: inputs.publish
         with:
-          name: manual-beta-owner-override-${{ inputs.expected_source_commit }}
-          path: ${{ runner.temp }}/manual-beta-owner-override.json
+          name: manual-stable-image-${{ inputs.expected_source_commit }}
+          path: ${{ runner.temp }}/manual-stable-image.json
           if-no-files-found: error
           retention-days: 90
 
-      - name: Report immutable owner-override image
+      - name: Report immutable stable image
         if: inputs.publish
         env:
           IMAGE: ${{ steps.publish.outputs.image }}
           SOURCE_DIGEST: ${{ steps.source.outputs.source_digest }}
         run: |
           {
-            echo '### Manual owner beta image'
+            echo '### Manual owner stable image'
             echo
+            echo "- Signed source tag: \`$APPROVED_SOURCE_TAG\`"
             echo "- Source commit: \`$APPROVED_SOURCE_COMMIT\`"
             echo "- Source bundle: \`$SOURCE_DIGEST\`"
             echo "- Image: \`$IMAGE\`"
-            echo '- Normal release receipts: `not created`'
+            echo '- Downstream patches: `none`'
+            echo '- QMD runtime: `not included`'
           } >> "$GITHUB_STEP_SUMMARY"
