@@ -237,7 +237,6 @@ jobs:
               node - "$state/plugins.json" "$state/npm" <<"NODE"
           const fs = require("node:fs");
           const path = require("node:path");
-          const { createRequire } = require("node:module");
           const plugins = JSON.parse(fs.readFileSync(process.argv[2], "utf8")).plugins ?? [];
           for (const id of ["codex", "discord", "llama-cpp"]) {
             const plugin = plugins.find((entry) => entry.id === id);
@@ -256,19 +255,19 @@ jobs:
           }
 
           function resolvedPackageVersion(pluginDir, packageName) {
-            const requireFromPlugin = createRequire(
-              `${process.argv[3]}/node_modules/${pluginDir}/package.json`,
+            const manifest = path.join(
+              process.argv[3],
+              "node_modules",
+              pluginDir,
+              "node_modules",
+              packageName,
+              "package.json",
             );
-            let current = path.dirname(requireFromPlugin.resolve(packageName));
-            while (current !== path.dirname(current)) {
-              const manifest = path.join(current, "package.json");
-              if (fs.existsSync(manifest)) {
-                const parsed = JSON.parse(fs.readFileSync(manifest, "utf8"));
-                if (parsed.name === packageName) return parsed.version;
-              }
-              current = path.dirname(current);
+            const parsed = JSON.parse(fs.readFileSync(manifest, "utf8"));
+            if (parsed.name !== packageName) {
+              throw new Error(`unexpected package at ${manifest}`);
             }
-            throw new Error(`could not resolve ${packageName} from ${pluginDir}`);
+            return parsed.version;
           }
 
           if (resolvedPackageVersion("@openclaw/codex", "@openai/codex") !== "0.151.0") {
