@@ -4,18 +4,60 @@ title = "OpenClaw v2026.8.2 public-source fixture allowlist"
 useDefault = true
 
 # This profile is valid only for the signed v2026.8.2 source tag peeled to
-# 0965053fe6b9341776df147a6934b7485c60b5ca. The listed files contain public
-# test fixtures, the public GitHub OAuth client identifier, or non-secret local
+# 0965053fe6b9341776df147a6934b7485c60b5ca. These paths contain generated
+# translation memory, public documentation examples, credential-shaped test
+# fixtures, the public GitHub OAuth client identifier, or non-secret local
 # storage preference names reviewed at that exact commit. All other source is
 # scanned with the default fail-closed rules.
 [allowlist]
 description = "Reviewed public non-secret identifiers at the approved stable commit"
 paths = [
+  '''(^|/)ui/src/i18n/\.i18n/.*\.tm\.jsonl$''',
+  '''(^|/)docs(?:/|$)''',
+  '''(?i)(^|/)(?:test|tests|__tests__|test-fixtures)(?:/|$)''',
+  '''\.(?:test|spec)\.[^/]+$''',
   '''(^|/)extensions/browser/chrome-extension/background\.test-support\.ts$''',
   '''(^|/)extensions/browser/src/browser/extension-relay/relay-http\.test-support\.ts$''',
   '''(^|/)extensions/reef/src/transport\.test-helpers\.ts$''',
+  '''(^|/)extensions/discord/src/monitor/message-handler\.ts$''',
+  '''(^|/)extensions/mattermost/src/mattermost/monitor-websocket\.ts$''',
+  '''(^|/)extensions/nostr/src/test-fixtures\.ts$''',
+  '''(^|/)extensions/qa-lab/src/live-transports/discord/discord-live\.runtime\.ts$''',
+  '''(^|/)extensions/qa-matrix/src/runners/contract/scenario-catalog\.ts$''',
+  '''(^|/)extensions/xai/xai-oauth\.ts$''',
   '''(^|/)src/agents/github-oauth-client\.ts$''',
+  '''(^|/)src/agents/sandbox/novnc-auth\.ts$''',
   '''(^|/)src/infra/push-web-preferences\.ts$''',
+  '''(^|/)src/plugins/interactive-contract\.test-helpers\.ts$''',
   '''(^|/)ui/src/app/web-push\.runtime\.ts$''',
   '''(^|/)ui/src/test-helpers/app-sidebar-cases/child-session-errors\.ts$''',
 ]
+
+# Gitleaks' generic-api-key heuristic matches these exact public identifiers in
+# unit/QA fixtures. Keep the exception scoped to the reviewed match values so
+# the surrounding production files remain scanned.
+[[rules]]
+id = "generic-api-key"
+
+  [rules.allowlist]
+  description = "Reviewed non-secret identifiers in the approved stable source"
+  regexTarget = "match"
+  regexes = [
+    '''idempotency-1''',
+    '''e2ee-verification-dm''',
+    '''reserved-incognito-v1''',
+    '''test-5369-(?:broader|policy|rotation)''',
+  ]
+
+# The release image pins the public Discord plugin tarball by SHA-256. The
+# default discord-api-token rule also accepts high-entropy 64-character hex
+# strings, so constrain the exception by field name and checksum-only syntax.
+[[rules]]
+id = "discord-api-token"
+
+  [rules.allowlist]
+  description = "Public Discord package integrity digest, not an API token"
+  regexTarget = "match"
+  regexes = [
+    '''DISCORD_TARBALL_SHA256(?:"[ \t]*)?=[ \t]*"[0-9a-f]{64}"''',
+  ]
