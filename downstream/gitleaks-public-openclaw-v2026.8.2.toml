@@ -1,0 +1,21 @@
+title = "OpenClaw v2026.8.2 public-source fixture allowlist"
+
+[extend]
+useDefault = true
+
+# This profile is valid only for the signed v2026.8.2 source tag peeled to
+# 0965053fe6b9341776df147a6934b7485c60b5ca. The listed files contain public
+# test fixtures, the public GitHub OAuth client identifier, or non-secret local
+# storage preference names reviewed at that exact commit. All other source is
+# scanned with the default fail-closed rules.
+[allowlist]
+description = "Reviewed public non-secret identifiers at the approved stable commit"
+paths = [
+  '''(^|/)extensions/browser/chrome-extension/background\.test-support\.ts$''',
+  '''(^|/)extensions/browser/src/browser/extension-relay/relay-http\.test-support\.ts$''',
+  '''(^|/)extensions/reef/src/transport\.test-helpers\.ts$''',
+  '''(^|/)src/agents/github-oauth-client\.ts$''',
+  '''(^|/)src/infra/push-web-preferences\.ts$''',
+  '''(^|/)ui/src/app/web-push\.runtime\.ts$''',
+  '''(^|/)ui/src/test-helpers/app-sidebar-cases/child-session-errors\.ts$''',
+]

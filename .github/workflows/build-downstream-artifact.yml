@@ -97,7 +97,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GIT_DIR: ${{ github.workspace }}/candidate/.git
           GIT_WORK_TREE: ${{ github.workspace }}/candidate
-          GITLEAKS_CONFIG: ${{ github.workspace }}/downstream/gitleaks-public-openclaw-beta6.toml
+          GITLEAKS_CONFIG: ${{ github.workspace }}/downstream/gitleaks-public-openclaw-v2026.8.2.toml
           GITLEAKS_ENABLE_SUMMARY: "false"
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
 
@@ -112,7 +112,7 @@ jobs:
           corepack enable
           corepack pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Run migration, memory, session, Control UI, and protocol checks
+      - name: Run migration, memory, session, patch-supersession, Control UI, and protocol checks
         working-directory: candidate
         run: |
           set -euo pipefail
@@ -123,6 +123,18 @@ jobs:
             src/commands/doctor-memory-search.test.ts \
             src/agents/memory-search.test.ts \
             src/agents/openclaw-tools.sessions-visibility.test.ts \
+            src/agents/cli-output-error.test.ts \
+            src/agents/cli-output-events.test.ts \
+            src/agents/cli-output-framing.test.ts \
+            src/agents/cli-output-jsonl.test.ts \
+            src/agents/cli-output-records.test.ts \
+            src/agents/cli-output-stream.test.ts \
+            src/agents/embedded-agent-runner/run/attempt.spawn-workspace.context-engine.test.ts \
+            src/commands/channels.status.command-flow.test.ts \
+            src/commands/channels.status.external-env.test.ts \
+            src/commands/doctor/shared/missing-configured-plugin-install.test.ts \
+            extensions/codex/index.test.ts \
+            test/scripts/generate-npm-package-lock.test.ts \
             packages/gateway-protocol/src/schema/sessions-create.test.ts \
             packages/gateway-protocol/src/exec-approvals-validators.test.ts
           corepack pnpm --dir ui exec vitest run \
@@ -246,6 +258,7 @@ jobs:
               "global-and-agent-schema-contracts",
               "doctor-state-migrations",
               "local-memory-and-session-visibility",
+              "downstream-patch-supersession-contracts",
               "control-ui-and-browser-socket",
               "gateway-protocol",
               "network-disabled-image-runtime",
