@@ -212,11 +212,18 @@ jobs:
               trap "rm -rf \"$state\"" EXIT
               mkdir -p "$state/home" "$state/npm"
               cp -a /opt/openclaw-plugin-runtime/. "$state/npm/"
-              node - "$state/openclaw.json" <<"NODE"
+              node - "$state/openclaw.json" "$state/npm" <<"NODE"
           const fs = require("node:fs");
           fs.writeFileSync(process.argv[2], `${JSON.stringify({
             plugins: {
               allow: ["codex", "discord", "llama-cpp"],
+              load: {
+                paths: [
+                  `${process.argv[3]}/node_modules/@openclaw/codex`,
+                  `${process.argv[3]}/node_modules/@openclaw/discord`,
+                  `${process.argv[3]}/node_modules/@openclaw/llama-cpp-provider`,
+                ],
+              },
               entries: {
                 codex: { enabled: true },
                 discord: { enabled: true },
@@ -240,6 +247,11 @@ jobs:
             }
             if (plugin.dependencyStatus?.requiredInstalled !== true) {
               throw new Error(`${id} plugin runtime dependencies are incomplete`);
+            }
+            const expectedPackage = id === "llama-cpp" ? "llama-cpp-provider" : id;
+            const expectedRoot = `${process.argv[3]}/node_modules/@openclaw/${expectedPackage}`;
+            if (plugin.rootDir !== expectedRoot || plugin.origin !== "config") {
+              throw new Error(`${id} plugin did not load from the packaged runtime`);
             }
           }
 
