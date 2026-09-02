@@ -196,6 +196,10 @@ jobs:
               ! command -v qmd
               test ! -e /opt/qmd-runtime
               test -d /opt/openclaw-plugin-runtime
+              codex_root=/opt/openclaw-plugin-runtime/node_modules/@openclaw/codex/node_modules/@openai/codex
+              codex_bin="$(node -e "const path=require(\"node:path\");const manifest=require(\"$codex_root/package.json\");const entry=typeof manifest.bin===\"string\"?manifest.bin:manifest.bin.codex;process.stdout.write(path.join(\"$codex_root\",entry))")"
+              test -f "$codex_bin"
+              node "$codex_bin" --version | grep -F "0.151.0"
               browser_path="$(node -e "const { chromium } = require(\"playwright-core\"); process.stdout.write(chromium.executablePath())")"
               test -n "$browser_path"
               test -x "$browser_path"
