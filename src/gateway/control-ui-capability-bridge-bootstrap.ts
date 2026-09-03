@@ -5,8 +5,7 @@
 export const CAPABILITY_BRIDGE_BOOTSTRAP_MESSAGE = "openclaw:capability-bridge-bootstrap";
 export const CAPABILITY_BRIDGE_BOOTSTRAP_MOUNTED_MESSAGE =
   "openclaw:capability-bridge-bootstrap-mounted";
-export const CAPABILITY_BRIDGE_BOOTSTRAP_ID_ATTRIBUTE =
-  "data-openclaw-capability-bridge-bootstrap-id";
+const CAPABILITY_BRIDGE_BOOTSTRAP_ID_ATTRIBUTE = "data-openclaw-capability-bridge-bootstrap-id";
 
 const CAPABILITY_BRIDGE_BOOTSTRAP_ID_PATTERN = "^[a-f0-9]{32}$";
 const CAPABILITY_BRIDGE_BOOTSTRAP_ID_RE = new RegExp(CAPABILITY_BRIDGE_BOOTSTRAP_ID_PATTERN);

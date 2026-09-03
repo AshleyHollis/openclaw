@@ -131,7 +131,11 @@ function escapeHtmlAttribute(value: string): string {
  * window relay lets the plugin speak the bridge without transferring the port
  * into a document that could have navigated after provenance was checked.
  */
-function buildCapabilityBridgeDocument(source: URL, markup: string, bootstrapId: string): string {
+export function buildCapabilityBridgeDocument(
+  source: URL,
+  markup: string,
+  bootstrapId: string,
+): string {
   const base = `<base href="${escapeHtmlAttribute(source.href)}">`;
   const bootstrap = buildControlUiCapabilityBridgeBootstrap(bootstrapId);
   // Prefixing rather than locating a <head> means a malformed document cannot
