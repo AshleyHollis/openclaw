@@ -4,6 +4,16 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { buildControlUiCspHeader, computeInlineScriptHashes } from "./control-ui-csp.js";
 
+const EXPECTED_CAPABILITY_BRIDGE_BOOTSTRAP_HASH =
+  "'sha256-8gs6j17hXKGn8h+yEsz19W0iXW6URTbYLRs2WbDfWCA='";
+
+function scriptSrcTokens(csp: string): string[] | undefined {
+  return csp
+    .split("; ")
+    .find((directive) => directive.startsWith("script-src "))
+    ?.split(" ");
+}
+
 describe("buildControlUiCspHeader", () => {
   it("blocks inline scripts while allowing inline styles", () => {
     const csp = buildControlUiCspHeader();
@@ -73,7 +83,12 @@ describe("buildControlUiCspHeader", () => {
     const csp = buildControlUiCspHeader({
       inlineScriptHashes: ["sha256-abc123"],
     });
-    expect(csp).toContain("script-src 'self' 'sha256-abc123'");
+    expect(scriptSrcTokens(csp)).toEqual([
+      "script-src",
+      "'self'",
+      EXPECTED_CAPABILITY_BRIDGE_BOOTSTRAP_HASH,
+      "'sha256-abc123'",
+    ]);
     expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
   });
 
@@ -81,12 +96,22 @@ describe("buildControlUiCspHeader", () => {
     const csp = buildControlUiCspHeader({
       inlineScriptHashes: ["sha256-aaa", "sha256-bbb"],
     });
-    expect(csp).toContain("script-src 'self' 'sha256-aaa' 'sha256-bbb'");
+    expect(scriptSrcTokens(csp)).toEqual([
+      "script-src",
+      "'self'",
+      EXPECTED_CAPABILITY_BRIDGE_BOOTSTRAP_HASH,
+      "'sha256-aaa'",
+      "'sha256-bbb'",
+    ]);
   });
 
-  it("falls back to plain script-src self when hashes array is empty", () => {
+  it("authorizes only the host-owned bootstrap when index hashes are empty", () => {
     const csp = buildControlUiCspHeader({ inlineScriptHashes: [] });
-    expect(csp).toMatch(/script-src 'self'(?:;|$)/);
+    expect(scriptSrcTokens(csp)).toEqual([
+      "script-src",
+      "'self'",
+      EXPECTED_CAPABILITY_BRIDGE_BOOTSTRAP_HASH,
+    ]);
   });
 
   it("does not relax script execution for the terminal unless allowWasm is set", () => {
