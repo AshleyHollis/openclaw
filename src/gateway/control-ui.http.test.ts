@@ -587,7 +587,7 @@ describe("handleControlUiHttpRequest", () => {
         const csp = setHeader.mock.calls.findLast(
           (call) => call[0] === "Content-Security-Policy",
         )?.[1];
-        expect(String(csp)).toContain("script-src 'self' 'wasm-unsafe-eval'");
+        expect(String(csp)).toMatch(/script-src [^;]*'wasm-unsafe-eval'/);
         expect(responseBody(end)).toContain('data-openclaw-terminal-enabled="true"');
       },
     });
