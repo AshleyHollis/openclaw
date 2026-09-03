@@ -2,6 +2,10 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  buildControlUiCspHeader,
+  computeInlineScriptHashes,
+} from "../../../../src/gateway/control-ui-csp.js";
 import type { GatewayControlUiPluginTab } from "../../api/gateway.ts";
 import {
   canRunPlaywrightChromium,
@@ -35,11 +39,17 @@ async function createPage(): Promise<Page> {
   page.setDefaultTimeout(10_000);
   await page.addInitScript(() => {
     (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents = [];
+    (window as Window & { capabilityBootstrapEvents?: string[] }).capabilityBootstrapEvents = [];
     window.addEventListener("message", (event) => {
       if (event.data?.type?.startsWith("external-bridge-e2e:")) {
         (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents?.push(
           event.data,
         );
+      }
+      if (event.data?.type?.startsWith("openclaw:capability-bridge-bootstrap")) {
+        (
+          window as Window & { capabilityBootstrapEvents?: string[] }
+        ).capabilityBootstrapEvents?.push(event.data.type);
       }
     });
   });
@@ -158,6 +168,23 @@ function externalPluginMutationDocument(): string {
   </script>`;
 }
 
+async function applyGatewayCspToControlUi(page: Page): Promise<void> {
+  await page.route("**/plugin?plugin=external-plugin&id=panel", async (route) => {
+    const response = await route.fetch();
+    const body = await response.text();
+    await route.fulfill({
+      response,
+      body,
+      headers: {
+        ...response.headers(),
+        "content-security-policy": buildControlUiCspHeader({
+          inlineScriptHashes: computeInlineScriptHashes(body),
+        }),
+      },
+    });
+  });
+}
+
 async function routeExternalPlugin(page: Page, documentMarkup = externalPluginDocument()) {
   await page.route("**/plugins/external/panel**", async (route) => {
     const url = new URL(route.request().url());
@@ -205,6 +232,99 @@ describeControlUiE2e("PluginPage external capability bridge E2E", () => {
   afterEach(async () => {
     await Promise.all([...openContexts].map((context) => context.close().catch(() => {})));
     openContexts.clear();
+  });
+
+  it("mounts one opaque capability bridge under the exact Gateway CSP", async () => {
+    const page = await createPage();
+    await applyGatewayCspToControlUi(page);
+    await routeExternalPlugin(page, "<main>exact Gateway CSP fixture</main>");
+    const gateway = await installMockGateway(page, bridgeScenario());
+
+    await page.goto(`${server.baseUrl}plugin?plugin=external-plugin&id=panel`);
+    const frame = page.locator("openclaw-plugin-page iframe");
+    await frame.waitFor();
+    expect(await frame.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(await frame.getAttribute("sandbox")).not.toContain("allow-same-origin");
+    expect(
+      await frame
+        .contentFrame()
+        .locator("html")
+        .evaluate(() => location.origin),
+    ).toBe("null");
+
+    await expect
+      .poll(async () => {
+        return await page.evaluate(
+          () =>
+            (window as Window & { capabilityBootstrapEvents?: string[] })
+              .capabilityBootstrapEvents ?? [],
+        );
+      })
+      .toEqual([
+        "openclaw:capability-bridge-bootstrap",
+        "openclaw:capability-bridge-bootstrap-mounted",
+      ]);
+
+    // Keep the fixture document scriptless so the CSP authorizes only the
+    // host bootstrap. Playwright supplies the protocol client independently.
+    await frame
+      .contentFrame()
+      .locator("html")
+      .evaluate(() => {
+        const send = (payload: unknown) =>
+          window.postMessage(
+            { type: "openclaw:capability-bridge-send", protocolVersion: 1, payload },
+            "*",
+          );
+        window.addEventListener("message", (event) => {
+          if (
+            event.source !== window ||
+            event.data?.type !== "openclaw:capability-bridge-receive" ||
+            event.data.protocolVersion !== 1
+          ) {
+            return;
+          }
+          const message = event.data.payload;
+          if (message?.type === "openclaw:capability-bridge-ready") {
+            parent.postMessage({ type: "external-bridge-e2e:ready", value: message }, "*");
+            send({
+              type: "openclaw:capability-bridge-request",
+              requestId: "history-exact-csp",
+              method: "chat.history",
+              params: { sessionKey: "agent:main:owned", limit: 1 },
+            });
+          }
+        });
+        let parentReadable = false;
+        try {
+          parentReadable = Boolean(parent.document.body);
+        } catch {}
+        parent.postMessage({ type: "external-bridge-e2e:isolation", parentReadable }, "*");
+        send({ type: "openclaw:capability-bridge-hello", protocolVersion: 1 });
+      });
+
+    await expect
+      .poll(async () => {
+        return await page.evaluate(
+          () =>
+            (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
+        );
+      })
+      .toContainEqual(
+        expect.objectContaining({
+          type: "external-bridge-e2e:isolation",
+          parentReadable: false,
+        }),
+      );
+    await expect
+      .poll(async () => {
+        return await page.evaluate(
+          () =>
+            (window as Window & { externalBridgeEvents?: unknown[] }).externalBridgeEvents ?? [],
+        );
+      })
+      .toContainEqual(expect.objectContaining({ type: "external-bridge-e2e:ready" }));
+    await gateway.waitForRequest("chat.history");
   });
 
   it("mounts an opaque sandbox, completes the bridge handshake, dispatches a linked read, and revokes on reload", async () => {
