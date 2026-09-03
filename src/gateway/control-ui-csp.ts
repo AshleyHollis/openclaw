@@ -5,7 +5,7 @@ import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/st
 import { CAPABILITY_BRIDGE_BOOTSTRAP_SOURCE } from "./control-ui-capability-bridge-bootstrap.js";
 
 const SCRIPT_ATTRIBUTE_NAME_RE = /\s([^\s=/>]+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?/g;
-export const CONTROL_UI_CAPABILITY_BRIDGE_BOOTSTRAP_HASH = `sha256-${createHash("sha256")
+const CONTROL_UI_CAPABILITY_BRIDGE_BOOTSTRAP_HASH = `sha256-${createHash("sha256")
   .update(CAPABILITY_BRIDGE_BOOTSTRAP_SOURCE, "utf8")
   .digest("base64")}`;
 
