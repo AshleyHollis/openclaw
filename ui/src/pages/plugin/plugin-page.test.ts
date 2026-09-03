@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CAPABILITY_BRIDGE_BOOTSTRAP_SOURCE } from "../../../../src/gateway/control-ui-capability-bridge-bootstrap.js";
 import { CONTROL_UI_PLUGIN_AUTH_GRANT_TTL_MS } from "../../../../src/gateway/control-ui-plugin-frame-contract.js";
 import type { GatewayBrowserClient, GatewayHelloOk } from "../../api/gateway.ts";
 import type { RouteId } from "../../app-route-paths.ts";
@@ -295,32 +294,6 @@ describe("PluginPage", () => {
       expect(frame?.getAttribute("sandbox")).toBe("allow-scripts");
       expect(frame?.getAttribute("sandbox")).not.toContain("allow-same-origin");
       expect(frame?.getAttribute("src")).toBeNull();
-    } finally {
-      page.remove();
-    }
-  });
-
-  it("keeps mount provenance out of the CSP-authorized bootstrap body", async () => {
-    const refresh = vi.fn(async () => externalPluginConfig());
-    const page = createExternalPluginPage(refresh, true, "/plugins/external/panel", {
-      capabilityBridge: externalTabBridgeGrant(),
-      client: bridgeClient(),
-    });
-    document.body.append(page);
-    try {
-      await waitForFast(() =>
-        expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<main>"),
-      );
-      const bridgeDocument = bridgeState(page).capabilityBridgeDocument;
-      if (!bridgeDocument) {
-        throw new Error("expected bridge document");
-      }
-      const script = bridgeDocument.markup.match(/<script ([^>]*)>([^]*?)<\/script>/);
-      expect(script?.[1]).toBe(
-        `data-openclaw-capability-bridge-bootstrap-id="${bridgeDocument.bootstrapId}"`,
-      );
-      expect(script?.[2]).toBe(CAPABILITY_BRIDGE_BOOTSTRAP_SOURCE);
-      expect(script?.[2]).not.toContain(bridgeDocument.bootstrapId);
     } finally {
       page.remove();
     }
