@@ -555,6 +555,7 @@ describe("handleControlUiHttpRequest", () => {
         expect(String(csp)).toContain("frame-ancestors 'none'");
         expect(String(csp)).toContain("frame-src 'self'");
         expect(String(csp)).toContain("script-src 'self'");
+        expect(String(csp)).toContain("'sha256-8gs6j17hXKGn8h+yEsz19W0iXW6URTbYLRs2WbDfWCA='");
         expect(String(csp)).toContain(
           "connect-src 'self' ws: wss: data: https://api.openai.com https://tweakcn.com",
         );

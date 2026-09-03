@@ -5,6 +5,11 @@ import { property, state } from "lit/decorators.js";
 import { keyed } from "lit/directives/keyed.js";
 import type { ControlUiPluginFrameGrantAck } from "../../../../src/gateway/control-ui-bootstrap-contract.js";
 import {
+  buildControlUiCapabilityBridgeBootstrap,
+  CAPABILITY_BRIDGE_BOOTSTRAP_MESSAGE,
+  CAPABILITY_BRIDGE_BOOTSTRAP_MOUNTED_MESSAGE,
+} from "../../../../src/gateway/control-ui-capability-bridge-bootstrap.js";
+import {
   CONTROL_UI_PLUGIN_AUTH_GRANT_TTL_MS,
   CONTROL_UI_PLUGIN_AUTH_PROBE_MESSAGE,
   CONTROL_UI_PLUGIN_AUTH_PROBE_ORIGIN_QUERY,
@@ -108,8 +113,6 @@ const EXTERNAL_AUTH_REFRESH_TIMEOUT_MS = 10_000;
 const EXTERNAL_AUTH_PROBE_TIMEOUT_MS = 5_000;
 const AUTHENTICATED_EXTERNAL_TAB_SANDBOX = "allow-scripts";
 const MAX_CAPABILITY_BRIDGE_DOCUMENT_BYTES = 1024 * 1024;
-const CAPABILITY_BRIDGE_BOOTSTRAP_MESSAGE = "openclaw:capability-bridge-bootstrap";
-const CAPABILITY_BRIDGE_BOOTSTRAP_MOUNTED_MESSAGE = "openclaw:capability-bridge-bootstrap-mounted";
 const CAPABILITY_BRIDGE_MUTATION_TOMBSTONES_STORAGE_PREFIX =
   "openclaw.capability-bridge.tombstones.v1.";
 
@@ -130,18 +133,7 @@ function escapeHtmlAttribute(value: string): string {
  */
 function buildCapabilityBridgeDocument(source: URL, markup: string, bootstrapId: string): string {
   const base = `<base href="${escapeHtmlAttribute(source.href)}">`;
-  const bootstrap = [
-    "<script>(()=>{",
-    `const id=${JSON.stringify(bootstrapId)};`,
-    "const channel=new MessageChannel();const port=channel.port1;",
-    'port.onmessage=(event)=>window.postMessage({type:"openclaw:capability-bridge-receive",protocolVersion:1,payload:event.data},"*");',
-    "port.start();",
-    'window.addEventListener("message",(event)=>{const data=event.data;if(event.source===window&&data?.type==="openclaw:capability-bridge-send"&&data.protocolVersion===1)port.postMessage(data.payload)});',
-    `window.addEventListener("load",()=>parent.postMessage({type:"${CAPABILITY_BRIDGE_BOOTSTRAP_MOUNTED_MESSAGE}",id},"*"),{once:true});`,
-    "document.currentScript?.remove();",
-    `parent.postMessage({type:"${CAPABILITY_BRIDGE_BOOTSTRAP_MESSAGE}",id},"*",[channel.port2]);`,
-    "})()</script>",
-  ].join("");
+  const bootstrap = buildControlUiCapabilityBridgeBootstrap(bootstrapId);
   // Prefixing rather than locating a <head> means a malformed document cannot
   // run a redirecting script before the bootstrap owns its channel endpoint.
   return `<!doctype html><head>${bootstrap}${base}</head>${markup}`;
