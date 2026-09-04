@@ -307,7 +307,7 @@ function projectCapabilityBridge(
   const registered = new Map(
     (registry?.gatewayMethodDescriptors ?? []).map((method) => [method.name, method]),
   );
-  const kind = (method: string): "read" | "write" | "admin" | "local" | undefined => {
+  const kind = (method: string): "read" | "write" | "local" | undefined => {
     const core = CORE_BRIDGE_METHODS.get(method);
     if (core) {
       return core;
@@ -320,11 +320,7 @@ function projectCapabilityBridge(
         candidate.scope === "operator.write" ||
         candidate.scope === "operator.admin")
     ) {
-      return candidate.scope === READ_SCOPE
-        ? "read"
-        : candidate.scope === "operator.admin"
-          ? "admin"
-          : "write";
+      return candidate.scope === READ_SCOPE ? "read" : "write";
     }
     return undefined;
   };
@@ -341,7 +337,7 @@ function projectCapabilityBridge(
       authorizeOperatorScopesForRequiredScope(
         methodKind === "read"
           ? READ_SCOPE
-          : methodKind === "admin"
+          : !CORE_BRIDGE_METHODS.has(method) && registered.get(method)?.scope === "operator.admin"
             ? "operator.admin"
             : "operator.write",
         scopes,
@@ -363,9 +359,7 @@ function projectCapabilityBridge(
   );
   return {
     protocolVersion: 1,
-    mode: methods.some((method) => kind(method) === "write" || kind(method) === "admin")
-      ? "read-write"
-      : "read-only",
+    mode: methods.some((method) => kind(method) === "write") ? "read-write" : "read-only",
     methods,
     readMethods,
     missingRequiredMethods,

@@ -31,7 +31,11 @@ function activateDescriptors(
     auth?: "gateway" | "plugin";
     match?: "exact" | "prefix";
   }> = [],
-  methods: Array<{ pluginId: string; name: string; scope: "operator.read" | "operator.write" | "operator.admin" }> = [],
+  methods: Array<{
+    pluginId: string;
+    name: string;
+    scope: "operator.read" | "operator.write" | "operator.admin";
+  }> = [],
 ): void {
   const registry = createTestRegistry([]);
   registry.controlUiDescriptors = entries.map((entry) => ({
@@ -294,6 +298,20 @@ describe("listControlUiPluginTabs", () => {
       mode: "read-only",
       missingRequiredMethods: ["logbook.attention.act"],
       upgradeRequired: true,
+    });
+  });
+
+  it("revokes optional plugin admin mutations when a required capability disappears", () => {
+    activateDescriptors(
+      [{ pluginId: "logbook", descriptor: tabDescriptor({
+        path: "/plugins/logbook/panel",
+        capabilityBridge: { protocolVersion: 1, requiredMethods: ["logbook.missing"], optionalMethods: ["logbook.act", "chat.history"] },
+      }) }],
+      [{ pluginId: "logbook", path: "/plugins/logbook", match: "prefix" }],
+      [{ pluginId: "logbook", name: "logbook.act", scope: "operator.admin" }],
+    );
+    expect(listControlUiPluginTabs(["operator.admin"], { availableMethods: ["logbook.act", "chat.history"] })[0]?.capabilityBridge).toMatchObject({
+      methods: ["chat.history"], mode: "read-only", missingRequiredMethods: ["logbook.missing"], upgradeRequired: true,
     });
   });
 
