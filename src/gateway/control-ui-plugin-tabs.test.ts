@@ -31,6 +31,7 @@ function activateDescriptors(
     auth?: "gateway" | "plugin";
     match?: "exact" | "prefix";
   }> = [],
+  methods: Array<{ pluginId: string; name: string; scope: "operator.read" | "operator.write" | "operator.admin" }> = [],
 ): void {
   const registry = createTestRegistry([]);
   registry.controlUiDescriptors = entries.map((entry) => ({
@@ -43,6 +44,13 @@ function activateDescriptors(
     match: route.match ?? "prefix",
     source: `test:${route.pluginId}`,
     handler: async () => true,
+  }));
+  registry.gatewayMethodDescriptors = methods.map((method) => ({
+    name: method.name,
+    handler: (() => undefined) as never,
+    scope: method.scope,
+    owner: { kind: "plugin", pluginId: method.pluginId },
+    profileAccess: "independent",
   }));
   setActivePluginRegistry(registry);
 }
@@ -245,6 +253,46 @@ describe("listControlUiPluginTabs", () => {
       methods: ["chat.history"],
       missingRequiredMethods: ["chat.send"],
       mode: "read-only",
+      upgradeRequired: true,
+    });
+  });
+
+  it("grants a same-plugin admin method only to an authenticated admin operator", () => {
+    activateDescriptors(
+      [
+        {
+          pluginId: "logbook",
+          descriptor: tabDescriptor({
+            path: "/plugins/logbook/panel",
+            capabilityBridge: {
+              protocolVersion: 1,
+              requiredMethods: ["logbook.attention.act"],
+              optionalMethods: ["chat.history"],
+            },
+          }),
+        },
+      ],
+      [{ pluginId: "logbook", path: "/plugins/logbook", match: "prefix" }],
+      [{ pluginId: "logbook", name: "logbook.attention.act", scope: "operator.admin" }],
+    );
+
+    expect(
+      listControlUiPluginTabs(["operator.admin"], {
+        availableMethods: ["logbook.attention.act", "chat.history"],
+      })[0]?.capabilityBridge,
+    ).toMatchObject({
+      methods: ["logbook.attention.act", "chat.history"],
+      mode: "read-write",
+      missingRequiredMethods: [],
+    });
+    expect(
+      listControlUiPluginTabs(["operator.write"], {
+        availableMethods: ["logbook.attention.act", "chat.history"],
+      })[0]?.capabilityBridge,
+    ).toMatchObject({
+      methods: ["chat.history"],
+      mode: "read-only",
+      missingRequiredMethods: ["logbook.attention.act"],
       upgradeRequired: true,
     });
   });

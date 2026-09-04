@@ -307,7 +307,7 @@ function projectCapabilityBridge(
   const registered = new Map(
     (registry?.gatewayMethodDescriptors ?? []).map((method) => [method.name, method]),
   );
-  const kind = (method: string): "read" | "write" | "local" | undefined => {
+  const kind = (method: string): "read" | "write" | "admin" | "local" | undefined => {
     const core = CORE_BRIDGE_METHODS.get(method);
     if (core) {
       return core;
@@ -316,9 +316,15 @@ function projectCapabilityBridge(
     if (
       candidate?.owner.kind === "plugin" &&
       candidate.owner.pluginId === pluginId &&
-      (candidate.scope === READ_SCOPE || candidate.scope === "operator.write")
+      (candidate.scope === READ_SCOPE ||
+        candidate.scope === "operator.write" ||
+        candidate.scope === "operator.admin")
     ) {
-      return candidate.scope === READ_SCOPE ? "read" : "write";
+      return candidate.scope === READ_SCOPE
+        ? "read"
+        : candidate.scope === "operator.admin"
+          ? "admin"
+          : "write";
     }
     return undefined;
   };
@@ -333,7 +339,11 @@ function projectCapabilityBridge(
     return (
       available.has(method) &&
       authorizeOperatorScopesForRequiredScope(
-        methodKind === "read" ? READ_SCOPE : "operator.write",
+        methodKind === "read"
+          ? READ_SCOPE
+          : methodKind === "admin"
+            ? "operator.admin"
+            : "operator.write",
         scopes,
       ).allowed
     );
