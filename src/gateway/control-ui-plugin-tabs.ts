@@ -363,7 +363,9 @@ function projectCapabilityBridge(
   );
   return {
     protocolVersion: 1,
-    mode: methods.some((method) => kind(method) === "write") ? "read-write" : "read-only",
+    mode: methods.some((method) => kind(method) === "write" || kind(method) === "admin")
+      ? "read-write"
+      : "read-only",
     methods,
     readMethods,
     missingRequiredMethods,
