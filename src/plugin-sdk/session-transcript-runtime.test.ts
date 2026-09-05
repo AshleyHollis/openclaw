@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   appendTranscriptEvent,
@@ -774,10 +775,15 @@ describe("session transcript runtime SDK", () => {
       for (const [index, input] of messages.entries()) {
         const replay = await locked.appendMessage({
           ...input,
-          parentId: index === 0 ? undefined : messages[index - 1].eventId,
+          parentId:
+            index === 0
+              ? undefined
+              : expectDefined(messages[index - 1], "previous verification input").eventId,
         });
         expect(replay?.appended).toBe(false);
-        expect(replay?.anchor).toEqual(created[index].anchor);
+        expect(replay?.anchor).toEqual(
+          expectDefined(created[index], "created transcript anchor").anchor,
+        );
       }
       expect(fullRows).not.toHaveBeenCalled();
       expect(snapshots).toHaveBeenCalledTimes(1);
