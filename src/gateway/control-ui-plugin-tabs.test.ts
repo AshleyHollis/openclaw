@@ -82,6 +82,56 @@ describe("listControlUiPluginTabs", () => {
     });
   });
 
+  it.each([
+    { owner: "logbook", scope: "operator.read" as const, available: true, granted: true },
+    { owner: "foreign", scope: "operator.read" as const, available: true, granted: false },
+    { owner: "logbook", scope: "operator.write" as const, available: true, granted: false },
+    { owner: "logbook", scope: "operator.admin" as const, available: true, granted: false },
+    { owner: "logbook", scope: "operator.read" as const, available: false, granted: false },
+  ])(
+    "projects navigation resolver only for its available same-plugin read owner: $owner $scope $available",
+    ({ owner, scope, available, granted }) => {
+      activateDescriptors(
+        [
+          {
+            pluginId: "logbook",
+            descriptor: tabDescriptor({
+              path: "/plugins/logbook",
+              capabilityBridge: {
+                protocolVersion: 1,
+                requiredMethods: ["ui.session.navigateResolved"],
+                optionalMethods: ["logbook.link.resolve"],
+                sessionNavigationResolver: "logbook.link.resolve",
+              },
+            }),
+          },
+        ],
+        [{ pluginId: "logbook", path: "/plugins/logbook" }],
+        [
+          {
+            pluginId: owner,
+            name: "logbook.link.resolve",
+            scope,
+          },
+        ],
+      );
+      const grant = listControlUiPluginTabs(["operator.admin"], {
+        availableMethods: available ? ["logbook.link.resolve"] : [],
+      })[0]?.capabilityBridge;
+      expect(grant?.methods.includes("ui.session.navigateResolved")).toBe(granted);
+      expect(grant?.methods).not.toContain("logbook.link.resolve");
+      expect(grant?.readMethods).not.toContain("logbook.link.resolve");
+      expect(grant?.linkedSessionKeys).toEqual([]);
+      if (granted) {
+        expect(grant?.sessionNavigationResolver).toBe("logbook.link.resolve");
+        expect(grant?.readMethods).toContain("ui.session.navigateResolved");
+      } else {
+        expect(grant).not.toHaveProperty("sessionNavigationResolver");
+        expect(grant?.missingRequiredMethods).toContain("ui.session.navigateResolved");
+      }
+    },
+  );
+
   it("hides tabs whose required scopes are not granted", () => {
     activateDescriptors([
       {
@@ -303,15 +353,31 @@ describe("listControlUiPluginTabs", () => {
 
   it("revokes optional plugin admin mutations when a required capability disappears", () => {
     activateDescriptors(
-      [{ pluginId: "logbook", descriptor: tabDescriptor({
-        path: "/plugins/logbook/panel",
-        capabilityBridge: { protocolVersion: 1, requiredMethods: ["logbook.missing"], optionalMethods: ["logbook.act", "chat.history"] },
-      }) }],
+      [
+        {
+          pluginId: "logbook",
+          descriptor: tabDescriptor({
+            path: "/plugins/logbook/panel",
+            capabilityBridge: {
+              protocolVersion: 1,
+              requiredMethods: ["logbook.missing"],
+              optionalMethods: ["logbook.act", "chat.history"],
+            },
+          }),
+        },
+      ],
       [{ pluginId: "logbook", path: "/plugins/logbook", match: "prefix" }],
       [{ pluginId: "logbook", name: "logbook.act", scope: "operator.admin" }],
     );
-    expect(listControlUiPluginTabs(["operator.admin"], { availableMethods: ["logbook.act", "chat.history"] })[0]?.capabilityBridge).toMatchObject({
-      methods: ["chat.history"], mode: "read-only", missingRequiredMethods: ["logbook.missing"], upgradeRequired: true,
+    expect(
+      listControlUiPluginTabs(["operator.admin"], {
+        availableMethods: ["logbook.act", "chat.history"],
+      })[0]?.capabilityBridge,
+    ).toMatchObject({
+      methods: ["chat.history"],
+      mode: "read-only",
+      missingRequiredMethods: ["logbook.missing"],
+      upgradeRequired: true,
     });
   });
 

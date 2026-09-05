@@ -484,6 +484,36 @@ the host-injected exact set, and history/send/navigation reject unlinked keys.
 An absent/incompatible bridge remains on the existing authenticated read-only
 route and never gains a GET write or trusted-sandbox fallback.
 
+For presentation links outside that frozen set, a tab may declare
+`sessionNavigationResolver` alongside its method lists. It names one method in
+those lists, registered by the same plugin with `operator.read` scope. The resolver
+is an internal dependency: it is excluded from iframe-callable methods and reads.
+The host
+grants `ui.session.navigateResolved` only while that resolver is available and
+the operator has read access. Declare the navigation method as required when
+the tab cannot function without it; existing protocol-v1 hosts omit this new
+capability. No protocol version changes or Session ownership writes are needed.
+
+Call `ui.session.navigateResolved` with
+`{ input: { /* plugin-owned exact link selector */ }, expectedSessionKey }`.
+The host invokes the declared resolver itself, using the current authenticated
+Gateway connection. The resolver must validate the current link, exact Session
+identity and all plugin lifecycle restrictions, then return `{ sessionKey }`.
+It must reject closed, replaced, unavailable or otherwise forbidden links, not
+return a target based only on caller-supplied identity. Inputs use the existing
+64 KiB request limit; expected keys are nonempty strings of at most 2,048
+characters and resolver results use the existing 1 MiB response limit.
+
+Navigation occurs only when the freshly returned key exactly matches the
+expected key and the request and port remain active. Revocation, request
+timeout or a newer navigation supersedes pending resolution. A missing resolver
+returns `METHOD_NOT_GRANTED`, a changed target returns `SESSION_NOT_LINKED`, and
+a revoked or superseded resolution cannot navigate. The resolver binding never
+enters the iframe envelope. The tab cannot choose an arbitrary method or URL,
+and opening the target never adds it to frozen history, send or search grants.
+Freeze local selection while this action is pending: ignoring its returned
+Promise does not cancel navigation already performed by the host.
+
 Host hooks are the SDK seams for plugins that need to participate in the host
 lifecycle rather than only adding a provider, channel, or tool. They are
 generic contracts; Plan Mode can use them, but so can approval workflows,

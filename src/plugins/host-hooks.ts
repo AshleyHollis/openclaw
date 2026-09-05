@@ -97,6 +97,8 @@ type PluginControlUiCapabilityBridge = {
   protocolVersion: 1;
   requiredMethods: string[];
   optionalMethods: string[];
+  /** Declared same-plugin read method resolving an exact native navigation target. */
+  sessionNavigationResolver?: string;
 };
 
 export type PluginControlUiDescriptor = {

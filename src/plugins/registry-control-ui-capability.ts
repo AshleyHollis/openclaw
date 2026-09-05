@@ -48,6 +48,7 @@ export function normalizeCapabilityBridge(
     protocolVersion?: unknown;
     requiredMethods?: unknown;
     optionalMethods?: unknown;
+    sessionNavigationResolver?: unknown;
   };
   if (
     bridge.protocolVersion !== 1 ||
@@ -67,10 +68,19 @@ export function normalizeCapabilityBridge(
     return { kind: "invalid" };
   }
   const methods = [...requiredMethods, ...optionalMethods];
+  const resolver = bridge.sessionNavigationResolver;
+  if (resolver !== undefined && (typeof resolver !== "string" || !methods.includes(resolver))) {
+    return { kind: "invalid" };
+  }
   return methods.length <= 32 && new Set(methods).size === methods.length
     ? {
         kind: "valid",
-        value: { protocolVersion: 1, requiredMethods, optionalMethods },
+        value: {
+          protocolVersion: 1,
+          requiredMethods,
+          optionalMethods,
+          ...(resolver !== undefined ? { sessionNavigationResolver: resolver } : {}),
+        },
       }
     : { kind: "invalid" };
 }

@@ -48,6 +48,7 @@ type ControlUiCapabilityBridgeGrant = {
   upgradeRequired: boolean;
   /** Authenticated plugin/tab links; never rendered into the iframe document. */
   linkedSessionKeys: string[];
+  sessionNavigationResolver?: string;
   limits: typeof CONTROL_UI_CAPABILITY_BRIDGE_LIMITS;
 };
 
@@ -57,6 +58,7 @@ const CORE_BRIDGE_METHODS = new Map<string, "read" | "write" | "local">([
   ["sessions.search", "read"],
   ["chat.send", "write"],
   ["ui.session.navigate", "local"],
+  ["ui.session.navigateResolved", "local"],
 ]);
 
 type ControlUiPluginWidgetKind = {
@@ -330,6 +332,20 @@ function projectCapabilityBridge(
       return false;
     }
     if (methodKind === "local") {
+      if (method === "ui.session.navigateResolved") {
+        const resolver = declaration.sessionNavigationResolver;
+        const candidate = resolver ? registered.get(resolver) : undefined;
+        if (
+          !resolver ||
+          !available.has(resolver) ||
+          ![...declaration.requiredMethods, ...declaration.optionalMethods].includes(resolver) ||
+          candidate?.owner.kind !== "plugin" ||
+          candidate.owner.pluginId !== pluginId ||
+          candidate.scope !== READ_SCOPE
+        ) {
+          return false;
+        }
+      }
       return authorizeOperatorScopesForRequiredScope(READ_SCOPE, scopes).allowed;
     }
     return (
@@ -352,7 +368,10 @@ function projectCapabilityBridge(
     (method) => kind(method) !== "read" && kind(method) !== "local" && !permitted(method),
   );
   const methods = declared.filter(
-    (method) => permitted(method) && !(missingRequiredWrite && kind(method) === "write"),
+    (method) =>
+      method !== declaration.sessionNavigationResolver &&
+      permitted(method) &&
+      !(missingRequiredWrite && kind(method) === "write"),
   );
   const readMethods = methods.filter(
     (method) => kind(method) === "read" || kind(method) === "local",
@@ -364,6 +383,9 @@ function projectCapabilityBridge(
     readMethods,
     missingRequiredMethods,
     upgradeRequired: missingRequiredWrite,
+    ...(methods.includes("ui.session.navigateResolved")
+      ? { sessionNavigationResolver: declaration.sessionNavigationResolver }
+      : {}),
     // The authenticated server supplies this immutable, tab-owned input from
     // durable plugin ownership. A browser selection or iframe request is never
     // consulted when granting a port.

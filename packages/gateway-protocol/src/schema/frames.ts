@@ -118,6 +118,8 @@ export const HelloOkSchema = closedObject({
             upgradeRequired: Type.Boolean(),
             /** Authenticated host binding; never forwarded to the iframe port. */
             linkedSessionKeys: Type.Array(NonEmptyString),
+            /** Host-only same-plugin read resolver for navigation; never sent to the port. */
+            sessionNavigationResolver: Type.Optional(NonEmptyString),
             limits: closedObject({
               maxRequestBytes: Type.Integer({ minimum: 1 }),
               maxResponseBytes: Type.Integer({ minimum: 1 }),

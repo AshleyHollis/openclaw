@@ -218,6 +218,38 @@ describe("plugin registry Control UI descriptors", () => {
     ]);
   });
 
+  it.each(["logbook.link.resolve", "undeclared.resolve", 12])(
+    "validates and retains only a declared navigation resolver: %s",
+    (resolver) => {
+      const { config, registry } = createPluginRegistryFixture();
+      registerTestPlugin({
+        registry,
+        config,
+        record: createPluginRecord({ id: "logbook" }),
+        register(api) {
+          api.session.controls.registerControlUiDescriptor({
+            surface: "tab",
+            id: "logbook",
+            label: "Logbook",
+            path: "/plugins/logbook",
+            capabilityBridge: {
+              protocolVersion: 1,
+              requiredMethods: ["ui.session.navigateResolved"],
+              optionalMethods: ["logbook.link.resolve"],
+              sessionNavigationResolver: resolver,
+            },
+          } as never);
+        },
+      });
+      const descriptor = registry.registry.controlUiDescriptors[0]?.descriptor;
+      if (resolver === "logbook.link.resolve") {
+        expect(descriptor?.capabilityBridge?.sessionNavigationResolver).toBe(resolver);
+      } else {
+        expect(descriptor).not.toHaveProperty("capabilityBridge");
+      }
+    },
+  );
+
   it("rejects protocol-relative tab paths that would iframe external content", () => {
     for (const path of ["//attacker.example/panel", "/\\attacker.example/panel"]) {
       const { config, registry } = createPluginRegistryFixture();

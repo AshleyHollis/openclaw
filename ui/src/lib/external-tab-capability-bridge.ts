@@ -30,6 +30,8 @@ type Grant = {
   readMethods: string[];
   /** Authenticated parent binding; deliberately absent from the port envelope. */
   linkedSessionKeys: string[];
+  /** Authenticated descriptor binding; never accepted from the sandbox. */
+  sessionNavigationResolver?: string;
   missingRequiredMethods: string[];
   upgradeRequired: boolean;
 };
@@ -133,6 +135,7 @@ export class ExternalTabCapabilityBridgeController {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private hello = false;
   private revoked = false;
+  private navigationGeneration = 0;
   private active = 0;
   private requests: number[] = [];
   private mutations: number[] = [];
@@ -433,6 +436,7 @@ export class ExternalTabCapabilityBridgeController {
     }
     this.active += downstreamConcurrencyUnits;
     let executionStarted = false;
+    let requestActive = true;
     let released = false;
     const releaseDownstreamSlot = () => {
       if (released) {
@@ -445,7 +449,7 @@ export class ExternalTabCapabilityBridgeController {
       const execution = mutation
         ? // SAFETY: mutation fingerprinting above always returns a string for valid mutations.
           this.reconcileMutation(request, operationFingerprint as string) // SAFETY: valid mutations always produce a fingerprint.
-        : this.dispatch(request);
+        : this.dispatch(request, () => requestActive && !this.revoked);
       executionStarted = true;
       // A timeout stops waiting for the sandbox response, not Gateway work.
       // Keep this slot reserved until the original operation settles so retries
@@ -478,6 +482,8 @@ export class ExternalTabCapabilityBridgeController {
           retryable,
         ),
       );
+    } finally {
+      requestActive = false;
     }
   }
 
@@ -585,7 +591,7 @@ export class ExternalTabCapabilityBridgeController {
     return pending;
   }
 
-  private async dispatch(request: Request): Promise<unknown> {
+  private async dispatch(request: Request, isCurrent = () => !this.revoked): Promise<unknown> {
     const params = asRecord(request.params);
     if (!params) {
       throw new Failure("INVALID_PARAMS", "Bridge parameters must be an object");
@@ -649,11 +655,40 @@ export class ExternalTabCapabilityBridgeController {
         sessionKey: this.linked(params.sessionKey),
         idempotencyKey: `bridge:${this.options.mutationNamespace}:${request.operationId}`,
       };
+    } else if (request.method === "ui.session.navigateResolved") {
+      const resolver = this.options.grant.sessionNavigationResolver;
+      if (!resolver) {
+        throw new Failure("METHOD_NOT_GRANTED", "Session navigation resolver is not granted");
+      }
+      if (
+        !this.exact(params, ["input", "expectedSessionKey"]) ||
+        !asRecord(params.input) ||
+        !isNonEmptyString(params.expectedSessionKey, 2048)
+      ) {
+        throw new Failure("INVALID_PARAMS", "Invalid resolved session navigation parameters");
+      }
+      // Resolve through the host-held descriptor, never a method/result supplied
+      // by the frame. Opening the result does not expand frozen Session grants.
+      const generation = ++this.navigationGeneration;
+      const result = await this.options.client.request(resolver, params.input);
+      if (!isCurrent() || generation !== this.navigationGeneration) {
+        throw new Failure("AUTHORITY_REVOKED", "Session navigation authority is no longer active");
+      }
+      if ((byteLength(result) ?? Infinity) > EXTERNAL_TAB_BRIDGE_LIMITS.maxResponseBytes) {
+        throw new Failure("RESULT_TOO_LARGE", "Bridge response exceeds the public limit");
+      }
+      if (asRecord(result)?.sessionKey !== params.expectedSessionKey) {
+        throw new Failure("SESSION_NOT_LINKED", "Resolved Session no longer matches selection");
+      }
+      this.options.navigate(params.expectedSessionKey);
+      return undefined;
     } else if (request.method === "ui.session.navigate") {
       if (!this.exact(params, ["sessionKey"])) {
         throw new Failure("INVALID_PARAMS", "Invalid session navigation parameters");
       }
-      this.options.navigate(this.linked(params.sessionKey));
+      const sessionKey = this.linked(params.sessionKey);
+      this.navigationGeneration += 1;
+      this.options.navigate(sessionKey);
       return undefined;
     } else {
       allowed = params;

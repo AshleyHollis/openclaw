@@ -24,15 +24,17 @@ function makeBridge(
     onHandshakeFailure?: Mock<() => void>;
     now?: () => number;
     request?: Mock<(method: string, params?: unknown) => Promise<unknown>>;
+    sessionNavigationResolver?: string;
   } = {},
 ) {
   const request = params.request ?? vi.fn(async (_method: string, values: unknown) => values);
+  const navigate = vi.fn();
   const controller = new ExternalTabCapabilityBridgeController({
     client: { request },
     mutationNamespace: params.mutationNamespace ?? "operator-a-tab-a",
     mutationState: params.mutationState,
     linkedSessionKeys: params.links ?? ["agent:main:linked"],
-    navigate: vi.fn(),
+    navigate,
     onHandshakeFailure: params.onHandshakeFailure,
     now: params.now,
     grant: {
@@ -49,12 +51,15 @@ function makeBridge(
       linkedSessionKeys: ["agent:main:host-only"],
       missingRequiredMethods: [],
       upgradeRequired: false,
+      ...(params.sessionNavigationResolver
+        ? { sessionNavigationResolver: params.sessionNavigationResolver }
+        : {}),
     },
   });
   const channel = new MessageChannel();
   controller.connect(channel.port1);
   channel.port2.start();
-  return { controller, port: channel.port2, request };
+  return { controller, port: channel.port2, request, navigate };
 }
 function next(port: MessagePort) {
   return new Promise<Record<string, unknown>>((resolve) => {
@@ -193,6 +198,152 @@ describe("ExternalTabCapabilityBridgeController", () => {
       idempotencyKey: "bridge:operator-a-tab-a:op-owned",
     });
   });
+
+  it("opens a freshly resolved link without granting Session data access", async () => {
+    const { port, request, navigate, controller } = makeBridge({
+      links: Array.from({ length: 200 }, (_, index) => `agent:main:initial-${index}`),
+      methods: ["ui.session.navigateResolved", "chat.history"],
+      reads: ["ui.session.navigateResolved", "chat.history"],
+      sessionNavigationResolver: "logbook.link.resolve",
+    });
+    request.mockResolvedValue({ sessionKey: "agent:main:created-after-hello" });
+    try {
+      expect(await hello(port)).not.toHaveProperty("sessionNavigationResolver");
+      port.postMessage({
+        type: "openclaw:capability-bridge-request",
+        requestId: "open",
+        method: "ui.session.navigateResolved",
+        params: {
+          input: { reference: "new-link" },
+          expectedSessionKey: "agent:main:created-after-hello",
+        },
+      });
+      expect(await next(port)).not.toHaveProperty("error");
+      expect(navigate).toHaveBeenCalledExactlyOnceWith("agent:main:created-after-hello");
+      expect(request).toHaveBeenCalledExactlyOnceWith("logbook.link.resolve", {
+        reference: "new-link",
+      });
+      port.postMessage({
+        type: "openclaw:capability-bridge-request",
+        requestId: "read",
+        method: "chat.history",
+        params: { sessionKey: "agent:main:created-after-hello" },
+      });
+      expect(await next(port)).toMatchObject({ error: { code: "SESSION_NOT_LINKED" } });
+      expect(request).toHaveBeenCalledTimes(1);
+    } finally {
+      controller.revoke();
+      port.close();
+    }
+  });
+
+  it.each([
+    {
+      label: "missing resolver",
+      resolver: undefined,
+      result: { sessionKey: "agent:main:target" },
+      extra: {},
+    },
+    {
+      label: "iframe-selected method",
+      resolver: "logbook.link.resolve",
+      result: { sessionKey: "agent:main:target" },
+      extra: { method: "foreign.resolve" },
+    },
+    {
+      label: "different Session",
+      resolver: "logbook.link.resolve",
+      result: { sessionKey: "agent:main:replacement" },
+      extra: {},
+    },
+    {
+      label: "malformed result",
+      resolver: "logbook.link.resolve",
+      result: { url: "https://invalid.example" },
+      extra: {},
+    },
+    {
+      label: "oversized result",
+      resolver: "logbook.link.resolve",
+      result: {
+        sessionKey: "agent:main:target",
+        data: "x".repeat(EXTERNAL_TAB_BRIDGE_LIMITS.maxResponseBytes),
+      },
+      extra: {},
+    },
+  ])("refuses resolved navigation with $label", async ({ resolver, result, extra }) => {
+    const { controller, port, request, navigate } = makeBridge({
+      methods: ["ui.session.navigateResolved"],
+      reads: ["ui.session.navigateResolved"],
+      sessionNavigationResolver: resolver,
+    });
+    request.mockResolvedValue(result);
+    try {
+      await hello(port);
+      port.postMessage({
+        type: "openclaw:capability-bridge-request",
+        requestId: "open",
+        method: "ui.session.navigateResolved",
+        params: { input: { reference: "link" }, expectedSessionKey: "agent:main:target", ...extra },
+      });
+      expect(await next(port)).toHaveProperty("error");
+      expect(navigate).not.toHaveBeenCalled();
+    } finally {
+      controller.revoke();
+      port.close();
+    }
+  });
+
+  it.each(["revoked", "timed-out", "superseded"])(
+    "does not navigate after a %s resolution",
+    async (ending) => {
+      const pending = deferred<unknown>();
+      const { controller, port, request, navigate } = makeBridge({
+        methods: ["ui.session.navigateResolved"],
+        reads: ["ui.session.navigateResolved"],
+        sessionNavigationResolver: "logbook.link.resolve",
+      });
+      request
+        .mockReturnValueOnce(pending.promise)
+        .mockResolvedValue({ sessionKey: "agent:main:newer" });
+      try {
+        await hello(port);
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        port.postMessage({
+          type: "openclaw:capability-bridge-request",
+          requestId: "old",
+          method: "ui.session.navigateResolved",
+          params: { input: { reference: "old" }, expectedSessionKey: "agent:main:target" },
+        });
+        await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+        if (ending === "revoked") {
+          controller.revoke();
+        }
+        if (ending === "timed-out") {
+          const response = next(port);
+          await vi.advanceTimersByTimeAsync(EXTERNAL_TAB_BRIDGE_LIMITS.requestTimeoutMs);
+          expect(await response).toMatchObject({ error: { code: "TIMEOUT" } });
+        }
+        if (ending === "superseded") {
+          port.postMessage({
+            type: "openclaw:capability-bridge-request",
+            requestId: "new",
+            method: "ui.session.navigateResolved",
+            params: { input: { reference: "new" }, expectedSessionKey: "agent:main:newer" },
+          });
+          expect(await next(port)).not.toHaveProperty("error");
+          expect(navigate).toHaveBeenCalledExactlyOnceWith("agent:main:newer");
+        }
+        pending.resolve({ sessionKey: "agent:main:target" });
+        await pending.promise;
+        await Promise.resolve();
+        expect(navigate).not.toHaveBeenCalledWith("agent:main:target");
+      } finally {
+        controller.revoke();
+        port.close();
+      }
+    },
+  );
 
   it("returns local empty search and partitions multiple agents", async () => {
     const empty = makeBridge({ links: [] });
