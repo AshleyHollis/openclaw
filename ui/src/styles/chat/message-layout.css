@@ -53,10 +53,11 @@
   background: transparent;
 }
 
-/* The transcript stays keyboard-focusable for scroll keys, but the owner chose
-   no focus box: a ring around the whole main content reads as a broken border. */
+/* Keep keyboard scrolling discoverable. Inset the indicator so the surrounding
+   pane cannot clip it or make it look like a detached outer border. */
 .chat-thread:focus-visible {
-  outline: none;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .chat-thread-inner > :first-child {

@@ -163,7 +163,7 @@ suite.define(() => {
         const focusedOutline = await readFocusOutline(thread);
         expect(focusedOutline).toMatchObject({
           focusVisible: true,
-          outlineStyle: "none",
+          outlineStyle: "solid",
         });
         await captureUiProof(page, "02-chat-thread-keyboard-focus.png");
 

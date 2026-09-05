@@ -1050,6 +1050,63 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
     }
   });
 
+  it.each(["none", "active"] as const)(
+    "keeps transcript keyboard focus visible and scrollable with forced colors %s",
+    async (forcedColors) => {
+      const page = await openBrowserPage(320, 568);
+      try {
+        await page.emulateMedia({ forcedColors, reducedMotion: "reduce" });
+        await page.setContent(`<!doctype html><html data-theme-mode="light"><head>
+          <style>${readUiCss()}\n${readStyleSheet("ui/src/styles/chat/split-view.css")}</style>
+          </head><body>
+            <button class="chat-pane__workspace-chip">Workspace</button>
+            <button class="chat-pane__session-title-button">Session title</button>
+            <div class="chat-thread chat-thread--direct" role="log" tabindex="0" style="height:200px">
+              ${Array.from({ length: 40 }, (_, index) => `<p>Transcript line ${index + 1}</p>`).join("")}
+            </div>
+            <button id="after-transcript">After transcript</button>
+          </body></html>`);
+        const transcript = page.getByRole("log");
+        const before = await transcript.boundingBox();
+        for (const selector of [
+          ".chat-pane__workspace-chip",
+          ".chat-pane__session-title-button",
+          ".chat-thread",
+        ]) {
+          await page.keyboard.press("Tab");
+          const focus = await page.locator(selector).evaluate((element) => {
+            const style = getComputedStyle(element);
+            return {
+              active: document.activeElement === element,
+              visible: element.matches(":focus-visible"),
+              outline: style.outlineStyle,
+              width: Number.parseFloat(style.outlineWidth),
+            };
+          });
+          expect(focus.active).toBe(true);
+          expect(focus.visible).toBe(true);
+          if (forcedColors === "active" || selector === ".chat-thread") {
+            expect(focus.outline).toBe("solid");
+            expect(focus.width).toBeGreaterThanOrEqual(2);
+          }
+        }
+        expect(await transcript.boundingBox()).toEqual(before);
+        await page.keyboard.press("ArrowDown");
+        await expectBrowser
+          .poll(() => transcript.evaluate((element) => element.scrollTop))
+          .toBeGreaterThan(0);
+        await page.keyboard.press("Tab");
+        expect(
+          await page
+            .locator("#after-transcript")
+            .evaluate((element) => document.activeElement === element),
+        ).toBe(true);
+      } finally {
+        await closeBrowserPage(page);
+      }
+    },
+  );
+
   it("keeps transcript search icons compact", async () => {
     const page = await openBrowserPage(1024, 768);
     try {

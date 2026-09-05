@@ -1130,6 +1130,16 @@ wa-popover::part(body)::-webkit-scrollbar-thumb:hover {
   outline: none;
 }
 
+@media (forced-colors: active) {
+  /* Forced colors removes shadows and remaps background-only indicators.
+     This light-DOM fallback must beat component outline resets; component
+     offsets and shadow-part/hidden-input indicators keep their own geometry. */
+  :focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: -2px;
+  }
+}
+
 .session-color-dot {
   display: inline-block;
   flex: 0 0 auto;
