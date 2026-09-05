@@ -25,6 +25,7 @@ import {
   replaceTranscriptEventsSync,
   rewriteTranscriptEventRowsExact,
   trimTranscriptForManualCompact,
+  withTranscriptAppendOnlyLock,
   withTranscriptWriteLock,
   withTranscriptWriteTransaction,
 } from "./session-accessor.sqlite-transcript-write.js";
@@ -62,6 +63,7 @@ export {
   rewriteTranscriptEventRowsExact,
   rewriteTranscriptMessageAtAnchor,
   resolveTranscriptSessionKeyBySessionId,
+  withTranscriptAppendOnlyLock,
   withTranscriptWriteLock,
   withTranscriptWriteTransaction,
 };

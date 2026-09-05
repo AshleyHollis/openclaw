@@ -262,6 +262,7 @@ export {
   rewriteTranscriptMessageAtAnchor,
   resolveTranscriptSessionKeyBySessionId,
   trimSessionTranscriptForManualCompact,
+  withTranscriptAppendOnlyLock,
   withTranscriptWriteLock,
   withTranscriptWriteTransaction,
 } from "./session-accessor.transcript.js";

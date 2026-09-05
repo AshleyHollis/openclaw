@@ -422,6 +422,27 @@ export async function withTranscriptWriteLock<T>(
   scope: SessionTranscriptWriteScope,
   run: (context: SqliteTranscriptWriteLockContext) => Promise<T> | T,
 ): Promise<T> {
+  return await withTranscriptLock(scope, run, true);
+}
+
+/** Append-only callers cannot rewrite a prepared snapshot and need no rewrite bookkeeping. */
+export async function withTranscriptAppendOnlyLock<T>(
+  scope: SessionTranscriptWriteScope,
+  run: (context: Omit<SqliteTranscriptWriteLockContext, "replaceEvents">) => Promise<T> | T,
+): Promise<T> {
+  return await withTranscriptLock(
+    scope,
+    ({ appendMessage, appendMessageWithMessageSequence, readMessageFacts, readEvents }) =>
+      run({ appendMessage, appendMessageWithMessageSequence, readMessageFacts, readEvents }),
+    false,
+  );
+}
+
+async function withTranscriptLock<T>(
+  scope: SessionTranscriptWriteScope,
+  run: (context: SqliteTranscriptWriteLockContext) => Promise<T> | T,
+  trackRewriteSnapshot: boolean,
+): Promise<T> {
   const fencedScope = withOwnedSessionTranscriptWriterFence(scope);
   const resolved = resolveSqliteTranscriptScope(fencedScope);
   const databaseOptions = toDatabaseOptions(resolved);
@@ -432,13 +453,18 @@ export async function withTranscriptWriteLock<T>(
         // openclaw-agent-db.ts cache rule: LRU eviction closes idle handles across caller awaits.
         const database = openOpenClawAgentDatabase(databaseOptions);
         const snapshot = readTranscriptSnapshot(database, resolved.sessionId);
-        transcriptSnapshot = { kind: "current", rows: snapshot.rows };
+        if (trackRewriteSnapshot) {
+          transcriptSnapshot = { kind: "current", rows: snapshot.rows };
+        }
         return snapshot.events;
       },
       // openclaw-agent-db.ts cache rule: never retain a handle across caller awaits; LRU may close it.
       readMessageFacts: async (params) =>
         readTranscriptMirrorFacts(openOpenClawAgentDatabase(databaseOptions), resolved, params),
       replaceEvents: async (events) => {
+        if (!trackRewriteSnapshot) {
+          throw new Error("Append-only transcript locks cannot replace events");
+        }
         if (transcriptSnapshot?.kind === "stale") {
           throw new SqliteTranscriptMutationConflictError(resolved.sessionId);
         }

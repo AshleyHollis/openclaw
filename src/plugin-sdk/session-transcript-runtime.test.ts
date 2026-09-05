@@ -8,6 +8,7 @@ import {
   replaceTranscriptEvents,
   upsertSessionEntryCore,
 } from "../config/sessions/session-accessor.js";
+import * as transcriptReads from "../config/sessions/session-accessor.sqlite-read.js";
 import {
   SessionTranscriptWriterClaimReboundError,
   withOwnedSessionTranscriptWrites,
@@ -21,6 +22,7 @@ import {
 import {
   appendAssistantMirrorMessageByIdentity,
   appendSessionTranscriptMessageByIdentity,
+  appendSessionTranscriptMessagesByIdentity,
   formatSessionTranscriptMemoryHitKey,
   parseSessionTranscriptMemoryHitKey,
   publishSessionTranscriptUpdateByIdentity,
@@ -742,6 +744,44 @@ describe("session transcript runtime SDK", () => {
         },
       },
     ]);
+  });
+
+  it("does not rescan rewrite snapshots for append-only idempotent verification", async () => {
+    const scope = {
+      agentId: "main",
+      sessionId: "append-only-verification",
+      sessionKey: "agent:main:main",
+      storePath,
+    };
+    await upsertSessionEntryCore(scope, { sessionId: scope.sessionId, updatedAt: 10 });
+    const messages = Array.from({ length: 128 }, (_, index) => ({
+      eventId: `verification-${index}`,
+      idempotencyLookup: "scan" as const,
+      message: {
+        role: "user" as const,
+        content: `Fictional ${index}`,
+        timestamp: index + 1,
+        idempotencyKey: `verification-key-${index}`,
+      },
+    }));
+    const created = await appendSessionTranscriptMessagesByIdentity({ ...scope, messages });
+    const fullRows = vi.spyOn(transcriptReads, "readTranscriptEventRows");
+    const snapshots = vi.spyOn(transcriptReads, "readTranscriptSnapshot");
+    await withSessionTranscriptWriteLock(scope, async (locked) => {
+      expect(locked).not.toHaveProperty("replaceEvents");
+      await locked.readEvents();
+      fullRows.mockClear();
+      for (const [index, input] of messages.entries()) {
+        const replay = await locked.appendMessage({
+          ...input,
+          parentId: index === 0 ? undefined : messages[index - 1].eventId,
+        });
+        expect(replay?.appended).toBe(false);
+        expect(replay?.anchor).toEqual(created[index].anchor);
+      }
+      expect(fullRows).not.toHaveBeenCalled();
+      expect(snapshots).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("locks read and append helpers to one scoped transcript target", async () => {
