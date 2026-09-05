@@ -95,7 +95,7 @@ describe("Apple app i18n catalogs", () => {
       "Approval needed",
       "Agent: %@",
       "Connect a nearby Gateway",
-      "Direct mode supports device info, status, and notifications. Chat, Talk, and approvals still use the iPhone.",
+      "Direct mode supports device info, status, and notifications. Set up standalone voice on iPhone to use Talk on Watch. Chat and approvals still use the iPhone.",
       "Expires in %@",
       "Location Services are off in iOS Settings.",
       "Message Routing",
