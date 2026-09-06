@@ -210,7 +210,7 @@ index 2b8bb8d9cb13dc89892f4983afd404c8594bdcc5..3b94359b39b4ffa7f466a7c9817d6099
 +				this.exitPromises.push(runner.stop({ force: resolver.isRejected }).finally(() => clearTimeout(id)).catch((error) => this.logger.error(`[vitest-pool]: Failed to terminate ${task.worker} worker for test files ${formatFiles(task)}.`, error)));
  			}
  			this.freeWorkerId(poolId);
- 		}
+ 		} 
 @@ -3779,6 +3806,8 @@ function createPool(ctx) {
  			const groupResults = await Promise.allSettled(promises);
  			results.push(...groupResults);
