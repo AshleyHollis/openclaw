@@ -165,8 +165,7 @@ export function installControlUiHttpResponseLimit(res: ServerResponse, maxBytes:
     const encoding = typeof encodingOrCallback === "string" ? encodingOrCallback : undefined;
     const done =
       typeof chunk === "function"
-        ? // SAFETY: a function in the first slot is Node's end(callback) overload, not response data.
-          (chunk as Callback)
+        ? (chunk as Callback) // SAFETY: a function in the first slot is Node's end(callback) overload, not response data.
         : typeof encodingOrCallback === "function"
           ? encodingOrCallback
           : callback;
