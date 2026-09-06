@@ -152,6 +152,7 @@ packageExtensionsChecksum: sha256-zZ8fyodhMTumshonC7kktCqTPsiHL3UAyS9vltFAlMo=
 patchedDependencies:
   '@awesome.me/webawesome@3.12.0': 56965f5288ab449b79b5cf0920c37325444105bfc76f146d339c954804671fee
   '@novnc/novnc@1.7.0': bfde0e1bda172da3525f9f5014d85ad28073325b74f09609084598a65d2f412d
+  '@openclaw/fs-safe@0.8.1': befbb78db78c493711d44acbb3620201b26895f37040ccf5d4da0802d0278424
   '@vitest/runner@4.1.11': 55258cdf55f944f5e9bfbc52251b3696225ca2993e2d9f56b90b88f764193d93
   matrix-js-sdk@42.2.0: 9e97147d99b86977d6665a676cdf853434ef61eee7cfb176bb66c9c48da599b4
   vitest@4.1.11: ad2b39bd4f032bf68c24d4924f363c37780f486b0e36a831a1a21aa9c457bebd
@@ -204,7 +205,7 @@ importers:
         version: link:packages/ai
       '@openclaw/fs-safe':
         specifier: 0.8.1
-        version: 0.8.1
+        version: 0.8.1(patch_hash=befbb78db78c493711d44acbb3620201b26895f37040ccf5d4da0802d0278424)
       '@openclaw/proxyline':
         specifier: 0.3.7
         version: 0.3.7(undici@8.10.2)
@@ -1702,7 +1703,7 @@ importers:
     dependencies:
       '@openclaw/fs-safe':
         specifier: 0.8.1
-        version: 0.8.1
+        version: 0.8.1(patch_hash=befbb78db78c493711d44acbb3620201b26895f37040ccf5d4da0802d0278424)
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -11451,7 +11452,7 @@ snapshots:
   '@openclaw/fs-safe-win32-x64-msvc@0.8.1':
     optional: true
 
-  '@openclaw/fs-safe@0.8.1':
+  '@openclaw/fs-safe@0.8.1(patch_hash=befbb78db78c493711d44acbb3620201b26895f37040ccf5d4da0802d0278424)':
     optionalDependencies:
       '@openclaw/fs-safe-darwin-arm64': 0.8.1
       '@openclaw/fs-safe-darwin-x64': 0.8.1
