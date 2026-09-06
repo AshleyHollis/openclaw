@@ -36,7 +36,7 @@ describe("native notification registration", () => {
     };
     runPluginRegisterSyncInRegistry(
       (guarded) => {
-        captured = guarded.notifications.registerEmitter;
+        captured = guarded.notifications.registerEmitter.bind(guarded.notifications);
         captured(declaration);
       },
       api,

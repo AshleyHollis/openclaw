@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import {
   closeOpenClawStateDatabaseForTest,
   openOpenClawStateDatabase,
@@ -543,8 +544,8 @@ describe("plugin notification SQLite ledger", () => {
         markSendStarted = resolve;
       });
       const clears: string[] = [];
-      const firstClear = Promise.withResolvers<"accepted">();
-      const clearStarted = Promise.withResolvers<void>();
+      const firstClear = createDeferred<"accepted">();
+      const clearStarted = createDeferred();
       let visible = false;
       const coordinator = new PluginNotificationCoordinator({
         pluginId: "board",

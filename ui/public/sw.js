@@ -217,16 +217,21 @@ self.addEventListener("push", (event) => {
       !data.tag ||
       data.tag.length > 128 ||
       !Number.isSafeInteger(envelope.expiresAtMs)
-    )
+    ) {
       return;
+    }
     const work = pluginNotificationWork.then(async () => {
       if (envelope.kind === "clear") {
         const notifications = await self.registration.getNotifications({ tag: data.tag });
-        for (const notification of notifications) notification.close();
+        for (const notification of notifications) {
+          notification.close();
+        }
         return;
       }
       const remaining = envelope.expiresAtMs - Date.now();
-      if (remaining <= 0 || remaining > 86_400_000) return;
+      if (remaining <= 0 || remaining > 86_400_000) {
+        return;
+      }
       await self.registration.showNotification(title, options);
     });
     // A failed display must not poison a later clear, but the event still gets

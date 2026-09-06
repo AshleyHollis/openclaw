@@ -59,9 +59,12 @@ import {
 } from "./ingress-attribution.js";
 import { normalizePluginNodeCapabilityScopedUrl } from "./plugin-node-capability.js";
 import {
+  dispatchControlUiHttpRelay,
+  type PluginHttpRequestHandler,
+} from "./server-http-control-ui-relay.js";
+import {
   getCachedPluginGatewayAuthBypassPaths,
   shouldEnforceDefaultPluginGatewayAuth,
-  type PluginGatewayDispatchContext,
   type ResolvePluginNodeCapabilityRoute,
 } from "./server-http-plugin-auth.js";
 import { handleGatewayProbeRequest } from "./server-http-probes.js";
@@ -87,13 +90,6 @@ import {
   handleWorkerBootstrapArtifactTransferHttpRequest,
   type WorkerBootstrapArtifactTransferHttpCallback,
 } from "./worker-environments/worker-bootstrap-artifact-transfer-http.js";
-
-type PluginHttpRequestHandler = (
-  req: IncomingMessage,
-  res: ServerResponse,
-  pathContext?: PluginRoutePathContext,
-  dispatchContext?: PluginGatewayDispatchContext,
-) => Promise<boolean>;
 
 type WatchNodeHttpRequestHandler = (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
 type McpOAuthCallbackHandler = (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
@@ -365,30 +361,18 @@ export function createGatewayHttpServer(opts: {
         rateLimiter,
       };
       if (isControlUiRelay) {
-        if (!handlePluginRequest || !controlUiEnabled) {
-          sendGatewayAuthFailure(res, { ok: false, reason: "unauthorized" });
-          return;
-        }
-        const { authorizePluginGatewayHttpRequestOrReply } = await getHttpAuthUtilsModule();
-        const { resolvePluginRouteRuntimeOperatorScopes } =
-          await getPluginRouteRuntimeScopesModule();
-        const authorized = await authorizePluginGatewayHttpRequestOrReply({
+        await dispatchControlUiHttpRelay({
           req,
           res,
+          handlePluginRequest,
+          controlUiEnabled,
           ...routeAuth,
           requestPath,
           controlUiBasePath,
-          resolveOperatorScopes: resolvePluginRouteRuntimeOperatorScopes,
-        });
-        if (!authorized) return;
-        const handled = await handlePluginRequest(req, res, pluginPathContext, {
-          gatewayAuthSatisfied: true,
-          gatewayRequestAuth: authorized.requestAuth,
-          gatewayRequestOperatorScopes: authorized.operatorScopes,
-          gatewayRequestClientIp: requestClientIp,
+          pluginPathContext,
+          requestClientIp,
         });
         // A declared relay never falls through into hooks, core APIs, or the SPA.
-        if (!handled && !res.destroyed && !res.writableEnded) respondNotFound(res);
         return;
       }
       const controlUiRouteOptions = {

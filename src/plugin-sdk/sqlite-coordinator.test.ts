@@ -44,7 +44,9 @@ describe("plugin SQLite coordinator", () => {
       expect(next).not.toBeNull();
       next?.release();
     } finally {
-      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+      }
       await exited;
     }
   });

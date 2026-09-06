@@ -50,7 +50,7 @@ function fixture() {
 describe("plugin notification worker ordering", () => {
   it("waits for an earlier show before closing exactly its tag", async () => {
     const f = fixture();
-    const shown = createDeferred<void>();
+    const shown = createDeferred();
     f.registration.showNotification.mockImplementationOnce(() => shown.promise);
     const notify = f.push("notify");
     const clear = f.push("clear", Date.now());

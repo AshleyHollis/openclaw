@@ -3,8 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import webPush from "web-push";
-import type { GatewayClient } from "../gateway/server-methods/types.js";
-import type { GatewayRequestContext } from "../gateway/server-methods/types.js";
+import type { GatewayClient, GatewayRequestContext } from "../gateway/server-methods/types.js";
 import { persistDevicePairingStoreState } from "../infra/device-pairing-store.js";
 import type { PairedDevice } from "../infra/device-pairing.types.js";
 import { WEB_PUSH_USER_PREFERENCES_KEY } from "../infra/push-web-preferences.js";
@@ -72,13 +71,14 @@ async function fixture() {
       "paired",
     );
   persist();
-  for (const owner of [profile, other])
+  for (const owner of [profile, other]) {
     await registerWebPushSubscription({
       endpoint: `https://push.example.test/${owner.id}`,
       keys: { p256dh: "example-key", auth: "example-auth" },
       binding: { deviceId: device.deviceId, userProfileId: owner.id },
       baseDir: dir,
     });
+  }
   const client: GatewayClient = {
     connId: "connection-example",
     isDeviceTokenAuth: true,
@@ -151,7 +151,9 @@ describe("native host plugin notifications", () => {
       const context = { getRuntimeConfig: () => ({}) } as GatewayRequestContext;
       let current: GatewayRequestContext | undefined = context;
       const subagent = {};
-      if (change !== "unbound") bindGatewayContextResolver(subagent, () => current);
+      if (change !== "unbound") {
+        bindGatewayContextResolver(subagent, () => current);
+      }
       const unavailable = createUnavailableRuntime("setup-only");
       const runtime = new Proxy(unavailable, {
         get(target, key) {
@@ -202,11 +204,16 @@ describe("native host plugin notifications", () => {
           () => emitter?.bindCurrentOperator(),
         ),
       ).toBeUndefined();
-      if (change === "request-finished") requestActive = false;
+      if (change === "request-finished") {
+        requestActive = false;
+      }
       vi.mocked(webPush.setVapidDetails).mockImplementationOnce(() => {
-        if (change === "host-retired") current = undefined;
-        if (change === "host-replaced")
+        if (change === "host-retired") {
+          current = undefined;
+        }
+        if (change === "host-replaced") {
           current = { getRuntimeConfig: () => ({}) } as GatewayRequestContext;
+        }
       });
       const result = await binding!.emit(f.candidate);
       if (change === "host-retired" || change === "host-replaced") {
@@ -242,8 +249,12 @@ describe("native host plugin notifications", () => {
       const binding = f.emitter.bindCurrentOperator();
       expect(binding).toBeDefined();
       vi.mocked(webPush.setVapidDetails).mockImplementationOnce(() => {
-        if (change === "retire") f.retire();
-        if (change === "profile") f.client.authenticatedUserProfile = undefined;
+        if (change === "retire") {
+          f.retire();
+        }
+        if (change === "profile") {
+          f.client.authenticatedUserProfile = undefined;
+        }
         const token = f.device.tokens?.operator;
         if (token && change === "revoke") {
           token.revokedAtMs = Date.now();

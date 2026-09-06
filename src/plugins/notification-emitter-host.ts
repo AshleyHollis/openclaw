@@ -69,14 +69,17 @@ export function createHostPluginNotificationEmitter(params: {
       client.invalidated ||
       client.internal?.syntheticClient ||
       client.connect.role !== "operator"
-    )
-      return;
+    ) {
+      return undefined;
+    }
     const profileId = client.authenticatedUserProfile?.profileId;
     const proof = client.connect.device;
     const stateOptions = params.stateDir
       ? { env: { ...process.env, OPENCLAW_STATE_DIR: params.stateDir } }
       : {};
-    if (!profileId || !proof || resolveUserProfileId(profileId, stateOptions) !== profileId) return;
+    if (!profileId || !proof || resolveUserProfileId(profileId, stateOptions) !== profileId) {
+      return undefined;
+    }
     const shared = "usesSharedGatewayAuth" in client && client.usesSharedGatewayAuth === true;
     const sharedGeneration =
       "sharedGatewaySessionGeneration" in client &&
@@ -90,8 +93,9 @@ export function createHostPluginNotificationEmitter(params: {
         sharedGeneration &&
         sharedGeneration === authority.getRequiredSharedGatewaySessionGeneration()
       )
-    )
-      return;
+    ) {
+      return undefined;
+    }
     const device = listPairedDevicesReadOnly(params.stateDir).find(
       (row) => row.deviceId === proof.id,
     );
@@ -104,17 +108,21 @@ export function createHostPluginNotificationEmitter(params: {
       !token ||
       token.revokedAtMs ||
       !approvedScopes
-    )
-      return;
+    ) {
+      return undefined;
+    }
     const issuerGeneration = token.issuer?.generation;
     if (
       issuerGeneration &&
       issuerGeneration !== authority.getRequiredSharedGatewaySessionGeneration()
-    )
-      return;
+    ) {
+      return undefined;
+    }
     const cfg = authority.getRuntimeConfig();
     const policy = resolveOperatorRolePolicyForProfile(profileId, cfg);
-    if (cfg.gateway?.roles && !policy) return;
+    if (cfg.gateway?.roles && !policy) {
+      return undefined;
+    }
     const allow = (requestedScopes: readonly string[], allowedScopes: readonly string[]) =>
       roleScopesAllow({ role: "operator", requestedScopes, allowedScopes });
     if (
@@ -122,8 +130,9 @@ export function createHostPluginNotificationEmitter(params: {
       !allow(declaration.requiredScopes, token.scopes) ||
       !allow(declaration.requiredScopes, client.connect.scopes ?? []) ||
       (policy && !allow(declaration.requiredScopes, policy.scopes))
-    )
-      return;
+    ) {
+      return undefined;
+    }
     return {
       operatorId: profileId,
       pluginId: params.pluginId,
@@ -143,16 +152,22 @@ export function createHostPluginNotificationEmitter(params: {
   return {
     bindCurrentOperator() {
       const authority = params.captureAuthority();
-      if (!authority) return;
+      if (!authority) {
+        return undefined;
+      }
       const captured = principal(authority);
-      if (!captured) return;
+      if (!captured) {
+        return undefined;
+      }
       const fingerprint = digest(captured);
       const current = () => {
         const value = principal(authority);
         return value && digest(value) === fingerprint;
       };
       const targets = () => {
-        if (!current()) return [];
+        if (!current()) {
+          return [];
+        }
         return listCurrentWebPushTargets({
           cfg: authority.getRuntimeConfig(),
           requiredScopes: declaration.requiredScopes,
@@ -170,9 +185,13 @@ export function createHostPluginNotificationEmitter(params: {
       ) => {
         const send = await prepareWebPushNotificationSender(params.stateDir);
         // No async gap between these final mutable-authority reads and native network I/O.
-        if (options.signal.aborted || !current()) return "failed" as const;
+        if (options.signal.aborted || !current()) {
+          return "failed" as const;
+        }
         const target = targets().find((value) => targetId(value.subscription) === id);
-        if (!target) return "failed" as const;
+        if (!target) {
+          return "failed" as const;
+        }
         const user = getUserPreferences(
           captured.operatorId,
           [WEB_PUSH_USER_PREFERENCES_KEY],
@@ -187,10 +206,12 @@ export function createHostPluginNotificationEmitter(params: {
           (!preferences.enabled ||
             isWebPushQuietHours(preferences) ||
             !webPushAgentAllowed(preferences))
-        )
+        ) {
           return "suppressed" as const;
-        if (payload.kind === "notify" && payload.expiresAtMs <= Date.now())
+        }
+        if (payload.kind === "notify" && payload.expiresAtMs <= Date.now()) {
           return "failed" as const;
+        }
         const url = payload.target
           ? `./plugin?${new URLSearchParams({ plugin: payload.target.pluginId, id: payload.target.pageId, "p.notificationRecord": payload.target.recordId })}`
           : undefined;
@@ -229,7 +250,7 @@ export function createHostPluginNotificationEmitter(params: {
         pluginId: params.pluginId,
         declaration,
         ledger,
-        transportSourceId: params.sourceId,
+        transportSourceId: () => params.sourceId(),
         targets: () => targets().map((value) => ({ id: targetId(value.subscription) })),
         transport: {
           send: (target, payload, options) => deliver(target.id, payload, options),

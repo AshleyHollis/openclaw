@@ -245,6 +245,7 @@ CREATE INDEX IF NOT EXISTS idx_web_push_approval_deliveries_subscription
         ({ columnName, dataType, tableName }) => `${tableName}.${columnName} ${dataType}`,
       ),
     ).toEqual([
+      "plugin_notification_clear_attempts.attempt_id TEXT",
       "claw_installs.bootstrap_content_digest TEXT",
       "claw_installs.bootstrap_source_path TEXT",
       "worker_environments.desktop_json TEXT",

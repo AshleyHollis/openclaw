@@ -64,7 +64,9 @@ describe("native plugin asset admission", () => {
       expect(runtime.errors).toEqual([]);
       const host = runtime.registrations("pages")[0]?.host;
       expect(host).toBeDefined();
-      if (!host) throw new Error("Expected an activated page host");
+      if (!host) {
+        throw new Error("Expected an activated page host");
+      }
       const saving = host.httpRequest({
         method: "POST",
         path: "/plugins/review/notes",

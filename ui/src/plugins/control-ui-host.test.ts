@@ -68,14 +68,12 @@ describe("native UI authenticated HTTP", () => {
     const fixture = createRosterHost(vi.fn(), [route]);
     Object.assign(fixture.context.gateway, { connection: { token: "test-operator-token" } });
     const body = JSON.stringify({ text: "a".repeat(2 * 1024 * 1024) });
-    const fetchMock = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(
-        new Response('{"saved":true}', {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      );
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response('{"saved":true}', {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
     try {
       await expect(
         fixture.host.httpRequest({ method: "POST", path: route.path, body }),
@@ -84,8 +82,12 @@ describe("native UI authenticated HTTP", () => {
         body: '{"saved":true}',
       });
       expect(fetchMock).toHaveBeenCalledOnce();
-      const [url, init] = fetchMock.mock.calls[0];
-      expect(String(url)).toBe(`${window.location.origin}/plugins/review/notes`);
+      const firstCall = fetchMock.mock.calls[0];
+      if (!firstCall) {
+        throw new Error("Expected the declared Note request to be sent");
+      }
+      const [url, init] = firstCall;
+      expect(url).toEqual(new URL("/plugins/review/notes", window.location.origin));
       expect(init).toMatchObject({
         method: "POST",
         body,
@@ -122,10 +124,14 @@ describe("native UI authenticated HTTP", () => {
           ),
         ).rejects.toThrow(/outcome is unknown/);
         expect(fetchMock).toHaveBeenCalledOnce();
-        if (ending === "view") view.abort();
-        else if (ending === "caller") caller.abort();
-        else fixture.dispose();
-        expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
+        if (ending === "view") {
+          view.abort();
+        } else if (ending === "caller") {
+          caller.abort();
+        } else {
+          fixture.dispose();
+        }
+        expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
         pending.resolve(
           new Response('{"saved":true}', { headers: { "Content-Type": "application/json" } }),
         );

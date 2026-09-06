@@ -68,9 +68,7 @@ function parseEmitResult(value: string | null): PluginNotificationEmitResult | n
   }
 }
 
-export function ensurePluginNotificationLedgerSchema(
-  db: Parameters<typeof getNodeSqliteKysely>[0],
-): void {
+function ensurePluginNotificationLedgerSchema(db: Parameters<typeof getNodeSqliteKysely>[0]): void {
   if (ensured.has(db)) {
     return;
   }

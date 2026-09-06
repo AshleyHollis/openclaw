@@ -16,7 +16,7 @@ export async function requestControlUiHttp(
 ): Promise<ControlUiHttpResponse> {
   signal.throwIfAborted();
   const route = routes.find(
-    (route) => route.method === request.method && route.path === request.path,
+    (candidate) => candidate.method === request.method && candidate.path === request.path,
   );
   if (
     !route ||
@@ -67,7 +67,9 @@ export async function requestControlUiHttp(
       throw new Error("Invalid plugin HTTP response.");
     }
     const reader = response.body?.getReader();
-    if (!reader) throw new Error("Missing plugin HTTP response.");
+    if (!reader) {
+      throw new Error("Missing plugin HTTP response.");
+    }
     const decoder = new TextDecoder("utf-8", { fatal: true });
     let bytes = 0;
     let text = "";
@@ -75,10 +77,13 @@ export async function requestControlUiHttp(
       while (true) {
         signal.throwIfAborted();
         const part = await reader.read();
-        if (part.done) break;
+        if (part.done) {
+          break;
+        }
         bytes += part.value.byteLength;
-        if (bytes > route.maxResponseBytes)
+        if (bytes > route.maxResponseBytes) {
           throw new Error("Plugin HTTP response exceeds its declared limit.");
+        }
         text += decoder.decode(part.value, { stream: true });
       }
       signal.throwIfAborted();

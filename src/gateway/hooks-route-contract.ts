@@ -5,7 +5,9 @@ export function normalizeHooksBasePath(value: string | undefined): string {
   const rawPath = normalizeOptionalString(value) || "/hooks";
   const withSlash = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
   const trimmed = withSlash.length > 1 ? withSlash.replace(/\/+$/, "") : withSlash;
-  if (trimmed === "/") throw new Error("hooks.path may not be '/'");
+  if (trimmed === "/") {
+    throw new Error("hooks.path may not be '/'");
+  }
   return trimmed;
 }
 

@@ -232,12 +232,15 @@ export function createPluginApiFactory(
                 !active ||
                 !context ||
                 (scope.pluginRegistry && scope.pluginRegistry !== registry)
-              )
+              ) {
                 return undefined;
+              }
               // Background delivery outlives the originating request, but not
               // the host-issued runtime owner that admitted that request.
               const resolveOwner = getGatewayContextResolver(registryParams.runtime.subagent);
-              if (!resolveOwner || resolveOwner() !== context) return undefined;
+              if (!resolveOwner || resolveOwner() !== context) {
+                return undefined;
+              }
               return {
                 client: scope.client,
                 isCurrent: () => sideEffectGuard.active && active() && resolveOwner() === context,

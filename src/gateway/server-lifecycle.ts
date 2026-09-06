@@ -3,13 +3,8 @@ import { fenceSessionSuspensionWritesForGatewayShutdown } from "../agents/sessio
 import { getTotalPendingReplies } from "../auto-reply/reply/dispatcher-registry.js";
 import { listLoadedChannelPluginsForRegistry } from "../channels/plugins/registry-loaded.js";
 import { getRuntimeConfig } from "../config/io.js";
-import type { OpenClawConfig } from "../config/types.openclaw.js";
-import {
-  isDiagnosticsEnabled,
-  setDiagnosticsEnabledForProcess,
-} from "../infra/diagnostic-events.js";
 import { upsertPresence } from "../infra/system-presence.js";
-import { startDiagnosticHeartbeat, stopDiagnosticHeartbeat } from "../logging/diagnostic.js";
+import { stopDiagnosticHeartbeat } from "../logging/diagnostic.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
 import { clearSecretsRuntimeSnapshotState } from "../secrets/runtime-state.js";
 import { AsyncWorkScope } from "../shared/async-work-scope.js";
@@ -27,6 +22,7 @@ import { clearNodeWakeState } from "./node-wake-state.js";
 import { createLazyGatewayCronState } from "./server-cron-lazy.js";
 import { createGatewayCronReconciliation } from "./server-cron-reconciled.js";
 import { applyGatewayLaneConcurrency, resolveGatewayLaneConcurrency } from "./server-lanes.js";
+import { createGatewayDiagnosticsController } from "./server-lifecycle-diagnostics.js";
 import { createGatewayServerLiveState } from "./server-live-state.js";
 import type { GatewayRequestContext } from "./server-methods/types.js";
 import {
@@ -632,38 +628,10 @@ export async function prepareGatewayLifecycle(params: {
     });
   };
 
-  const configureDiagnostics = (config: OpenClawConfig) => {
-    if (lifecycle.closePreludeStarted) {
-      return;
-    }
-    const enabled = isDiagnosticsEnabled(config);
-    setDiagnosticsEnabledForProcess(enabled);
-    if (!enabled) {
-      stopDiagnosticHeartbeat();
-      return;
-    }
-    // Gateway lifecycle owns both this existing heartbeat timer and the monitor
-    // it samples, so startup failure and normal close tear them down together.
-    startDiagnosticHeartbeat(undefined, {
-      getConfig: getRuntimeConfig,
-      startupGraceMs: 60_000,
-      sampleLiveness: () => {
-        const sample = readinessEventLoopHealth.persistentDegradationSnapshot();
-        if (!sample || sample.degradedSinceMs == null) {
-          return null;
-        }
-        return {
-          reasons: sample.reasons,
-          intervalMs: sample.intervalMs,
-          degradedSinceMs: sample.degradedSinceMs,
-          eventLoopDelayP99Ms: sample.delayP99Ms,
-          eventLoopDelayMaxMs: sample.delayMaxMs,
-          eventLoopUtilization: sample.utilization,
-          cpuCoreRatio: sample.cpuCoreRatio,
-        };
-      },
-    });
-  };
+  const configureDiagnostics = createGatewayDiagnosticsController({
+    isClosing: () => lifecycle.closePreludeStarted,
+    sampleEventLoopHealth: () => readinessEventLoopHealth.persistentDegradationSnapshot(),
+  });
   configureDiagnostics(cfgAtStart);
 
   return {
