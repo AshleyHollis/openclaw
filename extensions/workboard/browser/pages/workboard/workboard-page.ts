@@ -1,5 +1,5 @@
 import { html, nothing, render } from "lit";
-import type { ControlUiView } from "openclaw/plugin-sdk/control-ui";
+import type { ControlUiViewV2 as ControlUiView } from "openclaw/plugin-sdk/control-ui";
 import { createWorkboardClient } from "../../api/gateway.ts";
 import { renderAgentPicker } from "../../components/host-components.ts";
 import { icons } from "../../components/icons.ts";

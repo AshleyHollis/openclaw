@@ -110,6 +110,80 @@ describe("plugin service scheduler ownership", () => {
     ]);
   });
 
+  it("rejects a stale configuration after waiting for a newer scheduler write", async () => {
+    const { cron } = await createScheduler();
+    const { context } = await startService(() => cron);
+    const service = expectDefined(context.getCron?.(), "service scheduler");
+    await service.add(createJob());
+    const loaded = expectDefined((await service.list({ includeDisabled: true }))[0], "loaded job");
+    expect(loaded.configRevision).toEqual(expect.any(String));
+    const entered = createDeferredCore();
+    const release = createDeferredCore();
+    const newer = cron.updateWithPrecondition(loaded.id, { name: "Newer schedule" }, async () => {
+      entered.resolve();
+      await release.promise;
+    });
+    await entered.promise;
+    const stale = service.update(
+      loaded.id,
+      { name: "Stale schedule" },
+      {
+        expectedConfigRevision: loaded.configRevision,
+      },
+    );
+    const rejected = expect(stale).rejects.toThrow("no longer matches the loaded version");
+    release.resolve();
+    await newer;
+    await rejected;
+    const current = expectDefined(
+      (await service.list({ includeDisabled: true }))[0],
+      "current job",
+    );
+    expect(current.name).toBe("Newer schedule");
+    expect(current.configRevision).not.toBe(loaded.configRevision);
+    await service.update(
+      current.id,
+      { name: "Confirmed schedule" },
+      {
+        expectedConfigRevision: current.configRevision,
+      },
+    );
+    expect(await service.list({ includeDisabled: true })).toMatchObject([
+      { name: "Confirmed schedule" },
+    ]);
+  });
+
+  it("preserves an isolated agent turn's tool cap and returns detached revisioned snapshots", async () => {
+    const { cron } = await createScheduler();
+    const { context } = await startService(() => cron);
+    const service = expectDefined(context.getCron?.(), "service scheduler");
+    const added = await service.add({
+      ...createJob(),
+      sessionTarget: "isolated",
+      schedule: { kind: "cron", expr: "0 2 * * *", tz: "UTC", staggerMs: 0 },
+      payload: {
+        kind: "agentTurn",
+        message: "Run plugin maintenance.",
+        toolsAllow: ["test_maintenance"],
+      },
+      delivery: { mode: "none" },
+    });
+    const loaded = expectDefined((await service.list({ includeDisabled: true }))[0], "loaded job");
+    expect(added).toMatchObject({ configRevision: loaded.configRevision });
+    expect(loaded).toMatchObject({
+      sessionTarget: "isolated",
+      payload: { kind: "agentTurn", toolsAllow: ["test_maintenance"] },
+      delivery: { mode: "none" },
+    });
+    expectDefined(loaded.payload?.toolsAllow, "tool cap").push("*");
+    const current = expectDefined(
+      (await service.list({ includeDisabled: true }))[0],
+      "current job",
+    );
+    expect(current.payload?.toolsAllow).toEqual(["test_maintenance"]);
+    expect(current.configRevision).toBe(loaded.configRevision);
+  });
+
   it.each(["service stop", "service reload", "scheduler replacement"] as const)(
     "rejects reads and writes queued before %s without changing stored rows",
     async (retirement) => {

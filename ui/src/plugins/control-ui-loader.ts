@@ -1,5 +1,8 @@
 import { controlUiPluginAssetPrefix } from "../../../src/gateway/control-ui-plugin-assets-contract.js";
-import type { ControlUiDisposer, ControlUiPlugin } from "../../../src/plugin-sdk/control-ui.js";
+import type {
+  ControlUiDisposer,
+  ControlUiPluginV2 as ControlUiPlugin,
+} from "../../../src/plugin-sdk/control-ui.js";
 import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationContext } from "../app/context.ts";
 import { createControlUiPluginHost } from "./control-ui-host.ts";

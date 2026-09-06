@@ -177,6 +177,12 @@ type OpenClawPluginLifecycleApi = {
  * @see https://docs.openclaw.ai/plugins/sdk-overview#api-stability
  */
 export type OpenClawPluginApi = {
+  /** Declared native Web Push destinations bound to the authenticated operator. */
+  notifications: {
+    registerEmitter(
+      declaration: import("./notification-emitter.js").PluginNotificationDeclarationV1,
+    ): import("./notification-emitter.js").PluginNotificationEmitter | undefined;
+  };
   id: string;
   name: string;
   version?: string;

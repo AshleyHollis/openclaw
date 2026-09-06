@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { loadOrCreateProcessDeviceIdentity } from "../infra/device-identity.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
 import { resolveUserPath } from "../utils.js";
@@ -14,7 +15,13 @@ import {
   schedulePluginSessionTurn,
   unschedulePluginSessionTurnsByTag,
 } from "./host-hook-scheduled-turns.js";
-import { isPluginRegistryActivated, isPluginRegistryRetired } from "./registry-lifecycle.js";
+import { createHostPluginNotificationEmitter } from "./notification-emitter-host.js";
+import { validatePluginNotificationDeclaration } from "./notification-emitter.js";
+import {
+  capturePluginLifecycleAuthority,
+  isPluginRegistryActivated,
+  isPluginRegistryRetired,
+} from "./registry-lifecycle.js";
 import type { PluginRegistrars } from "./registry-registrars.js";
 import type { PluginRuntimeResolver } from "./registry-runtime.js";
 import {
@@ -24,6 +31,10 @@ import {
   type PluginSideEffectGuard,
 } from "./registry-state.js";
 import type { PluginRecord } from "./registry-types.js";
+import {
+  getGatewayContextResolver,
+  getPluginRuntimeGatewayRequestScope,
+} from "./runtime/gateway-request-scope.js";
 import type { OpenClawPluginApi, PluginLogger, PluginRegistrationMode } from "./types.js";
 
 // Registration exposes these async operations without loading session storage or delivery.
@@ -177,6 +188,70 @@ export function createPluginApiFactory(
       runtime: resolvePluginRuntime(record.id),
       logger: normalizeLogger(registryParams.logger),
       resolvePath: (input: string) => resolvePluginPath(input, record.rootDir),
+      notifications: {
+        registerEmitter: (value) => {
+          const existing = registry.notificationEmitters.filter(
+            (entry) => entry.pluginId === record.id,
+          );
+          if (
+            !registrationCapabilities.capabilityHandlers ||
+            !sideEffectGuard.active ||
+            !record.controlUi ||
+            !validatePluginNotificationDeclaration(value, {
+              pluginId: record.id,
+              existingCount: existing.length,
+            }) ||
+            existing.some((entry) => entry.declaration.id === value.id)
+          ) {
+            pushDiagnostic({
+              level: "error",
+              pluginId: record.id,
+              source: record.source,
+              message: "Invalid or unavailable notification emitter declaration",
+            });
+            return undefined;
+          }
+          const declaration = structuredClone(value);
+          registry.notificationEmitters.push({
+            pluginId: record.id,
+            declaration: structuredClone(declaration),
+          });
+          return createHostPluginNotificationEmitter({
+            pluginId: record.id,
+            declaration,
+            sourceId: () => loadOrCreateProcessDeviceIdentity().deviceId,
+            captureAuthority: () => {
+              const scope = getPluginRuntimeGatewayRequestScope();
+              const active = capturePluginLifecycleAuthority(registry, record);
+              const context = scope?.resolveGatewayContext
+                ? scope.resolveGatewayContext()
+                : scope?.context;
+              if (
+                !scope?.client ||
+                scope.pluginId !== record.id ||
+                !active ||
+                !context ||
+                (scope.pluginRegistry && scope.pluginRegistry !== registry)
+              ) {
+                return undefined;
+              }
+              // Background delivery outlives the originating request, but not
+              // the host-issued runtime owner that admitted that request.
+              const resolveOwner = getGatewayContextResolver(registryParams.runtime.subagent);
+              if (!resolveOwner || resolveOwner() !== context) {
+                return undefined;
+              }
+              return {
+                client: scope.client,
+                isCurrent: () => sideEffectGuard.active && active() && resolveOwner() === context,
+                getRuntimeConfig: () => context.getRuntimeConfig(),
+                getRequiredSharedGatewaySessionGeneration: () =>
+                  registryParams.hostServices?.getRequiredSharedGatewaySessionGeneration?.(),
+              };
+            },
+          });
+        },
+      },
       handlers: {
         ...(registrationCapabilities.capabilityHandlers
           ? {

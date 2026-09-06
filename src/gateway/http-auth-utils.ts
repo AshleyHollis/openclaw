@@ -11,6 +11,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { verifyDeviceToken } from "../infra/device-pairing-tokens.js";
 import { listDevicePairing } from "../infra/device-pairing.js";
 import { verifyPairingToken } from "../infra/pairing-token.js";
+import { CONTROL_UI_HTTP_RELAY_HEADER } from "../shared/control-ui-http-relay.js";
 import { roleScopesAllow } from "../shared/operator-scope-compat.js";
 import { getUserProfileListItem } from "../state/user-profiles.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
@@ -25,6 +26,7 @@ import {
   type ResolvedGatewayAuth,
 } from "./auth.js";
 import type { ControlUiPluginFrameGrantAck } from "./control-ui-contract.js";
+import { resolveControlUiHttpRelayAuthority } from "./control-ui-http-relay.js";
 import {
   resolveControlUiPluginAuthCookieGrants,
   setControlUiPluginAuthCookie,
@@ -47,6 +49,7 @@ import {
   ADMIN_SCOPE,
   CLI_DEFAULT_OPERATOR_SCOPES,
   authorizeOperatorScopesForMethod,
+  authorizeOperatorScopesForRequiredScope,
 } from "./method-scopes.js";
 import { resolveBrowserOriginPolicy } from "./origin-check.js";
 import { withSerializedCredentialFallbackAttempt } from "./rate-limit-attempt-serialization.js";
@@ -87,6 +90,7 @@ export type AuthorizedGatewayHttpRequest = {
   operatorRoleActor?: { kind: "system" };
   controlUiPluginGrants?: ControlUiPluginTabAuthGrant[];
   controlUiPluginGrant?: ControlUiPluginTabAuthGrant;
+  controlUiHttpRelay?: NonNullable<ReturnType<typeof resolveControlUiHttpRelayAuthority>>;
 };
 type AuthenticatedHttpUserProfile = Pick<
   AuthorizedGatewayHttpRequest,
@@ -231,6 +235,13 @@ function resolveControlUiReadOperatorScopes(
 export async function authorizeControlUiReadRequestOrReply(
   params: ControlUiReadAuthParams,
 ): Promise<AuthorizedControlUiReadRequest | null> {
+  return await authorizeControlUiRequestOrReply(params);
+}
+
+async function authorizeControlUiRequestOrReply(
+  params: ControlUiReadAuthParams,
+  relayScope?: "operator.read" | "operator.write",
+): Promise<AuthorizedControlUiReadRequest | null> {
   const auth = params.auth;
   if (!auth) {
     params.onPluginFrameGrants?.([]);
@@ -333,21 +344,25 @@ export async function authorizeControlUiReadRequestOrReply(
       deviceScopes,
       authenticatedProfile,
     );
-    params.onPluginFrameGrants?.(
-      setControlUiPluginAuthCookieForRequest(
-        params.req,
-        params.res,
-        authMethod,
-        trustDeclaredOperatorScopes,
-        authGeneration,
-        operatorScopes,
-        authenticatedProfile.authenticatedUserProfile?.profileId,
-      ),
-    );
-    const scopeAuth = authorizeOperatorScopesForMethod(
-      params.requiredOperatorMethod ?? "assistant.media.get",
-      operatorScopes,
-    );
+    if (!relayScope) {
+      params.onPluginFrameGrants?.(
+        setControlUiPluginAuthCookieForRequest(
+          params.req,
+          params.res,
+          authMethod,
+          trustDeclaredOperatorScopes,
+          authGeneration,
+          operatorScopes,
+          authenticatedProfile.authenticatedUserProfile?.profileId,
+        ),
+      );
+    }
+    const scopeAuth = relayScope
+      ? authorizeOperatorScopesForRequiredScope(relayScope, operatorScopes)
+      : authorizeOperatorScopesForMethod(
+          params.requiredOperatorMethod ?? "assistant.media.get",
+          operatorScopes,
+        );
     if (!scopeAuth.allowed) {
       sendMissingScopeForbidden(params.res, scopeAuth.missingScope);
       return null;
@@ -498,6 +513,7 @@ export async function authorizePluginGatewayHttpRequestOrReply(params: {
   allowRealIpFallback?: boolean;
   rateLimiter?: AuthRateLimiter;
   requestPath: string;
+  controlUiBasePath?: string;
   resolveOperatorScopes: (
     req: IncomingMessage,
     requestAuth: AuthorizedGatewayHttpRequest,
@@ -507,6 +523,44 @@ export async function authorizePluginGatewayHttpRequestOrReply(params: {
   operatorScopes: string[];
 } | null> {
   const authGeneration = resolveSharedGatewaySessionGeneration(params.auth, params.trustedProxies);
+  if (params.req.headers[CONTROL_UI_HTTP_RELAY_HEADER] !== undefined) {
+    const relay = resolveControlUiHttpRelayAuthority(
+      params.requestPath,
+      params.req.method ?? "GET",
+      params.controlUiBasePath,
+    );
+    if (
+      params.req.headers[CONTROL_UI_HTTP_RELAY_HEADER] !== "1" ||
+      params.req.url !== params.requestPath ||
+      !relay
+    ) {
+      sendGatewayAuthFailure(params.res, { ok: false, reason: "unauthorized" });
+      return null;
+    }
+    // Reuse native Control UI credential/profile verification, but never ambient
+    // cookies or query tokens. Only this route's required scope reaches dispatch.
+    const authenticated = await authorizeControlUiRequestOrReply(params, relay.scope);
+    if (!authenticated) {
+      return null;
+    }
+    if (!relay.isCurrent()) {
+      sendGatewayAuthFailure(params.res, { ok: false, reason: "unauthorized" });
+      return null;
+    }
+    return {
+      operatorScopes: [relay.scope],
+      requestAuth: {
+        authMethod: authenticated.authMethod,
+        trustDeclaredOperatorScopes: false,
+        authenticatedUserProfile: authenticated.authenticatedUserProfile,
+        operatorRolePolicy: authenticated.operatorRolePolicy,
+        ...(usesSharedSecretGatewayMethod(authenticated.authMethod)
+          ? { operatorRoleActor: { kind: "system" as const } }
+          : {}),
+        controlUiHttpRelay: relay,
+      },
+    };
+  }
   const cookieAuth = authorizeControlUiPluginCookieRequest(params.req, {
     requestPath: params.requestPath,
     authGeneration,

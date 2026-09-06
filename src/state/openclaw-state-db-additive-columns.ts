@@ -8,6 +8,7 @@ type LazyAdditiveStateColumnDefinition = {
 // Added after v6 shipped. Every definition stays bare and nullable so older v6
 // writers can omit it safely when a newer build has already ensured the column.
 export const CLAW_LAZY_ADDITIVE_STATE_COLUMN_DEFINITIONS = [
+  { columnName: "attempt_id", dataType: "TEXT", tableName: "plugin_notification_clear_attempts" },
   { columnName: "bootstrap_content_digest", dataType: "TEXT", tableName: "claw_installs" },
   { columnName: "bootstrap_source_path", dataType: "TEXT", tableName: "claw_installs" },
   { columnName: "desktop_json", dataType: "TEXT", tableName: "worker_environments" },
@@ -53,6 +54,7 @@ function isFirstUseAdditiveStateColumn({
   tableName,
 }: LazyAdditiveStateColumnDefinition): boolean {
   return (
+    (tableName === "plugin_notification_clear_attempts" && columnName === "attempt_id") ||
     (tableName === "device_bootstrap_tokens" && columnName === "setup_id") ||
     (tableName === "skill_workshop_proposals" && columnName === "claim_released_time") ||
     (tableName === "worker_session_placement_moves" &&

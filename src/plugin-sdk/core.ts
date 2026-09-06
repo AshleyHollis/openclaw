@@ -40,6 +40,15 @@ import {
 } from "../sessions/session-key-utils.js";
 import { createCachedLazyValueGetter } from "./lazy-value.js";
 export type {
+  PluginNotificationDeclarationV1,
+  PluginNotificationCandidateV1,
+  PluginNotificationClearV1,
+  PluginNotificationEmitResult,
+  PluginNotificationClearResult,
+  PluginNotificationEmitter,
+  PluginNotificationBinding,
+} from "../plugins/notification-emitter.js";
+export type {
   AgentPromptGuidance,
   AgentPromptGuidanceEntry,
   AgentPromptSurfaceKind,

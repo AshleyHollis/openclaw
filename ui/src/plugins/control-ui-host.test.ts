@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ControlUiSessionListSnapshot } from "../../../src/plugin-sdk/control-ui.js";
+import type { ControlUiHttpRelayRoute } from "../../../src/shared/control-ui-http-relay.js";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { AgentsListResult } from "../api/types.ts";
@@ -17,17 +18,25 @@ import { createControlUiPluginHost } from "./control-ui-host.ts";
 import { type ControlUiPluginOwner, ControlUiPluginRuntime } from "./control-ui-runtime.ts";
 import { scopeControlUiHost } from "./control-ui-scope.ts";
 
-function createRosterHost(request: GatewayBrowserClient["request"]) {
-  const client = { request } as GatewayBrowserClient;
+function createRosterHost(
+  request: GatewayBrowserClient["request"],
+  httpRoutes?: ControlUiHttpRelayRoute[],
+) {
+  const client = {
+    request,
+    gatewayUrl: window.location.origin.replace(/^http/, "ws"),
+  } as GatewayBrowserClient;
   const { gateway } = createGatewayHarness(client);
   const agents = createAgentCapability(gateway);
   const sessions = createTestSessionCapability(gateway);
   const context = { gateway, agents, sessions } as unknown as ApplicationContext<RouteId>;
   const abort = new AbortController();
-  const owner = { client, abort, descriptor: { pluginId: "review" }, disposers: new Set() } as Omit<
-    ControlUiPluginOwner,
-    "host"
-  >;
+  const owner = {
+    client,
+    abort,
+    descriptor: { pluginId: "review", httpRoutes },
+    disposers: new Set(),
+  } as Omit<ControlUiPluginOwner, "host">;
   const runtime = new ControlUiPluginRuntime(() => context);
   runtime.start();
   return {
@@ -46,6 +55,134 @@ function createRosterHost(request: GatewayBrowserClient["request"]) {
     },
   };
 }
+
+describe("native UI authenticated HTTP", () => {
+  const route: ControlUiHttpRelayRoute = {
+    path: "/plugins/review/notes",
+    method: "POST",
+    maxRequestBytes: 12 * 1024 * 1024,
+    maxResponseBytes: 32768,
+  };
+
+  it("sends a large Note body only to its declared route using host-owned credentials", async () => {
+    const fixture = createRosterHost(vi.fn(), [route]);
+    Object.assign(fixture.context.gateway, { connection: { token: "test-operator-token" } });
+    const body = JSON.stringify({ text: "a".repeat(2 * 1024 * 1024) });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response('{"saved":true}', {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    try {
+      await expect(
+        fixture.host.httpRequest({ method: "POST", path: route.path, body }),
+      ).resolves.toEqual({
+        status: 200,
+        body: '{"saved":true}',
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const firstCall = fetchMock.mock.calls[0];
+      if (!firstCall) {
+        throw new Error("Expected the declared Note request to be sent");
+      }
+      const [url, init] = firstCall;
+      expect(url).toEqual(new URL("/plugins/review/notes", window.location.origin));
+      expect(init).toMatchObject({
+        method: "POST",
+        body,
+        credentials: "omit",
+        redirect: "error",
+        headers: {
+          Authorization: "Bearer test-operator-token",
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "x-openclaw-control-ui-relay": "1",
+        },
+      });
+    } finally {
+      fetchMock.mockRestore();
+      fixture.dispose();
+    }
+  });
+
+  it.each(["view", "caller", "activation"] as const)(
+    "cancels a pending Note save when its %s ends, without retry or accepting late success",
+    async (ending) => {
+      const fixture = createRosterHost(vi.fn(), [route]);
+      Object.assign(fixture.context.gateway, { connection: { token: "test-operator-token" } });
+      const view = new AbortController();
+      const caller = new AbortController();
+      const host = scopeControlUiHost(fixture.host, view.signal);
+      const pending = createDeferred<Response>();
+      const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(() => pending.promise);
+      try {
+        const saving = expect(
+          host.httpRequest(
+            { method: "POST", path: route.path, body: "{}" },
+            { signal: caller.signal },
+          ),
+        ).rejects.toThrow(/outcome is unknown/);
+        expect(fetchMock).toHaveBeenCalledOnce();
+        if (ending === "view") {
+          view.abort();
+        } else if (ending === "caller") {
+          caller.abort();
+        } else {
+          fixture.dispose();
+        }
+        expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+        pending.resolve(
+          new Response('{"saved":true}', { headers: { "Content-Type": "application/json" } }),
+        );
+        await saving;
+        expect(fetchMock).toHaveBeenCalledOnce();
+      } finally {
+        pending.resolve(new Response());
+        view.abort();
+        fixture.dispose();
+        fetchMock.mockRestore();
+      }
+    },
+  );
+
+  it.each([
+    {
+      name: "foreign route",
+      request: { method: "POST", path: "/plugins/other/notes", body: "{}" },
+    },
+    {
+      name: "query alias",
+      request: { method: "POST", path: "/plugins/review/notes?query=1", body: "{}" },
+    },
+    {
+      name: "custom headers",
+      request: { method: "POST", path: "/plugins/review/notes", body: "{}", headers: {} },
+    },
+    {
+      name: "invalid JSON",
+      request: { method: "POST", path: "/plugins/review/notes", body: "not JSON" },
+    },
+    {
+      name: "UTF-8 byte overflow",
+      request: { method: "POST", path: "/plugins/review/notes", body: '"éé"' },
+    },
+  ])("refuses $name before HTTP dispatch", async ({ request }) => {
+    const fixture = createRosterHost(vi.fn(), [{ ...route, maxRequestBytes: 5 }]);
+    Object.assign(fixture.context.gateway, { connection: { token: "test-operator-token" } });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    try {
+      // JavaScript plugins can supply undeclared fields; validate the public envelope at runtime.
+      await expect(
+        fixture.host.httpRequest(request as Parameters<typeof fixture.host.httpRequest>[0]),
+      ).rejects.toThrow();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      fetchMock.mockRestore();
+      fixture.dispose();
+    }
+  });
+});
 
 describe("native UI roster refresh", () => {
   it("observes independent session windows without replacing or exposing the application roster", async () => {

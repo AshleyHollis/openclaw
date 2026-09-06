@@ -256,3 +256,12 @@ export function definePluginEntry({
     register,
   };
 }
+export type {
+  PluginNotificationDeclarationV1,
+  PluginNotificationCandidateV1,
+  PluginNotificationClearV1,
+  PluginNotificationEmitResult,
+  PluginNotificationClearResult,
+  PluginNotificationEmitter,
+  PluginNotificationBinding,
+} from "../plugins/notification-emitter.js";

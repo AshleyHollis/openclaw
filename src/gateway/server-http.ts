@@ -20,6 +20,7 @@ import {
 import { runHttpConnectionRequest } from "../infra/http-request-lifecycle.js";
 import { readTailscaleWhoisIdentity } from "../infra/tailscale.js";
 import { parseDevicePairingJoinRequestPath } from "../pairing/join-code.js";
+import { CONTROL_UI_HTTP_RELAY_HEADER } from "../shared/control-ui-http-relay.js";
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
 import { resolveAssistantAgentId } from "./assistant-identity.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
@@ -58,9 +59,12 @@ import {
 } from "./ingress-attribution.js";
 import { normalizePluginNodeCapabilityScopedUrl } from "./plugin-node-capability.js";
 import {
+  dispatchControlUiHttpRelay,
+  type PluginHttpRequestHandler,
+} from "./server-http-control-ui-relay.js";
+import {
   getCachedPluginGatewayAuthBypassPaths,
   shouldEnforceDefaultPluginGatewayAuth,
-  type PluginGatewayDispatchContext,
   type ResolvePluginNodeCapabilityRoute,
 } from "./server-http-plugin-auth.js";
 import { handleGatewayProbeRequest } from "./server-http-probes.js";
@@ -86,13 +90,6 @@ import {
   handleWorkerBootstrapArtifactTransferHttpRequest,
   type WorkerBootstrapArtifactTransferHttpCallback,
 } from "./worker-environments/worker-bootstrap-artifact-transfer-http.js";
-
-type PluginHttpRequestHandler = (
-  req: IncomingMessage,
-  res: ServerResponse,
-  pathContext?: PluginRoutePathContext,
-  dispatchContext?: PluginGatewayDispatchContext,
-) => Promise<boolean>;
 
 type WatchNodeHttpRequestHandler = (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
 type McpOAuthCallbackHandler = (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
@@ -275,11 +272,17 @@ export function createGatewayHttpServer(opts: {
 
     try {
       const requestPath = URL.parse(req.url ?? "/", "http://localhost")?.pathname;
-      if (requestPath === undefined) {
+      const isControlUiRelay = req.headers[CONTROL_UI_HTTP_RELAY_HEADER] !== undefined;
+      // Reject raw aliases before any capability URL rewrite or core route dispatch.
+      if (
+        requestPath === undefined ||
+        (isControlUiRelay &&
+          (req.url !== requestPath || req.headers[CONTROL_UI_HTTP_RELAY_HEADER] !== "1"))
+      ) {
         sendGatewayAuthFailure(res, { ok: false, reason: "unauthorized" });
         return;
       }
-      if (classifyGatewayProbePath(requestPath) === "live") {
+      if (!isControlUiRelay && classifyGatewayProbePath(requestPath) === "live") {
         await handleGatewayProbeRequest(
           req,
           res,
@@ -318,7 +321,10 @@ export function createGatewayHttpServer(opts: {
           readTailscaleWhoisIdentity(ip, undefined, { cacheTtlMs: 0, errorTtlMs: 0 }),
       });
       const scopedNodeCapability = normalizePluginNodeCapabilityScopedUrl(req.url ?? "/");
-      if (scopedNodeCapability.malformedScopedPath) {
+      if (
+        scopedNodeCapability.malformedScopedPath ||
+        (isControlUiRelay && scopedNodeCapability.rewrittenUrl)
+      ) {
         sendGatewayAuthFailure(res, { ok: false, reason: "unauthorized" });
         return;
       }
@@ -334,6 +340,7 @@ export function createGatewayHttpServer(opts: {
         opts.reportUnattributableProxy?.(ingressAttribution);
         if (
           !nodeCapability &&
+          !isControlUiRelay &&
           handlePluginRequest &&
           opts.isPluginAuthenticatedRoute?.(pluginPathContext) &&
           (await handlePluginRequest(req, res, pluginPathContext, {
@@ -353,6 +360,21 @@ export function createGatewayHttpServer(opts: {
         allowRealIpFallback,
         rateLimiter,
       };
+      if (isControlUiRelay) {
+        await dispatchControlUiHttpRelay({
+          req,
+          res,
+          handlePluginRequest,
+          controlUiEnabled,
+          ...routeAuth,
+          requestPath,
+          controlUiBasePath,
+          pluginPathContext,
+          requestClientIp,
+        });
+        // A declared relay never falls through into hooks, core APIs, or the SPA.
+        return;
+      }
       const controlUiRouteOptions = {
         basePath: controlUiBasePath,
         config: configSnapshot,

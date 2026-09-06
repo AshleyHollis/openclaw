@@ -17,6 +17,7 @@ type BuildPluginApiParams = {
   runtime: PluginRuntime;
   logger: PluginLogger;
   resolvePath: (input: string) => string;
+  notifications?: OpenClawPluginApi["notifications"];
   handlers?: Partial<Pick<OpenClawPluginApi, keyof typeof noops>>;
 };
 
@@ -126,6 +127,11 @@ export function buildPluginApi(params: BuildPluginApiParams): OpenClawPluginApi 
   // Keep explicit lookups for inherited/nullish handlers; capture CLI once for both entrypoints.
   const registerCli = handlers.registerCli ?? noops.registerCli;
   const api: OpenClawPluginApiWithoutFacades = {
+    notifications: params.notifications ?? {
+      registerEmitter: () => {
+        throw new Error("Plugin notifications are unavailable in this registration context");
+      },
+    },
     id: params.id,
     name: params.name,
     version: params.version,

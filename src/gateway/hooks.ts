@@ -31,9 +31,9 @@ import {
   resolveHookMappings,
 } from "./hooks-mapping.js";
 import { resolveAllowedAgentIds } from "./hooks-policy.js";
+import { normalizeHooksBasePath } from "./hooks-route-contract.js";
 import type { HookMessageChannel } from "./hooks.types.js";
 
-const DEFAULT_HOOKS_PATH = "/hooks";
 const DEFAULT_HOOKS_MAX_BODY_BYTES = 256 * 1024;
 const MAX_HOOK_IDEMPOTENCY_KEY_LENGTH = 256;
 
@@ -73,12 +73,7 @@ export function resolveHooksConfig(cfg: OpenClawConfig): HooksConfigResolved | n
   if (!token) {
     throw new Error("hooks.enabled requires hooks.token");
   }
-  const rawPath = normalizeOptionalString(cfg.hooks?.path) || DEFAULT_HOOKS_PATH;
-  const withSlash = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
-  const trimmed = withSlash.length > 1 ? withSlash.replace(/\/+$/, "") : withSlash;
-  if (trimmed === "/") {
-    throw new Error("hooks.path may not be '/'");
-  }
+  const basePath = normalizeHooksBasePath(cfg.hooks.path);
   const mappings = resolveHookMappings(cfg.hooks);
   const defaultAgentId = tryResolveLegacyCompatibilityAgentId(cfg);
   // Global hook runs write a literal shared row, whose durable owner must win
@@ -115,7 +110,7 @@ export function resolveHooksConfig(cfg: OpenClawConfig): HooksConfigResolved | n
     );
   }
   return {
-    basePath: trimmed,
+    basePath,
     token,
     maxBodyBytes: DEFAULT_HOOKS_MAX_BODY_BYTES,
     maxBodyBytesByPath: resolveHookBodyLimitsByPath(mappings),

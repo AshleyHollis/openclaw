@@ -1,6 +1,7 @@
 // Reads HTTP request and response bodies with timeout and byte limits.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "node:timers";
+import { isUint8Array } from "node:util/types";
 import {
   parseStrictNonNegativeInteger,
   resolveTimerTimeoutMs,
@@ -289,16 +290,66 @@ export type RequestBodyLimitGuard = {
 export type RequestBodyLimitGuardOptions = {
   maxBytes: number;
   timeoutMs?: number;
+  /** Observe without consuming; close abandoned uploads when their response completes. */
+  passive?: boolean;
   responseFormat?: "json" | "text";
   responseText?: Partial<Record<RequestBodyLimitErrorCode, string>>;
 };
+
+const requestBodyObservers = new WeakMap<IncomingMessage, Set<(bytes: number | null) => void>>();
+
+// Observe ingress before decoding/consumption. A 'data' listener would start
+// flowing and lose valid bytes while an authenticated handler awaits setup.
+function observeRequestBodyBytes(req: IncomingMessage, observer: (bytes: number | null) => void) {
+  let observers = requestBodyObservers.get(req);
+  if (!observers) {
+    observers = new Set();
+    requestBodyObservers.set(req, observers);
+    const current = observers;
+    // Keep exact identity for restoration; invocation always supplies req as this.
+    // oxlint-disable-next-line typescript/unbound-method
+    const originalPush = req.push;
+    const observedPush = (chunk: unknown, encoding?: BufferEncoding) => {
+      const size =
+        typeof chunk === "string"
+          ? Buffer.byteLength(chunk, encoding)
+          : isUint8Array(chunk)
+            ? chunk.byteLength
+            : 0;
+      for (const observe of current) {
+        observe(chunk === null ? null : size);
+      }
+      if (chunk === null) {
+        restore();
+      }
+      return isHttpConnectionClosing(req.socket) ? false : originalPush.call(req, chunk, encoding);
+    };
+    req.push = observedPush;
+    const restore = () => {
+      req.off("end", restore);
+      req.off("close", restore);
+      if (req.push === observedPush) {
+        req.push = originalPush;
+      }
+      requestBodyObservers.delete(req);
+    };
+    req.once("end", restore);
+    req.once("close", restore);
+  }
+  observers.add(observer);
+  return () => {
+    observers.delete(observer);
+  };
+}
 
 export function installRequestBodyLimitGuard(
   req: IncomingMessage,
   res: ServerResponse,
   options: RequestBodyLimitGuardOptions,
 ): RequestBodyLimitGuard {
-  const { maxBytes, timeoutMs } = resolveRequestBodyLimitValues(options);
+  const { maxBytes: normalizedMaxBytes, timeoutMs } = resolveRequestBodyLimitValues(options);
+  // A declared bodyless route must reject even one byte, not round its cap up.
+  const maxBytes = options.maxBytes === 0 ? 0 : normalizedMaxBytes;
   const responseFormat = options.responseFormat ?? "json";
   const customText = options.responseText ?? {};
 
@@ -306,9 +357,15 @@ export function installRequestBodyLimitGuard(
   let reason: RequestBodyLimitErrorCode | null = null;
   let done = false;
   let totalBytes = 0;
+  let removeBodyObserver: (() => void) | undefined;
 
   const cleanup = () => {
+    removeBodyObserver?.();
     req.removeListener("data", onData);
+    if (options.passive) {
+      res.off("finish", onResponseComplete);
+      res.off("close", onResponseComplete);
+    }
     req.removeListener("end", finish);
     req.removeListener("close", finish);
     req.removeListener("error", finish);
@@ -346,13 +403,34 @@ export function installRequestBodyLimitGuard(
     respond(error);
   };
 
-  const onData = (chunk: Buffer | string) => {
+  const onBytes = (bytes: number | null) => {
     if (done) {
       return;
     }
-    totalBytes += typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.length;
+    if (bytes === null) {
+      finish();
+      return;
+    }
+    totalBytes += bytes;
     if (totalBytes > maxBytes) {
       trip(new RequestBodyLimitError({ code: "PAYLOAD_TOO_LARGE" }));
+    }
+  };
+
+  const onData = (chunk: Buffer | string) => {
+    onBytes(typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.length);
+  };
+
+  const onResponseComplete = () => {
+    if (done) {
+      return;
+    }
+    // Node discards unread ingress after an early response. Retire its
+    // connection instead of silently admitting an unbounded upload/pipeline.
+    if (!req.complete) {
+      trip(new RequestBodyLimitError({ code: "CONNECTION_CLOSED" }));
+    } else {
+      finish();
     }
   };
 
@@ -360,7 +438,6 @@ export function installRequestBodyLimitGuard(
     trip(new RequestBodyLimitError({ code: "REQUEST_BODY_TIMEOUT" }));
   }, timeoutMs);
 
-  req.on("data", onData);
   req.on("end", finish);
   req.on("close", finish);
   req.on("error", finish);
@@ -374,6 +451,26 @@ export function installRequestBodyLimitGuard(
     finish();
   } else if (declaredLength !== null && declaredLength > maxBytes) {
     trip(new RequestBodyLimitError({ code: "PAYLOAD_TOO_LARGE" }));
+  } else if (options.passive) {
+    // Authentication can await while Node buffers the first body batch.
+    onBytes(req.readableLength);
+    if (req.complete) {
+      finish();
+    }
+    if (!done) {
+      removeBodyObserver = observeRequestBodyBytes(req, onBytes);
+      res.prependOnceListener("finish", onResponseComplete);
+      res.once("close", onResponseComplete);
+      if (res.writableFinished || res.destroyed) {
+        onResponseComplete();
+      }
+    }
+  } else {
+    // Preserve the SDK guard's established auto-consuming behavior.
+    req.on("data", onData);
+    if (req.readableEnded) {
+      finish();
+    }
   }
 
   return {

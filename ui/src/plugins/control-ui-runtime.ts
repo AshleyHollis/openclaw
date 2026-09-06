@@ -7,8 +7,8 @@ import { controlUiPluginAssetPrefix } from "../../../src/gateway/control-ui-plug
 import { CONTROL_UI_PLUGIN_AUTH_GRANT_TTL_MS } from "../../../src/gateway/control-ui-plugin-frame-contract.js";
 import type {
   ControlUiDisposer,
-  ControlUiHost,
-  ControlUiReplacement,
+  ControlUiHostV2 as ControlUiHost,
+  ControlUiReplacementV2 as ControlUiReplacement,
   ControlUiSurface,
 } from "../../../src/plugin-sdk/control-ui.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
