@@ -57,9 +57,13 @@ function createGuardedPluginRegistrationApi(api: OpenClawPluginApi): {
   close: () => void;
 } {
   let closed = false;
+  const notifications: OpenClawPluginApi["notifications"] = {
+    registerEmitter: (...args) => (closed ? undefined : api.notifications.registerEmitter(...args)),
+  };
   const guardedApi = attachPluginApiFacades(
     new Proxy(api, {
       get(target, prop, receiver) {
+        if (prop === "notifications") return notifications;
         const value = Reflect.get(target, prop, receiver);
         if (typeof value !== "function") {
           return value;

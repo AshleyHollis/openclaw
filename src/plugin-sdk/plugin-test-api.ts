@@ -19,6 +19,11 @@ export function createTestPluginApi(api: TestPluginApiInput = {}): OpenClawPlugi
     config: {},
     runtime: {} as OpenClawPluginApi["runtime"],
     logger: { info() {}, warn() {}, error() {}, debug() {} },
+    notifications: {
+      registerEmitter() {
+        throw new Error("Plugin notifications are not configured in this test API");
+      },
+    },
     registerTool() {},
     registerHook() {},
     registerHttpRoute() {},

@@ -36,6 +36,7 @@ import {
 import type { GatewayCloseOptions } from "./server-public.js";
 import { GatewayRequestEntryLifetime } from "./server-request-entry.js";
 import type { prepareGatewayKernelState } from "./server-runtime-state-prepare.js";
+import { getRequiredSharedGatewaySessionGeneration } from "./server-shared-auth-generation.js";
 import { resolveGatewayShutdownNotice, runGatewayShutdownSteps } from "./server-shutdown.js";
 import type { GatewayShutdownRuntime } from "./server-shutdown.runtime.js";
 import { createGatewaySidecarStopOwner } from "./server-sidecar-owners.js";
@@ -350,6 +351,8 @@ export async function prepareGatewayLifecycle(params: {
   });
   deps.cron = runtimeState.cronState.cron;
   const pluginHostServices = {
+    getRequiredSharedGatewaySessionGeneration: () =>
+      getRequiredSharedGatewaySessionGeneration(runtime.sharedGatewaySessionGenerationState),
     get cron() {
       return runtimeState.cronState.cron;
     },

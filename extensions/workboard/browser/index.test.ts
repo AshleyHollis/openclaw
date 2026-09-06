@@ -1,5 +1,5 @@
 import "./test/dom.setup.ts";
-import type { ControlUiAccessory } from "openclaw/plugin-sdk/control-ui";
+import type { ControlUiAccessoryV2 as ControlUiAccessory } from "openclaw/plugin-sdk/control-ui";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { expect, it, vi } from "vitest";
 import workboardPlugin from "./index.ts";

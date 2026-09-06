@@ -542,6 +542,69 @@ describe("native Control UI browser assets", () => {
     expect(reportControlUiPluginActivation(browser, pending)).toBe(false);
   });
 
+  it("bounds UI-only route reloads by the active backend authority and revisions the effective contract", async () => {
+    const fixture = activateFixture();
+    fixture.record.controlUi!.httpRoutes = [
+      {
+        path: "/plugins/native-ui/notes",
+        method: "POST",
+        maxRequestBytes: 1024,
+        maxResponseBytes: 32768,
+      },
+      {
+        path: "/plugins/native-ui/status",
+        method: "GET",
+        maxRequestBytes: 0,
+        maxResponseBytes: 1024,
+      },
+    ];
+    const first = await listControlUiPluginCatalog();
+    expect(first.plugins[0]?.httpRoutes).toHaveLength(2);
+    const publish = (maxRequestBytes: number) =>
+      fs.writeFileSync(
+        path.join(fixture.rootDir, "openclaw.plugin.json"),
+        JSON.stringify({
+          id: "native-ui",
+          configSchema: { type: "object" },
+          controlUi: {
+            entry: "dist/control-ui/index.js",
+            styles: ["dist/control-ui/theme.css"],
+            httpRoutes: [
+              {
+                path: "/plugins/native-ui/notes",
+                method: "POST",
+                maxRequestBytes,
+                maxResponseBytes: 65536,
+              },
+              {
+                path: "/plugins/native-ui/new-route",
+                method: "POST",
+                maxRequestBytes: 1024,
+                maxResponseBytes: 1024,
+              },
+            ],
+          },
+        }),
+      );
+    publish(2048);
+    const second = await reloadControlUiPluginCatalog("native-ui");
+    expect(second.diagnostics).toEqual([]);
+    expect(second.plugins[0]?.httpRoutes).toEqual([
+      {
+        path: "/plugins/native-ui/notes",
+        method: "POST",
+        maxRequestBytes: 1024,
+        maxResponseBytes: 32768,
+      },
+    ]);
+    expect(second.plugins[0]?.revision).not.toBe(first.plugins[0]?.revision);
+    expect(fixture.record.controlUi?.httpRoutes).toHaveLength(2);
+    publish(512);
+    const third = await reloadControlUiPluginCatalog("native-ui");
+    expect(third.plugins[0]?.httpRoutes?.[0]?.maxRequestBytes).toBe(512);
+    expect(third.plugins[0]?.revision).not.toBe(second.plugins[0]?.revision);
+  });
+
   it("fences a queued reload after registry replacement and rebuilds a reactivated generation", async () => {
     const fixture = activateFixture();
     const first = await listControlUiPluginCatalog();

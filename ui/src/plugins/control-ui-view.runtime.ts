@@ -4,11 +4,11 @@ import { html, nothing, render, type LitElement } from "lit";
 import { property, state } from "lit/decorators.js";
 import { keyed } from "lit/directives/keyed.js";
 import type {
-  ControlUiAction,
+  ControlUiActionV2 as ControlUiAction,
   ControlUiSurface,
   ControlUiSurfaceProps,
-  ControlUiView,
-  ControlUiViewContext,
+  ControlUiViewV2 as ControlUiView,
+  ControlUiViewContextV2 as ControlUiViewContext,
 } from "../../../src/plugin-sdk/control-ui.js";
 import { applicationContext, type ApplicationContext } from "../app/context.ts";
 import { icons, type IconName } from "../components/icons.ts";

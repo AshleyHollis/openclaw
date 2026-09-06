@@ -1,6 +1,6 @@
 import type { BoardGetParams } from "@openclaw/gateway-protocol";
 import type {
-  ControlUiHost,
+  ControlUiHostV2 as ControlUiHost,
   ControlUiSessionListResult,
   ControlUiSessionListSubscription,
 } from "openclaw/plugin-sdk/control-ui";

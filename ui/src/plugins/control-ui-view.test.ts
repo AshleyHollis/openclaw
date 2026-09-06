@@ -1,10 +1,10 @@
 import { html, LitElement } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
-  ControlUiHost,
-  ControlUiReplacement,
+  ControlUiHostV2 as ControlUiHost,
+  ControlUiReplacementV2 as ControlUiReplacement,
   ControlUiSurfaceProps,
-  ControlUiViewContext,
+  ControlUiViewContextV2 as ControlUiViewContext,
 } from "../../../src/plugin-sdk/control-ui.js";
 import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationContext } from "../app/context.ts";

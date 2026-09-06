@@ -4,9 +4,9 @@ import type { BoardGetParams } from "@openclaw/gateway-protocol";
 import { html, LitElement } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
-  ControlUiHost,
+  ControlUiHostV2 as ControlUiHost,
   ControlUiSurface,
-  ControlUiViewContext,
+  ControlUiViewContextV2 as ControlUiViewContext,
 } from "../../../../src/plugin-sdk/control-ui.js";
 import type { ApplicationContext } from "../../app/context.ts";
 import { createApplicationContextProvider } from "../../test-helpers/application-context.ts";

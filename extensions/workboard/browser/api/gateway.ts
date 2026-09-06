@@ -1,4 +1,4 @@
-import type { ControlUiHost } from "openclaw/plugin-sdk/control-ui";
+import type { ControlUiHostV2 as ControlUiHost } from "openclaw/plugin-sdk/control-ui";
 import { WORKBOARD_CHANGED_EVENT } from "../lib/workboard/types.ts";
 
 export type GatewayBrowserClient = {

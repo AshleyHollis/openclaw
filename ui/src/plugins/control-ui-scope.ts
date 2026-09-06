@@ -1,4 +1,4 @@
-import type { ControlUiHost } from "../../../src/plugin-sdk/control-ui.js";
+import type { ControlUiHostV2 as ControlUiHost } from "../../../src/plugin-sdk/control-ui.js";
 
 /** A mounted view cannot retain host calls or listeners after its own lifetime ends. */
 export function scopeControlUiHost(host: ControlUiHost, signal: AbortSignal): ControlUiHost {
@@ -108,6 +108,18 @@ export function scopeControlUiHost(host: ControlUiHost, signal: AbortSignal): Co
     request: async <T>(method: string, params?: Record<string, unknown>): Promise<T> => {
       check();
       const result = await host.request<T>(method, params);
+      check();
+      return result;
+    },
+    httpRequest: async (request, options) => {
+      check();
+      const result = await host.httpRequest(request, {
+        signal: AbortSignal.any([
+          signal,
+          host.signal,
+          ...(options?.signal ? [options.signal] : []),
+        ]),
+      });
       check();
       return result;
     },

@@ -271,7 +271,7 @@ export function loadPluginManifest(
       manifestPath,
     });
   }
-  const controlUiResult = setupNormalizers.normalizeManifestControlUi(raw.controlUi);
+  const controlUiResult = setupNormalizers.normalizeManifestControlUi(raw.controlUi, id);
   if (!controlUiResult.ok) {
     return cacheResult({
       ok: false,

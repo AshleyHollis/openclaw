@@ -178,6 +178,10 @@ self.addEventListener("fetch", (event) => {
 
 // --- Web Push ---
 
+// Serialize plugin display/clear work within this worker lifetime. A persistent
+// clear-before-late-delivery fence across worker restarts is a separate boundary.
+let pluginNotificationWork = Promise.resolve();
+
 self.addEventListener("push", (event) => {
   if (!event.data) {
     return;
@@ -203,6 +207,34 @@ self.addEventListener("push", (event) => {
     },
   };
 
+  if (data.notification !== undefined) {
+    const envelope = data.notification;
+    if (
+      !envelope ||
+      envelope.version !== 1 ||
+      !["notify", "clear"].includes(envelope.kind) ||
+      typeof data.tag !== "string" ||
+      !data.tag ||
+      data.tag.length > 128 ||
+      !Number.isSafeInteger(envelope.expiresAtMs)
+    )
+      return;
+    const work = pluginNotificationWork.then(async () => {
+      if (envelope.kind === "clear") {
+        const notifications = await self.registration.getNotifications({ tag: data.tag });
+        for (const notification of notifications) notification.close();
+        return;
+      }
+      const remaining = envelope.expiresAtMs - Date.now();
+      if (remaining <= 0 || remaining > 86_400_000) return;
+      await self.registration.showNotification(title, options);
+    });
+    // A failed display must not poison a later clear, but the event still gets
+    // its real failure instead of a false success receipt.
+    pluginNotificationWork = work.catch(() => {});
+    event.waitUntil(work);
+    return;
+  }
   event.waitUntil(self.registration.showNotification(title, options));
 });
 

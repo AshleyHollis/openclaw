@@ -109,8 +109,8 @@ export type ControlUiSurfaceProps = {
 
 export type ControlUiSurface = keyof ControlUiSurfaceProps;
 
-export type ControlUiViewContext<T = Readonly<Record<string, string>>> = {
-  readonly host: ControlUiHost;
+export type ControlUiViewContext<T = Readonly<Record<string, string>>, Host = ControlUiHost> = {
+  readonly host: Host;
   readonly signal: AbortSignal;
   readonly props: T;
   /** Presentation can pause a retained view without ending its host lifetime. */
@@ -119,19 +119,19 @@ export type ControlUiViewContext<T = Readonly<Record<string, string>>> = {
   mountDefault: (container: HTMLElement) => ControlUiDisposer;
 };
 
-export type ControlUiView<T = Readonly<Record<string, string>>> = (
+export type ControlUiView<T = Readonly<Record<string, string>>, Host = ControlUiHost> = (
   container: HTMLElement,
-  context: ControlUiViewContext<T>,
+  context: ControlUiViewContext<T, Host>,
 ) => {
-  update?: (context: ControlUiViewContext<T>) => void;
+  update?: (context: ControlUiViewContext<T, Host>) => void;
   focus?: () => void;
   dispose?: ControlUiDisposer;
 } | void;
 
-export type ControlUiPage = {
+export type ControlUiPage<Host = ControlUiHost> = {
   id: string;
   label: string;
-  mount: ControlUiView;
+  mount: ControlUiView<Readonly<Record<string, string>>, Host>;
 };
 
 export type ControlUiNavigationItem = {
@@ -144,13 +144,13 @@ export type ControlUiNavigationItem = {
   defaultVisible?: boolean;
 };
 
-export type ControlUiPanel = {
+export type ControlUiPanel<Host = ControlUiHost> = {
   id: string;
   label: string;
-  mount: ControlUiView<BoardGetParams>;
+  mount: ControlUiView<BoardGetParams, Host>;
 };
 
-export type ControlUiAction = {
+export type ControlUiAction<Host = ControlUiHost> = {
   id: string;
   label: string;
   placement: "composer" | "header" | "session";
@@ -162,19 +162,19 @@ export type ControlUiAction = {
   run: (
     context: BoardGetParams & {
       session?: ControlUiSession;
-      host: ControlUiHost;
+      host: Host;
       signal: AbortSignal;
     },
   ) => void | Promise<void>;
 };
 
-export type ControlUiAccessory = {
+export type ControlUiAccessory<Host = ControlUiHost> = {
   id: string;
   placement: "session-header";
-  mount: ControlUiView<BoardGetParams>;
+  mount: ControlUiView<BoardGetParams, Host>;
 };
 
-export type ControlUiWidget = {
+export type ControlUiWidget<Host = ControlUiHost> = {
   id: string;
   label: string;
   mount: ControlUiView<
@@ -182,20 +182,24 @@ export type ControlUiWidget = {
       widget: { name: string; props?: Readonly<Record<string, unknown>> };
       canMutate: boolean;
       canGrant: boolean;
-    }
+    },
+    Host
   >;
 };
 
-export type ControlUiReplacement<S extends ControlUiSurface = ControlUiSurface> = {
+export type ControlUiReplacement<
+  S extends ControlUiSurface = ControlUiSurface,
+  Host = ControlUiHost,
+> = {
   [Surface in S]: {
     id: string;
     label: string;
     surface: Surface;
-    mount: ControlUiView<ControlUiSurfaceProps[Surface]>;
+    mount: ControlUiView<ControlUiSurfaceProps[Surface], Host>;
   };
 }[S];
 
-export type ControlUiHost = {
+type ControlUiHostContract<Host> = {
   readonly apiVersion: 1;
   readonly pluginId: string;
   readonly signal: AbortSignal;
@@ -248,23 +252,63 @@ export type ControlUiHost = {
   ui: {
     /** Refresh contributions whose presentation depends on plugin-owned state. */
     invalidate: () => void;
-    registerPage: (page: ControlUiPage) => ControlUiDisposer;
+    registerPage: (page: ControlUiPage<Host>) => ControlUiDisposer;
     registerNavigation: (item: ControlUiNavigationItem) => ControlUiDisposer;
-    registerPanel: (panel: ControlUiPanel) => ControlUiDisposer;
-    registerAction: (action: ControlUiAction) => ControlUiDisposer;
-    registerAccessory: (accessory: ControlUiAccessory) => ControlUiDisposer;
-    registerWidget: (widget: ControlUiWidget) => ControlUiDisposer;
-    registerReplacement: (replacement: ControlUiReplacement) => ControlUiDisposer;
+    registerPanel: (panel: ControlUiPanel<Host>) => ControlUiDisposer;
+    registerAction: (action: ControlUiAction<Host>) => ControlUiDisposer;
+    registerAccessory: (accessory: ControlUiAccessory<Host>) => ControlUiDisposer;
+    registerWidget: (widget: ControlUiWidget<Host>) => ControlUiDisposer;
+    registerReplacement: (
+      replacement: ControlUiReplacement<ControlUiSurface, Host>,
+    ) => ControlUiDisposer;
     /** Select an owned replacement, or restore the built-in view for this surface. */
     selectReplacement: (surface: ControlUiSurface, id: string | null) => void;
   };
 };
 
-export type ControlUiPlugin = {
+/** Legacy browser contract remains source-compatible throughout the 2026.9 release line. */
+export interface ControlUiHost extends ControlUiHostContract<ControlUiHost> {}
+
+export type ControlUiHttpRequest =
+  | { method: "GET"; path: string }
+  | { method: "POST"; path: string; body: string };
+export type ControlUiHttpResponse = { status: number; body: string };
+
+/** Current host authority. Mounted views receive their own lifetime-bound copy. */
+export interface ControlUiHostV2 extends ControlUiHostContract<ControlUiHostV2> {
+  /** Declared same-origin JSON routes only. Interrupted writes require reconciliation, not retry. */
+  httpRequest: (
+    request: ControlUiHttpRequest,
+    options?: { signal?: AbortSignal },
+  ) => Promise<ControlUiHttpResponse>;
+}
+
+export type ControlUiPlugin<Host = ControlUiHost> = {
   id: string;
-  activate: (host: ControlUiHost) => void | ControlUiDisposer | Promise<void | ControlUiDisposer>;
+  activate: (host: Host) => void | ControlUiDisposer | Promise<void | ControlUiDisposer>;
 };
 
-export function defineControlUiPlugin(plugin: ControlUiPlugin): ControlUiPlugin {
+export type ControlUiPluginV2 = ControlUiPlugin<ControlUiHostV2>;
+export type ControlUiViewV2<T = Readonly<Record<string, string>>> = ControlUiView<
+  T,
+  ControlUiHostV2
+>;
+export type ControlUiViewContextV2<T = Readonly<Record<string, string>>> = ControlUiViewContext<
+  T,
+  ControlUiHostV2
+>;
+export type ControlUiPageV2 = ControlUiPage<ControlUiHostV2>;
+export type ControlUiPanelV2 = ControlUiPanel<ControlUiHostV2>;
+export type ControlUiActionV2 = ControlUiAction<ControlUiHostV2>;
+export type ControlUiAccessoryV2 = ControlUiAccessory<ControlUiHostV2>;
+export type ControlUiWidgetV2 = ControlUiWidget<ControlUiHostV2>;
+export type ControlUiReplacementV2<S extends ControlUiSurface = ControlUiSurface> =
+  ControlUiReplacement<S, ControlUiHostV2>;
+
+export function defineControlUiPlugin(plugin: ControlUiPluginV2): ControlUiPluginV2;
+export function defineControlUiPlugin(plugin: ControlUiPlugin): ControlUiPlugin;
+export function defineControlUiPlugin(
+  plugin: ControlUiPlugin | ControlUiPluginV2,
+): ControlUiPlugin | ControlUiPluginV2 {
   return plugin;
 }

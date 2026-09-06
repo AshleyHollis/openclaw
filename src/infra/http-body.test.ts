@@ -1,6 +1,5 @@
 // Tests HTTP body reading and size-limit handling.
-import { EventEmitter } from "node:events";
-import type { IncomingMessage } from "node:http";
+import { IncomingMessage, ServerResponse } from "node:http";
 import { Socket } from "node:net";
 import { MAX_TIMER_TIMEOUT_MS } from "@openclaw/normalization-core/number-coercion";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -95,7 +94,7 @@ function createMockRequest(params: {
   headers?: Record<string, string>;
   emitEnd?: boolean;
 }): MockIncomingMessage {
-  const req = new EventEmitter() as MockIncomingMessage;
+  const req = new IncomingMessage(new Socket()) as MockIncomingMessage;
   req.destroyed = false;
   req.socket = new Socket();
   req.headers = params.headers ?? {};
@@ -118,13 +117,13 @@ function createMockRequest(params: {
   if (params.chunks) {
     void Promise.resolve().then(() => {
       for (const chunk of params.chunks ?? []) {
-        req.emit("data", Buffer.from(chunk, "utf-8"));
+        req.push(Buffer.from(chunk, "utf-8"));
         if (req.destroyed) {
           return;
         }
       }
       if (params.emitEnd !== false) {
-        req.emit("end");
+        req.push(null);
       }
     });
   }
@@ -141,6 +140,39 @@ describe("http body limits", () => {
     const req = createMockRequest({ chunks: ['{"ok":true}'] });
     await expect(readRequestBodyWithLimit(req, { maxBytes: 1024 })).resolves.toBe('{"ok":true}');
   });
+
+  it.each(["before", "after"])(
+    "does not time out complete unread ingress received %s guard installation",
+    async (when) => {
+      const req = createMockRequest({ emitEnd: false });
+      const complete = () => {
+        req.push(Buffer.from("complete body"));
+        req.complete = true;
+        req.push(null);
+      };
+      if (when === "before") {
+        complete();
+      }
+      const guard = installRequestBodyLimitGuard(req, new ServerResponse(req), {
+        maxBytes: 128,
+        timeoutMs: 1,
+        passive: true,
+      });
+      try {
+        if (when === "after") {
+          complete();
+        }
+        await new Promise((resolve) => {
+          setTimeout(resolve, 20);
+        });
+        expect(guard.isTripped()).toBe(false);
+        expect(req.read()?.toString()).toBe("complete body");
+      } finally {
+        guard.dispose();
+        req.emit("close");
+      }
+    },
+  );
 
   it.each([
     {
@@ -278,25 +310,31 @@ describe("http body limits", () => {
     }
   });
 
-  it("keeps concurrent body guards, readers, and foreign request listeners independent", async () => {
-    const req = createMockRequest({ chunks: ['{"ok":true}'] });
-    const res = createMockServerResponse();
-    const events = ["data", "end", "error", "close"] as const;
-    const foreignListener = () => {};
-    for (const event of events) {
-      req.on(event, foreignListener);
-    }
+  it.each([false, true])(
+    "keeps body guards, readers, and foreign listeners independent (passive=%s)",
+    async (passive) => {
+      const req = createMockRequest({ chunks: ['{"ok":true}'] });
+      const res = createMockServerResponse();
+      const events = ["data", "end", "error", "close"] as const;
+      const foreignListener = () => {};
+      for (const event of events) {
+        req.on(event, foreignListener);
+      }
 
-    const guard = installRequestBodyLimitGuard(req, res, { maxBytes: 128 });
-    await expect(readRequestBodyWithLimit(req, { maxBytes: 128 })).resolves.toBe('{"ok":true}');
+      const guard = installRequestBodyLimitGuard(req, passive ? new ServerResponse(req) : res, {
+        maxBytes: 128,
+        passive,
+      });
+      await expect(readRequestBodyWithLimit(req, { maxBytes: 128 })).resolves.toBe('{"ok":true}');
 
-    expect(guard.isTripped()).toBe(false);
-    expect(res.headersSent).toBe(false);
-    for (const event of events) {
-      expect(req.listeners(event)).toEqual([foreignListener]);
-    }
-    guard.dispose();
-  });
+      expect(guard.isTripped()).toBe(false);
+      expect(res.headersSent).toBe(false);
+      for (const event of events) {
+        expect(req.listeners(event)).toEqual([foreignListener]);
+      }
+      guard.dispose();
+    },
+  );
 
   it("classifies request stream errors as a closed connection", async () => {
     const req = createMockRequest({ emitEnd: false });

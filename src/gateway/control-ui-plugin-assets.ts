@@ -100,7 +100,24 @@ async function snapshotBrowserBuild(
     record.rootDir,
     declaration,
   );
-  const digest = createHash("sha256").update(JSON.stringify(declaration));
+  // UI-only publication cannot enlarge process-stable backend authority.
+  const httpRoutes = declaration.httpRoutes?.flatMap((route) => {
+    const active = record.controlUi?.httpRoutes?.find(
+      (candidate) => candidate.path === route.path && candidate.method === route.method,
+    );
+    return active
+      ? [
+          {
+            ...route,
+            maxRequestBytes: Math.min(route.maxRequestBytes, active.maxRequestBytes),
+            maxResponseBytes: Math.min(route.maxResponseBytes, active.maxResponseBytes),
+          },
+        ]
+      : [];
+  });
+  const digest = createHash("sha256").update(
+    JSON.stringify({ ...declaration, ...(httpRoutes ? { httpRoutes } : {}) }),
+  );
   for (const [name, asset] of [...assets].toSorted(([left], [right]) =>
     left.localeCompare(right),
   )) {
@@ -125,6 +142,7 @@ async function snapshotBrowserBuild(
       revision,
       entryUrl: assetUrl(entryName),
       styles: styles.map(assetUrl),
+      ...(httpRoutes ? { httpRoutes } : {}),
     },
   };
 }

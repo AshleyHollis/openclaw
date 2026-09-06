@@ -20,6 +20,7 @@ import {
 import { runHttpConnectionRequest } from "../infra/http-request-lifecycle.js";
 import { readTailscaleWhoisIdentity } from "../infra/tailscale.js";
 import { parseDevicePairingJoinRequestPath } from "../pairing/join-code.js";
+import { CONTROL_UI_HTTP_RELAY_HEADER } from "../shared/control-ui-http-relay.js";
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
 import { resolveAssistantAgentId } from "./assistant-identity.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
@@ -275,11 +276,17 @@ export function createGatewayHttpServer(opts: {
 
     try {
       const requestPath = URL.parse(req.url ?? "/", "http://localhost")?.pathname;
-      if (requestPath === undefined) {
+      const isControlUiRelay = req.headers[CONTROL_UI_HTTP_RELAY_HEADER] !== undefined;
+      // Reject raw aliases before any capability URL rewrite or core route dispatch.
+      if (
+        requestPath === undefined ||
+        (isControlUiRelay &&
+          (req.url !== requestPath || req.headers[CONTROL_UI_HTTP_RELAY_HEADER] !== "1"))
+      ) {
         sendGatewayAuthFailure(res, { ok: false, reason: "unauthorized" });
         return;
       }
-      if (classifyGatewayProbePath(requestPath) === "live") {
+      if (!isControlUiRelay && classifyGatewayProbePath(requestPath) === "live") {
         await handleGatewayProbeRequest(
           req,
           res,
@@ -318,7 +325,10 @@ export function createGatewayHttpServer(opts: {
           readTailscaleWhoisIdentity(ip, undefined, { cacheTtlMs: 0, errorTtlMs: 0 }),
       });
       const scopedNodeCapability = normalizePluginNodeCapabilityScopedUrl(req.url ?? "/");
-      if (scopedNodeCapability.malformedScopedPath) {
+      if (
+        scopedNodeCapability.malformedScopedPath ||
+        (isControlUiRelay && scopedNodeCapability.rewrittenUrl)
+      ) {
         sendGatewayAuthFailure(res, { ok: false, reason: "unauthorized" });
         return;
       }
@@ -334,6 +344,7 @@ export function createGatewayHttpServer(opts: {
         opts.reportUnattributableProxy?.(ingressAttribution);
         if (
           !nodeCapability &&
+          !isControlUiRelay &&
           handlePluginRequest &&
           opts.isPluginAuthenticatedRoute?.(pluginPathContext) &&
           (await handlePluginRequest(req, res, pluginPathContext, {
@@ -353,6 +364,33 @@ export function createGatewayHttpServer(opts: {
         allowRealIpFallback,
         rateLimiter,
       };
+      if (isControlUiRelay) {
+        if (!handlePluginRequest || !controlUiEnabled) {
+          sendGatewayAuthFailure(res, { ok: false, reason: "unauthorized" });
+          return;
+        }
+        const { authorizePluginGatewayHttpRequestOrReply } = await getHttpAuthUtilsModule();
+        const { resolvePluginRouteRuntimeOperatorScopes } =
+          await getPluginRouteRuntimeScopesModule();
+        const authorized = await authorizePluginGatewayHttpRequestOrReply({
+          req,
+          res,
+          ...routeAuth,
+          requestPath,
+          controlUiBasePath,
+          resolveOperatorScopes: resolvePluginRouteRuntimeOperatorScopes,
+        });
+        if (!authorized) return;
+        const handled = await handlePluginRequest(req, res, pluginPathContext, {
+          gatewayAuthSatisfied: true,
+          gatewayRequestAuth: authorized.requestAuth,
+          gatewayRequestOperatorScopes: authorized.operatorScopes,
+          gatewayRequestClientIp: requestClientIp,
+        });
+        // A declared relay never falls through into hooks, core APIs, or the SPA.
+        if (!handled && !res.destroyed && !res.writableEnded) respondNotFound(res);
+        return;
+      }
       const controlUiRouteOptions = {
         basePath: controlUiBasePath,
         config: configSnapshot,

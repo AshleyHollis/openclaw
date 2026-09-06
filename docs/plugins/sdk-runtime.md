@@ -1144,6 +1144,10 @@ snapshots; OpenClaw owns all persistence and lifecycle coordination.
 
     Plugin-state leases were removed. Use short SQLite transactions for atomic database work and plugin-scoped keyed stores (`openKeyedStore` or `openSyncKeyedStore`) for bounded durable state.
 
+    For filesystem work spanning asynchronous steps, `openclaw/plugin-sdk/sqlite-runtime` exports `tryAcquireExclusiveSqliteCoordinator(location, { busyTimeoutMs? })`. It returns `{ release() }` while holding an exclusive SQLite transaction, or `null` when another owner holds the lock. The synchronous busy timeout defaults to zero. Release exactly once in `finally`; other open, locking, or release failures throw. Process exit releases the OS lock without a PID, heartbeat, or stale-time heuristic.
+
+    Use a separate contentless coordinator file in validated private plugin state, not the shared application database. All participants must use the same physical file on a filesystem with working SQLite locking; do not delete, replace, or truncate it while participants may be active. This helper is coordination, not authorization or a durable operation receipt: plugins must still journal filesystem intent and verify source identity before recovery.
+
     `openChannelIngressDrain(...)` opens the core channel-agnostic worker over that queue (or creates a queue when none is supplied). The drain owns stale-claim recovery, per-lane claim serialization, complete-at-adoption or complete-on-dispatch-return, retry/dead-letter disposition, optional pre-adoption supersede, and claim→adoption stall timeout. Wire claim ownership into reply generation with `turnAdoptionLifecycle` (via `bindIngressLifecycleToReplyOptions` from `plugin-sdk/channel-outbound`). Channel plugins keep accept-side enqueue, lane derivation, non-retryable classification, and any supersede authorization policy.
 
     <Warning>
@@ -1245,6 +1249,18 @@ Each returned scheduler handle belongs to one service lifetime and one scheduler
 instance. Calls, including queued writes, reject once service shutdown begins or
 that scheduler is replaced. Call `ctx.getCron()` again to obtain the replacement
 scheduler while the service remains active.
+
+Service scheduler `list`, `add`, and `update` return detached job snapshots with
+an opaque `configRevision`. Pass the loaded revision to
+`update(id, patch, { expectedConfigRevision })` to reject a stale edit under the
+native scheduler's store lock. Omitting the option retains unconditional update
+behavior. A blank revision is invalid. These revision-safe operations belong to
+the service handle; older Gateway hook handles do not accept revision options.
+
+Use `payload: { kind: "agentTurn", message, toolsAllow: ["my_plugin_tool"] }`
+for an isolated agent job, and explicitly set `delivery: { mode: "none" }` when
+the job must not announce its result. A tool cap opts in named optional plugin
+tools but does not override operator tool restrictions or a disabled plugin.
 
 A service can declare `reload: { configPrefixes: ["myConfig.service"] }` alongside
 its `id`, `start`, and `stop`. After a matching config change commits, the Gateway

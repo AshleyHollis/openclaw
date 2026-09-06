@@ -1833,13 +1833,15 @@ describe("startGatewayPostAttachRuntime", () => {
     const onGatewayLifetimeSidecars = vi.fn();
 
     try {
-      await startGatewayPostAttachRuntime({
+      const runtime = await startGatewayPostAttachRuntime({
         ...createPostAttachParams(),
         sidecarStartup: "defer",
         providerAuthPrewarm: {},
         onGatewayLifetimeSidecars,
       });
 
+      await vi.advanceTimersByTimeAsync(100);
+      await runtime.startupSettled;
       await vi.dynamicImportSettled();
       await waitForGatewayTestState(() => {
         expect(hoisted.setAuthProfileFailureHook).toHaveBeenCalledTimes(1);
@@ -1918,7 +1920,7 @@ describe("startGatewayPostAttachRuntime", () => {
     const log = { info: vi.fn(), warn: vi.fn() };
 
     try {
-      await startGatewayPostAttachRuntime({
+      const runtime = await startGatewayPostAttachRuntime({
         ...createPostAttachParams({
           cfgAtStart: {
             hooks: {
@@ -1942,11 +1944,10 @@ describe("startGatewayPostAttachRuntime", () => {
         onGatewayLifetimeSidecars,
       });
 
-      await vi.advanceTimersToNextTimerAsync();
-      await waitForGatewayTestState(() => {
-        expect(onPostReadySidecars).toHaveBeenCalledTimes(1);
-        expect(publishedGatewayLifetimeSidecars.size).toBe(4);
-      });
+      await vi.advanceTimersByTimeAsync(100);
+      await runtime.startupSettled;
+      expect(onPostReadySidecars).toHaveBeenCalledTimes(1);
+      expect(publishedGatewayLifetimeSidecars.size).toBe(4);
       const gmailSidecars = onPostReadySidecars.mock.calls[0]?.[0] as
         | { stop: () => void }[]
         | undefined;
@@ -4556,6 +4557,7 @@ describe("startGatewayPostAttachRuntime", () => {
       list: vi.fn(),
       add: vi.fn(),
       update: vi.fn(),
+      updateWithPrecondition: vi.fn(),
       remove: vi.fn(),
       removeStaleJobFamily: vi.fn(),
     };
@@ -4563,6 +4565,7 @@ describe("startGatewayPostAttachRuntime", () => {
       list: vi.fn(),
       add: vi.fn(),
       update: vi.fn(),
+      updateWithPrecondition: vi.fn(),
       remove: vi.fn(),
       removeStaleJobFamily: vi.fn(),
     };
@@ -4570,6 +4573,7 @@ describe("startGatewayPostAttachRuntime", () => {
       list: vi.fn(),
       add: vi.fn(),
       update: vi.fn(),
+      updateWithPrecondition: vi.fn(),
       remove: vi.fn(),
       removeStaleJobFamily: vi.fn(),
     };

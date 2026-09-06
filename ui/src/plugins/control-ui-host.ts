@@ -1,6 +1,6 @@
 import type {
   ControlUiDisposer,
-  ControlUiHost,
+  ControlUiHostV2,
   ControlUiPageNavigationOptions,
   ControlUiPageTarget,
 } from "../../../src/plugin-sdk/control-ui.js";
@@ -8,6 +8,7 @@ import type { RouteId } from "../app-route-paths.ts";
 import { isRouteId, pathForRoute } from "../app-route-paths.ts";
 import { selectApplicationSession } from "../app/agent-selection.ts";
 import type { ApplicationContext } from "../app/context.ts";
+import { resolveControlUiAuthHeader } from "../app/control-ui-auth.ts";
 import { hasOperatorReadAccess, readGatewayOperatorAccess } from "../app/operator-access.ts";
 import { i18n } from "../i18n/index.ts";
 import { redactToolPayloadText } from "../lib/browser-redact.ts";
@@ -17,13 +18,14 @@ import {
 } from "../lib/sessions/route-navigation.ts";
 import { normalizeSessionKeyForUiComparison } from "../lib/sessions/session-key.ts";
 import { createControlUiComponents } from "./control-ui-components.ts";
+import { requestControlUiHttp } from "./control-ui-http.ts";
 import type { ControlUiPluginOwner, ControlUiPluginRuntime } from "./control-ui-runtime.ts";
 
 export function createControlUiPluginHost(
   getContext: () => ApplicationContext<RouteId>,
   runtime: ControlUiPluginRuntime,
   owner: Omit<ControlUiPluginOwner, "host">,
-): ControlUiHost {
+): ControlUiHostV2 {
   const current = () => {
     if (!runtime.isCurrent(owner)) {
       throw new Error("This plugin UI activation has ended. Use the current activation.");
@@ -103,6 +105,37 @@ export function createControlUiPluginHost(
       };
     },
     request: (method, params = {}) => call(() => owner.client.request(method, params)),
+    httpRequest: (request, options) =>
+      call((context) => {
+        const connection = readGatewayOperatorAccess(context.gateway.snapshot);
+        const canRead = hasOperatorReadAccess(context.gateway.snapshot.hello?.auth ?? null);
+        if (
+          context.gateway.snapshot.phase !== "connected" ||
+          (request.method === "GET" ? !canRead : !connection.canWrite)
+        ) {
+          throw new Error("This HTTP request requires an authorized Gateway connection.");
+        }
+        const gatewayUrl = new URL(owner.client.gatewayUrl, window.location.href);
+        gatewayUrl.protocol = gatewayUrl.protocol.replace(/^ws/u, "http");
+        if (gatewayUrl.origin !== window.location.origin) {
+          throw new Error("Plugin HTTP requires the Control UI served by its connected Gateway.");
+        }
+        const authorization = resolveControlUiAuthHeader({
+          hello: context.gateway.snapshot.hello,
+          settings: { token: context.gateway.connection.token },
+          password: context.gateway.connection.password,
+        });
+        const signal = AbortSignal.any([
+          owner.abort.signal,
+          ...(options?.signal ? [options.signal] : []),
+        ]);
+        return requestControlUiHttp(
+          owner.descriptor.httpRoutes ?? [],
+          request,
+          authorization,
+          signal,
+        );
+      }),
     onEvent(event, listener) {
       return retain(
         current().gateway.subscribeEvents((frame) => {

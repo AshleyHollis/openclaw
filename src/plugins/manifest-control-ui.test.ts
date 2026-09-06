@@ -30,11 +30,44 @@ function fixture(controlUi: unknown) {
 }
 
 describe("native Control UI manifest", () => {
+  it.each([
+    { path: "/plugins/other/notes" },
+    { path: "/plugins/native-ui/notes?all=1" },
+    { path: "/plugins/native-ui/%2e%2e/notes" },
+    { path: "https://example.invalid/notes" },
+    { method: "DELETE" },
+    { method: "GET", maxRequestBytes: 1 },
+    { maxRequestBytes: 12582913 },
+    { maxResponseBytes: 1048577 },
+    { maxResponseBytes: 0 },
+    { maxRequestBytes: 0.5 },
+    { headers: { authorization: "not-allowed" } },
+  ])("rejects invalid HTTP route authority %j", (override) => {
+    const route = {
+      path: "/plugins/native-ui/notes",
+      method: "POST",
+      maxRequestBytes: 1024,
+      maxResponseBytes: 32768,
+      ...override,
+    };
+    expect(
+      loadPluginManifest(fixture({ entry: "dist/control-ui/index.js", httpRoutes: [route] }).dir),
+    ).toMatchObject({ ok: false, error: expect.stringContaining("controlUi") });
+  });
+
   it("carries normalized built entrypoints through discovery into runtime ownership", () => {
     useNoBundledPlugins();
     const plugin = fixture({
       entry: "./dist/control-ui/index.js",
       styles: ["./dist/control-ui/theme.css", "dist/control-ui/theme.css"],
+      httpRoutes: [
+        {
+          path: "/plugins/native-ui/notes",
+          method: "POST",
+          maxRequestBytes: 12582912,
+          maxResponseBytes: 32768,
+        },
+      ],
     });
     const registry = loadOpenClawPlugins({
       cache: false,
@@ -44,7 +77,18 @@ describe("native Control UI manifest", () => {
     });
     expect(registry.plugins.find((record) => record.id === plugin.id)).toMatchObject({
       status: "loaded",
-      controlUi: { entry: "dist/control-ui/index.js", styles: ["dist/control-ui/theme.css"] },
+      controlUi: {
+        entry: "dist/control-ui/index.js",
+        styles: ["dist/control-ui/theme.css"],
+        httpRoutes: [
+          {
+            path: "/plugins/native-ui/notes",
+            method: "POST",
+            maxRequestBytes: 12582912,
+            maxResponseBytes: 32768,
+          },
+        ],
+      },
     });
   });
 
