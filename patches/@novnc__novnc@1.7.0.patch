@@ -4,7 +4,7 @@ index 80011e4a10203806f14df1ffc3b8425861a965a7..b8b75557417cfb0f0522c0abbb56ec23
 +++ b/core/rfb.js
 @@ -2429,11 +2429,9 @@ export default class RFB extends EventTargetMixin {
                  }
- 
+
              } else if (actions === extendedClipboardActionProvide) {
 -                if (this._viewOnly) {
 -                    return true;

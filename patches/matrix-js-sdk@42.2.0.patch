@@ -43,7 +43,7 @@ index eb0462b6d87934c7577299867786eb0f1790315b..14eafe15cc8448b140813f5319f34d64
 +        void rustCrypto.onLiveEventFromSync(event);
 +      }
      });
- 
+
      // re-emit the events emitted by the crypto impl
 diff --git a/lib/sync.js b/lib/sync.js
 index eaf158f49414ef510577b8e9397aff51f0630df6..33c86a52a5fe7268d097c0aacc8391aa2db58c03 100644
@@ -57,7 +57,7 @@ index eaf158f49414ef510577b8e9397aff51f0630df6..33c86a52a5fe7268d097c0aacc8391aa
 +        client.emit(ClientEvent.Event, presenceEvent, syncEventData.fromCache);
        });
      }
- 
+
 @@ -1065,7 +1065,7 @@ export class SyncApi {
          room.recalculate();
        }
@@ -66,7 +66,7 @@ index eaf158f49414ef510577b8e9397aff51f0630df6..33c86a52a5fe7268d097c0aacc8391aa
 +        client.emit(ClientEvent.Event, e, syncEventData.fromCache);
        });
      }));
- 
+
 @@ -1243,7 +1243,7 @@ export class SyncApi {
          client.emit(ClientEvent.Room, room);
        }
@@ -96,7 +96,7 @@ index eaf158f49414ef510577b8e9397aff51f0630df6..33c86a52a5fe7268d097c0aacc8391aa
 +        client.emit(ClientEvent.Event, e, syncEventData.fromCache);
        });
      }));
- 
+
 @@ -1305,7 +1305,7 @@ export class SyncApi {
          room.recalculate();
        }
@@ -105,7 +105,7 @@ index eaf158f49414ef510577b8e9397aff51f0630df6..33c86a52a5fe7268d097c0aacc8391aa
 +        client.emit(ClientEvent.Event, e, syncEventData.fromCache);
        });
      }));
- 
+
 diff --git a/src/client.ts b/src/client.ts
 index e8cadfb3cb11a4ea01807adf275b376fe363e16c..46e1b9e44a6a6cb23de805199b6f69a41946bd13 100644
 --- a/src/client.ts
@@ -119,7 +119,7 @@ index e8cadfb3cb11a4ea01807adf275b376fe363e16c..46e1b9e44a6a6cb23de805199b6f69a4
       * ```
       * matrixClient.on("event", function(event){
 @@ -1158,7 +1159,7 @@ export type EmittedEvents =
- 
+
  export type ClientEventHandlerMap = {
      [ClientEvent.Sync]: (state: SyncState, prevState: SyncState | null, data?: ISyncStateData) => void;
 -    [ClientEvent.Event]: (event: MatrixEvent) => void;
@@ -139,7 +139,7 @@ index e8cadfb3cb11a4ea01807adf275b376fe363e16c..46e1b9e44a6a6cb23de805199b6f69a4
 +                void rustCrypto.onLiveEventFromSync(event);
 +            }
          });
- 
+
          // re-emit the events emitted by the crypto impl
 diff --git a/src/sync.ts b/src/sync.ts
 index 3e01c4b64494c19c3a13a57a6cc7e33a87f79f56..095d6809515dde949bd1c688beff133427ac011f 100644
@@ -153,7 +153,7 @@ index 3e01c4b64494c19c3a13a57a6cc7e33a87f79f56..095d6809515dde949bd1c688beff1334
 +                    client.emit(ClientEvent.Event, presenceEvent, syncEventData.fromCache);
                  });
          }
- 
+
 @@ -1249,7 +1249,7 @@ export class SyncApi {
                      room.recalculate();
                  }
@@ -164,9 +164,9 @@ index 3e01c4b64494c19c3a13a57a6cc7e33a87f79f56..095d6809515dde949bd1c688beff1334
              }),
          );
 @@ -1477,7 +1477,7 @@ export class SyncApi {
- 
+
                  this.processEventsForNotifs(room, timelineEvents);
- 
+
 -                const emitEvent = (e: MatrixEvent): boolean => client.emit(ClientEvent.Event, e);
 +                const emitEvent = (e: MatrixEvent): boolean => client.emit(ClientEvent.Event, e, syncEventData.fromCache);
                  // this fires a couple of times for some events. (eg state events are in the timeline and the state)
@@ -174,7 +174,7 @@ index 3e01c4b64494c19c3a13a57a6cc7e33a87f79f56..095d6809515dde949bd1c688beff1334
                  stateEvents.forEach(emitEvent);
 @@ -1518,16 +1518,16 @@ export class SyncApi {
                  this.processEventsForNotifs(room, timelineEvents);
- 
+
                  stateEvents?.forEach(function (e) {
 -                    client.emit(ClientEvent.Event, e);
 +                    client.emit(ClientEvent.Event, e, syncEventData.fromCache);
