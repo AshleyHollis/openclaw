@@ -270,10 +270,6 @@ function readBuildArtifactsTestboxWorkflow() {
   return parse(readFileSync(".github/workflows/ci-build-artifacts-testbox.yml", "utf8"));
 }
 
-function readTestboxWorkflow() {
-  return parse(readFileSync(".github/workflows/ci-check-testbox.yml", "utf8"));
-}
-
 function readWorkflowSanityWorkflow() {
   return parse(readFileSync(".github/workflows/workflow-sanity.yml", "utf8"));
 }
@@ -878,26 +874,39 @@ describe("ci workflow guards", () => {
     }
   });
 
-  it("keeps Testbox pull request validation off leased runner capacity", () => {
-    const workflow = readTestboxWorkflow();
+  it.each([
+    ["ci-check-testbox.yml", "check", "ubuntu-24.04", "blacksmith-16vcpu-ubuntu-2404"],
+    [
+      "ci-check-arm-testbox.yml",
+      "check-arm",
+      "ubuntu-24.04-arm",
+      "blacksmith-16vcpu-ubuntu-2404-arm",
+    ],
+    [
+      "ci-build-artifacts-testbox.yml",
+      "build-artifacts",
+      "ubuntu-24.04",
+      "blacksmith-16vcpu-ubuntu-2404",
+    ],
+  ])(
+    "keeps %s pull request validation off leased runner capacity",
+    (file, jobName, hostedRunner, leasedRunner) => {
+      const job = readWorkflow(`.github/workflows/${file}`).jobs[jobName];
 
-    expect(workflow.jobs.check["runs-on"]).toBe(
-      "${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}",
-    );
-    const beginStep = workflow.jobs.check.steps.find(
-      (step: { name?: string }) => step.name === "Begin Testbox",
-    );
-    const runStep = workflow.jobs.check.steps.find(
-      (step: { name?: string }) => step.name === "Run Testbox",
-    );
-    expect(beginStep).toMatchObject({
-      if: "github.event_name == 'workflow_dispatch'",
-      with: { testbox_id: "${{ inputs.testbox_id }}" },
-    });
-    expect(runStep).toMatchObject({
-      if: "github.event_name == 'workflow_dispatch' && always()",
-    });
-  });
+      expect(job["runs-on"]).toBe(
+        `\${{ github.event_name == 'pull_request' && '${hostedRunner}' || '${leasedRunner}' }}`,
+      );
+      const beginStep = job.steps.find((step: { name?: string }) => step.name === "Begin Testbox");
+      const runStep = job.steps.find((step: { name?: string }) => step.name === "Run Testbox");
+      expect(beginStep).toMatchObject({
+        if: "github.event_name == 'workflow_dispatch'",
+        with: { testbox_id: "${{ inputs.testbox_id }}" },
+      });
+      expect(runStep).toMatchObject({
+        if: "github.event_name == 'workflow_dispatch' && always()",
+      });
+    },
+  );
 
   it("pins every external GitHub Action reference to a full commit SHA", () => {
     expect(findUnpinnedExternalActions()).toEqual([]);
@@ -2570,7 +2579,7 @@ describe("ci workflow guards", () => {
     expect(source).toContain("createNodeTestShardBundles");
     expect(workflow.jobs["build-artifacts"]["runs-on"]).toContain("blacksmith-32vcpu-ubuntu-2404");
     expect(buildArtifactsTestbox.jobs["build-artifacts"]["runs-on"]).toBe(
-      "blacksmith-16vcpu-ubuntu-2404",
+      "${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}",
     );
     expect(
       buildArtifactsTestbox.jobs["build-artifacts"].steps.find(

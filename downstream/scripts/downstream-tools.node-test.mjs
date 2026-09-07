@@ -15,6 +15,21 @@ const validatePackedMetadataScript = path.join(
 );
 const validateScript = path.join(repositoryRoot, "downstream/scripts/validate-release.mjs");
 
+test("preserves the existing release concurrency key independently of helper selection", async () => {
+  const workflow = await readFile(
+    path.join(repositoryRoot, ".github/workflows/build-downstream-artifact.yml"),
+    "utf8",
+  );
+  // This external Actions key must also serialize with the prior workflow
+  // revision; helper inputs cannot partition normal release publication.
+  assert.ok(
+    workflow.includes(
+      "group: ${{ inputs.artifact_kind == 'offline-session-helper' && format('build-nas-downstream-helper-{0}', inputs.helper_source_sha) || format('build-nas-downstream-{0}', inputs.release_manifest) }}",
+    ),
+  );
+  assert.match(workflow, /cancel-in-progress: false/u);
+});
+
 test("repacks an official package tree without executing lifecycle scripts", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "openclaw-repack-test-"));
   const packageRoot = path.join(root, "package");

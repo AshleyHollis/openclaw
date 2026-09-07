@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 checkout_prep_branch() {
   local pr="$1"
   require_artifact .local/prep-context.env

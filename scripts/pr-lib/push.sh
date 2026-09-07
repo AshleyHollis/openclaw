@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 resolve_head_push_url() {
   # shellcheck disable=SC1091
   source .local/pr-meta.env

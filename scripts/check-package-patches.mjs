@@ -2,6 +2,7 @@
 
 // Guards pnpm package patches against unapproved additions.
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,12 +35,16 @@ function readYamlFile(cwd, relativePath) {
   return YAML.parse(fs.readFileSync(filePath, "utf8")) ?? {};
 }
 
-function readJsonFile(cwd, relativePath) {
+function readJsonFile(cwd, relativePath, expectedDigest) {
   const filePath = path.join(cwd, relativePath);
   if (!fs.existsSync(filePath)) {
     return undefined;
   }
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  const content = fs.readFileSync(filePath, "utf8");
+  if (expectedDigest && createHash("sha256").update(content).digest("hex") !== expectedDigest) {
+    return undefined;
+  }
+  return JSON.parse(content);
 }
 
 function collectPatchedDependencyViolations(file, patchedDependencies, violations, options = {}) {
@@ -90,11 +95,31 @@ function collectPackageJsonPatchViolations(cwd, violations) {
 }
 
 function collectPatchFileViolations(cwd, violations) {
+  // These historical Git source exports are not pnpm patches. Reuse their
+  // fixed release inventory and byte hashes; declarations remain forbidden.
+  // Anchor the manifest too: editing both a patch and its hash is not approval.
+  const archivedPatches =
+    readJsonFile(
+      cwd,
+      "downstream/releases/2026.7.1-2-nas.7.json",
+      "4cd47c074a8bc1a6b86940a2a0c78706d1163c81dfa0714191478183afcee5f4",
+    )?.patches ?? [];
   for (const relativePath of listTrackedFiles(cwd, ["*.patch"])) {
     if (!fs.existsSync(path.join(cwd, relativePath))) {
       continue;
     }
     if (ALLOWED_PATCH_FILES.has(relativePath)) {
+      continue;
+    }
+    const archivedHash = archivedPatches.find((patch) => patch.file === relativePath)?.sha256;
+    if (
+      relativePath.startsWith("downstream/patches/2026.7.1-2/") &&
+      typeof archivedHash === "string" &&
+      /^[a-f0-9]{64}$/.test(archivedHash) &&
+      createHash("sha256")
+        .update(fs.readFileSync(path.join(cwd, relativePath)))
+        .digest("hex") === archivedHash
+    ) {
       continue;
     }
     violations.push({

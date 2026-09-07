@@ -11,6 +11,7 @@ const targets = [
   ".github/actions",
   "src",
   "extensions",
+  "downstream",
   "examples",
   "scripts",
   "packages",

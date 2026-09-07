@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 is_mainline_drift_critical_path_for_merge() {
   local path="$1"
   case "$path" in
