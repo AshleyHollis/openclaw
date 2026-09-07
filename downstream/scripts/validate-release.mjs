@@ -166,7 +166,10 @@ async function validateRelease(manifestPath) {
         tool?.tarball?.startsWith("https://registry.npmjs.org/"),
         `${label}.tarball must be an official npm registry URL`,
       );
-      requireCondition(tool?.artifact && typeof tool.artifact === "object", `${label}.artifact is required`);
+      requireCondition(
+        tool?.artifact && typeof tool.artifact === "object",
+        `${label}.artifact is required`,
+      );
       requireString(tool.artifact.filename, `${label}.artifact.filename`);
       requireCondition(
         tool.artifact.url?.startsWith(
