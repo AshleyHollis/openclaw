@@ -11,6 +11,11 @@ on:
         options:
           - release
           - offline-session-helper
+          - runtime-package
+      runtime_source_sha:
+        description: Reviewed full source commit for a candidate-only runtime package
+        required: false
+        type: string
       helper_source_sha:
         description: Reviewed full source commit for the offline helper
         required: false
@@ -32,7 +37,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.actor == github.repository_owner && inputs.artifact_kind != 'offline-session-helper'
+    if: github.actor == github.repository_owner && inputs.artifact_kind == 'release'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -276,6 +281,75 @@ jobs:
             echo "- Digest: \`${IMAGE_DIGEST}\`"
             echo "- Published: \`${{ inputs.publish }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  runtime-package:
+    if: github.actor == github.repository_owner && inputs.artifact_kind == 'runtime-package'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Validate candidate-only selection
+        env:
+          SOURCE_SHA: ${{ inputs.runtime_source_sha }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$PUBLISH" == "false" ]]
+
+      # Keep tooling separate from the selected runtime. The resolver verifies
+      # branch reachability and builds that exact source in a detached worktree.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Setup package toolchain
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.20.0"
+          install-bun: "true"
+          install-deps: "true"
+          use-actions-cache: "false"
+
+      - name: Build exact runtime package using the existing owner
+        env:
+          SOURCE_SHA: ${{ inputs.runtime_source_sha }}
+        run: |
+          set -euo pipefail
+          node scripts/resolve-openclaw-package-candidate.mjs \
+            --source ref --package-ref "$SOURCE_SHA" \
+            --output-dir artifacts/nas-runtime-package \
+            --output-name openclaw-current.tgz \
+            --metadata artifacts/nas-runtime-package/package-candidate.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          const root = 'artifacts/nas-runtime-package';
+          const receipt = JSON.parse(readFileSync(`${root}/package-candidate.json`, 'utf8'));
+          if (receipt.packageSourceSha !== process.env.SOURCE_SHA) throw new Error('runtime source mismatch');
+          const sha256 = createHash('sha256').update(readFileSync(`${root}/openclaw-current.tgz`)).digest('hex');
+          if (receipt.sha256 !== sha256) throw new Error('runtime archive mismatch');
+          console.log(JSON.stringify({ status: 'runtime-packaged', releaseQualified: false,
+            sourceSha: receipt.packageSourceSha, sha256, version: receipt.version }));
+          NODE
+
+      - name: Retain candidate package and source receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: nas-runtime-package-${{ inputs.runtime_source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/nas-runtime-package/openclaw-current.tgz
+            artifacts/nas-runtime-package/package-candidate.json
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Record qualification boundary
+        run: |
+          printf '%s\n' 'Candidate package only. No registry publish, release qualification, deployment or promotion. Matching plugin, real-data rehearsal and final acceptance remain required.' >> "$GITHUB_STEP_SUMMARY"
 
   offline-session-helper:
     if: github.actor == github.repository_owner && inputs.artifact_kind == 'offline-session-helper'
