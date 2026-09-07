@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 repo_root() {
   # Resolve canonical repository root from git common-dir so wrappers work
   # the same from main checkout or any linked worktree.

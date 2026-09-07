@@ -1,6 +1,7 @@
 // Check Package Patches tests cover check package patches script behavior.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { collectPackagePatchViolations } from "../../scripts/check-package-patches.mjs";
@@ -52,6 +53,52 @@ afterEach(() => {
 });
 
 describe("check-package-patches", () => {
+  it("accepts only unchanged archived source patches without authorizing pnpm use", () => {
+    const dir = makeRepo();
+    const manifestPath = "downstream/releases/2026.7.1-2-nas.7.json";
+    const historicalManifest = readFileSync(
+      path.resolve(import.meta.dirname, "../..", manifestPath),
+    );
+    const manifest = JSON.parse(historicalManifest.toString());
+    const archive = manifest.patches[0].file;
+    const historicalPatch = readFileSync(path.resolve(import.meta.dirname, "../..", archive));
+    mkdirSync(path.dirname(path.join(dir, archive)), { recursive: true });
+    mkdirSync(path.join(dir, "downstream/releases"), { recursive: true });
+    writeFileSync(path.join(dir, archive), historicalPatch);
+    writeFileSync(path.join(dir, manifestPath), historicalManifest);
+    git(dir, ["add", "downstream"]);
+    expect(collectPackagePatchViolations(dir)).toEqual([]);
+
+    writeFileSync(path.join(dir, archive), "changed source export\n");
+    expect(collectPackagePatchViolations(dir)).toEqual([
+      { file: archive, kind: "patchFile", detail: "new package patch file" },
+    ]);
+    manifest.patches[0].sha256 = createHash("sha256")
+      .update("changed source export\n")
+      .digest("hex");
+    writeJsonFile(path.join(dir, manifestPath), manifest);
+    expect(collectPackagePatchViolations(dir)).toEqual([
+      { file: archive, kind: "patchFile", detail: "new package patch file" },
+    ]);
+    writeFileSync(path.join(dir, manifestPath), historicalManifest);
+    writeFileSync(path.join(dir, archive), historicalPatch);
+    const unlisted = "downstream/patches/2026.7.1-2/unlisted.patch";
+    writeFileSync(path.join(dir, unlisted), "source export\n");
+    git(dir, ["add", unlisted]);
+    writeFileSync(
+      path.join(dir, "pnpm-workspace.yaml"),
+      `packages:\n  - .\npatchedDependencies:\n  "left-pad@1.3.0": "${archive}"\n`,
+    );
+    expect(collectPackagePatchViolations(dir)).toEqual([
+      {
+        file: "pnpm-workspace.yaml",
+        kind: "patchedDependency",
+        detail: `left-pad@1.3.0 -> ${archive}`,
+      },
+      { file: unlisted, kind: "patchFile", detail: "new package patch file" },
+    ]);
+  });
+
   it("allows approved pnpm patches", () => {
     const dir = makeRepo();
     mkdirSync(path.join(dir, "patches"), { recursive: true });

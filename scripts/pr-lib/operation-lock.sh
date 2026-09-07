@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Per-PR process lock shared by review, prepare, merge, and worktree GC.
 PR_OPERATION_LOCK_REF=""
 PR_OPERATION_LOCK_OWNER_OID=""

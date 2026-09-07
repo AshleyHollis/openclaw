@@ -313,7 +313,7 @@ function readPnpmLockScopedVersionOverrides() {
   }
   return expandScopedOverrideChildren(overrides);
 }
-function mergeOverrideEntry(merged, name, spec, options = {}, path = name) {
+function mergeOverrideEntry(merged, name, spec, options = {}, overridePath = name) {
   const current = merged[name];
   if (current === undefined) {
     merged[name] = spec;
@@ -321,7 +321,7 @@ function mergeOverrideEntry(merged, name, spec, options = {}, path = name) {
   }
   if (isPlainObject(current) && isPlainObject(spec)) {
     for (const [nestedName, nestedSpec] of Object.entries(spec)) {
-      mergeOverrideEntry(current, nestedName, nestedSpec, options, `${path}>${nestedName}`);
+      mergeOverrideEntry(current, nestedName, nestedSpec, options, `${overridePath}>${nestedName}`);
     }
     return;
   }
@@ -336,7 +336,13 @@ function mergeOverrideEntry(merged, name, spec, options = {}, path = name) {
       if (nestedName === ".") {
         continue;
       }
-      mergeOverrideEntry(merged[name], nestedName, nestedSpec, options, `${path}>${nestedName}`);
+      mergeOverrideEntry(
+        merged[name],
+        nestedName,
+        nestedSpec,
+        options,
+        `${overridePath}>${nestedName}`,
+      );
     }
     return;
   }
@@ -355,7 +361,7 @@ function mergeOverrideEntry(merged, name, spec, options = {}, path = name) {
       return;
     }
     throw new Error(
-      `package.json overrides.${path} conflicts with pnpm lock policy: ` +
+      `package.json overrides.${overridePath} conflicts with pnpm lock policy: ` +
         `${JSON.stringify(current)} !== ${JSON.stringify(spec)}`,
     );
   }
@@ -1096,8 +1102,8 @@ function restoreCurrentPnpmLockedPackages(
         continue;
       }
       const dependencies = {
-        ...(metadata.dependencies ?? {}),
-        ...(metadata.optionalDependencies ?? {}),
+        ...metadata.dependencies,
+        ...metadata.optionalDependencies,
       };
       for (const [dependencyName, dependencySpec] of Object.entries(dependencies)) {
         const generatedResolved = resolveShrinkwrapDependency(

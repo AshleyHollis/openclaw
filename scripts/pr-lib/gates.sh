@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 run_hosted_prepare_gates() {
   local pr="$1"
   local current_head="$2"

@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 set_review_mode() {
   local mode="$1"
   # Security: shell-escape values to prevent command injection when sourced.

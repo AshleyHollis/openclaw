@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 require_artifact() {
   local path="$1"
   if [ ! -s "$path" ]; then

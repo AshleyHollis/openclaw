@@ -89,6 +89,7 @@ export function mergeOverrides(
   packageOverrides: unknown,
   workspaceOverrides: unknown,
   pnpmLockOverrides: unknown,
+  options?: { preferIncoming?: boolean },
 ): unknown;
 export function applyPackageExtensionPeerMetadata(
   lockfile: unknown,
