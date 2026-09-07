@@ -4183,6 +4183,17 @@ wa-dropdown.sidebar-identity-menu::part(menu) {
   box-shadow: var(--focus-ring);
 }
 
+/* Forced colors suppresses the shell's shadow-only focus rings. */
+@media (forced-colors: active) {
+  .shell-chrome-controls__button:focus-visible,
+  .topbar-icon-btn:focus-visible,
+  .sidebar-issues-button:focus-visible,
+  .theme-mode-toggle:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
 .theme-mode-toggle svg {
   width: 16px;
   height: 16px;

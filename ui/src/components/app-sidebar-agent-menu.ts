@@ -98,7 +98,10 @@ function moveSidebarMenuFocus(event: KeyboardEvent): boolean {
   const footer = dropdown?.querySelector<HTMLElement>(".sidebar-identity-menu__footer");
   const controls = [
     ...items,
-    ...(footer?.querySelectorAll<HTMLElement>("a[href], button:not([disabled])") ?? []),
+    ...Array.from(footer?.querySelectorAll<HTMLElement>("a[href], button:not([disabled])") ?? [])
+      // Tooltip content owns its actions; they are not parent-menu stops even
+      // while shown. Including a hidden action makes focus() silently fail.
+      .filter((control) => !control.closest('openclaw-tooltip > [slot="content"]')),
   ];
   const current = event.target instanceof HTMLElement ? event.target : null;
   const index = current ? controls.indexOf(current) : -1;
