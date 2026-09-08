@@ -646,7 +646,7 @@ async function installPackageSourceDeps(sourceDir) {
     [
       "install",
       "--frozen-lockfile",
-      "--ignore-scripts=false",
+      "--no-ignore-scripts",
       "--config.engine-strict=false",
       "--config.enable-pre-post-scripts=true",
     ],
