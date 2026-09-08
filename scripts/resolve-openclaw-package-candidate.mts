@@ -1655,6 +1655,7 @@ async function resolveCandidate(options: PackageCandidateOptions) {
     | { candidateVersion: string; manifestSha256: string; sourceSha: string }
     | undefined;
   let resolveError: unknown;
+  let digest = "";
 
   try {
     if (options.source === "ref") {
@@ -1790,6 +1791,21 @@ async function resolveCandidate(options: PackageCandidateOptions) {
         sourceSha: pluginRegistrySource.selectedSha,
       };
     }
+    const artifactSha256 =
+      typeof artifactMetadata.sha256 === "string" ? artifactMetadata.sha256 : "";
+    digest = await assertExpectedSha256(target, options.packageSha256 || artifactSha256);
+    // A trusted ref owns versioned package rules as well as its build. Keep
+    // that checkout alive through validation; other sources use publisher rules.
+    const validationRoot = options.source === "ref" ? packageWorktreeDir : ROOT_DIR;
+    console.error(`Checking OpenClaw package tarball: ${target}`);
+    const checkStartedAt = Date.now();
+    await run("node", ["scripts/check-openclaw-package-tarball.mjs", target], {
+      cwd: validationRoot,
+      timeoutMs: 5 * 60 * 1000,
+    });
+    console.error(
+      `OpenClaw package tarball check finished in ${Math.round((Date.now() - checkStartedAt) / 1000)}s`,
+    );
   } catch (error) {
     resolveError = error;
     throw error;
@@ -1799,16 +1815,6 @@ async function resolveCandidate(options: PackageCandidateOptions) {
     }
   }
 
-  const artifactSha256 = typeof artifactMetadata.sha256 === "string" ? artifactMetadata.sha256 : "";
-  const digest = await assertExpectedSha256(target, options.packageSha256 || artifactSha256);
-  console.error(`Checking OpenClaw package tarball: ${target}`);
-  const checkStartedAt = Date.now();
-  await run("node", ["scripts/check-openclaw-package-tarball.mjs", target], {
-    timeoutMs: 5 * 60 * 1000,
-  });
-  console.error(
-    `OpenClaw package tarball check finished in ${Math.round((Date.now() - checkStartedAt) / 1000)}s`,
-  );
   const pkg = await readPackageJson(target);
   if (!packageSourceSha) {
     packageSourceSha = packageBuildSourceSha ?? (await readPackageBuildSourceSha(target));
