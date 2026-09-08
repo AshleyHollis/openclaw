@@ -357,6 +357,9 @@ jobs:
           set -euo pipefail
           printf 'image_id=%s\n' "$(docker image inspect --format '{{.Id}}' "$IMAGE")" >> "$GITHUB_OUTPUT"
           docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            -v "$GITHUB_WORKSPACE/downstream/scripts/smoke-local-embedding-runtime.py:/smoke.py:ro" \
+            --entrypoint python3 "$IMAGE" -B /smoke.py
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
             --tmpfs /tmp:rw,nosuid,nodev,size=64m \
             -v "$GITHUB_WORKSPACE/downstream/scripts/smoke-packaged-filesystem.mjs:/smoke.mjs:ro" \
             --entrypoint node "$IMAGE" /smoke.mjs
