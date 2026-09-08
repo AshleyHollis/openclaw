@@ -1,4 +1,12 @@
 ARG OPENCLAW_NODE_IMAGE="docker.io/library/node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03"
+# Preserve the approved source patch using the frozen source build's installed
+# bytes. npm does not apply pnpm workspace patches from the host tarball.
+FROM ghcr.io/ashleyhollis/openclaw@sha256:1154a8fdd314ddf2e87be56f8e33eef78c7bd2eb93d3bd325723d4e9ca03d9c0 AS patched-filesystem
+RUN --network=none mkdir /tmp/patched-runtime && \
+    printf '%s  %s\n' befbb78db78c493711d44acbb3620201b26895f37040ccf5d4da0802d0278424 /app/patches/@openclaw__fs-safe@0.8.1.patch | sha256sum -c - && \
+    npm pack /app/node_modules/@openclaw/fs-safe --silent --ignore-scripts --workspaces=false --pack-destination /tmp/patched-runtime && \
+    printf '%s  %s\n' f36a65ab816670dee7a545174606c187fe968b1832a1a06c15a7dbf43dbcfc88 /tmp/patched-runtime/openclaw-fs-safe-0.8.1.tgz | sha256sum -c -
+
 FROM ${OPENCLAW_NODE_IMAGE} AS host-runtime
 
 ARG OPENCLAW_TARBALL_SHA256
@@ -32,6 +40,7 @@ WORKDIR /app
 COPY downstream/runtime-install/host.package.json /app/package.json
 COPY downstream/runtime-install/host.package-lock.json /app/package-lock.json
 COPY openclaw-current.tgz /tmp/openclaw-current.tgz
+COPY --from=patched-filesystem /tmp/patched-runtime/openclaw-fs-safe-0.8.1.tgz /tmp/openclaw-fs-safe-0.8.1.tgz
 
 RUN test -n "$OPENCLAW_TARBALL_SHA256" && \
     printf '%s  %s\n' "$OPENCLAW_TARBALL_SHA256" /tmp/openclaw-current.tgz | sha256sum -c - && \
@@ -39,7 +48,7 @@ RUN test -n "$OPENCLAW_TARBALL_SHA256" && \
     test "$(node -p "require('/app/node_modules/openclaw/package.json').version")" = "$OPENCLAW_VERSION" && \
     node /app/node_modules/openclaw/openclaw.mjs --version && \
     test ! -e /app/node_modules/openclaw/.openclaw-lifecycle-pending && \
-    rm -f /tmp/openclaw-current.tgz
+    rm -f /tmp/openclaw-current.tgz /tmp/openclaw-fs-safe-0.8.1.tgz
 
 FROM host-runtime AS runtime
 COPY codex-current.tgz /tmp/codex-current.tgz
