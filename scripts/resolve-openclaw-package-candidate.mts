@@ -1668,8 +1668,10 @@ async function resolveCandidate(options: PackageCandidateOptions) {
       packageTrustedReason = packageSource.trustedReason;
       validatePackageSourceDir(packageSource.sourceDir, { allowUnreleasedChangelog: true });
       await installPackageSourceDeps(packageSource.sourceDir);
+      // The admitted source owns its build/inventory/pack contract. Mixing a
+      // newer publisher helper with a frozen ref breaks versioned entrypoints.
       await run("node", [
-        "scripts/package-openclaw-for-docker.mjs",
+        path.join(packageSource.sourceDir, "scripts/package-openclaw-for-docker.mjs"),
         "--allow-unreleased-changelog",
         "--source-dir",
         packageSource.sourceDir,
