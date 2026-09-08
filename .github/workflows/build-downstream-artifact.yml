@@ -357,6 +357,10 @@ jobs:
           set -euo pipefail
           printf 'image_id=%s\n' "$(docker image inspect --format '{{.Id}}' "$IMAGE")" >> "$GITHUB_OUTPUT"
           docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+            -v "$GITHUB_WORKSPACE/downstream/scripts/smoke-packaged-filesystem.mjs:/smoke.mjs:ro" \
+            --entrypoint node "$IMAGE" /smoke.mjs
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
             --tmpfs /tmp:rw,nosuid,nodev,size=1g \
             -v "$GITHUB_WORKSPACE/downstream/scripts/smoke-image-runtime.mjs:/smoke.mjs:ro" \
             -e EXPECTED_OPENCLAW_VERSION=2026.9.2 -e EXPECTED_CODEX_VERSION=2026.9.2 \

@@ -4,6 +4,9 @@
   "dependencies": {
     "openclaw": "file:../tmp/openclaw-current.tgz"
   },
+  "overrides": {
+    "@openclaw/fs-safe": "file:/tmp/openclaw-fs-safe-0.8.1.tgz"
+  },
   "allowScripts": {
     "file:/tmp/openclaw-current.tgz": true,
     "koffi@3.1.6": true,
