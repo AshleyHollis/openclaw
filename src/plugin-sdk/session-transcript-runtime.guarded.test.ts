@@ -21,6 +21,8 @@ import {
   appendSessionTranscriptMessageByIdentityStrict,
   appendSessionTranscriptMessagesByIdentity,
   readSessionTranscriptEvents,
+  redactSessionTranscriptMessage,
+  withSessionTranscriptWriteLock,
   type SessionTranscriptReadParams,
 } from "./session-transcript-runtime.js";
 
@@ -37,6 +39,48 @@ describe("guarded session transcript runtime SDK", () => {
     closeOpenClawAgentDatabasesForTest();
     await state.cleanup();
   });
+
+  it.each([{}, { logging: { redactPatterns: ["fictional-private-label"] } }])(
+    "previews native message redaction without changing source or bypassing append policy (%j)",
+    async (config) => {
+      const scope = {
+        agentId: "main",
+        sessionId: "redaction-preview",
+        sessionKey: "agent:main:redaction-preview",
+        storePath,
+        env: state.env,
+      };
+      await upsertSessionEntryCore(scope, { sessionId: scope.sessionId, updatedAt: 1 });
+      const message = {
+        role: "user" as const,
+        content: "fictional-private-label; password = fictional-password-value",
+        timestamp: 1_000,
+        idempotencyKey: "redaction-preview-key",
+        __openclaw: { importedHistory: { content: "password = fictional-password-value" } },
+      };
+      const original = structuredClone(message);
+      const expected = redactSessionTranscriptMessage(message, config);
+      expect(expected).not.toEqual(original);
+      expect(message).toEqual(original);
+      expect(expected).toMatchObject({ timestamp: 1_000, idempotencyKey: message.idempotencyKey });
+      expect(JSON.stringify(expected)).not.toContain("fictional-password-value");
+      expect(await readSessionTranscriptEvents(scope)).toEqual([]);
+      await withSessionTranscriptWriteLock({ ...scope, config }, async (locked) => {
+        const result = await locked.appendMessage({
+          message,
+          eventId: "redacted-message",
+          idempotencyLookup: "scan",
+          prepareMessageAfterIdempotencyCheck: (candidate) => {
+            expect(candidate).toEqual(original);
+            return candidate;
+          },
+        });
+        expect(result?.message).toEqual(expected);
+        expect(result?.appended).toBe(true);
+      });
+      expect(message).toEqual(original);
+    },
+  );
 
   describe.each([
     { name: "default main-agent store", agentId: "main", store: "default" },
