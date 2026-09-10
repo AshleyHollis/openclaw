@@ -1,0 +1,115 @@
+ARG OPENCLAW_NODE_IMAGE="docker.io/library/node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03"
+# Preserve the approved source patch using the frozen source build's installed
+# bytes. npm does not apply pnpm workspace patches from the host tarball.
+FROM ghcr.io/ashleyhollis/openclaw@sha256:1154a8fdd314ddf2e87be56f8e33eef78c7bd2eb93d3bd325723d4e9ca03d9c0 AS patched-filesystem
+RUN --network=none mkdir /tmp/patched-runtime && \
+    printf '%s  %s\n' befbb78db78c493711d44acbb3620201b26895f37040ccf5d4da0802d0278424 /app/patches/@openclaw__fs-safe@0.8.1.patch | sha256sum -c - && \
+    npm pack /app/node_modules/@openclaw/fs-safe --silent --ignore-scripts --workspaces=false --pack-destination /tmp/patched-runtime && \
+    printf '%s  %s\n' f36a65ab816670dee7a545174606c187fe968b1832a1a06c15a7dbf43dbcfc88 /tmp/patched-runtime/openclaw-fs-safe-0.8.1.tgz | sha256sum -c -
+
+FROM ${OPENCLAW_NODE_IMAGE} AS host-runtime
+
+ARG OPENCLAW_TARBALL_SHA256
+ARG CODEX_TARBALL_SHA256
+ARG CODEX_VERSION
+ARG DISCORD_TARBALL_SHA256
+ARG DISCORD_VERSION
+ARG OPENCLAW_SOURCE_COMMIT
+ARG OPENCLAW_VERSION
+ARG QMD_TARBALL_SHA256
+ARG QMD_VERSION
+
+LABEL org.opencontainers.image.source="https://github.com/AshleyHollis/openclaw" \
+  org.opencontainers.image.revision="${OPENCLAW_SOURCE_COMMIT}" \
+  org.opencontainers.image.version="${OPENCLAW_VERSION}" \
+  org.opencontainers.image.title="OpenClaw NAS downstream" \
+  org.opencontainers.image.licenses="MIT"
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ca-certificates chromium curl git hostname libgomp1 lsof openssl procps python3 python3-requests tini && \
+    update-ca-certificates
+
+RUN npm install --global npm@12.0.1 && \
+    test "$(npm --version)" = "12.0.1" && \
+    node -e "const version=require('/usr/local/lib/node_modules/npm/node_modules/tar/package.json').version;if(version!=='7.5.19')throw new Error('unexpected npm tar '+version)"
+
+WORKDIR /app
+COPY downstream/runtime-install/host.package.json /app/package.json
+COPY downstream/runtime-install/host.package-lock.json /app/package-lock.json
+COPY openclaw-current.tgz /tmp/openclaw-current.tgz
+COPY --from=patched-filesystem /tmp/patched-runtime/openclaw-fs-safe-0.8.1.tgz /tmp/openclaw-fs-safe-0.8.1.tgz
+
+RUN test -n "$OPENCLAW_TARBALL_SHA256" && \
+    printf '%s  %s\n' "$OPENCLAW_TARBALL_SHA256" /tmp/openclaw-current.tgz | sha256sum -c - && \
+    npm ci --omit=dev --ignore-scripts=false --strict-allow-scripts --no-audit --no-fund && \
+    test "$(node -p "require('/app/node_modules/openclaw/package.json').version")" = "$OPENCLAW_VERSION" && \
+    node /app/node_modules/openclaw/openclaw.mjs --version && \
+    test ! -e /app/node_modules/openclaw/.openclaw-lifecycle-pending && \
+    rm -f /tmp/openclaw-current.tgz /tmp/openclaw-fs-safe-0.8.1.tgz
+
+FROM host-runtime AS runtime
+COPY codex-current.tgz /tmp/codex-current.tgz
+COPY discord-current.tgz /tmp/discord-current.tgz
+COPY qmd-current.tgz /tmp/qmd-current.tgz
+COPY downstream/runtime-install/plugins.package.json /opt/openclaw-plugin-runtime/package.json
+COPY downstream/runtime-install/plugins.package-lock.json /opt/openclaw-plugin-runtime/package-lock.json
+COPY downstream/runtime-install/qmd.package.json /opt/qmd-runtime/package.json
+COPY downstream/scripts/validate-installed-plugin-runtime.mjs /opt/openclaw-runtime/validate-plugin-runtime.mjs
+
+# One locked install retains official bundled trees and Linux optional binaries.
+# The host peer is the already-verified installation, never another registry host.
+RUN test -n "$CODEX_TARBALL_SHA256" && \
+    test -n "$DISCORD_TARBALL_SHA256" && \
+    printf '%s  %s\n' "$CODEX_TARBALL_SHA256" /tmp/codex-current.tgz | sha256sum -c - && \
+    printf '%s  %s\n' "$DISCORD_TARBALL_SHA256" /tmp/discord-current.tgz | sha256sum -c - && \
+    npm ci --prefix /opt/openclaw-plugin-runtime --install-strategy=nested \
+      --omit=dev --ignore-scripts=false --strict-allow-scripts --no-audit --no-fund && \
+    test "$(node -p "require('/opt/openclaw-plugin-runtime/node_modules/@openclaw/codex/package.json').version")" = "$CODEX_VERSION" && \
+    test "$(node -p "require('/opt/openclaw-plugin-runtime/node_modules/@openclaw/discord/package.json').version")" = "$DISCORD_VERSION" && \
+    test "$(realpath /opt/openclaw-plugin-runtime/node_modules/openclaw)" = /app/node_modules/openclaw && \
+    test -L /opt/openclaw-plugin-runtime/node_modules/openclaw && \
+    ln -sfn /app/node_modules/openclaw /opt/openclaw-plugin-runtime/node_modules/openclaw && \
+    ln -s /app/node_modules/openclaw /opt/openclaw-plugin-runtime/node_modules/@openclaw/codex/node_modules/openclaw && \
+    ln -s /app/node_modules/openclaw /opt/openclaw-plugin-runtime/node_modules/@openclaw/discord/node_modules/openclaw && \
+    node /opt/openclaw-runtime/validate-plugin-runtime.mjs && \
+    node /opt/openclaw-plugin-runtime/node_modules/@openclaw/codex/node_modules/@openai/codex/bin/codex.js --version && \
+    chmod -R go-w /opt/openclaw-plugin-runtime && \
+    rm -f /tmp/codex-current.tgz /tmp/discord-current.tgz
+
+RUN test -n "$QMD_TARBALL_SHA256" && \
+    test -n "$QMD_VERSION" && \
+    printf '%s  %s\n' "$QMD_TARBALL_SHA256" /tmp/qmd-current.tgz | sha256sum -c - && \
+    npm install --prefix /opt/qmd-runtime \
+      --install-strategy=nested --omit=dev --ignore-scripts=false --strict-allow-scripts --no-audit --no-fund \
+      /tmp/qmd-current.tgz && \
+    test "$(node -p "require('/opt/qmd-runtime/node_modules/@tobilu/qmd/package.json').version")" = "$QMD_VERSION" && \
+    node -e "const fs=require('node:fs');const root='/opt/qmd-runtime/node_modules/@tobilu/qmd';const manifest=JSON.parse(fs.readFileSync(root+'/package.json','utf8'));const shrinkwrap=JSON.parse(fs.readFileSync(root+'/npm-shrinkwrap.json','utf8'));if(manifest.name!=='@tobilu/qmd'||manifest.version!==process.env.QMD_VERSION||shrinkwrap.name!==manifest.name||shrinkwrap.version!==manifest.version||shrinkwrap.packages?.['']?.version!==manifest.version)throw new Error('QMD runtime metadata mismatch')" && \
+    /opt/qmd-runtime/node_modules/.bin/qmd --version | grep -F "qmd $QMD_VERSION" && \
+    ln -s /opt/qmd-runtime/node_modules/.bin/qmd /usr/local/bin/qmd && \
+    chmod -R go-w /opt/qmd-runtime && \
+    rm -f /tmp/qmd-current.tgz && \
+    npm cache clean --force
+
+RUN install -d -m 0755 -o node -g node /home/node/.config && \
+    install -d -m 0700 -o node -g node \
+      /home/node/.openclaw \
+      /home/node/.openclaw/workspace \
+      /home/node/.cache/qmd/models \
+      /home/node/.config/openclaw && \
+    chown -R node:node /app
+
+RUN ln -sf /app/node_modules/openclaw/openclaw.mjs /usr/local/bin/openclaw && \
+    chmod 755 /app/node_modules/openclaw/openclaw.mjs
+
+ENV NODE_ENV=production
+USER node
+WORKDIR /app/node_modules/openclaw
+
+HEALTHCHECK --interval=3m --timeout=10s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+ENTRYPOINT ["tini", "-s", "--"]
+CMD ["node", "openclaw.mjs", "gateway"]

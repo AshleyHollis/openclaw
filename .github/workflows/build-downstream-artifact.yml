@@ -11,6 +11,12 @@ on:
         options:
           - release
           - offline-session-helper
+          - runtime-package
+          - runtime-image
+      runtime_source_sha:
+        description: Reviewed full source commit for a candidate-only runtime package
+        required: false
+        type: string
       helper_source_sha:
         description: Reviewed full source commit for the offline helper
         required: false
@@ -32,7 +38,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.actor == github.repository_owner && inputs.artifact_kind != 'offline-session-helper'
+    if: github.actor == github.repository_owner && inputs.artifact_kind == 'release'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -276,6 +282,213 @@ jobs:
             echo "- Digest: \`${IMAGE_DIGEST}\`"
             echo "- Published: \`${{ inputs.publish }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  runtime-image:
+    if: github.actor == github.repository_owner && inputs.artifact_kind == 'runtime-image'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Authenticate retained successful package artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id=$(node -p "require('./downstream/runtime-install/candidate.json').hostRunId")
+          artifact_id=$(node -p "require('./downstream/runtime-install/candidate.json').hostArtifactId")
+          gh api "repos/AshleyHollis/openclaw/actions/runs/$run_id" > "$RUNNER_TEMP/host-run.json"
+          gh api "repos/AshleyHollis/openclaw/actions/artifacts/$artifact_id" > "$RUNNER_TEMP/host-artifact.json"
+          node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises';
+          import { validateRetainedPackageProvenance } from './downstream/scripts/validate-packaged-candidate.mjs';
+          const json = async p => JSON.parse(await readFile(p, 'utf8'));
+          validateRetainedPackageProvenance(await json('downstream/runtime-install/candidate.json'),
+            await json(`${process.env.RUNNER_TEMP}/host-run.json`), await json(`${process.env.RUNNER_TEMP}/host-artifact.json`));
+          NODE
+          gh api "repos/AshleyHollis/openclaw/actions/artifacts/$artifact_id/zip" > "$RUNNER_TEMP/host.zip"
+          zip_hash=$(node -p "require('./downstream/runtime-install/candidate.json').hostArtifactDigest.slice(7)")
+          printf '%s  %s\n' "$zip_hash" "$RUNNER_TEMP/host.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/host.zip" -d "$RUNNER_TEMP/retained-host"
+          cp "$RUNNER_TEMP/retained-host/openclaw-current.tgz" "$RUNNER_TEMP/retained-host/package-candidate.json" .
+
+      - name: Fetch frozen components and verify complete package inputs
+        id: selection
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFile, appendFile } from 'node:fs/promises';
+          import { execFileSync } from 'node:child_process';
+          import { validatePackagedCandidate } from './downstream/scripts/validate-packaged-candidate.mjs';
+          const c = JSON.parse(await readFile('downstream/runtime-install/candidate.json', 'utf8'));
+          for (const [name, component] of Object.entries(c.components)) {
+            execFileSync('curl', ['--fail', '--location', '--proto', '=https', '--tlsv1.2', component.url, '--output', `${name}-current.tgz`], { stdio: 'inherit' });
+          }
+          await validatePackagedCandidate(process.cwd());
+          const args = [`OPENCLAW_SOURCE_COMMIT=${c.sourceCommit}`, `OPENCLAW_VERSION=${c.hostVersion}`, `OPENCLAW_TARBALL_SHA256=${c.hostSha256}`];
+          for (const [name, component] of Object.entries(c.components)) args.push(`${name.toUpperCase()}_VERSION=${component.version}`, `${name.toUpperCase()}_TARBALL_SHA256=${component.sha256}`);
+          await appendFile(process.env.GITHUB_OUTPUT, `args<<BUILD_ARGS\n${args.join('\n')}\nBUILD_ARGS\ntag=ghcr.io/ashleyhollis/openclaw:packaged-candidate-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}\n`);
+          NODE
+
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Build locally before qualification
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: downstream/Dockerfile.packaged-runtime
+          platforms: linux/amd64
+          build-args: ${{ steps.selection.outputs.args }}
+          tags: ${{ steps.selection.outputs.tag }}
+          load: true
+          push: false
+
+      - name: Network-isolated image and scoped authentication smoke
+        id: smoke
+        env:
+          IMAGE: ${{ steps.selection.outputs.tag }}
+        run: |
+          set -euo pipefail
+          printf 'image_id=%s\n' "$(docker image inspect --format '{{.Id}}' "$IMAGE")" >> "$GITHUB_OUTPUT"
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            -v "$GITHUB_WORKSPACE/downstream/scripts/smoke-local-embedding-runtime.py:/smoke.py:ro" \
+            --entrypoint python3 "$IMAGE" -B /smoke.py
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+            -v "$GITHUB_WORKSPACE/downstream/scripts/smoke-packaged-filesystem.mjs:/smoke.mjs:ro" \
+            --entrypoint node "$IMAGE" /smoke.mjs
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,nosuid,nodev,size=1g \
+            -v "$GITHUB_WORKSPACE/downstream/scripts/smoke-image-runtime.mjs:/smoke.mjs:ro" \
+            -e EXPECTED_OPENCLAW_VERSION=2026.9.2 -e EXPECTED_CODEX_VERSION=2026.9.2 \
+            -e EXPECTED_DISCORD_VERSION=2026.9.2 -e EXPECTED_QMD_VERSION=2.1.0 \
+            --entrypoint node "$IMAGE" /smoke.mjs
+
+      - name: Scan before publication
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: ${{ steps.selection.outputs.tag }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL
+          scanners: vuln
+
+      - name: Login for candidate publication
+        if: inputs.publish
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+
+      - name: Publish checked candidate with SBOM and provenance
+        if: inputs.publish
+        id: publish
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: downstream/Dockerfile.packaged-runtime
+          platforms: linux/amd64
+          build-args: ${{ steps.selection.outputs.args }}
+          tags: ${{ steps.selection.outputs.tag }}
+          push: true
+          sbom: true
+          provenance: mode=max
+
+      - name: Verify published image is the tested installation
+        if: inputs.publish
+        env:
+          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+          TESTED_IMAGE_ID: ${{ steps.smoke.outputs.image_id }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/ashleyhollis/openclaw@$IMAGE_DIGEST"
+          docker pull "$image"
+          test "$(docker image inspect --format '{{.Id}}' "$image")" = "$TESTED_IMAGE_ID"
+
+      - name: Report candidate boundary
+        env:
+          IMAGE: ${{ steps.selection.outputs.tag }}
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          printf '%s\n' "Candidate: $IMAGE" "Published digest: $DIGEST" \
+            'No production alias or deployment changed. Matching Command Center artifact, real-data rehearsal, final acceptance and independent evaluation remain required.' >> "$GITHUB_STEP_SUMMARY"
+
+  runtime-package:
+    if: github.actor == github.repository_owner && inputs.artifact_kind == 'runtime-package'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Validate candidate-only selection
+        env:
+          SOURCE_SHA: ${{ inputs.runtime_source_sha }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$PUBLISH" == "false" ]]
+
+      # Keep tooling separate from the selected runtime. The resolver verifies
+      # branch reachability and builds that exact source in a detached worktree.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Setup package toolchain
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.20.0"
+          install-bun: "true"
+          install-deps: "true"
+          use-actions-cache: "false"
+
+      - name: Build exact runtime package using the existing owner
+        env:
+          SOURCE_SHA: ${{ inputs.runtime_source_sha }}
+        run: |
+          set -euo pipefail
+          node scripts/resolve-openclaw-package-candidate.mjs \
+            --source ref --package-ref "$SOURCE_SHA" \
+            --output-dir artifacts/nas-runtime-package \
+            --output-name openclaw-current.tgz \
+            --metadata artifacts/nas-runtime-package/package-candidate.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          const root = 'artifacts/nas-runtime-package';
+          const receipt = JSON.parse(readFileSync(`${root}/package-candidate.json`, 'utf8'));
+          if (receipt.packageSourceSha !== process.env.SOURCE_SHA) throw new Error('runtime source mismatch');
+          const sha256 = createHash('sha256').update(readFileSync(`${root}/openclaw-current.tgz`)).digest('hex');
+          if (receipt.sha256 !== sha256) throw new Error('runtime archive mismatch');
+          console.log(JSON.stringify({ status: 'runtime-packaged', releaseQualified: false,
+            sourceSha: receipt.packageSourceSha, sha256, version: receipt.version }));
+          NODE
+
+      - name: Retain candidate package and source receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: nas-runtime-package-${{ inputs.runtime_source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/nas-runtime-package/openclaw-current.tgz
+            artifacts/nas-runtime-package/package-candidate.json
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Record qualification boundary
+        run: |
+          printf '%s\n' 'Candidate package only. No registry publish, release qualification, deployment or promotion. Matching plugin, real-data rehearsal and final acceptance remain required.' >> "$GITHUB_STEP_SUMMARY"
 
   offline-session-helper:
     if: github.actor == github.repository_owner && inputs.artifact_kind == 'offline-session-helper'

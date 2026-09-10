@@ -1,0 +1,13 @@
+{
+  "name": "openclaw-nas-plugin-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@openclaw/codex": "file:../../tmp/codex-current.tgz",
+    "@openclaw/discord": "file:../../tmp/discord-current.tgz",
+    "openclaw": "file:/app/node_modules/openclaw"
+  },
+  "allowScripts": {
+    "file:/app/node_modules/openclaw": false
+  }
+}

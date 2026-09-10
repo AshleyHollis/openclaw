@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "3040eff630e5a6d9a9f9f5ce52af3c0971776f15",
+  "hostVersion": "2026.9.2",
+  "hostSha256": "6b4c749f4635b9519bf3c88f75adb2bccbf28db8d80c7f1d236b9c4cf9aea177",
+  "hostRunId": 34484589896,
+  "hostRunCommit": "1170045b4e6f2c457888ce97ec019d987db024f4",
+  "hostArtifactId": 10155511849,
+  "hostArtifactName": "nas-runtime-package-3040eff630e5a6d9a9f9f5ce52af3c0971776f15-34484589896-1",
+  "hostArtifactDigest": "sha256:16ff2bf25a535502cdd2d812844d2eebfcf543696edd70785a6ee687900ebffc",
+  "components": {
+    "codex": {
+      "version": "2026.9.2",
+      "url": "https://registry.npmjs.org/@openclaw/codex/-/codex-2026.9.2.tgz",
+      "sha256": "6a668785e6b97a63514cecb31c3ac60a41203a62ada146c035a5d4d880b59797"
+    },
+    "discord": {
+      "version": "2026.9.2",
+      "url": "https://registry.npmjs.org/@openclaw/discord/-/discord-2026.9.2.tgz",
+      "sha256": "358b88763e7697e29eb1807240ab5cdc04e38662462fb93c14e2b563ca7521d6"
+    },
+    "qmd": {
+      "version": "2.1.0",
+      "url": "https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-qmd-2.1.0-nas.6.tgz",
+      "sha256": "4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a"
+    }
+  }
+}

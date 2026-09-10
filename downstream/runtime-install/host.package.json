@@ -1,0 +1,17 @@
+{
+  "name": "openclaw-nas-host-runtime",
+  "private": true,
+  "dependencies": {
+    "openclaw": "file:../tmp/openclaw-current.tgz"
+  },
+  "overrides": {
+    "@openclaw/fs-safe": "file:/tmp/openclaw-fs-safe-0.8.1.tgz"
+  },
+  "allowScripts": {
+    "file:/tmp/openclaw-current.tgz": true,
+    "koffi@3.1.6": true,
+    "tree-sitter-bash@0.25.1": true,
+    "protobufjs@7.6.6": true,
+    "@google/genai@2.18.0": false
+  }
+}

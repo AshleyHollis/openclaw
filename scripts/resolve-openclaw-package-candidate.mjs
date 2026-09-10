@@ -646,7 +646,7 @@ async function installPackageSourceDeps(sourceDir) {
     [
       "install",
       "--frozen-lockfile",
-      "--ignore-scripts=false",
+      "--no-ignore-scripts",
       "--config.engine-strict=false",
       "--config.enable-pre-post-scripts=true",
     ],
@@ -1465,6 +1465,7 @@ async function resolveCandidate(options) {
   let packageWorktreeDir = "";
   let artifactMetadata = {};
   let resolveError;
+  let digest;
 
   try {
     if (options.source === "ref") {
@@ -1474,8 +1475,10 @@ async function resolveCandidate(options) {
       packageSourceSha = packageSource.selectedSha;
       packageTrustedReason = packageSource.trustedReason;
       await installPackageSourceDeps(packageSource.sourceDir);
+      // The admitted source owns its build/inventory/pack contract. Mixing a
+      // newer publisher helper with a frozen ref breaks versioned entrypoints.
       await run("node", [
-        "scripts/package-openclaw-for-docker.mjs",
+        path.join(packageSource.sourceDir, "scripts/package-openclaw-for-docker.mjs"),
         "--allow-unreleased-changelog",
         "--source-dir",
         packageSource.sourceDir,
@@ -1543,6 +1546,21 @@ async function resolveCandidate(options) {
         `source must be one of: ref, npm, url, trusted-url, artifact. Got: ${options.source}`,
       );
     }
+    const artifactSha256 =
+      typeof artifactMetadata.sha256 === "string" ? artifactMetadata.sha256 : "";
+    digest = await assertExpectedSha256(target, options.packageSha256 || artifactSha256);
+    // A trusted ref owns versioned package rules as well as its build. Keep
+    // that checkout alive through validation; other sources use publisher rules.
+    const validationRoot = packageWorktreeDir || ROOT_DIR;
+    console.error(`Checking OpenClaw package tarball: ${target}`);
+    const checkStartedAt = Date.now();
+    await run("node", ["scripts/check-openclaw-package-tarball.mjs", target], {
+      cwd: validationRoot,
+      timeoutMs: 5 * 60 * 1000,
+    });
+    console.error(
+      `OpenClaw package tarball check finished in ${Math.round((Date.now() - checkStartedAt) / 1000)}s`,
+    );
   } catch (error) {
     resolveError = error;
     throw error;
@@ -1552,16 +1570,6 @@ async function resolveCandidate(options) {
     }
   }
 
-  const artifactSha256 = typeof artifactMetadata.sha256 === "string" ? artifactMetadata.sha256 : "";
-  const digest = await assertExpectedSha256(target, options.packageSha256 || artifactSha256);
-  console.error(`Checking OpenClaw package tarball: ${target}`);
-  const checkStartedAt = Date.now();
-  await run("node", ["scripts/check-openclaw-package-tarball.mjs", target], {
-    timeoutMs: 5 * 60 * 1000,
-  });
-  console.error(
-    `OpenClaw package tarball check finished in ${Math.round((Date.now() - checkStartedAt) / 1000)}s`,
-  );
   const pkg = await readPackageJson(target);
   if (!packageSourceSha) {
     packageSourceSha = await readPackageBuildSourceSha(target);
