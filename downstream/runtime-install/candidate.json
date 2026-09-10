@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "sourceCommit": "e686a7e7963abedd5e5fa14561a2d3c71692c790",
+  "sourceCommit": "3040eff630e5a6d9a9f9f5ce52af3c0971776f15",
   "hostVersion": "2026.9.2",
-  "hostSha256": "9bfc1504a39942fbdd559679f9e1d542d62b2ca5b263c9c17b3933b7f26b576d",
-  "hostRunId": 34473789242,
-  "hostRunCommit": "77da20c71c599c704305267a82734f07405593ba",
-  "hostArtifactId": 10151009324,
-  "hostArtifactName": "nas-runtime-package-e686a7e7963abedd5e5fa14561a2d3c71692c790-34473789242-1",
-  "hostArtifactDigest": "sha256:c8fa5592bba75c99b75bb43df3bd681deb103c9a92aaaeca1e4ac5db81d8ed56",
+  "hostSha256": "6b4c749f4635b9519bf3c88f75adb2bccbf28db8d80c7f1d236b9c4cf9aea177",
+  "hostRunId": 34484589896,
+  "hostRunCommit": "1170045b4e6f2c457888ce97ec019d987db024f4",
+  "hostArtifactId": 10155511849,
+  "hostArtifactName": "nas-runtime-package-3040eff630e5a6d9a9f9f5ce52af3c0971776f15-34484589896-1",
+  "hostArtifactDigest": "sha256:16ff2bf25a535502cdd2d812844d2eebfcf543696edd70785a6ee687900ebffc",
   "components": {
     "codex": {
       "version": "2026.9.2",
