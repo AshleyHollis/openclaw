@@ -162,9 +162,11 @@ describe("native UI built-in delegation", () => {
       const view = host.querySelector<
         LitElement & { props: { sessionKey: string; agentId: string }; presented: boolean }
       >("openclaw-plugin-view")!;
-      if (retirement === "hidden") view.presented = false;
-      else if (retirement === "removed") host.remove();
-      else {
+      if (retirement === "hidden") {
+        view.presented = false;
+      } else if (retirement === "removed") {
+        host.remove();
+      } else {
         view.props = { sessionKey: "other", agentId: "main" };
         view.props = { sessionKey: "main", agentId: "main" };
       }

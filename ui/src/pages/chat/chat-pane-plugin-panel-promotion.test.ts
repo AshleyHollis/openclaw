@@ -38,9 +38,15 @@ it.each(["session", "agent", "hidden", "closed"])(
       change === "agent" ? "former" : "bound",
       () => presented,
     );
-    if (change === "session") state.sessionKey = "agent:bound:successor";
-    if (change === "hidden") presented = false;
-    if (change === "closed") state.sidebarLayout = { columns: [] };
+    if (change === "session") {
+      state.sessionKey = "agent:bound:successor";
+    }
+    if (change === "hidden") {
+      presented = false;
+    }
+    if (change === "closed") {
+      state.sidebarLayout = { columns: [] };
+    }
     const update = vi.spyOn(state, "updateSidebarLayout");
     promote(slot);
     expect(update).not.toHaveBeenCalled();

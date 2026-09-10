@@ -15,6 +15,9 @@ function bundledPluginFile(pluginId: string, relativePath: string, suffix = ""):
 // Package scripts, workflows, Docker scenarios, and documented maintainer commands invoke these
 // files by path. They are executable roots rather than importable library modules.
 const repositoryScriptEntries = [
+  // The isolated offline Session supervisor invokes these CLI roots by path.
+  "scripts/offline-session-prepare.mts!",
+  "scripts/offline-session-snapshot.mts!",
   // CI imports this selector from its trusted harness inside an inline Node script.
   ".github/actions/git-owner/test-prerequisites.mjs!",
   // mobile-release-authority invokes this helper from composite-action YAML.
