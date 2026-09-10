@@ -1,15 +1,15 @@
 import type { PluginControlUiDiagnostic } from "../../../packages/gateway-protocol/src/schema/plugins.js";
 import type {
-  ControlUiAction,
-  ControlUiAccessory,
+  ControlUiActionV2 as ControlUiAction,
+  ControlUiAccessoryV2 as ControlUiAccessory,
   ControlUiDisposer,
-  ControlUiHost,
+  ControlUiHostV2 as ControlUiHost,
   ControlUiNavigationItem,
-  ControlUiPage,
-  ControlUiPanel,
-  ControlUiReplacement,
+  ControlUiPageV2 as ControlUiPage,
+  ControlUiPanelV2 as ControlUiPanel,
+  ControlUiReplacementV2 as ControlUiReplacement,
   ControlUiSurface,
-  ControlUiWidget,
+  ControlUiWidgetV2 as ControlUiWidget,
 } from "../../../src/plugin-sdk/control-ui.js";
 
 export type ControlUiRegistration<T> = {

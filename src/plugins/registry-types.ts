@@ -533,6 +533,10 @@ export type PluginRecord = {
 };
 
 export type PluginRegistry = {
+  notificationEmitters: Array<{
+    pluginId: string;
+    declaration: import("./notification-emitter.js").PluginNotificationDeclarationV1;
+  }>;
   plugins: PluginRecord[];
   tools: PluginToolRegistration[];
   hooks: PluginHookRegistration[];
@@ -610,6 +614,8 @@ export type PluginRegistryParams = {
   /** Process-owner policy for registering catalogs that may fall back to HOME. */
   allowProcessHomeSessionCatalogs?: boolean;
   hostServices?: {
+    /** Reads the live gateway owner, including startup auth overrides and reload fences. */
+    getRequiredSharedGatewaySessionGeneration?: () => string | undefined;
     /** May be a live accessor; plugin APIs must read it at call time. */
     cron?: import("../cron/service-contract.js").CronServiceContract;
   };

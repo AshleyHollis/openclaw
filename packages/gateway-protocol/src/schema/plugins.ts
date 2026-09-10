@@ -50,6 +50,17 @@ export const PluginControlUiModuleSchema = closedObject({
   revision: NonEmptyString,
   entryUrl: NonEmptyString,
   styles: Type.Array(NonEmptyString, { maxItems: 16 }),
+  httpRoutes: Type.Optional(
+    Type.Array(
+      closedObject({
+        path: Type.String({ maxLength: 1024, pattern: "^/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+$" }),
+        method: Type.Union([Type.Literal("GET"), Type.Literal("POST")]),
+        maxRequestBytes: Type.Integer({ minimum: 0, maximum: 12582912 }),
+        maxResponseBytes: Type.Integer({ minimum: 1, maximum: 1048576 }),
+      }),
+      { maxItems: 16 },
+    ),
+  ),
 });
 
 export const PluginControlUiDiagnosticSchema = closedObject({

@@ -323,6 +323,43 @@ browser application's trust; it is distinct from the scoped dashboard widget
 bindings below. See [Feature plugins](/plugins/feature-plugins) for authoring,
 replacements, reload, and activation receipts.
 
+### Declared native HTTP routes
+
+Hosts implementing `ControlUiHostV2` accept optional `controlUi.httpRoutes` for
+bounded, same-origin JSON requests through `host.httpRequest`. This declaration
+does not register the backend handler or grant additional operator scopes.
+
+```json
+{
+  "controlUi": {
+    "entry": "dist/control-ui/<content-hash>/index.js",
+    "httpRoutes": [
+      {
+        "path": "/plugins/draft-review/actions",
+        "method": "POST",
+        "maxRequestBytes": 32768,
+        "maxResponseBytes": 32768
+      }
+    ]
+  }
+}
+```
+
+Declare at most 16 unique path/method pairs. Paths must start with
+`/plugins/<plugin-id>/`, use literal letters, digits, underscores, hyphens and
+slash-separated segments, and contain no query, fragment or encoded aliases.
+The maximum path length is 1,024 characters. Only `GET` and `POST` are supported.
+Byte limits must be integers: request limits range from zero to 12 MiB (`GET`
+requires zero); response limits range from one byte to 1 MiB. Extra route fields
+are rejected.
+
+Register the same exact path with `auth: "gateway"` and `match: "exact"`.
+Ambiguous matches, another plugin's routes, reserved host routes and
+`gatewayRuntimeScopeSurface: "trusted-operator"` routes cannot use this relay.
+The host revalidates the active plugin and route ownership before dispatch.
+See [Native HTTP requests](/plugins/feature-plugins#native-http-requests) for
+authentication, cancellation and recovery behavior.
+
 ## dashboard reference
 
 `dashboard` lets an enabled plugin expose existing Gateway RPCs to granted dashboard widgets without adding plugin policy to core. Data bindings must name a method the same plugin registers with `operator.read`; action verbs must name a method it registers with `operator.write`. A mismatch rejects the plugin during registration.

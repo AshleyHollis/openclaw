@@ -12,6 +12,7 @@ import {
   normalizeRateLimitClientIp,
 } from "../auth-rate-limit.js";
 import { applyHookMappings, HOOK_MAPPING_FAN_OUT_MAX_ITEMS } from "../hooks-mapping.js";
+import { isHooksRequestPath } from "../hooks-route-contract.js";
 import {
   extractHookToken,
   getHookAgentPolicyError,
@@ -322,7 +323,7 @@ export function createHooksRequestHandler(
     // representation (e.g. IPv6 wildcards) cannot break request parsing.
     const url = new URL(req.url ?? "/", "http://localhost");
     const basePath = hooksConfig.basePath;
-    if (url.pathname !== basePath && !url.pathname.startsWith(`${basePath}/`)) {
+    if (!isHooksRequestPath(url.pathname, basePath)) {
       return false;
     }
 

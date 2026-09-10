@@ -2,7 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, assert, describe, expect, it } from "vitest";
+import { afterEach, assert, beforeEach, describe, expect, it } from "vitest";
 import {
   buildFullReleaseCandidateBinding,
   buildFullReleaseCandidateRequest,
@@ -35,6 +35,7 @@ import {
   verifyReleaseStateArtifacts,
   updateReleaseTransportEpisode,
 } from "../../scripts/full-release-validation-state.mjs";
+import { captureEnv, setTestEnvValue } from "../../src/test-utils/env.js";
 import {
   fullReleaseCandidateBindingFixture,
   fullReleaseCandidateManifestFixture,
@@ -1101,6 +1102,12 @@ describe("release child attempt composition", () => {
 });
 
 describe("release decision policy", () => {
+  beforeEach(() => {
+    const repositoryEnv = captureEnv(["GITHUB_REPOSITORY"]);
+    setTestEnvValue("GITHUB_REPOSITORY", "openclaw/openclaw");
+    return () => repositoryEnv.restore();
+  });
+
   it.each(["beta", "stable", "full"])(
     "records Windows/macOS failures without blocking %s publication",
     (releaseProfile) => {

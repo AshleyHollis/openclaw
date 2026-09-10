@@ -1,4 +1,4 @@
-import type { ControlUiHost } from "openclaw/plugin-sdk/control-ui";
+import type { ControlUiHostV2 as ControlUiHost } from "openclaw/plugin-sdk/control-ui";
 import { createWorkboardClient, type GatewayBrowserClient } from "../api/gateway.ts";
 import { formatUiError } from "../lib/format-error.ts";
 import { isActiveWorkboardCard, nextWorkboardCardPosition } from "../lib/workboard/card-state.ts";

@@ -75,6 +75,15 @@ export function createResponse(): {
 } {
   const setHeader = vi.fn();
   let body = "";
+  const write = vi.fn((chunk: unknown) => {
+    body +=
+      typeof chunk === "string"
+        ? chunk
+        : Buffer.isBuffer(chunk)
+          ? chunk.toString()
+          : JSON.stringify(chunk);
+    return true;
+  });
   let resolveEnd!: () => void;
   const ended = new Promise<void>((resolve) => {
     resolveEnd = resolve;
@@ -83,16 +92,15 @@ export function createResponse(): {
     res.writableFinished = true;
     res.emit("finish");
     if (typeof chunk === "string") {
-      body = chunk;
+      body += chunk;
       resolveEnd();
       return;
     }
     if (chunk == null) {
-      body = "";
       resolveEnd();
       return;
     }
-    body = JSON.stringify(chunk);
+    body += JSON.stringify(chunk);
     resolveEnd();
   });
   const res = Object.assign(new EventEmitter(), {
@@ -102,6 +110,7 @@ export function createResponse(): {
     statusCode: 200,
     setHeader,
     removeHeader: vi.fn(),
+    write,
     end,
   });
   responseEndPromises.set(res as unknown as ServerResponse, ended);
@@ -194,7 +203,17 @@ export async function sendRequest(
   },
 ): Promise<ReturnType<typeof createResponse>> {
   const response = createResponse();
-  await dispatchRequest(server, createRequest(params), response.res);
+  const req = createRequest(params);
+  // This convenience sender has no body producer. Model Node's completed
+  // bodyless message; unfinished uploads use real TCP or dispatchRequest.
+  if (
+    req.headers["transfer-encoding"] === undefined &&
+    (req.headers["content-length"] === undefined || req.headers["content-length"] === "0")
+  ) {
+    req.complete = true;
+    req.push(null);
+  }
+  await dispatchRequest(server, req, response.res);
   return response;
 }
 

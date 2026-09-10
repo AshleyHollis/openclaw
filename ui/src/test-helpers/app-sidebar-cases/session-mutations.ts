@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ControlUiAction } from "../../../../src/plugin-sdk/control-ui.js";
+import type { ControlUiActionV2 as ControlUiAction } from "../../../../src/plugin-sdk/control-ui.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { GatewaySessionRow } from "../../api/types.ts";
 import { publishSidebarSessionList } from "../../components/session-data-controller-events.ts";

@@ -21393,19 +21393,22 @@ public struct PluginControlUiModule: Codable, Sendable {
     public let revision: String
     public let entryurl: String
     public let styles: [String]
+    public let httproutes: [[String: AnyCodable]]?
 
     public init(
         pluginid: String,
         name: String,
         revision: String,
         entryurl: String,
-        styles: [String])
+        styles: [String],
+        httproutes: [[String: AnyCodable]]? = nil)
     {
         self.pluginid = pluginid
         self.name = name
         self.revision = revision
         self.entryurl = entryurl
         self.styles = styles
+        self.httproutes = httproutes
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -21414,6 +21417,7 @@ public struct PluginControlUiModule: Codable, Sendable {
         case revision
         case entryurl = "entryUrl"
         case styles
+        case httproutes = "httpRoutes"
     }
 }
 

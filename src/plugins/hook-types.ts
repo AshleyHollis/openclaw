@@ -1009,7 +1009,10 @@ export type PluginHookGatewayCronJob = {
   payload?: {
     kind?: string;
     text?: string;
+    message?: string;
+    toolsAllow?: string[];
   };
+  delivery?: import("../cron/types.js").CronDelivery;
   state?: PluginHookGatewayCronJobState;
   createdAtMs?: number;
   updatedAtMs?: number;
@@ -1044,25 +1047,45 @@ export type PluginHookCronChangedEvent = {
 type PluginHookGatewayCronCreateInput = {
   declarationKey?: string;
   name: string;
-  description: string;
+  description?: string;
   enabled: boolean;
   schedule: {
     kind: string;
     expr: string;
     tz?: string;
+    staggerMs?: number;
   };
   sessionTarget: string;
   wakeMode: string;
   payload: {
     kind: string;
     text?: string;
+    message?: string;
+    toolsAllow?: string[];
   };
+  delivery?: import("../cron/types.js").CronDelivery;
 };
 
 type PluginHookGatewayCronUpdateInput = Partial<PluginHookGatewayCronCreateInput>;
 
 type PluginHookGatewayCronRemoveResult = {
   removed?: boolean;
+};
+
+/** Revision-safe scheduler handle scoped to a running plugin service. */
+type PluginServiceCronJob = PluginHookGatewayCronJob & { configRevision: string };
+
+export type PluginServiceCronScheduler = Omit<
+  PluginHookGatewayCronService,
+  "list" | "add" | "update"
+> & {
+  list: (opts?: { includeDisabled?: boolean }) => Promise<PluginServiceCronJob[]>;
+  add: (input: PluginHookGatewayCronCreateInput) => Promise<PluginServiceCronJob>;
+  update: (
+    id: string,
+    patch: PluginHookGatewayCronUpdateInput,
+    opts?: { expectedConfigRevision?: string },
+  ) => Promise<PluginServiceCronJob>;
 };
 
 export type PluginHookGatewayCronService = {

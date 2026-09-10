@@ -180,6 +180,115 @@ const suite = createSidebarFooterProofSuite(
 );
 
 suite.define(() => {
+  it.each(["none", "active"] as const)(
+    "keeps shell keyboard focus visible with forced colors %s",
+    async (forcedColors) => {
+      const opened = await openSidebarFooterProofPage(suite);
+      try {
+        const { page } = opened;
+        await page.emulateMedia({ forcedColors, reducedMotion: "reduce" });
+        const checkControls = async (selector: string, label: string, menu = false) => {
+          const controls = page.locator(`${selector}:visible`);
+          await controls.first().waitFor();
+          expect(await controls.count()).toBeGreaterThan(0);
+          for (const [index, control] of (await controls.all()).entries()) {
+            expect(await control.isEnabled()).toBe(true);
+            // Position at the invoker, then leave and return through the actual
+            // keyboard path. Menus use arrows because Tab dismisses them.
+            await control.focus();
+            await page.keyboard.press(menu ? "ArrowUp" : "Shift+Tab");
+            await expect
+              .poll(() => control.evaluate((node) => node === document.activeElement))
+              .toBe(false);
+            if (menu) {
+              await expect
+                .poll(() =>
+                  page
+                    .locator(".sidebar-footer-build")
+                    .evaluate((node) => node === document.activeElement),
+                )
+                .toBe(true);
+            }
+            const restingShadow = await control.evaluate(
+              (node) => getComputedStyle(node).boxShadow,
+            );
+            await page.keyboard.press(menu ? "ArrowDown" : "Tab");
+            await expect
+              .poll(
+                () =>
+                  control.evaluate((node) => ({
+                    focused: node === document.activeElement,
+                    actual:
+                      document.activeElement?.getAttribute("aria-label") ??
+                      document.activeElement?.localName,
+                  })),
+                { message: `${label} must regain keyboard focus` },
+              )
+              .toMatchObject({ focused: true });
+            await expect
+              .poll(() => control.evaluate((node) => node.matches(":focus-visible")))
+              .toBe(true);
+            if (forcedColors === "active" && index === 0) {
+              await captureUnionProof(
+                suite,
+                page,
+                "sidebar-account-footer",
+                `keyboard-${label}.png`,
+                [control],
+              );
+            }
+            await expect
+              .poll(() =>
+                control.evaluate((node, before) => {
+                  const style = getComputedStyle(node);
+                  const outline =
+                    Number.parseFloat(style.outlineWidth) >= 2 &&
+                    !["none", "hidden"].includes(style.outlineStyle) &&
+                    !["transparent", "rgba(0, 0, 0, 0)"].includes(style.outlineColor);
+                  return (
+                    outline ||
+                    (!matchMedia("(forced-colors: active)").matches &&
+                      style.boxShadow !== "none" &&
+                      style.boxShadow !== before)
+                  );
+                }, restingShadow),
+              )
+              .toBe(true);
+          }
+        };
+        await checkControls(".sidebar-issues-button", "inbox-expanded");
+        await page.mouse.move(0, 0);
+        await opened.sidebar.locator(".sidebar-identity-card").focus();
+        await page.keyboard.press("Enter");
+        const firstMenuItem = opened.sidebar
+          .locator("wa-dropdown.sidebar-identity-menu > wa-dropdown-item")
+          .first();
+        await expect
+          .poll(() => firstMenuItem.evaluate((node) => node === document.activeElement))
+          .toBe(true);
+        await checkControls(".theme-mode-toggle", "theme", true);
+        await opened.sidebar.locator(".sidebar-footer-build").hover();
+        await opened.sidebar
+          .locator(".sidebar-build-hover-card__copy")
+          .waitFor({ state: "visible" });
+        await checkControls(".theme-mode-toggle", "theme-tooltip-open", true);
+        await page.keyboard.press("Tab");
+        await expect
+          .poll(() => opened.sidebar.locator("wa-dropdown.sidebar-identity-menu").count())
+          .toBe(0);
+        await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+        await checkControls(".shell-chrome-controls__button", "chrome-collapsed");
+        await checkControls(".sidebar-issues-button", "inbox-collapsed");
+        await page.setViewportSize({ width: 700, height: 900 });
+        // Chat merges its narrow header; Sessions exposes the shared topbar.
+        await page.goto(new URL("sessions", suite.server.baseUrl).href);
+        await checkControls(".topbar-icon-btn", "topbar-narrow");
+      } finally {
+        await suite.closeBrowserContext(opened.context);
+      }
+    },
+  );
+
   it("shows visible offline retry and immediate announced-restart states", async () => {
     const opened = await openSidebarFooterProofPage(suite, { gatewaySuspensionPhase: "prepared" });
     try {

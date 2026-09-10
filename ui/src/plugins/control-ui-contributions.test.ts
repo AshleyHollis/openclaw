@@ -1,7 +1,7 @@
 import type { LitElement } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginControlUiDiagnostic } from "../../../packages/gateway-protocol/src/schema/plugins.js";
-import type { ControlUiAction } from "../../../src/plugin-sdk/control-ui.js";
+import type { ControlUiActionV2 as ControlUiAction } from "../../../src/plugin-sdk/control-ui.js";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { GatewaySessionRow } from "../api/types.ts";

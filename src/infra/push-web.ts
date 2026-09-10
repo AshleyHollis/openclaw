@@ -186,6 +186,8 @@ type WebPushPayload = {
   renotify?: boolean;
   tag?: string;
   url?: string;
+  /** Host-owned plugin notification envelope; never contains credentials. */
+  notification?: { version: 1; kind: "notify" | "clear"; expiresAtMs: number };
 };
 
 function applyVapidDetails(webPush: WebPushRuntime, keys: VapidKeyPair): void {

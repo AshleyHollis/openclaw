@@ -1,15 +1,15 @@
-import { html, LitElement } from "lit";
+import { html, LitElement, nothing } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
-  ControlUiHost,
-  ControlUiReplacement,
+  ControlUiHostV2 as ControlUiHost,
+  ControlUiReplacementV2 as ControlUiReplacement,
   ControlUiSurfaceProps,
-  ControlUiViewContext,
+  ControlUiViewContextV2 as ControlUiViewContext,
 } from "../../../src/plugin-sdk/control-ui.js";
 import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationContext } from "../app/context.ts";
 import { createApplicationContextProvider } from "../test-helpers/application-context.ts";
-import { renderPluginSurface } from "./control-ui-view.ts";
+import { renderPluginSurface, renderPluginContribution } from "./control-ui-view.ts";
 import "./control-ui-view.runtime.ts";
 
 function increment(this: SurfaceTestHost) {
@@ -22,6 +22,9 @@ class SurfaceTestHost extends LitElement {
   agentId = "main";
   surface: "workspace" | "composer" = "workspace";
   draft = "";
+  panelMode = false;
+  presented = true;
+  readonly showInMain = vi.fn();
   readonly setDraft = vi.fn((draft: string) => {
     this.draft = draft;
   });
@@ -31,6 +34,16 @@ class SurfaceTestHost extends LitElement {
   }
   override render() {
     const identity = { sessionKey: this.sessionKey, agentId: this.agentId };
+    if (this.panelMode) {
+      return renderPluginContribution(
+        "panels",
+        "review/composed",
+        identity,
+        nothing,
+        this.presented,
+        this.showInMain,
+      );
+    }
     const defaultView = html`<button class="builtin-action" @click=${increment}>
         Built-in action
       </button>
@@ -55,7 +68,7 @@ class SurfaceTestHost extends LitElement {
 }
 customElements.define("control-ui-surface-test-host", SurfaceTestHost);
 
-function mountSurface(initial?: ControlUiReplacement<"workspace" | "composer">) {
+function mountSurface(initial?: ControlUiReplacement<"workspace" | "composer">, panelMode = false) {
   const listeners = new Set<() => void>();
   const abort = new AbortController();
   const request = vi.fn().mockResolvedValue({ ok: true });
@@ -72,6 +85,18 @@ function mountSurface(initial?: ControlUiReplacement<"workspace" | "composer">) 
   let selected = initial;
   const context = {
     plugins: {
+      registrations: () =>
+        selected
+          ? [
+              {
+                key: "review/composed",
+                pluginId: "review",
+                value: selected,
+                host: pluginHost,
+                signal: abort.signal,
+              },
+            ]
+          : [],
       selectedReplacement: () =>
         selected
           ? {
@@ -92,6 +117,7 @@ function mountSurface(initial?: ControlUiReplacement<"workspace" | "composer">) 
   const provider = createApplicationContextProvider(context);
   const host = document.createElement("control-ui-surface-test-host") as SurfaceTestHost;
   host.surface = initial?.surface ?? "workspace";
+  host.panelMode = panelMode;
   provider.append(host);
   document.body.append(provider);
   return {
@@ -114,6 +140,40 @@ afterEach(() => {
 });
 
 describe("native UI built-in delegation", () => {
+  it.each(["hidden", "session replaced", "removed"])(
+    "allows only the current presented panel to request main-pane placement (%s)",
+    async (retirement) => {
+      let current: ControlUiViewContext | undefined;
+      const { host } = mountSurface(
+        {
+          id: "composed",
+          label: "Fixture Notes",
+          surface: "workspace",
+          mount(_container, context) {
+            current = context;
+          },
+        },
+        true,
+      );
+      await vi.waitFor(() => expect(current?.panel).toBeDefined());
+      const retained = current!.panel!;
+      retained.showInMain();
+      expect(host.showInMain).toHaveBeenCalledOnce();
+      const view = host.querySelector<
+        LitElement & { props: { sessionKey: string; agentId: string }; presented: boolean }
+      >("openclaw-plugin-view")!;
+      if (retirement === "hidden") {
+        view.presented = false;
+      } else if (retirement === "removed") {
+        host.remove();
+      } else {
+        view.props = { sessionKey: "other", agentId: "main" };
+        view.props = { sessionKey: "main", agentId: "main" };
+      }
+      expect(() => retained.showInMain()).toThrow("no longer presented");
+      expect(host.showInMain).toHaveBeenCalledOnce();
+    },
+  );
   it.each([
     { label: "another agent", nextAgents: ["writer"] },
     { label: "the original agent after a same-turn switch", nextAgents: ["writer", "main"] },

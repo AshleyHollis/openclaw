@@ -4,11 +4,11 @@ import { html, nothing, render, type LitElement } from "lit";
 import { property, state } from "lit/decorators.js";
 import { keyed } from "lit/directives/keyed.js";
 import type {
-  ControlUiAction,
+  ControlUiActionV2 as ControlUiAction,
   ControlUiSurface,
   ControlUiSurfaceProps,
-  ControlUiView,
-  ControlUiViewContext,
+  ControlUiViewV2 as ControlUiView,
+  ControlUiViewContextV2 as ControlUiViewContext,
 } from "../../../src/plugin-sdk/control-ui.js";
 import { applicationContext, type ApplicationContext } from "../app/context.ts";
 import { icons, type IconName } from "../components/icons.ts";
@@ -34,6 +34,7 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) defaultView: unknown = nothing;
   @property({ attribute: false }) defaultHost?: LitElement;
   @property({ type: Boolean }) presented = true;
+  @property({ attribute: false }) showInMain?: () => void;
   @state() private error = "";
   private registration?: ViewRegistration;
   private mountAbort?: AbortController;
@@ -132,6 +133,24 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
           signal: abort.signal,
           props: this.scopedProps(abort.signal),
           presented: this.presented,
+          ...(this.kind === "panels" && this.showInMain
+            ? {
+                panel: {
+                  showInMain: () => {
+                    // A retained callback cannot change the successor Session's layout.
+                    if (
+                      abort.signal.aborted ||
+                      registration.signal.aborted ||
+                      !this.presented ||
+                      !this.isConnected
+                    ) {
+                      throw new Error("This plugin UI panel is no longer presented.");
+                    }
+                    this.showInMain?.();
+                  },
+                },
+              }
+            : {}),
           mountDefault: (target) => {
             if (abort.signal.aborted) {
               throw new Error("This plugin UI view has ended.");

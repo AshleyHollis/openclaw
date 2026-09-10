@@ -1041,6 +1041,52 @@ export interface PluginBlobEntries {
   plugin_id: string;
 }
 
+export interface PluginNotificationClearAttempts {
+  attempt_id: string | null;
+  created_at_ms: number;
+  logical_operation_id: string;
+  outcome: string;
+  plugin_id: string;
+  principal_key: string;
+  result_json: string | null;
+  target_id: string;
+  updated_at_ms: number;
+}
+
+export interface PluginNotificationClearOperations {
+  created_at_ms: number;
+  logical_operation_id: string;
+  plugin_id: string;
+  principal_key: string;
+  updated_at_ms: number;
+}
+
+export interface PluginNotificationDeliveryAttempts {
+  created_at_ms: number;
+  emission_id: string;
+  logical_operation_id: string;
+  outcome: string;
+  plugin_id: string;
+  principal_key: string;
+  target_id: string;
+  updated_at_ms: number;
+}
+
+export interface PluginNotificationEmissions {
+  candidate_hash: string;
+  created_at_ms: number;
+  declaration_id: string;
+  emission_id: string;
+  expires_at_ms: number;
+  logical_operation_id: string;
+  operator_id: string;
+  plugin_id: string;
+  principal_key: string;
+  result_json: string | null;
+  state: string;
+  updated_at_ms: number;
+}
+
 export interface PluginStateEntries {
   created_at: number;
   entry_key: string;
@@ -1694,6 +1740,10 @@ export interface DB {
   outbound_message_progress: OutboundMessageProgress;
   plugin_binding_approvals: PluginBindingApprovals;
   plugin_blob_entries: PluginBlobEntries;
+  plugin_notification_clear_attempts: PluginNotificationClearAttempts;
+  plugin_notification_clear_operations: PluginNotificationClearOperations;
+  plugin_notification_delivery_attempts: PluginNotificationDeliveryAttempts;
+  plugin_notification_emissions: PluginNotificationEmissions;
   plugin_state_entries: PluginStateEntries;
   projects: Projects;
   sandbox_registry_entries: SandboxRegistryEntries;

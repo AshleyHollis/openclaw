@@ -6,11 +6,14 @@ import {
   GATEWAY_CLIENT_MODES,
 } from "../../../packages/gateway-protocol/src/client-info.js";
 import { PROTOCOL_VERSION } from "../../../packages/gateway-protocol/src/index.js";
+import { installRequestBodyLimitGuard } from "../../infra/http-body.js";
+import { waitForHttpRequestRejection } from "../../infra/http-request-lifecycle.js";
 import type { createSubsystemLogger } from "../../logging/subsystem.js";
 import type { PluginHttpRouteRegistration, PluginRegistry } from "../../plugins/registry.js";
 import { withPluginRuntimeGatewayRequestScope } from "../../plugins/runtime/gateway-request-scope.js";
+import { installControlUiHttpResponseLimit } from "../control-ui-http-relay.js";
 import { respondControlUiPluginAuthCookieProbe } from "../control-ui-plugin-auth-cookie.js";
-import { finishFailedGatewayHttpResponse } from "../http-common.js";
+import { finishFailedGatewayHttpResponse, sendGatewayAuthFailure } from "../http-common.js";
 import type { AuthorizedGatewayHttpRequest } from "../http-utils.js";
 import type { GatewayRequestContext, GatewayRequestOptions } from "../server-methods/types.js";
 import {
@@ -262,19 +265,68 @@ export function createGatewayPluginRequestHandler(params: {
         continue;
       }
       try {
-        const runRoute = async () =>
-          (await withPluginRuntimeGatewayRequestScope(
-            createPluginRouteRuntimeScope({
-              registry,
-              route,
-              req,
-              gatewayRequestContext,
-              gatewayRequestAuth,
-              gatewayRequestOperatorScopes,
-              gatewayRequestClientIp: dispatchContext?.gatewayRequestClientIp,
-            }),
-            async () => route.handler(req, res),
-          )) !== false;
+        const runRoute = async () => {
+          // Recheck inside work admission: awaited auth and owner replacement
+          // must not let a captured route execute under a new registration.
+          if (
+            gatewayRequestAuth?.controlUiHttpRelay &&
+            !gatewayRequestAuth.controlUiHttpRelay.isCurrent(registry, route)
+          ) {
+            sendGatewayAuthFailure(res, { ok: false, reason: "unauthorized" });
+            return true;
+          }
+          const scope = createPluginRouteRuntimeScope({
+            registry,
+            route,
+            req,
+            gatewayRequestContext,
+            gatewayRequestAuth,
+            gatewayRequestOperatorScopes,
+            gatewayRequestClientIp: dispatchContext?.gatewayRequestClientIp,
+          });
+          const relay = gatewayRequestAuth?.controlUiHttpRelay;
+          const responseGuard = relay
+            ? installControlUiHttpResponseLimit(res, relay.maxResponseBytes)
+            : undefined;
+          const bodyGuard = relay
+            ? installRequestBodyLimitGuard(req, res, {
+                maxBytes: relay.maxRequestBytes,
+                passive: true,
+              })
+            : undefined;
+          let active = true;
+          if (relay) {
+            // Gateway dispatch and Session commit guards retain this resolver.
+            // Awaited or detached work must not retain retired request authority.
+            scope.resolveGatewayContext = () =>
+              active &&
+              !res.writableEnded &&
+              !res.destroyed &&
+              !req.socket.destroyed &&
+              !bodyGuard?.isTripped() &&
+              !responseGuard?.isTripped() &&
+              relay.isCurrent(registry, route)
+                ? gatewayRequestContext
+                : undefined;
+          }
+          try {
+            if (bodyGuard?.isTripped()) {
+              return true;
+            }
+            return (
+              (await withPluginRuntimeGatewayRequestScope(scope, async () =>
+                route.handler(req, res),
+              )) !== false
+            );
+          } finally {
+            active = false;
+            // Ingress belongs to the request, including after a detached
+            // handler returns. Its guard retires on EOF/close, not here.
+            // Keep admission until the rejection flushes and closes; do not
+            // admit another pipelined request after a body limit was selected.
+            await waitForHttpRequestRejection(req);
+          }
+        };
         // Entitled trusted-operator routes delegate substantive work through Gateway dispatch.
         // An outer root would make gateway.suspend.prepare nested and permanently unreachable.
         const handled = canRunPluginHttpRouteWithoutAdmission(route)

@@ -577,9 +577,12 @@ describe("bounded HTTP rejection transport", () => {
     async (completion) => {
       let read = 0;
       let readLimit = 0;
+      let selectedRead: number | undefined;
       await withServer(
         async (req, res) => {
-          await sendHttpRequestRejection(req, res, 413, "rejected");
+          const rejection = sendHttpRequestRejection(req, res, 413, "rejected");
+          selectedRead ??= req.socket.bytesRead;
+          await rejection;
           read = req.socket.bytesRead;
           readLimit = 2 * req.socket.readableHighWaterMark;
         },
@@ -595,7 +598,13 @@ describe("bounded HTTP rejection transport", () => {
         },
         "standalone",
       );
-      expect(read).toBeLessThanOrEqual(readLimit);
+      // Node's native HTTP read batch can exceed the socket high-water mark
+      // before admission (notably on Windows). Rejection must stop further reads.
+      if (completion === "before rejection") {
+        expect(read).toBe(selectedRead);
+      } else {
+        expect(read).toBeLessThanOrEqual(readLimit);
+      }
     },
   );
 

@@ -7,6 +7,7 @@ import {
   sanitizeCommandDescriptorDescription,
 } from "../cli/program/command-descriptor-utils.js";
 import { isBlockedObjectKey } from "../infra/prototype-keys.js";
+import { normalizeControlUiHttpRelayRoutes } from "../shared/control-ui-http-relay.js";
 import type { JsonSchemaObject } from "../shared/json-schema.types.js";
 import { isRecord } from "../utils.js";
 import type {
@@ -298,12 +299,16 @@ export function normalizeManifestDashboard(value: unknown): DashboardManifestRes
 
 export function normalizeManifestControlUi(
   value: unknown,
+  pluginId: string,
 ): Result<PluginManifestControlUi | undefined, string> {
   if (value === undefined) {
     return ok(undefined);
   }
-  if (!isRecord(value) || Object.keys(value).some((key) => key !== "entry" && key !== "styles")) {
-    return err("controlUi must contain only entry and optional styles");
+  if (
+    !isRecord(value) ||
+    Object.keys(value).some((key) => !["entry", "styles", "httpRoutes"].includes(key))
+  ) {
+    return err("controlUi must contain only entry, optional styles and optional httpRoutes");
   }
   const entry = typeof value.entry === "string" ? value.entry.replace(/^\.\//u, "") : "";
   // A dedicated built directory prevents a declaration from publishing package sources.
@@ -329,7 +334,23 @@ export function normalizeManifestControlUi(
       styles.push(style);
     }
   }
-  return ok({ entry, ...(styles.length > 0 ? { styles } : {}) });
+  const httpRoutes =
+    value.httpRoutes === undefined
+      ? undefined
+      : normalizeControlUiHttpRelayRoutes(value.httpRoutes);
+  if (
+    httpRoutes === null ||
+    httpRoutes?.some((route) => !route.path.startsWith(`/plugins/${pluginId}/`))
+  ) {
+    return err(
+      "controlUi.httpRoutes must be bounded exact JSON routes under the plugin's namespace",
+    );
+  }
+  return ok({
+    entry,
+    ...(styles.length > 0 ? { styles } : {}),
+    ...(httpRoutes ? { httpRoutes } : {}),
+  });
 }
 
 function normalizeManifestHttpsUrl(value: unknown): string | undefined {

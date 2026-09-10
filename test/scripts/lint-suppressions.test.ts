@@ -220,10 +220,14 @@ describe("production lint suppressions", () => {
         "src/commands/backup-restore.ts|preserve-caught-error|1",
         // Intl.Collator.compare is a getter returning a bound function.
         "src/cron/service/list-page-sort.ts|typescript/unbound-method|1",
+        // Capture exact response methods for restoration; invocation uses their bound forms.
+        "src/gateway/control-ui-http-relay.ts|typescript/unbound-method|2",
         "src/gateway/test-helpers.server.ts|typescript/no-unnecessary-type-parameters|1",
         "src/hooks/module-loader.ts|typescript/no-unnecessary-type-parameters|1",
         "src/infra/device-pairing-store.ts|typescript/no-unnecessary-type-parameters|1",
         "src/infra/exec-approvals-effective.ts|typescript/no-unnecessary-type-parameters|1",
+        // Restore the exact ingress method; observation invokes it with its original receiver.
+        "src/infra/http-body.ts|typescript/unbound-method|1",
         "src/infra/json-file.ts|typescript-eslint/no-unnecessary-type-parameters|1",
         // Undici invokes its method-shaped clientFactory callback without an options receiver.
         "src/infra/net/undici-dispatcher-options.ts|typescript/unbound-method|1",

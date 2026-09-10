@@ -17,8 +17,39 @@ type InternalDiagnostics<T extends { internalDiagnostics?: unknown }> = NonNulla
   T["internalDiagnostics"]
 >;
 type TelemetryExporterEvent = Extract<DiagnosticEventPayload, { type: "telemetry.exporter" }>;
+type ServiceCron = NonNullable<ReturnType<NonNullable<PluginEntryServiceContext["getCron"]>>>;
 
 describe("plugin service diagnostics contract", () => {
+  it("publishes revision-safe service scheduling through both SDK entrypoints", () => {
+    expectTypeOf<CoreServiceContext["getCron"]>().toEqualTypeOf<
+      PluginEntryServiceContext["getCron"]
+    >();
+    expectTypeOf<
+      Awaited<ReturnType<ServiceCron["add"]>>["configRevision"]
+    >().toEqualTypeOf<string>();
+    expectTypeOf<
+      Awaited<ReturnType<ServiceCron["update"]>>["configRevision"]
+    >().toEqualTypeOf<string>();
+    expectTypeOf<Parameters<ServiceCron["update"]>[2]>().toEqualTypeOf<
+      { expectedConfigRevision?: string } | undefined
+    >();
+    const declaration = {
+      declarationKey: "test-plugin:maintenance",
+      name: "Plugin maintenance",
+      enabled: false,
+      schedule: { kind: "cron", expr: "0 2 * * *", tz: "UTC", staggerMs: 0 },
+      sessionTarget: "isolated",
+      wakeMode: "now",
+      payload: {
+        kind: "agentTurn",
+        message: "Run plugin maintenance.",
+        toolsAllow: ["test_maintenance"],
+      },
+      delivery: { mode: "none" as const },
+    } satisfies Parameters<ServiceCron["add"]>[0];
+    expectTypeOf(declaration).toExtend<Parameters<ServiceCron["add"]>[0]>();
+  });
+
   it("keeps host attribution out of public SDK listener declarations", () => {
     expectTypeOf<
       ListenerPrivateData<PluginEntryServiceContext>

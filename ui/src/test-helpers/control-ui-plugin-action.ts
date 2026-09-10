@@ -1,5 +1,8 @@
 import { vi } from "vitest";
-import type { ControlUiAction, ControlUiHost } from "../../../src/plugin-sdk/control-ui.js";
+import type {
+  ControlUiActionV2 as ControlUiAction,
+  ControlUiHostV2 as ControlUiHost,
+} from "../../../src/plugin-sdk/control-ui.js";
 import type { ApplicationContext } from "../app/context.ts";
 
 export function registerSessionPluginAction(

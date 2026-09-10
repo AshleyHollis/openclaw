@@ -159,6 +159,14 @@ is false; use it to pause visual work while preserving state. Removing or dispos
 the view aborts its signal and retires its host handles. Check the signal after
 asynchronous work and release plugin resources in `dispose`.
 
+Native Chat panels can receive optional `context.panel.showInMain()`. Call it
+after a user selects panel content to move that same panel into the main pane
+using the native layout; it does not open a different Session or grant access
+to other panels. Users can still swap, resize, or close panels with the native
+controls. Feature-detect `context.panel` for hosts without this capability.
+Calling a retained handle after disposal or while the panel is not presented
+throws; check the view signal and current presentation after asynchronous work.
+
 Session-bound views and actions receive `sessionKey` and `agentId`. Carry both
 when making a session request: the application's selected agent can differ from
 the view's agent. Changing either part of that identity retires the old view's
@@ -214,6 +222,37 @@ mounts host-owned dialogs, agent pickers, and session dashboards from plain
 props and DOM content. Each component returns `update` and `dispose` methods;
 the host retains permission checks, focus handling, and dashboard provider
 ownership.
+
+## Native HTTP requests
+
+On hosts implementing `ControlUiHostV2`, use `context.host.httpRequest(request,
+{ signal: context.signal })` for the plugin's
+[declared JSON routes](/plugins/manifest#declared-native-http-routes). Import
+`ControlUiHostV2` or the corresponding `ControlUiViewV2` types from
+`openclaw/plugin-sdk/control-ui` when a view requires this API. Legacy
+`ControlUiHost` types remain source-compatible; pin and test a host build that
+actually provides the new method, not merely a product version string.
+
+Requests are either `{ method: "GET", path }` or
+`{ method: "POST", path, body: JSON.stringify(input) }`. They cannot supply
+arbitrary URLs, headers, credentials or fetch options. Successful transport
+returns `{ status, body }`, with `body` containing validated JSON text. Inspect
+the HTTP status and the plugin's response contract before treating the operation
+as successful; a JSON error response is still a transport response.
+
+The Control UI must be connected to the Gateway serving its origin. `GET`
+requires read authority and `POST` requires write authority. The host supplies
+authentication, enforces the declared byte limits, refuses redirects and
+non-JSON responses, and binds requests to the current activation and view.
+Credentials are not included in the plugin request or response envelope. Native
+plugin code still runs with the trusted browser application's authority; this
+helper does not create a sandbox.
+
+Pass the current view signal and check it again before publishing asynchronous
+results. An interrupted write may already have committed. The transport reports
+an unknown write outcome; reconcile the original durable operation before
+retrying. Do not mint a new operation identity or automatically resend because
+the response was lost.
 
 ## Build and reload
 

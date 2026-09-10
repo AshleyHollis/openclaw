@@ -67,8 +67,8 @@ function createGateway(
       }
       return [];
     }),
-    add: vi.fn(async () => ({})),
-    update: vi.fn(async () => ({})),
+    add: vi.fn(async () => ({ id: "fictional-dreaming-job", configRevision: "revision-1" })),
+    update: vi.fn(async (id: string) => ({ id, configRevision: "revision-2" })),
     remove: vi.fn(async () => ({ removed: false })),
     removeStaleJobFamily: vi.fn(async () => 0),
   };

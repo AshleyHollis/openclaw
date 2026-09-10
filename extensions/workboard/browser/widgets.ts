@@ -1,5 +1,8 @@
 import { nothing, render } from "lit";
-import type { ControlUiHost, ControlUiWidget } from "openclaw/plugin-sdk/control-ui";
+import type {
+  ControlUiHostV2 as ControlUiHost,
+  ControlUiWidgetV2 as ControlUiWidget,
+} from "openclaw/plugin-sdk/control-ui";
 import {
   renderWorkboardBoardWidget,
   renderWorkboardCardWidget,

@@ -352,6 +352,8 @@ snapshots; OpenClaw owns all persistence and lifecycle coordination.
 
     For transcript reads and writes, import `openclaw/plugin-sdk/session-transcript-runtime` and use `resolveSessionTranscriptIdentity(...)`, `resolveSessionTranscriptTarget(...)`, `readSessionTranscriptEvents(...)`, `readSessionTranscriptRawDelta(...)`, `readSessionTranscriptVisibleMessageDelta(...)`, `readVisibleSessionTranscriptMessageEntries(...)`, `appendSessionTranscriptMessageByIdentity(...)`, `publishSessionTranscriptUpdateByIdentity(...)`, or `withSessionTranscriptWriteLock(...)` with `{ agentId, sessionKey, sessionId }`. These APIs let plugins identify a transcript, read raw events or visible branch-safe message entries, append messages, publish updates, and run related operations under the same transcript write lock without depending on active transcript file paths. `readVisibleSessionTranscriptMessageEntries(...)` returns ordered read metadata; its `seq` field is not a resumable cursor.
 
+    `redactSessionTranscriptMessage(message, config?)` synchronously previews the native redaction applied to an `AgentMessage` before storage. It returns the redacted message without writing or granting session authority; unchanged input may be returned by identity. This is not arbitrary event serialization or media canonicalization. Pass the original message through the normal append owner. For exact verification, compare the persisted message against the redacted original, never against a redacted copy of the persisted message. Keep original source digests, timestamps and operation/anchor checks. Explicit `config.logging.redactPatterns` takes precedence; when omitted, native logging configuration supplies patterns. A write lock does not freeze that policy, so policy drift that changes the expected representation must remain a verification conflict, not permission to rewrite history.
+
     For the identity-based operations listed above, an omitted `storePath` selects `session.store` from the supplied `config` when the operation accepts one, otherwise from the current runtime config snapshot. An explicit concrete `storePath` takes precedence; incognito session keys always select isolated in-memory storage. The write lock pins its selected store for callback reads, appends, and queued publication, even if runtime config changes while the callback awaits. Public identities and targets remain pathless. `readLatestAssistantTextByIdentity(...)` and `appendAssistantMirrorMessageByIdentity(...)` use the same store-selection rules.
 
     `appendSessionTranscriptMessageByIdentity(...)` is a low-level append of an already canonical message. Plugins must not synthesize media-bearing user rows with top-level `MediaPath`, `MediaPaths`, `MediaUrl`, `MediaUrls`, `MediaType`, or `MediaTypes`. Channel ingress should pass ordered facts through `MsgContext.media` and let the host own user-turn persistence. A host-prepared persisted user message carries canonical ordered facts under `message.__openclaw.media`; the generic append API does not infer or repair legacy parallel arrays.
@@ -1144,6 +1146,10 @@ snapshots; OpenClaw owns all persistence and lifecycle coordination.
 
     Plugin-state leases were removed. Use short SQLite transactions for atomic database work and plugin-scoped keyed stores (`openKeyedStore` or `openSyncKeyedStore`) for bounded durable state.
 
+    For filesystem work spanning asynchronous steps, `openclaw/plugin-sdk/sqlite-runtime` exports `tryAcquireExclusiveSqliteCoordinator(location, { busyTimeoutMs? })`. It returns `{ release() }` while holding an exclusive SQLite transaction, or `null` when another owner holds the lock. The synchronous busy timeout defaults to zero. Release exactly once in `finally`; other open, locking, or release failures throw. Process exit releases the OS lock without a PID, heartbeat, or stale-time heuristic.
+
+    Use a separate contentless coordinator file in validated private plugin state, not the shared application database. All participants must use the same physical file on a filesystem with working SQLite locking; do not delete, replace, or truncate it while participants may be active. This helper is coordination, not authorization or a durable operation receipt: plugins must still journal filesystem intent and verify source identity before recovery.
+
     `openChannelIngressDrain(...)` opens the core channel-agnostic worker over that queue (or creates a queue when none is supplied). The drain owns stale-claim recovery, per-lane claim serialization, complete-at-adoption or complete-on-dispatch-return, retry/dead-letter disposition, optional pre-adoption supersede, and claim→adoption stall timeout. Wire claim ownership into reply generation with `turnAdoptionLifecycle` (via `bindIngressLifecycleToReplyOptions` from `plugin-sdk/channel-outbound`). Channel plugins keep accept-side enqueue, lane derivation, non-retryable classification, and any supersede authorization policy.
 
     <Warning>
@@ -1246,6 +1252,18 @@ instance. Calls, including queued writes, reject once service shutdown begins or
 that scheduler is replaced. Call `ctx.getCron()` again to obtain the replacement
 scheduler while the service remains active.
 
+Service scheduler `list`, `add`, and `update` return detached job snapshots with
+an opaque `configRevision`. Pass the loaded revision to
+`update(id, patch, { expectedConfigRevision })` to reject a stale edit under the
+native scheduler's store lock. Omitting the option retains unconditional update
+behavior. A blank revision is invalid. These revision-safe operations belong to
+the service handle; older Gateway hook handles do not accept revision options.
+
+Use `payload: { kind: "agentTurn", message, toolsAllow: ["my_plugin_tool"] }`
+for an isolated agent job, and explicitly set `delivery: { mode: "none" }` when
+the job must not announce its result. A tool cap opts in named optional plugin
+tools but does not override operator tool restrictions or a disabled plugin.
+
 A service can declare `reload: { configPrefixes: ["myConfig.service"] }` alongside
 its `id`, `start`, and `stop`. After a matching config change commits, the Gateway
 stops that service and calls `start(ctx)` again with the new `ctx.config`. Only
@@ -1310,6 +1328,74 @@ The reporter is revoked when the service stops or its plugin registry generation
 late callback from an old generation cannot overwrite current health. Prefer returning the startup
 promise when the service is not usable until that promise settles; use the reporter only for
 deliberately nonblocking work that owns its own stop path.
+
+## Native notification emitters
+
+Hosts providing `api.notifications.registerEmitter(declaration)` let a plugin
+use native Web Push without receiving subscription credentials or choosing an
+arbitrary delivery URL. This optional API requires a native `controlUi`
+declaration. Pin and test a host build providing the API; registration may return
+`undefined` when unavailable or invalid. Do not make an optional notification
+feature a prerequisite for unrelated plugin startup.
+
+Register a version-1 declaration with a unique plugin-local `id`, nonempty
+`requiredScopes`, and one to eight `{ id, pageId }` destinations. At most eight
+emitters may be registered per plugin. Declare plugin-owned native pages and
+use their page IDs as destinations. During an authenticated request for that
+plugin, call `emitter.bindCurrentOperator()`. It returns a binding or `undefined`
+when no eligible current operator authority exists; background code cannot
+choose or invent an operator identity.
+
+The host checks the authenticated profile, paired device, approved scopes,
+authentication generation and live plugin/Gateway owner. A retained binding may
+outlive the originating request, but authority is revalidated before delivery.
+Reacquire a binding through a newly authorized request after its owner changes.
+Current Web Push targets and user/device preferences remain host-owned.
+
+`binding.emit(candidate)` accepts this closed version-1 shape:
+
+```typescript
+const candidate = {
+  version: 1 as const,
+  emissionId: "review-17-ready",
+  logicalOperationId: "review-17",
+  attentionClass: "active" as const,
+  preview: { title: "Review ready", body: "Open the review to continue." },
+  deepLink: {
+    kind: "plugin-detail" as const,
+    destinationId: "reviews",
+    recordId: "review-17",
+  },
+  expiresAtMs: Date.now() + 60_000,
+};
+```
+
+IDs contain one to 128 ASCII letters, digits, dots, underscores, colons or
+hyphens, starting with a letter or digit. Attention class is `active` or
+`time-sensitive`. Preview title/body limits are 80/256 Unicode code points;
+empty strings, control characters and malformed Unicode are rejected. Expiry
+must be an integer timestamp in the future and at most 24 hours away. The
+canonical candidate JSON must fit within 2,048 UTF-8 bytes. The destination must
+be declared; extra fields are not accepted.
+
+The emit result reports `status`, `attempted`, `delivered`, `failed` and
+`ambiguous`, with optional `retryAfterMs` for rate limiting. Status is `sent`,
+`partial`, `suppressed`, `expired`, `rate-limited`, `no-targets`, `failed` or
+`ambiguous`. Transport acceptance does not prove that a person saw the message.
+Keep the same emission ID, declaration and candidate for replay; changing the
+payload behind an existing emission ID is a conflict. IDs are scoped across
+declarations for the same operator and plugin. Do not generate another emission
+ID to bypass an ambiguous outcome.
+
+`binding.clear({ version: 1, logicalOperationId })` closes the logical operation
+across that operator/plugin's declarations. It returns `status` (`cleared`,
+`already-cleared`, `partial` or `ambiguous`) and `attempted`, `cleared`, `failed`
+and `ambiguous` counts. The host records intent before transport, fences delayed
+completion and retains dismissal state in its SQLite ledger. Clearing prevents
+new emissions for that operation while the retained ledger record applies; it
+is not a guarantee that an offline device has received the dismissal. Preserve
+and expose partial or ambiguous results instead of reporting unconditional
+success.
 
 ## Storing runtime references
 

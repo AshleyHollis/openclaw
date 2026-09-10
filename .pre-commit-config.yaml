@@ -4,6 +4,11 @@
 #
 # See https://pre-commit.com for more information
 
+# Keep checks enabled without rewriting a sealed release comparison with
+# unrelated generated artifacts. Their owning workflows publish those changes.
+ci:
+  autofix_prs: false
+
 repos:
   # Basic file hygiene
   - repo: https://github.com/pre-commit/pre-commit-hooks

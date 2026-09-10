@@ -57,6 +57,15 @@ export type {
 } from "../config/sessions/session-accessor.js";
 export { hasPromptImageInput } from "../media/prompt-image-input.js";
 
+// Preview the same native redaction applied to AgentMessage writes. This is not
+// arbitrary event serialization or media canonicalization, nor write authority.
+export function redactSessionTranscriptMessage(
+  message: AgentMessage,
+  config?: OpenClawConfig,
+): AgentMessage {
+  return redactTranscriptMessage(message, config);
+}
+
 export {
   formatSessionTranscriptMemoryHitKey,
   parseSessionTranscriptMemoryHitKey,

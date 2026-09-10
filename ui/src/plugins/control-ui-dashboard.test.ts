@@ -2,7 +2,10 @@
 
 import type { BoardGetParams } from "@openclaw/gateway-protocol";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
-import type { ControlUiHost, ControlUiViewContext } from "../../../src/plugin-sdk/control-ui.js";
+import type {
+  ControlUiHostV2 as ControlUiHost,
+  ControlUiViewContextV2 as ControlUiViewContext,
+} from "../../../src/plugin-sdk/control-ui.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { ApplicationContext } from "../app/context.ts";
 import {
