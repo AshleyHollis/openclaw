@@ -34,6 +34,7 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) defaultView: unknown = nothing;
   @property({ attribute: false }) defaultHost?: LitElement;
   @property({ type: Boolean }) presented = true;
+  @property({ attribute: false }) showInMain?: () => void;
   @state() private error = "";
   private registration?: ViewRegistration;
   private mountAbort?: AbortController;
@@ -132,6 +133,24 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
           signal: abort.signal,
           props: this.scopedProps(abort.signal),
           presented: this.presented,
+          ...(this.kind === "panels" && this.showInMain
+            ? {
+                panel: {
+                  showInMain: () => {
+                    // A retained callback cannot change the successor Session's layout.
+                    if (
+                      abort.signal.aborted ||
+                      registration.signal.aborted ||
+                      !this.presented ||
+                      !this.isConnected
+                    ) {
+                      throw new Error("This plugin UI panel is no longer presented.");
+                    }
+                    this.showInMain?.();
+                  },
+                },
+              }
+            : {}),
           mountDefault: (target) => {
             if (abort.signal.aborted) {
               throw new Error("This plugin UI view has ended.");

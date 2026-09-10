@@ -159,6 +159,14 @@ is false; use it to pause visual work while preserving state. Removing or dispos
 the view aborts its signal and retires its host handles. Check the signal after
 asynchronous work and release plugin resources in `dispose`.
 
+Native Chat panels can receive optional `context.panel.showInMain()`. Call it
+after a user selects panel content to move that same panel into the main pane
+using the native layout; it does not open a different Session or grant access
+to other panels. Users can still swap, resize, or close panels with the native
+controls. Feature-detect `context.panel` for hosts without this capability.
+Calling a retained handle after disposal or while the panel is not presented
+throws; check the view signal and current presentation after asynchronous work.
+
 Session-bound views and actions receive `sessionKey` and `agentId`. Carry both
 when making a session request: the application's selected agent can differ from
 the view's agent. Changing either part of that identity retires the old view's

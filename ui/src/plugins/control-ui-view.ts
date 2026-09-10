@@ -118,6 +118,7 @@ export function renderPluginContribution(
   props: unknown,
   defaultView: unknown = nothing,
   presented = true,
+  showInMain?: () => void,
 ) {
   return html`<openclaw-plugin-view
     .kind=${kind}
@@ -125,5 +126,6 @@ export function renderPluginContribution(
     .props=${props}
     .defaultView=${defaultView}
     .presented=${presented}
+    .showInMain=${showInMain}
   ></openclaw-plugin-view>`;
 }

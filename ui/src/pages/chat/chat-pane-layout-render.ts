@@ -17,6 +17,7 @@ import {
   sidebarPanelTemplates,
 } from "./chat-pane-embedded-panels.ts";
 import { resolveChatPaneDesktopTarget } from "./chat-pane-placement.ts";
+import { createPluginPanelPromotion } from "./chat-pane-plugin-panel-promotion.ts";
 import type { ResolvedBoardView } from "./chat-pane-shared.ts";
 import { renderSidebarRegion, sidebarRegionCallbacks } from "./chat-pane-sidebar-layout.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
@@ -211,6 +212,11 @@ export abstract class ChatPaneLayoutRender extends ChatPaneBrowserAnnotationRend
       pluginPanels: this.context.plugins.registrations("panels"),
       isPluginPanelPresented: (slot) =>
         this.active && this.presented && isSidebarSlotVisible(sidebarLayout, slot),
+      showPluginPanelInMain: createPluginPanelPromotion(
+        state,
+        currentAgentId,
+        () => this.active && this.presented,
+      ),
     });
     const availableSlots = availableSidebarSlots(panelDefinitions);
     const panelTemplates = sidebarPanelTemplates(panelDefinitions);

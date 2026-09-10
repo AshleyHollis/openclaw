@@ -115,6 +115,8 @@ export type ControlUiViewContext<T = Readonly<Record<string, string>>, Host = Co
   readonly props: T;
   /** Presentation can pause a retained view without ending its host lifetime. */
   readonly presented: boolean;
+  /** Present only for native Chat panels. Moves this retained panel into the main pane. */
+  readonly panel?: { showInMain: () => void };
   /** Mount the host's built-in view inside a replacement; it keeps receiving host updates. */
   mountDefault: (container: HTMLElement) => ControlUiDisposer;
 };
