@@ -11,6 +11,7 @@ import {
   runExclusiveSessionLifecycleMutation,
 } from "../../sessions/session-lifecycle-admission.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
+import { cleanupSessionStateForTest } from "../../test-utils/session-state-cleanup.js";
 import { createRuntimeAgent } from "./runtime-agent.js";
 
 describe("plugin runtime session creation", () => {
@@ -919,7 +920,8 @@ describe("plugin runtime session work admission", () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await cleanupSessionStateForTest({ stateDir: tempDir });
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 

@@ -41,6 +41,7 @@ import {
   isSessionWorkAdmissionActive,
   runExclusiveSessionLifecycleMutation,
 } from "../../sessions/session-lifecycle-admission.js";
+import { emitSessionLifecycleEvent } from "../../sessions/session-lifecycle-events.js";
 import { createLazyRuntimeMethod, createLazyRuntimeModule } from "../../shared/lazy-runtime.js";
 import { getPluginRuntimeGatewayRequestScope } from "./gateway-request-scope.js";
 import { resolveAgentCatalogCreateTarget } from "./runtime-agent-session-catalog.js";
@@ -132,6 +133,14 @@ async function patchSessionEntry(
 ): Promise<SessionEntry | null> {
   return await patchAccessorSessionEntry(toSessionAccessScope(params), params.update, {
     assertCommitAllowed: params.assertCommitAllowed,
+    // Metadata-only writes retain identity/activity, so identity events cannot
+    // invalidate the Gateway roster. Publish through its existing commit hook.
+    onCommitted: () =>
+      emitSessionLifecycleEvent({
+        sessionKey: params.sessionKey,
+        agentId: params.agentId,
+        reason: "plugin-patch",
+      }),
     fallbackEntry: params.fallbackEntry,
     maintenanceConfig:
       params.maintenanceConfig !== undefined
