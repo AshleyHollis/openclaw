@@ -260,7 +260,7 @@ export type SessionTranscriptVisibleMessageDeltaLimits = {
   maxBytes?: number;
   /** Maximum number of visible messages returned by this page. */
   maxMessages?: number;
-  /** Zero-based visible-message position for a fresh bounded page. */
+  /** Zero-based visible-message position for a fresh bounded page; mutually exclusive with cursor. */
   offset?: number;
 };
 
@@ -272,7 +272,7 @@ export type SessionTranscriptVisibleMessageEventRow = SessionTranscriptEventRow 
   parentId: string | null;
 };
 
-/** Generation-aware outcome for one bounded visible-message read. */
+/** Generation-aware outcome for one bounded visible-message read, including same-snapshot proof facts. */
 export type SessionTranscriptVisibleMessageDeltaResult =
   | {
       kind: "page";

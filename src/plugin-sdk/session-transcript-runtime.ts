@@ -119,11 +119,14 @@ export type SessionTranscriptRawDeltaParams = SessionTranscriptTargetParams &
   SessionTranscriptRawDeltaLimits;
 export type { SessionTranscriptRawDeltaResult };
 
-/** Scoped target and bounds for one active-path visible-message page. */
+/**
+ * Scoped target and bounds for one active-path visible-message page.
+ * Use either an opaque continuation cursor or a direct zero-based offset, never both.
+ */
 export type SessionTranscriptVisibleMessageDeltaParams = SessionTranscriptTargetParams &
   SessionTranscriptVisibleMessageDeltaLimits;
 
-/** Generation-aware outcome for one bounded visible-message read. */
+/** Generation-aware outcome with generation, count, and leaf proof from the page snapshot. */
 export type SessionTranscriptVisibleMessageDeltaResult =
   | {
       kind: "page";
@@ -277,7 +280,7 @@ export async function readSessionTranscriptRawDelta(
   });
 }
 
-/** Reads one bounded active-path page that resumes appends and resets after discontinuities. */
+/** Reads one bounded active-path cursor/offset page and returns same-snapshot proof facts. */
 export async function readSessionTranscriptVisibleMessageDelta(
   params: SessionTranscriptVisibleMessageDeltaParams,
 ): Promise<SessionTranscriptVisibleMessageDeltaResult> {

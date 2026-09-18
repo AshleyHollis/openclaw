@@ -251,13 +251,13 @@ export function readSessionTranscriptVisibleMessageDeltaCore(
     MAX_VISIBLE_MESSAGE_MAX_BYTES,
     "maxBytes",
   );
-  const requestedOffset = Math.max(
-    0,
-    Math.floor(Number.isFinite(limits.offset) ? (limits.offset ?? 0) : 0),
-  );
   if (limits.cursor !== undefined && limits.offset !== undefined) {
     throw new Error("Transcript visible-message offset cannot be combined with a cursor");
   }
+  if (limits.offset !== undefined && (!Number.isSafeInteger(limits.offset) || limits.offset < 0)) {
+    throw new Error("Transcript visible-message offset must be a non-negative safe integer");
+  }
+  const requestedOffset = limits.offset ?? 0;
   return withCurrentProjectionSnapshot(scope, (projection) => {
     const db = getActiveTranscriptKysely(projection.database);
     const transcriptFence = resolveSqliteSessionTranscriptReadFence({

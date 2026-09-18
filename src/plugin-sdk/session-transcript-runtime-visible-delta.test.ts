@@ -142,6 +142,16 @@ describe("session transcript visible cursor SDK", () => {
         maxMessages: 1,
       }),
     ).rejects.toThrow("cannot be combined");
+    for (const offset of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      await expect(
+        readSessionTranscriptVisibleMessageDelta({
+          ...scope,
+          offset,
+          maxBytes: 10_000,
+          maxMessages: 1,
+        }),
+      ).rejects.toThrow("non-negative safe integer");
+    }
     const movedAnchorCursor = Buffer.from(
       JSON.stringify({
         ...(JSON.parse(Buffer.from(second.cursor, "base64url").toString("utf8")) as object),
