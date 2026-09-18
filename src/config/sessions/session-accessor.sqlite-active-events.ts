@@ -439,6 +439,7 @@ export function readSessionTranscriptVisibleMessageDeltaCore(
       selectedCount === 0 && metadata[0] ? metadata[0].serialized_bytes : undefined;
     return {
       kind: "page",
+      activeLeafEntryId: projection.state.leafEventId,
       cursor: encodeVisibleMessageCursor({ ...cursor, lastEventSeq, lastMessagePosition }),
       events: rows,
       generation,

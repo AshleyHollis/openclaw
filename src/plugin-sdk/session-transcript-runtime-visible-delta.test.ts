@@ -62,6 +62,7 @@ describe("session transcript visible cursor SDK", () => {
     });
     expect(first).toMatchObject({
       kind: "page",
+      activeLeafEntryId: firstBranch.messageId,
       entries: [
         {
           entryId: root.messageId,
@@ -126,6 +127,7 @@ describe("session transcript visible cursor SDK", () => {
       }),
     ).resolves.toMatchObject({
       kind: "page",
+      activeLeafEntryId: firstBranch.messageId,
       entries: [{ entryId: firstBranch.messageId, parentId: root.messageId }],
       generation: first.generation,
       hasMore: false,
@@ -229,6 +231,7 @@ describe("session transcript visible cursor SDK", () => {
       }),
     ).resolves.toMatchObject({
       kind: "page",
+      activeLeafEntryId: "replacement-branch",
       entries: [
         { entryId: root.messageId, parentId: null },
         { entryId: "replacement-branch", parentId: root.messageId },

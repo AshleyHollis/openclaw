@@ -131,6 +131,8 @@ export type SessionTranscriptVisibleMessageDeltaResult =
       cursor: string;
       /** Ordered active-path message entries selected for this page. */
       entries: SessionTranscriptMessageEntry[];
+      /** Active transcript leaf captured in the same SQLite read snapshot as this page. */
+      activeLeafEntryId: string | null;
       /** Rewrite identity captured in the same SQLite read snapshot as this page. */
       generation: string;
       /** True when another visible message remains after this page. */
