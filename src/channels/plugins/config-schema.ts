@@ -5,10 +5,15 @@
  */
 import { z, type ZodRawShape, type ZodTypeAny } from "zod";
 import { ToolPolicySchema } from "../../config/zod-schema.agent-runtime.js";
-import { DmPolicySchema } from "../../config/zod-schema.core.js";
-import { validateJsonSchemaValue } from "../../plugins/schema-validator.js";
+import {
+  DmPolicySchema,
+  evaluateDmPolicyAllowFromDependency,
+} from "../../config/zod-schema.core.js";
+import {
+  parseJsonSchemaIssuePath,
+  validateJsonSchemaValue,
+} from "../../plugins/schema-validator.js";
 import type { JsonSchemaObject } from "../../shared/json-schema.types.js";
-import { parseConfigPathArrayIndex } from "../../shared/path-array-index.js";
 import type {
   ChannelConfigRuntimeIssue,
   ChannelConfigRuntimeParseResult,
@@ -20,14 +25,49 @@ type ZodSchemaWithToJsonSchema = ZodTypeAny & {
   toJSONSchema?: (params?: Record<string, unknown>) => unknown;
 };
 
-type ExtendableZodObject = ZodTypeAny & {
-  extend: (shape: Record<string, ZodTypeAny>) => ZodTypeAny;
-};
-
 /** Shared allowlist entry shape for channel sender/user ids. */
 const AllowFromEntrySchema = z.union([z.string(), z.number()]);
 /** Optional allowlist array used by channel config schema builders. */
 export const AllowFromListSchema = z.array(AllowFromEntrySchema).optional();
+
+type ChannelDmPolicyFields = {
+  dmPolicy?: string;
+  allowFrom?: Array<string | number>;
+};
+
+/** Validate one policy scope; the channel owns account selection and refinement ordering. */
+export function refineChannelDmPolicy(params: {
+  channelId: string;
+  value: ChannelDmPolicyFields & {
+    accounts?: Record<string, ChannelDmPolicyFields | undefined>;
+  };
+  accountId?: string;
+  ctx: z.RefinementCtx;
+}): void {
+  const { channelId, value, accountId, ctx } = params;
+  const account = accountId === undefined ? value : value.accounts?.[accountId];
+  if (!account) {
+    return;
+  }
+  const policy = account.dmPolicy ?? value.dmPolicy;
+  const violation = evaluateDmPolicyAllowFromDependency({
+    policy,
+    allowFrom: account.allowFrom ?? value.allowFrom,
+  });
+  if (!violation) {
+    return;
+  }
+  const root = `channels.${channelId}`;
+  const owner = accountId === undefined ? root : `${root}.accounts.*`;
+  const inherited = accountId === undefined ? "" : ` (or ${root}.allowFrom)`;
+  const requirement =
+    violation === "open_requires_wildcard" ? 'include "*"' : "contain at least one sender ID";
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: accountId === undefined ? ["allowFrom"] : ["accounts", accountId, "allowFrom"],
+    message: `${owner}.dmPolicy="${policy}" requires ${owner}.allowFrom${inherited} to ${requirement}`,
+  });
+}
 
 /** Canonical per-group/room channel policy shape. */
 export const ChannelGroupEntrySchema = z
@@ -42,11 +82,20 @@ export const ChannelGroupEntrySchema = z
   })
   .strict();
 
+type ChannelGroupEntryField = keyof typeof ChannelGroupEntrySchema.shape;
+
 /** Extend the canonical group/room policy shape with channel-owned fields. */
-export function buildGroupEntrySchema<T extends ZodRawShape = Record<never, never>>(
-  extraShape?: T,
-) {
-  return ChannelGroupEntrySchema.extend(extraShape ?? ({} as T));
+export function buildGroupEntrySchema<
+  T extends ZodRawShape = Record<never, never>,
+  const TOmit extends readonly ChannelGroupEntryField[] = [],
+>(extraShape?: T, options?: { omit?: TOmit }) {
+  const omitted = new Set<ChannelGroupEntryField>(options?.omit ?? []);
+  const baseShape = Object.fromEntries(
+    Object.entries(ChannelGroupEntrySchema.shape).filter(
+      ([key]) => !omitted.has(key as ChannelGroupEntryField),
+    ),
+  ) as Omit<typeof ChannelGroupEntrySchema.shape, TOmit[number]>;
+  return z.object({ ...baseShape, ...(extraShape ?? ({} as T)) }).strict();
 }
 
 /** Build the common nested DM config block used by channel account schemas. */
@@ -60,12 +109,12 @@ export function buildNestedDmConfigSchema(extraShape?: ZodRawShape) {
 }
 
 /** Add `accounts` catchall and `defaultAccount` fields to a channel account schema. */
-export function buildCatchallMultiAccountChannelSchema<T extends ExtendableZodObject>(
+export function buildCatchallMultiAccountChannelSchema<T extends z.ZodObject>(
   accountSchema: T,
-): T {
-  return buildMultiAccountChannelSchema(accountSchema as unknown as z.ZodObject, {
+): MultiAccountChannelSchema<T, T, false> {
+  return buildMultiAccountChannelSchema(accountSchema, {
     accountsMode: "catchall",
-  }) as unknown as T;
+  });
 }
 
 type MultiAccountSchemaBaseOptions<TAccount extends ZodTypeAny, TOptional extends boolean> = {
@@ -105,7 +154,10 @@ type MultiAccountChannelSchema<
   T extends z.ZodObject,
   TAccount extends ZodTypeAny,
   TOptional extends boolean,
-> = z.ZodObject<z.util.Extend<T["shape"], MultiAccountEnvelopeShape<TAccount, TOptional>>>;
+> = z.ZodObject<
+  z.util.Extend<T["shape"], MultiAccountEnvelopeShape<TAccount, TOptional>>,
+  T["_zod"]["config"]
+>;
 
 /** Add the standard accounts/defaultAccount envelope and optional shared account/root refinement. */
 export function buildMultiAccountChannelSchema<
@@ -183,15 +235,6 @@ function safeParseRuntimeSchema(
   };
 }
 
-function toIssuePath(path: string): Array<string | number> {
-  if (!path || path === "<root>") {
-    return [];
-  }
-  return path.split(".").map((segment) => {
-    return parseConfigPathArrayIndex(segment) ?? segment;
-  });
-}
-
 function safeParseJsonSchema(
   schema: JsonSchemaObject,
   cacheKey: string,
@@ -209,7 +252,7 @@ function safeParseJsonSchema(
   return {
     success: false,
     issues: result.errors.map((issue) => ({
-      path: toIssuePath(issue.path),
+      path: parseJsonSchemaIssuePath(issue.path),
       message: issue.message,
     })),
   };

@@ -9,6 +9,7 @@ import {
 import {
   buildWebhookConfig,
   getFreePort,
+  signFeishuPayload,
   withRunningWebhookMonitor,
 } from "./monitor.webhook.test-helpers.js";
 
@@ -16,6 +17,7 @@ const probeFeishuMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./probe.js", () => ({
   probeFeishu: probeFeishuMock,
+  registerFeishuAiAgent: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 vi.mock("./client.js", () => createFeishuClientMockModule());
@@ -38,12 +40,13 @@ vi.mock("./monitor.state.js", async (importOriginal) => {
   };
 });
 
+import { createRuntimeSpies } from "../../test-support/runtime-spies.js";
 import type { RuntimeEnv } from "../runtime-api.js";
 import { buildFeishuWebhookRateLimitKey } from "./monitor-rate-limit-key.js";
 import { resolveRequestClientIp } from "./monitor-transport-runtime-api.js";
 import { cleanupFeishuMonitorStateForTests } from "./monitor.cleanup.test-helpers.js";
 import { monitorFeishuProvider } from "./monitor.js";
-import { feishuWebhookRateLimiter } from "./monitor.state.js";
+import { feishuWebhookRateLimiter, httpServers } from "./monitor.state.js";
 import { monitorWebhook } from "./monitor.transport.js";
 import type { ResolvedFeishuAccount } from "./types.js";
 
@@ -59,6 +62,7 @@ async function waitForSlowBodyTimeoutResponse(
     const target = new URL(url);
     const startedAt = Date.now();
     let response = "";
+    let settled = false;
     const socket = createConnection(
       {
         host: target.hostname,
@@ -75,17 +79,27 @@ async function waitForSlowBodyTimeoutResponse(
     );
 
     socket.setEncoding("utf8");
-    socket.on("error", () => {});
     socket.on("data", (chunk) => {
       response += chunk.toString();
-      if (response.includes("Request body timeout")) {
+    });
+    socket.on("close", () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(failTimer);
+      resolve({ body: response, elapsedMs: Date.now() - startedAt });
+    });
+    socket.on("error", (error) => {
+      if (!settled) {
+        settled = true;
         clearTimeout(failTimer);
-        socket.destroy();
-        resolve({ body: response, elapsedMs: Date.now() - startedAt });
+        reject(error);
       }
     });
 
     const failTimer = setTimeout(() => {
+      settled = true;
       socket.destroy();
       reject(new Error(`timeout response did not arrive within ${timeoutMs}ms`));
     }, timeoutMs);
@@ -119,32 +133,26 @@ async function waitForOversizedBodyResponse(url: string): Promise<string> {
       }
       settled = true;
       clearTimeout(failTimer);
-      socket.destroy();
       resolve(result);
     };
 
     socket.setEncoding("utf8");
     socket.on("data", (chunk) => {
       response += chunk.toString();
-      if (response.includes("Payload too large")) {
-        finish(response);
-      }
     });
     socket.on("close", () => {
-      if (response.includes("Payload too large")) {
-        finish(response);
-      }
+      finish(response);
     });
     socket.on("error", (error: NodeJS.ErrnoException) => {
-      if (response.includes("Payload too large")) {
-        finish(response);
-        return;
+      if (!settled) {
+        if (response.includes("Payload too large")) {
+          finish(response);
+          return;
+        }
+        settled = true;
+        clearTimeout(failTimer);
+        reject(new Error(`${error.message}; partial response: ${JSON.stringify(response)}`));
       }
-      if (error.code === "ECONNRESET") {
-        finish("ECONNRESET");
-        return;
-      }
-      reject(error);
     });
 
     const failTimer = setTimeout(() => {
@@ -159,6 +167,16 @@ function resolveTestClientIp(remoteAddress: string | undefined): string | undefi
     headers: {},
     socket: { remoteAddress },
   } as IncomingMessage);
+}
+
+function waitForWebhookResponseClose(accountId: string): Promise<void> {
+  const server = httpServers.get(accountId);
+  if (!server) {
+    throw new Error("expected webhook server");
+  }
+  return new Promise<void>((resolve) => {
+    server.once("request", (_req, res) => res.once("close", resolve));
+  });
 }
 
 afterEach(async () => {
@@ -219,11 +237,7 @@ describe("Feishu webhook security hardening", () => {
       monitorWebhook({
         account,
         accountId: account.accountId,
-        runtime: {
-          log: vi.fn(),
-          error: vi.fn(),
-          exit: vi.fn(),
-        } as RuntimeEnv,
+        runtime: createRuntimeSpies() as RuntimeEnv,
         abortSignal: new AbortController().signal,
         eventDispatcher: {} as never,
       }),
@@ -255,42 +269,70 @@ describe("Feishu webhook security hardening", () => {
 
   it("rejects oversized unsigned webhook bodies with 413 before signature verification", async () => {
     probeFeishuMock.mockResolvedValue({ ok: true, botOpenId: "bot_open_id" });
+    const runtime = { log: vi.fn(), error: vi.fn(), exit: vi.fn() };
+    const statusSink = vi.fn();
     await withRunningWebhookMonitor(
       {
         accountId: "payload-too-large",
         path: "/hook-payload-too-large",
         verificationToken: "verify_token",
         encryptKey: "encrypt_key",
+        runtime,
+        statusSink,
       },
       monitorFeishuProvider,
       async (url) => {
+        statusSink.mockClear();
+        const responseClosed = waitForWebhookResponseClose("payload-too-large");
         const response = await waitForOversizedBodyResponse(url);
 
-        if (response === "ECONNRESET") {
-          expect(response).toBe("ECONNRESET");
-        } else {
-          expect(response).toContain("413 Payload Too Large");
-          expect(response).toContain("Payload too large");
-        }
+        expect(response).toContain("413 Payload Too Large");
+        expect(response).toContain("Payload too large");
+        expect(response).toMatch(/connection: close/i);
+        await responseClosed;
+        expect(
+          runtime.log.mock.calls.filter(([message]) => message.includes("webhook anomaly")),
+        ).toEqual([
+          [
+            "feishu[payload-too-large]: webhook anomaly path=/hook-payload-too-large status=413 count=1",
+          ],
+        ]);
+        expect(statusSink).not.toHaveBeenCalled();
       },
     );
   });
 
   it("drops slow-body webhook requests within the tightened pre-auth timeout", async () => {
     probeFeishuMock.mockResolvedValue({ ok: true, botOpenId: "bot_open_id" });
+    const runtime = { log: vi.fn(), error: vi.fn(), exit: vi.fn() };
+    const statusSink = vi.fn();
     await withRunningWebhookMonitor(
       {
         accountId: "slow-body-timeout",
         path: "/hook-slow-body-timeout",
         verificationToken: "verify_token",
         encryptKey: "encrypt_key",
+        runtime,
+        statusSink,
       },
       monitorFeishuProvider,
       async (url) => {
+        statusSink.mockClear();
+        const responseClosed = waitForWebhookResponseClose("slow-body-timeout");
         const result = await waitForSlowBodyTimeoutResponse(url, 1_000);
         expect(result.body).toContain("408 Request Timeout");
         expect(result.body).toContain("Request body timeout");
+        expect(result.body).toMatch(/connection: close/i);
         expect(result.elapsedMs).toBeLessThan(500);
+        await responseClosed;
+        expect(
+          runtime.log.mock.calls.filter(([message]) => message.includes("webhook anomaly")),
+        ).toEqual([
+          [
+            "feishu[slow-body-timeout]: webhook anomaly path=/hook-slow-body-timeout status=408 count=1",
+          ],
+        ]);
+        expect(statusSink).not.toHaveBeenCalled();
       },
     );
   });
@@ -387,5 +429,67 @@ describe("Feishu webhook security hardening", () => {
 
     feishuWebhookRateLimiter.isRateLimited("/feishu-rate-limit-stale:fresh", now + 60_001);
     expect(feishuWebhookRateLimiter.size()).toBe(1);
+  });
+
+  it("rejects correctly signed callbacks with a stale timestamp", async () => {
+    probeFeishuMock.mockResolvedValue({ ok: true, botOpenId: "bot_open_id" });
+
+    await withRunningWebhookMonitor(
+      {
+        accountId: "stale-timestamp",
+        path: "/hook-stale-timestamp",
+        verificationToken: "verify_token",
+        encryptKey: "encrypt_key",
+      },
+      monitorFeishuProvider,
+      async (url) => {
+        const payload = { type: "url_verification", challenge: "challenge-token" };
+        const headers = signFeishuPayload({
+          encryptKey: "encrypt_key",
+          rawBody: JSON.stringify(payload),
+          timestamp: (Math.floor(Date.now() / 1000) - 7_200).toString(),
+        });
+
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+        });
+
+        expect(response.status).toBe(401);
+        expect(await response.text()).toBe("Invalid signature");
+      },
+    );
+  });
+
+  it("rejects correctly signed callbacks with a far-future timestamp", async () => {
+    probeFeishuMock.mockResolvedValue({ ok: true, botOpenId: "bot_open_id" });
+
+    await withRunningWebhookMonitor(
+      {
+        accountId: "future-timestamp",
+        path: "/hook-future-timestamp",
+        verificationToken: "verify_token",
+        encryptKey: "encrypt_key",
+      },
+      monitorFeishuProvider,
+      async (url) => {
+        const payload = { type: "url_verification", challenge: "challenge-token" };
+        const headers = signFeishuPayload({
+          encryptKey: "encrypt_key",
+          rawBody: JSON.stringify(payload),
+          timestamp: (Math.floor(Date.now() / 1000) + 7_200).toString(),
+        });
+
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+        });
+
+        expect(response.status).toBe(401);
+        expect(await response.text()).toBe("Invalid signature");
+      },
+    );
   });
 });

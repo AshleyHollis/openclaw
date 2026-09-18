@@ -3,36 +3,18 @@
 import { html, render } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { QuestionPrompt } from "../../../app/question-prompt.ts";
-import type { QuestionStatus } from "../tool-stream.ts";
-import { createCodexQuestionCardProps, renderChatQuestionCard } from "./chat-question-card.ts";
+import { createGatewayQuestionPanelProps } from "./chat-question-card.ts";
 
-type ChatQuestionCardElement = HTMLElement & {
+type ChatQuestionPanelElement = HTMLElement & {
   updateComplete: Promise<unknown>;
 };
-
-function codexStatus(overrides: Partial<QuestionStatus> = {}): QuestionStatus {
-  return {
-    itemId: "item-1",
-    actionToken: "test-action-token",
-    questions: [
-      {
-        id: "mode",
-        header: "Mode",
-        question: "Pick one",
-        isOther: false,
-        options: [{ label: "Fast" }, { label: " Deep ", description: "More reasoning" }],
-      },
-    ],
-    ...overrides,
-  };
-}
 
 function gatewayPrompt(overrides: Partial<QuestionPrompt> = {}): QuestionPrompt {
   return {
     id: "question-1",
     questions: [
       {
-        id: "format",
+        questionId: "format",
         header: "Format",
         question: "Which format should I use?",
         options: [
@@ -57,13 +39,13 @@ function gatewayPrompt(overrides: Partial<QuestionPrompt> = {}): QuestionPrompt 
   };
 }
 
-async function cardIn(container: HTMLElement): Promise<ChatQuestionCardElement> {
-  const card = container.querySelector("openclaw-chat-question") as ChatQuestionCardElement;
-  await card.updateComplete;
-  return card;
+async function panelIn(container: HTMLElement): Promise<ChatQuestionPanelElement> {
+  const panel = container.querySelector("openclaw-chat-question-panel") as ChatQuestionPanelElement;
+  await panel.updateComplete;
+  return panel;
 }
 
-describe("shared question card", () => {
+describe("shared question panel", () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {
@@ -75,243 +57,451 @@ describe("shared question card", () => {
     container.remove();
   });
 
-  describe("Codex adapter", () => {
-    function draw(
-      status: QuestionStatus,
-      onSubmit: (answers: Record<string, string>, onRejected: () => void) => void,
-    ) {
+  function drawGateway(
+    prompt: QuestionPrompt,
+    callbacks: {
+      onSubmit?: (answers: Record<string, string[]>) => void | Promise<void>;
+      onSkip?: () => void | Promise<void>;
+    } = {},
+  ) {
+    let collapsed = false;
+    const redraw = () => {
       render(
-        html`<openclaw-chat-question
-          .props=${createCodexQuestionCardProps(status, { disabled: false, onSubmit })}
-        ></openclaw-chat-question>`,
-        container,
-      );
-    }
-
-    it("submits a selected native option through the string-answer seam", async () => {
-      const onSubmit = vi.fn();
-      draw(codexStatus(), onSubmit);
-      const card = await cardIn(container);
-      const options = container.querySelectorAll<HTMLInputElement>('input[type="radio"]');
-
-      options[1]!.click();
-      await card.updateComplete;
-      container.querySelector<HTMLButtonElement>(".chat-question__submit")!.click();
-
-      expect(onSubmit).toHaveBeenCalledWith({ mode: " Deep " }, expect.any(Function));
-      await card.updateComplete;
-      expect(container.querySelector<HTMLButtonElement>(".chat-question__submit")?.disabled).toBe(
-        true,
-      );
-    });
-
-    it("keeps the main submit label when the composer is disconnected", async () => {
-      render(
-        html`<openclaw-chat-question
-          .props=${createCodexQuestionCardProps(codexStatus(), {
-            disabled: true,
-            onSubmit: vi.fn(),
-          })}
-        ></openclaw-chat-question>`,
-        container,
-      );
-      await cardIn(container);
-
-      const submit = container.querySelector<HTMLButtonElement>(".chat-question__submit");
-      expect(submit?.textContent?.trim()).toBe("Submit answer");
-      expect(submit?.disabled).toBe(true);
-    });
-
-    it("re-enables submission when the scoped command is rejected", async () => {
-      let reject: (() => void) | undefined;
-      draw(codexStatus(), (_answers, onRejected) => {
-        reject = onRejected;
-      });
-      const card = await cardIn(container);
-      container.querySelector<HTMLInputElement>('input[type="radio"]')!.click();
-      await card.updateComplete;
-      const submit = container.querySelector<HTMLButtonElement>(".chat-question__submit")!;
-      submit.click();
-      await card.updateComplete;
-      expect(submit.disabled).toBe(true);
-
-      reject?.();
-      await Promise.resolve();
-      await card.updateComplete;
-      expect(submit.disabled).toBe(false);
-    });
-
-    it("clears free-form text when the request key changes", async () => {
-      const status = codexStatus({
-        itemId: "reused-item",
-        questions: [
-          {
-            id: "other",
-            header: "Alternative",
-            question: "Type another answer",
-            isOther: true,
-            options: [],
-          },
-        ],
-      });
-      draw(status, vi.fn());
-      const card = await cardIn(container);
-      const input = container.querySelector<HTMLInputElement>(".chat-question__other")!;
-      input.value = "stale answer";
-      input.dispatchEvent(new InputEvent("input", { bubbles: true }));
-      await card.updateComplete;
-
-      // A new itemId changes the request key exactly like a new action token.
-      draw({ ...status, itemId: "item-second-request" }, vi.fn());
-      await card.updateComplete;
-      expect(container.querySelector<HTMLInputElement>(".chat-question__other")?.value).toBe("");
-    });
-
-    it("preserves free-form text that begins with an option label", async () => {
-      draw(
-        codexStatus({
-          questions: [
-            {
-              id: "reason",
-              header: "Decision",
-              question: "Continue?",
-              isOther: true,
-              options: [{ label: "No" }],
+        html`<openclaw-chat-question-panel
+          .props=${createGatewayQuestionPanelProps(prompt, {
+            collapsed,
+            onCollapsedChange: (nextCollapsed) => {
+              collapsed = nextCollapsed;
+              redraw();
             },
-          ],
-        }),
-        vi.fn(),
+            onChange: redraw,
+            onSubmit: callbacks.onSubmit ?? vi.fn(),
+            onSkip: callbacks.onSkip ?? vi.fn(),
+          })}
+        ></openclaw-chat-question-panel>`,
+        container,
       );
-      const card = await cardIn(container);
-      const input = container.querySelector<HTMLInputElement>(".chat-question__other")!;
-      input.value = "No, because the proof failed";
-      input.dispatchEvent(new InputEvent("input", { bubbles: true }));
-      await card.updateComplete;
+    };
+    redraw();
+  }
 
-      expect(input.value).toBe("No, because the proof failed");
+  it("steps from single-select to multi-select and preserves array answers", async () => {
+    const prompt = gatewayPrompt({
+      questions: [
+        {
+          questionId: "target",
+          header: "Target",
+          question: "Where should I send it?",
+          options: [{ label: "Chat" }, { label: "File" }],
+          isOther: true,
+        },
+        {
+          questionId: "extras",
+          header: "Extras",
+          question: "Which extras should I include?",
+          options: [{ label: "Tests" }, { label: "Docs" }],
+          multiSelect: true,
+          isOther: true,
+        },
+      ],
+    });
+    const onSubmit = vi.fn();
+    drawGateway(prompt, { onSubmit });
+    const panel = await panelIn(container);
+
+    expect(
+      container.querySelector('[role="radio"] .chat-question-panel__option-marker'),
+    ).not.toBeNull();
+    expect(container.querySelector('[role="radio"] kbd')).not.toBeNull();
+    expect(
+      container.querySelector(
+        ".chat-question-panel__option--other .chat-question-panel__option-marker",
+      ),
+    ).not.toBeNull();
+    expect(container.querySelector(".chat-question-panel__option--other kbd")).not.toBeNull();
+    expect(container.querySelector('[role="radiogroup"]')).not.toBeNull();
+    expect(
+      container.querySelector<HTMLInputElement>(".chat-question-panel__option--other input")
+        ?.placeholder,
+    ).toBe("Type your own answer here");
+    expect(container.querySelector(".chat-question-panel__progress")?.textContent).toBe("1/2");
+    container.querySelector<HTMLButtonElement>('[role="radio"]')?.click();
+    await panel.updateComplete;
+
+    expect(container.querySelector(".chat-question-panel__prompt")?.textContent).toBe(
+      "Which extras should I include?",
+    );
+    expect(container.querySelector(".chat-question-panel__progress")?.textContent).toBe("2/2");
+    container.querySelector<HTMLButtonElement>(".chat-question-panel__back")?.click();
+    await panel.updateComplete;
+    expect(container.querySelector(".chat-question-panel__prompt")?.textContent).toBe(
+      "Where should I send it?",
+    );
+    container.querySelector<HTMLButtonElement>('[role="radio"]')?.click();
+    await panel.updateComplete;
+    container.querySelectorAll<HTMLButtonElement>('[role="checkbox"]')[0]?.click();
+    container.querySelectorAll<HTMLButtonElement>('[role="checkbox"]')[1]?.click();
+    const other = container.querySelector<HTMLInputElement>(".chat-question-panel__other")!;
+    other.value = "Metrics";
+    other.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await panel.updateComplete;
+    container.querySelector<HTMLButtonElement>(".chat-question-panel__advance")?.click();
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      target: ["Chat"],
+      extras: ["Tests", "Docs", "Metrics"],
     });
   });
 
-  describe("gateway adapter", () => {
-    async function draw(
-      prompt: QuestionPrompt,
-      onSubmit: (answers: Record<string, string[]>) => void | Promise<void> = vi.fn(),
-    ) {
-      const redraw = () => {
-        render(
-          renderChatQuestionCard(prompt, {
-            nowMs: 2_000,
-            onChange: redraw,
-            onSubmit,
-          }),
-          container,
-        );
-      };
-      redraw();
-      await cardIn(container);
-      return onSubmit;
-    }
+  it("keeps a store-bound secret masked while preserving editable destination hosts", async () => {
+    const prompt = gatewayPrompt({
+      agentId: "release-agent",
+      questions: [
+        {
+          questionId: "api_key",
+          header: "API key",
+          question: "Provide the deployment API key",
+          options: [],
+          isSecret: true,
+          secretStore: {
+            name: "FAKE_DEPLOYMENT_API_KEY",
+            kind: "secret",
+            allowedHosts: ["api.example.test"],
+            reason: "Deploy the approved release",
+          },
+          secretStoreExisting: {
+            updatedAtMs: Date.now() - 60_000,
+            updatedBy: "release-owner",
+          },
+        },
+      ],
+    });
+    const onSubmit = vi.fn();
+    drawGateway(prompt, { onSubmit });
+    const panel = await panelIn(container);
+    const hosts = container.querySelector<HTMLInputElement>(".chat-question-panel__hosts")!;
+    const secret = container.querySelector<HTMLInputElement>('input[type="password"]')!;
 
-    it("submits multiselect options and free text as arrays", async () => {
+    expect(hosts.value).toBe("api.example.test");
+    expect(secret.autocomplete).toBe("off");
+    expect(secret.placeholder).toBe("FAKE_DEPLOYMENT_API_KEY");
+    expect(secret.closest("label")?.textContent).toContain("API key");
+    expect(container.querySelector(".chat-question-panel__options")).toBeNull();
+    expect(container.querySelector(".chat-question-panel__option-marker")).toBeNull();
+    expect(container.querySelector("kbd")).toBeNull();
+    expect(container.textContent).toContain("release-agent");
+    expect(container.textContent).toContain("agent:main:main");
+    expect(container.textContent).toContain("Stores FAKE_DEPLOYMENT_API_KEY as Protected secret");
+    expect(container.textContent).toContain("Deploy the approved release");
+    expect(container.textContent).toContain("Replaces FAKE_DEPLOYMENT_API_KEY — last updated");
+    expect(container.textContent).toContain("by release-owner");
+
+    hosts.value = "api.example.test, uploads.example.test";
+    hosts.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await panel.updateComplete;
+    expect(prompt.secretStoreAllowedHostsDraft).toBe("api.example.test, uploads.example.test");
+
+    const fakeSecret = "  fake-secret-value-for-ui-test  ";
+    secret.value = fakeSecret;
+    secret.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await panel.updateComplete;
+    expect(prompt.drafts.get("api_key")?.freeText).toBe(fakeSecret);
+    expect(secret.value).toBe(fakeSecret);
+    expect(container.textContent).not.toContain(fakeSecret);
+    expect(container.innerHTML).not.toContain(fakeSecret);
+
+    container.querySelector<HTMLButtonElement>(".chat-question-panel__advance")?.click();
+    expect(onSubmit).toHaveBeenCalledWith({ api_key: [fakeSecret] });
+  });
+
+  it.each([
+    { isSecret: true, value: "  synthetic-value  ", expected: "  synthetic-value  " },
+    { isSecret: true, value: "   ", expected: "   " },
+    { isSecret: true, value: "", expected: null },
+    { isSecret: false, value: "  normal answer  ", expected: "normal answer" },
+    { isSecret: false, value: "   ", expected: null },
+  ])(
+    "preserves or normalizes hydrated drafts: $isSecret / '$value'",
+    async ({ isSecret, value, expected }) => {
       const prompt = gatewayPrompt({
         questions: [
           {
-            id: "extras",
-            header: "Extras",
-            question: "Which extras should I include?",
-            options: [{ label: "Tests" }, { label: "Docs" }],
-            multiSelect: true,
-            isOther: true,
+            questionId: "value",
+            header: "Value",
+            question: "Provide a value",
+            options: [],
+            isSecret,
           },
+        ],
+        drafts: new Map([["value", { selected: new Set<string>(), freeText: value }]]),
+      });
+      const onSubmit = vi.fn();
+      drawGateway(prompt, { onSubmit });
+      await panelIn(container);
+      const input = container.querySelector<HTMLInputElement>("input")!;
+      const submit = container.querySelector<HTMLButtonElement>(".chat-question-panel__advance")!;
+      expect(input.value).toBe(expected ?? "");
+      expect(input.placeholder).toBe("Value");
+      expect(submit.disabled).toBe(expected === null);
+      submit.click();
+      if (expected === null) {
+        expect(onSubmit).not.toHaveBeenCalled();
+      } else {
+        expect(onSubmit).toHaveBeenCalledWith({ value: [expected] });
+      }
+    },
+  );
+
+  it("labels optionless answers when the compact header is empty", async () => {
+    drawGateway(
+      gatewayPrompt({
+        questions: [
           {
-            id: "target",
-            header: "Target",
-            question: "Where should I send it?",
-            options: [{ label: "Chat" }, { label: "File" }],
+            questionId: "value",
+            header: "",
+            question: "Provide a value",
+            options: [],
+          },
+        ],
+      }),
+    );
+    await panelIn(container);
+
+    const input = container.querySelector<HTMLInputElement>("input")!;
+    expect(input.closest("label")?.textContent).toContain("Answer");
+    expect(input.placeholder).toBe("Answer");
+  });
+
+  it("keeps environment store requests masked without exposing a destination-host editor", async () => {
+    drawGateway(
+      gatewayPrompt({
+        questions: [
+          {
+            questionId: "environment_value",
+            header: "Environment",
+            question: "Provide the environment value",
+            options: [],
+            isSecret: true,
+            secretStore: { name: "FAKE_ENVIRONMENT_VALUE", kind: "env" },
+          },
+        ],
+      }),
+    );
+    await panelIn(container);
+
+    expect(container.querySelector('input[type="password"]')).not.toBeNull();
+    expect(container.querySelector(".chat-question-panel__hosts")).toBeNull();
+    expect(container.textContent).toContain(
+      "Stores FAKE_ENVIRONMENT_VALUE as Agent-readable environment",
+    );
+  });
+
+  it("supports numeric selection and Enter submission while focused", async () => {
+    const onSubmit = vi.fn();
+    drawGateway(gatewayPrompt(), { onSubmit });
+    const panel = await panelIn(container);
+    const group = container.querySelector<HTMLElement>(".chat-question-panel")!;
+
+    group.dispatchEvent(new KeyboardEvent("keydown", { key: "2", bubbles: true }));
+    await panel.updateComplete;
+    expect(
+      container.querySelectorAll<HTMLElement>('[role="radio"]')[1]?.getAttribute("aria-checked"),
+    ).toBe("true");
+
+    group.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(onSubmit).toHaveBeenCalledWith({ format: ["Detailed"] });
+  });
+
+  it("leaves modified numeric shortcuts to the browser", async () => {
+    const onSubmit = vi.fn();
+    drawGateway(gatewayPrompt(), { onSubmit });
+    const panel = await panelIn(container);
+    const group = container.querySelector<HTMLElement>(".chat-question-panel")!;
+
+    group.dispatchEvent(new KeyboardEvent("keydown", { key: "2", ctrlKey: true, bubbles: true }));
+    await panel.updateComplete;
+
+    expect(container.querySelector('[aria-checked="true"]')).toBeNull();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("does not expose an Other shortcut for optionless free text", async () => {
+    drawGateway(
+      gatewayPrompt({
+        questions: [
+          {
+            questionId: "value",
+            header: "Value",
+            question: "Provide a value",
+            options: [],
             isOther: true,
           },
         ],
-      });
-      const onSubmit = await draw(prompt);
-      const card = await cardIn(container);
-      const checkboxes = container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
-      checkboxes[0]?.click();
-      checkboxes[1]?.click();
-      const targetInput = container.querySelectorAll<HTMLInputElement>(".chat-question__other")[1]!;
-      targetInput.value = "Issue comment";
-      targetInput.dispatchEvent(new InputEvent("input", { bubbles: true }));
-      await card.updateComplete;
+      }),
+    );
+    await panelIn(container);
+    const group = container.querySelector<HTMLElement>(".chat-question-panel")!;
+    const event = new KeyboardEvent("keydown", { key: "1", bubbles: true, cancelable: true });
 
-      container.querySelector<HTMLButtonElement>(".chat-question__submit")?.click();
+    group.dispatchEvent(event);
 
-      expect(onSubmit).toHaveBeenCalledWith({
-        extras: ["Tests", "Docs"],
-        target: ["Issue comment"],
-      });
-    });
+    expect(event.defaultPrevented).toBe(false);
+  });
 
-    it("renders countdown and answered-elsewhere state", async () => {
-      const prompt = gatewayPrompt();
-      await draw(prompt);
-      expect(container.querySelector(".chat-question__countdown")?.textContent).toBe("1:00");
+  it("uses roving radio focus and arrow-key selection", async () => {
+    drawGateway(
+      gatewayPrompt({
+        questions: [
+          ...gatewayPrompt().questions,
+          {
+            questionId: "confirm",
+            header: "Confirm",
+            question: "Ready to continue?",
+            options: [{ label: "Ready" }],
+            isOther: false,
+          },
+        ],
+      }),
+    );
+    const panel = await panelIn(container);
+    const radios = container.querySelectorAll<HTMLButtonElement>('[role="radio"]');
 
-      prompt.status = "answered";
-      prompt.answeredElsewhere = true;
-      prompt.answers = { answers: { format: { answers: ["Detailed"] } } };
-      await draw(prompt);
+    expect([...radios].map((radio) => radio.tabIndex)).toEqual([0, -1]);
+    radios[0]?.focus();
+    radios[0]?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    await panel.updateComplete;
 
-      expect(container.querySelector(".chat-question__status")?.textContent).toBe(
-        "Answered elsewhere",
-      );
-      expect(container.querySelectorAll<HTMLInputElement>('input[type="radio"]')[1]?.checked).toBe(
-        true,
-      );
-      expect(container.querySelector<HTMLInputElement>('input[type="radio"]')?.disabled).toBe(true);
-    });
+    const updated = container.querySelectorAll<HTMLButtonElement>('[role="radio"]');
+    expect([...updated].map((radio) => radio.tabIndex)).toEqual([-1, 0]);
+    expect(updated[1]?.getAttribute("aria-checked")).toBe("true");
+    expect(document.activeElement).toBe(updated[1]);
+    expect(container.querySelector(".chat-question-panel__prompt")?.textContent).toBe(
+      "Which format should I use?",
+    );
+  });
 
-    it.each([
-      ["expired", "Expired"],
-      ["cancelled", "Cancelled"],
-    ] as const)("renders %s terminal state", async (status, label) => {
-      await draw(gatewayPrompt({ status }));
+  it("uses Enter in Other to advance and submit free text", async () => {
+    const onSubmit = vi.fn();
+    drawGateway(gatewayPrompt(), { onSubmit });
+    const panel = await panelIn(container);
+    const other = container.querySelector<HTMLInputElement>(".chat-question-panel__other")!;
 
-      expect(container.querySelector(".chat-question__status")?.textContent).toBe(label);
-      expect(container.querySelector(".chat-question__submit")).toBeNull();
-    });
+    other.value = "Markdown table";
+    other.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    other.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await panel.updateComplete;
 
-    it("shows resolve errors while leaving another attempt enabled", async () => {
-      const prompt = gatewayPrompt({ error: "gateway unavailable" });
-      await draw(prompt);
+    expect(onSubmit).toHaveBeenCalledWith({ format: ["Markdown table"] });
+  });
 
-      expect(container.querySelector(".chat-question__error")?.textContent).toContain(
-        "gateway unavailable",
-      );
-      expect(container.querySelector<HTMLButtonElement>(".chat-question__submit")?.disabled).toBe(
-        true,
-      );
-      container.querySelector<HTMLInputElement>('input[type="radio"]')?.click();
-      await cardIn(container);
-      expect(container.querySelector<HTMLButtonElement>(".chat-question__submit")?.disabled).toBe(
-        false,
-      );
-    });
+  it("uses Enter in empty Other to submit an already-selected option", async () => {
+    const onSubmit = vi.fn();
+    drawGateway(gatewayPrompt(), { onSubmit });
+    const panel = await panelIn(container);
 
-    it("clears the private submitted latch after a handled gateway rejection", async () => {
-      const prompt = gatewayPrompt();
-      await draw(prompt, async () => {
-        prompt.error = "gateway unavailable";
-      });
-      const card = await cardIn(container);
-      container.querySelector<HTMLInputElement>('input[type="radio"]')?.click();
-      await card.updateComplete;
+    container.querySelector<HTMLButtonElement>('[role="radio"]')?.click();
+    await panel.updateComplete;
+    const other = container.querySelector<HTMLInputElement>(".chat-question-panel__other")!;
+    other.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
 
-      container.querySelector<HTMLButtonElement>(".chat-question__submit")?.click();
+    expect(onSubmit).toHaveBeenCalledWith({ format: ["Compact"] });
+  });
 
-      await vi.waitFor(() =>
-        expect(container.querySelector<HTMLButtonElement>(".chat-question__submit")?.disabled).toBe(
-          false,
-        ),
-      );
-    });
+  it("collapses without answering and exposes gateway cancellation through Skip", async () => {
+    const onSkip = vi.fn();
+    drawGateway(gatewayPrompt(), { onSkip });
+    const panel = await panelIn(container);
+
+    container.querySelector<HTMLButtonElement>(".chat-question-panel__collapse")?.click();
+    await panel.updateComplete;
+    expect(container.querySelector(".chat-question-panel--collapsed")?.textContent).toContain(
+      "Format",
+    );
+    expect(onSkip).not.toHaveBeenCalled();
+
+    container.querySelector<HTMLButtonElement>(".chat-question-panel__collapsed-button")?.click();
+    await panel.updateComplete;
+    expect(document.activeElement).toBe(container.querySelector(".chat-question-panel"));
+    container.querySelector<HTMLButtonElement>(".chat-question-panel__skip")?.click();
+    expect(onSkip).toHaveBeenCalledOnce();
+  });
+
+  it("disables actions whose gateway callbacks are unavailable", async () => {
+    render(
+      html`<openclaw-chat-question-panel
+        .props=${createGatewayQuestionPanelProps(gatewayPrompt(), {})}
+      ></openclaw-chat-question-panel>`,
+      container,
+    );
+    await panelIn(container);
+
+    expect(
+      container.querySelector<HTMLButtonElement>(".chat-question-panel__advance")?.disabled,
+    ).toBe(true);
+    expect(container.querySelector(".chat-question-panel__skip")).toBeNull();
+  });
+
+  it("does not render the request expiry countdown", async () => {
+    drawGateway(gatewayPrompt());
+    await panelIn(container);
+
+    expect(container.querySelector(".chat-question-panel__countdown")).toBeNull();
+    expect(container.textContent).not.toContain("1:00");
+  });
+
+  it("manages collapse state when no controlled callback is supplied", async () => {
+    render(
+      html`<openclaw-chat-question-panel
+        .props=${createGatewayQuestionPanelProps(gatewayPrompt(), {})}
+      ></openclaw-chat-question-panel>`,
+      container,
+    );
+    const panel = await panelIn(container);
+
+    container.querySelector<HTMLButtonElement>(".chat-question-panel__collapse")?.click();
+    await panel.updateComplete;
+    expect(container.querySelector(".chat-question-panel--collapsed")).not.toBeNull();
+
+    container.querySelector<HTMLButtonElement>(".chat-question-panel__collapsed-button")?.click();
+    await panel.updateComplete;
+    expect(container.querySelector(".chat-question-panel--collapsed")).toBeNull();
+  });
+
+  it("retains answers with submit-only wiring", async () => {
+    const onSubmit = vi.fn();
+    render(
+      html`<openclaw-chat-question-panel
+        .props=${createGatewayQuestionPanelProps(gatewayPrompt(), {
+          onSubmit,
+        })}
+      ></openclaw-chat-question-panel>`,
+      container,
+    );
+    const panel = await panelIn(container);
+
+    container.querySelector<HTMLButtonElement>('[role="radio"]')?.click();
+    await panel.updateComplete;
+    container.querySelector<HTMLButtonElement>(".chat-question-panel__advance")?.click();
+
+    expect(onSubmit).toHaveBeenCalledWith({ format: ["Compact"] });
+  });
+
+  it("keeps Skip available with skip-only wiring", async () => {
+    const onSkip = vi.fn();
+    render(
+      html`<openclaw-chat-question-panel
+        .props=${createGatewayQuestionPanelProps(gatewayPrompt(), {
+          onSkip,
+        })}
+      ></openclaw-chat-question-panel>`,
+      container,
+    );
+    await panelIn(container);
+
+    expect(
+      container.querySelector<HTMLButtonElement>(".chat-question-panel__advance")?.disabled,
+    ).toBe(true);
+    container.querySelector<HTMLButtonElement>(".chat-question-panel__skip")?.click();
+    expect(onSkip).toHaveBeenCalledOnce();
   });
 });

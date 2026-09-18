@@ -1,6 +1,8 @@
-// Applies JSON merge-patch updates to config-like objects.
+// Creates and applies JSON merge-patch updates to config-like objects.
+import { isDeepStrictEqual } from "node:util";
 import { isPlainObject } from "../infra/plain-object.js";
-import { isBlockedObjectKey } from "../infra/prototype-keys.js";
+import { isRecord } from "../utils.js";
+import { formatConfigPatchPath, isMergePatchObjectKeyAllowed } from "./patch-replace-paths.js";
 
 type PlainObject = Record<string, unknown>;
 
@@ -10,6 +12,46 @@ type MergePatchOptions = {
   path?: string;
 };
 
+function cloneUnknown<T>(value: T): T {
+  return structuredClone(value);
+}
+
+/** Builds an RFC-7396-style merge patch between source and target config values. */
+export function createMergePatch(base: unknown, target: unknown): unknown {
+  if (!isRecord(base) || !isRecord(target)) {
+    return cloneUnknown(target);
+  }
+
+  const patch: Record<string, unknown> = {};
+  const keys = new Set([...Object.keys(base), ...Object.keys(target)]);
+  for (const key of keys) {
+    const hasBase = Object.hasOwn(base, key);
+    const hasTarget = Object.hasOwn(target, key);
+    if (!hasTarget) {
+      patch[key] = null;
+      continue;
+    }
+    const targetValue = target[key];
+    if (!hasBase) {
+      patch[key] = cloneUnknown(targetValue);
+      continue;
+    }
+    const baseValue = base[key];
+    if (isRecord(baseValue) && isRecord(targetValue)) {
+      const childPatch = createMergePatch(baseValue, targetValue);
+      if (isRecord(childPatch) && Object.keys(childPatch).length === 0) {
+        continue;
+      }
+      patch[key] = childPatch;
+      continue;
+    }
+    if (!isDeepStrictEqual(baseValue, targetValue)) {
+      patch[key] = cloneUnknown(targetValue);
+    }
+  }
+  return patch;
+}
+
 function isObjectWithStringId(value: unknown): value is Record<string, unknown> & { id: string } {
   if (!isPlainObject(value)) {
     return false;
@@ -17,22 +59,8 @@ function isObjectWithStringId(value: unknown): value is Record<string, unknown> 
   return typeof value.id === "string" && value.id.length > 0;
 }
 
-function formatMergePatchPath(parentPath: string | undefined, key: string): string {
-  return parentPath ? `${parentPath}.${key}` : key;
-}
-
 function formatMergePatchArrayEntryPath(arrayPath: string): string {
   return `${arrayPath}[]`;
-}
-
-/** Whether a merge-patch key is safe at its exact config path. */
-export function isMergePatchObjectKeyAllowed(key: string, parentPath?: string): boolean {
-  if (!isBlockedObjectKey(key)) {
-    return true;
-  }
-  // Browser profile names are schema-validated map ids. Their values still
-  // recurse through this guard, so nested prototype-related keys stay blocked.
-  return parentPath === "browser.profiles" && (key === "constructor" || key === "prototype");
 }
 
 /**
@@ -103,7 +131,7 @@ export function applyMergePatch(
   const result: PlainObject = isPlainObject(base) ? { ...base } : {};
 
   for (const [key, value] of Object.entries(patch)) {
-    const path = formatMergePatchPath(options.path, key);
+    const path = formatConfigPatchPath(options.path, key);
     if (!isMergePatchObjectKeyAllowed(key, options.path)) {
       continue;
     }

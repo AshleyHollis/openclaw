@@ -28,7 +28,7 @@ describe("plugin-sdk/gateway-method-runtime", () => {
         () => dispatchGatewayMethod("health", {}),
       ),
     ).rejects.toThrow(
-      'contracts.gatewayMethodDispatch: ["authenticated-request"] for plugin "plain-plugin"',
+      'entitled plugin HTTP routes or the exact allowlist of a current plugin Gateway method for plugin "plain-plugin"',
     );
     expect(dispatchGatewayMethodInProcessRaw).not.toHaveBeenCalled();
   });
@@ -59,5 +59,40 @@ describe("plugin-sdk/gateway-method-runtime", () => {
         timeoutMs: 500,
       },
     );
+  });
+
+  it("permits only an exact native Gateway-method allowlist", async () => {
+    dispatchGatewayMethodInProcessRaw.mockClear();
+    dispatchGatewayMethodInProcessRaw.mockResolvedValueOnce({ ok: true, payload: { groups: [] } });
+
+    const result = await withPluginRuntimeGatewayRequestScope(
+      {
+        pluginId: "command-center",
+        gatewayMethodDispatchMethods: ["sessions.groups.list"],
+        client: {
+          id: "plugin",
+          connect: { scopes: ["operator.write"] },
+        } as never,
+        isWebchatConnect: () => false,
+      },
+      () => dispatchGatewayMethod("sessions.groups.list", {}),
+    );
+
+    expect(result).toEqual({ ok: true, payload: { groups: [] } });
+    await expect(
+      withPluginRuntimeGatewayRequestScope(
+        {
+          pluginId: "command-center",
+          gatewayMethodDispatchMethods: ["sessions.groups.list"],
+          client: {
+            id: "plugin",
+            connect: { scopes: ["operator.write"] },
+          } as never,
+          isWebchatConnect: () => false,
+        },
+        () => dispatchGatewayMethod("sessions.groups.put", { names: ["Finance"] }),
+      ),
+    ).rejects.toThrow("exact allowlist");
+    expect(dispatchGatewayMethodInProcessRaw).toHaveBeenCalledTimes(1);
   });
 });

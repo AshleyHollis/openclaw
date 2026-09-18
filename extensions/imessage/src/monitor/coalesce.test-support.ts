@@ -1,13 +1,7 @@
 // Imessage test support covers coalesce plugin behavior.
 import { describe, expect, it } from "vitest";
-import {
-  combineIMessagePayloads,
-  isStandaloneIMessageUrlPreviewPayload,
-  shouldCombineIMessagePayloadBucket,
-} from "./coalesce.js";
+import { combineIMessagePayloads } from "./coalesce.js";
 import type { IMessagePayload } from "./types.js";
-
-const URL_BALLOON_BUNDLE_ID = "com.apple.messages.URLBalloonProvider";
 
 const makePayload = (overrides: Partial<IMessagePayload> = {}): IMessagePayload => ({
   guid: `msg-${Math.random().toString(36).slice(2, 10)}`,
@@ -135,15 +129,61 @@ describe("combineIMessagePayloads", () => {
     const reply = makePayload({
       text: "follow-up",
       guid: "row-2",
-      reply_to_id: "parent-msg",
+      reply_to_guid: "parent-msg",
       reply_to_text: "earlier",
       reply_to_sender: "+15555550199",
     });
     const merged = combineIMessagePayloads([noReply, reply]);
 
-    expect(merged.reply_to_id).toBe("parent-msg");
+    expect(merged.reply_to_guid).toBe("parent-msg");
     expect(merged.reply_to_text).toBe("earlier");
     expect(merged.reply_to_sender).toBe("+15555550199");
+  });
+
+  it.each([
+    { reply_to_guid: "reply-parent" },
+    { thread_originator_guid: "thread-parent" },
+    { reply_to_guid: "reply-parent", thread_originator_guid: "thread-parent" },
+  ])("preserves the complete real provider reply tuple from a later row", (parent) => {
+    const first = makePayload({ text: "hello", guid: "row-1" });
+    const reply = makePayload({
+      text: "follow-up",
+      guid: "row-2",
+      ...parent,
+      reply_to_text: "the original question",
+      reply_to_sender: "+15555550199",
+    });
+    const merged = combineIMessagePayloads([first, reply]);
+
+    expect(merged).toMatchObject({
+      ...parent,
+      reply_to_text: "the original question",
+      reply_to_sender: "+15555550199",
+    });
+  });
+
+  it("keeps the parent GUID and quote metadata from the same reply row", () => {
+    const first = makePayload({
+      text: "first",
+      guid: "row-1",
+      reply_to_text: "unrelated stale quote",
+      reply_to_sender: "+15555550001",
+    });
+    const reply = makePayload({
+      text: "second",
+      guid: "row-2",
+      thread_originator_guid: "thread-parent",
+      reply_to_guid: "reply-parent",
+      reply_to_text: "actual parent question",
+      reply_to_sender: "+15555550199",
+    });
+
+    expect(combineIMessagePayloads([first, reply])).toMatchObject({
+      thread_originator_guid: "thread-parent",
+      reply_to_guid: "reply-parent",
+      reply_to_text: "actual parent question",
+      reply_to_sender: "+15555550199",
+    });
   });
 
   it("does not set coalescedMessageGuids when no entry carries a GUID", () => {
@@ -152,89 +192,5 @@ describe("combineIMessagePayloads", () => {
     const merged = combineIMessagePayloads([a, b]);
 
     expect(merged.coalescedMessageGuids).toBeUndefined();
-  });
-});
-
-describe("isStandaloneIMessageUrlPreviewPayload", () => {
-  it("matches URL balloon rows that only carry the preview URL", () => {
-    expect(
-      isStandaloneIMessageUrlPreviewPayload(
-        makePayload({
-          text: "https://example.com/article",
-          balloon_bundle_id: URL_BALLOON_BUNDLE_ID,
-        }),
-      ),
-    ).toBe(true);
-  });
-
-  it("matches scheme-less www URL preview rows", () => {
-    expect(
-      isStandaloneIMessageUrlPreviewPayload(
-        makePayload({
-          text: "www.example.com/article",
-          balloon_bundle_id: URL_BALLOON_BUNDLE_ID,
-        }),
-      ),
-    ).toBe(true);
-  });
-
-  it("does not match already-complete URL balloon messages with text context", () => {
-    expect(
-      isStandaloneIMessageUrlPreviewPayload(
-        makePayload({
-          text: "summarize https://example.com/article",
-          balloon_bundle_id: URL_BALLOON_BUNDLE_ID,
-        }),
-      ),
-    ).toBe(false);
-  });
-
-  it("does not match non-URL balloon payloads", () => {
-    expect(
-      isStandaloneIMessageUrlPreviewPayload(
-        makePayload({
-          text: "https://example.com/article",
-          balloon_bundle_id: "com.apple.messages.HandwritingProvider",
-        }),
-      ),
-    ).toBe(false);
-  });
-});
-
-describe("shouldCombineIMessagePayloadBucket", () => {
-  it("combines a command row with a structurally marked URL balloon row", () => {
-    const command = makePayload({ text: "summarize", guid: "row-1" });
-    const preview = makePayload({
-      text: "https://example.com/article",
-      guid: "row-2",
-      balloon_bundle_id: URL_BALLOON_BUNDLE_ID,
-    });
-
-    expect(shouldCombineIMessagePayloadBucket([command, preview], true)).toBe(true);
-  });
-
-  it("keeps ordinary buffered rows separate once the bridge emits balloon metadata", () => {
-    const first = makePayload({ text: "first thought", guid: "row-1" });
-    const second = makePayload({ text: "second thought", guid: "row-2" });
-
-    expect(shouldCombineIMessagePayloadBucket([first, second], true)).toBe(false);
-  });
-
-  it("keeps non-URL balloon rows separate", () => {
-    const first = makePayload({ text: "first thought", guid: "row-1" });
-    const second = makePayload({
-      text: "second thought",
-      guid: "row-2",
-      balloon_bundle_id: "com.apple.messages.HandwritingProvider",
-    });
-
-    expect(shouldCombineIMessagePayloadBucket([first, second], false)).toBe(false);
-  });
-
-  it("falls back to combining old bridge buckets with no balloon metadata", () => {
-    const command = makePayload({ text: "summarize", guid: "row-1" });
-    const url = makePayload({ text: "https://example.com/article", guid: "row-2" });
-
-    expect(shouldCombineIMessagePayloadBucket([command, url], false)).toBe(true);
   });
 });

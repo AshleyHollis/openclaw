@@ -4,6 +4,7 @@
 import { html, type TemplateResult } from "lit";
 import { icons } from "../../components/icons.ts";
 import {
+  renderSettingsDefaultDescription,
   renderSettingsRow,
   renderSettingsSection,
   renderSettingsSegmented,
@@ -12,13 +13,15 @@ import {
   renderSettingsValue,
 } from "../../components/settings-ui.ts";
 import { t } from "../../i18n/index.ts";
+import { PROFILE_OPTIONS } from "../../lib/agents/tool-catalog.ts";
 
 export type SecurityOverview = {
   gatewayAuth: string;
   execPolicy: string;
-  deviceAuth: boolean;
   browserEnabled: boolean;
+  browserEnabledOverridden: boolean;
   toolProfile: string;
+  toolProfileOverridden: boolean;
 };
 
 type SecurityViewProps = {
@@ -32,19 +35,29 @@ type SecurityViewProps = {
   editor: TemplateResult;
 };
 
-const TOOL_PROFILES = ["minimal", "coding", "messaging", "full"];
-
 function renderSecurityOverview(props: SecurityViewProps) {
-  const { gatewayAuth, execPolicy, deviceAuth, browserEnabled, toolProfile } = props.security;
+  const {
+    gatewayAuth,
+    execPolicy,
+    browserEnabled,
+    browserEnabledOverridden,
+    toolProfile,
+    toolProfileOverridden,
+  } = props.security;
   const normalizedToolProfile = toolProfile.trim() || "full";
-  const toolProfiles = TOOL_PROFILES.includes(normalizedToolProfile)
-    ? TOOL_PROFILES
-    : [...TOOL_PROFILES, normalizedToolProfile];
+  const profileOptions = PROFILE_OPTIONS.map((profile) => ({
+    value: profile.id as string,
+    label: t(profile.labelKey),
+  }));
+  if (!profileOptions.some((option) => option.value === normalizedToolProfile)) {
+    profileOptions.push({ value: normalizedToolProfile, label: normalizedToolProfile });
+  }
   return renderSettingsSection({ title: t("quickSettings.security.title") }, [
     renderSettingsRow({
       title: t("quickSettings.security.gatewayAuth"),
       control: renderSettingsStatus({
-        kind: gatewayAuth !== "none" ? "ok" : "warn",
+        // "unknown" is a pre-hello placeholder, not a healthy auth mode.
+        kind: gatewayAuth === "none" ? "warn" : gatewayAuth === "unknown" ? "muted" : "ok",
         label: gatewayAuth,
       }),
     }),
@@ -54,37 +67,35 @@ function renderSecurityOverview(props: SecurityViewProps) {
     }),
     renderSettingsToggleRow({
       title: t("quickSettings.security.browserEnabled"),
+      description: renderSettingsDefaultDescription(t("common.enabled"), browserEnabledOverridden),
       checked: browserEnabled,
       disabled: props.configBusy,
       onChange: (enabled) => props.onBrowserEnabledToggle?.(enabled),
     }),
     renderSettingsRow({
       title: t("quickSettings.security.toolProfile"),
+      description: renderSettingsDefaultDescription(
+        t("agents.toolCatalog.profiles.full"),
+        toolProfileOverridden,
+      ),
       stacked: true,
       control: renderSettingsSegmented({
         value: normalizedToolProfile,
-        options: toolProfiles.map((profile) => ({ value: profile, label: profile })),
+        options: profileOptions,
         disabled: props.configBusy,
         onChange: (profile) => props.onToolProfileChange?.(profile),
       }),
     }),
     renderSettingsRow({
-      title: t("quickSettings.security.deviceAuth"),
-      control: renderSettingsStatus({
-        kind: deviceAuth ? "ok" : "warn",
-        label: deviceAuth ? t("common.enabled") : t("common.disabled"),
-      }),
-    }),
-    renderSettingsRow({
-      title: t("nodes.pairing.title"),
+      title: t("devices.pairing.title"),
       control: html`
         <button
           class="btn"
-          title=${props.canPairDevice ? "" : t("nodes.pairing.adminRequired")}
+          title=${props.canPairDevice ? "" : t("devices.pairing.adminRequired")}
           ?disabled=${!props.canPairDevice}
           @click=${props.onPairMobile}
         >
-          ${icons.smartphone} ${t("nodes.pairing.button")}
+          ${icons.smartphone} ${t("devices.pairing.button")}
         </button>
       `,
     }),

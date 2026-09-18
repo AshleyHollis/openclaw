@@ -1,0 +1,5 @@
+{
+  "startupJsGzipBytes": 353114,
+  "reason": "Native Tools & management disclosure adds its accessible localized label; measured 353114 B startup gzip on the sealed Linux UI build.",
+  "updatedAt": "2026-09-15"
+}

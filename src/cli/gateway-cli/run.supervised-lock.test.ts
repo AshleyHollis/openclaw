@@ -1,8 +1,19 @@
 // Gateway supervised lock tests cover single-runner locking for supervised gateway starts.
 import { createServer } from "node:http";
 import { describe, expect, it, vi } from "vitest";
+import { resolveGatewayRuntimeConfig } from "../../gateway/server-runtime-config.js";
 import { GatewayLockError } from "../../infra/gateway-lock.js";
+import { TailscaleRouteOwnershipConflictError } from "../../infra/tailscale-route-ownership-error.js";
+import { OpenClawAgentDatabaseMediaMigrationRequiredError } from "../../state/openclaw-agent-db-migration-required.js";
 import { testing } from "./run.test-support.js";
+
+const loadGatewayTlsServerRuntimeMock = vi.hoisted(() =>
+  vi.fn(async () => ({ fingerprintSha256: "" })),
+);
+
+vi.mock("../../infra/tls/gateway.js", () => ({
+  loadGatewayTlsServerRuntime: loadGatewayTlsServerRuntimeMock,
+}));
 
 function createLogger() {
   return {
@@ -12,6 +23,43 @@ function createLogger() {
 }
 
 describe("supervised gateway lock recovery", () => {
+  it("uses exit 78 for an ambiguous persistent Tailscale route", () => {
+    expect(
+      testing.resolveGatewayStartupFailureExitCode(new TailscaleRouteOwnershipConflictError()),
+    ).toBe(78);
+  });
+
+  it("uses exit 78 for an effective bind/Tailscale config conflict", async () => {
+    // Reproduces the reported crash-loop trigger: a persisted gateway.bind=lan
+    // combined with a service-level tailscale serve override is only invalid
+    // once the two are merged, so only runtime resolution (not static config
+    // validation) can detect it.
+    const conflict = await resolveGatewayRuntimeConfig({
+      cfg: {
+        gateway: {
+          bind: "lan",
+          auth: { mode: "token", token: "test-token-123" },
+          tailscale: { mode: "serve" },
+        },
+      },
+      port: 18789,
+    }).catch((err: unknown) => err);
+
+    expect(conflict).toBeInstanceOf(Error);
+    expect((conflict as Error).message).toBe(
+      "tailscale serve/funnel requires gateway bind=loopback (127.0.0.1)",
+    );
+    expect(testing.resolveGatewayStartupFailureExitCode(conflict)).toBe(78);
+  });
+
+  it("uses exit 78 for offline agent database migration requirements", () => {
+    expect(
+      testing.resolveGatewayStartupFailureExitCode(
+        new OpenClawAgentDatabaseMediaMigrationRequiredError("/tmp/openclaw-agent.sqlite", 14),
+      ),
+    ).toBe(78);
+  });
+
   it("does not retry gateway lock errors outside a supervisor", async () => {
     const err = new GatewayLockError("gateway already running");
     const startLoop = vi.fn(async () => {
@@ -61,6 +109,39 @@ describe("supervised gateway lock recovery", () => {
     });
     const probeHealth = vi.fn(async () => true);
 
+    let failure: unknown;
+    try {
+      await testing.runGatewayLoopWithSupervisedLockRecovery({
+        startLoop,
+        supervisor: "systemd",
+        port: 18789,
+        healthHost: "127.0.0.1",
+        log: createLogger(),
+        probeHealth,
+      });
+    } catch (err) {
+      failure = err;
+    }
+
+    expect(failure).toMatchObject({
+      message: expect.stringContaining(
+        "exiting with code 78 to prevent a systemd Restart=always loop",
+      ),
+    });
+    expect(startLoop).toHaveBeenCalledTimes(1);
+    expect(probeHealth).toHaveBeenCalledWith({ host: "127.0.0.1", port: 18789 });
+    expect(testing.resolveGatewayLockErrorExitCode(failure)).toBe(78);
+  });
+
+  it("preserves an agent-embedded owner error under a supervisor", async () => {
+    const err = new GatewayLockError(
+      "another embedded OpenClaw state writer is active (pid 123); lock timeout after 5000ms",
+    );
+    const startLoop = vi.fn(async () => {
+      throw err;
+    });
+    const probeHealth = vi.fn(async () => true);
+
     await expect(
       testing.runGatewayLoopWithSupervisedLockRecovery({
         startLoop,
@@ -70,17 +151,10 @@ describe("supervised gateway lock recovery", () => {
         log: createLogger(),
         probeHealth,
       }),
-    ).rejects.toThrow("exiting with code 78 to prevent a systemd Restart=always loop");
+    ).rejects.toBe(err);
 
     expect(startLoop).toHaveBeenCalledTimes(1);
-    expect(probeHealth).toHaveBeenCalledWith({ host: "127.0.0.1", port: 18789 });
-    expect(
-      testing.resolveGatewayLockErrorExitCode(
-        new GatewayLockError("gateway already running under systemd; existing gateway is healthy"),
-        "systemd",
-        true,
-      ),
-    ).toBe(78);
+    expect(probeHealth).not.toHaveBeenCalled();
   });
 
   it("bounds supervised retries when the existing gateway stays unhealthy", async () => {
@@ -92,8 +166,9 @@ describe("supervised gateway lock recovery", () => {
       now += ms;
     });
 
-    await expect(
-      testing.runGatewayLoopWithSupervisedLockRecovery({
+    let failure: unknown;
+    try {
+      await testing.runGatewayLoopWithSupervisedLockRecovery({
         startLoop,
         supervisor: "systemd",
         port: 18789,
@@ -104,11 +179,16 @@ describe("supervised gateway lock recovery", () => {
         sleep,
         retryMs: 5,
         timeoutMs: 12,
-      }),
-    ).rejects.toThrow(
-      "gateway already running under systemd; existing gateway did not become healthy after 12ms",
-    );
+      });
+    } catch (err) {
+      failure = err;
+    }
 
+    expect(failure).toMatchObject({
+      message:
+        "gateway already running under systemd; existing gateway did not become healthy after 12ms",
+    });
+    expect(testing.resolveGatewayLockErrorExitCode(failure)).toBe(1);
     expect(startLoop).toHaveBeenCalledTimes(4);
     expect(sleep).toHaveBeenNthCalledWith(1, 5);
     expect(sleep).toHaveBeenNthCalledWith(2, 5);
@@ -149,11 +229,31 @@ describe("supervised gateway lock recovery", () => {
     expect(sleep).toHaveBeenNthCalledWith(3, 2);
   });
 
-  it("requires a confirmed healthy gateway for unmanaged duplicate starts", () => {
-    const err = new GatewayLockError("another gateway instance is already listening");
+  it.each(["gateway already running", "another gateway instance is already listening"])(
+    "uses exit 1 for unmanaged lock errors: %s",
+    (message) => {
+      expect(testing.resolveGatewayLockErrorExitCode(new GatewayLockError(message))).toBe(1);
+    },
+  );
 
-    expect(testing.resolveGatewayLockErrorExitCode(err, null, false)).toBe(1);
-    expect(testing.resolveGatewayLockErrorExitCode(err, null, true)).toBe(0);
+  it("retries non-mutating TLS fingerprint loads until certificate material is ready", async () => {
+    loadGatewayTlsServerRuntimeMock.mockClear();
+    const probeHealth = testing.createConfiguredGatewayHealthProbe({
+      gateway: { tls: { enabled: true, autoGenerate: true } },
+    });
+
+    await expect(probeHealth({ host: "127.0.0.1", port: 18789 })).resolves.toBe(false);
+    await expect(probeHealth({ host: "127.0.0.1", port: 18789 })).resolves.toBe(false);
+
+    expect(loadGatewayTlsServerRuntimeMock).toHaveBeenCalledTimes(2);
+    expect(loadGatewayTlsServerRuntimeMock).toHaveBeenNthCalledWith(1, {
+      enabled: true,
+      autoGenerate: false,
+    });
+    expect(loadGatewayTlsServerRuntimeMock).toHaveBeenNthCalledWith(2, {
+      enabled: true,
+      autoGenerate: false,
+    });
   });
 
   it("recognizes only the OpenClaw health response", () => {

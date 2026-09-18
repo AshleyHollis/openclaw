@@ -8,16 +8,11 @@ export type { AgentHarness } from "../agents/harness/types.js";
 export type { AnyAgentTool } from "../agents/tools/common.js";
 export type {
   CliBackendAuthEpochMode,
-  CliBackendExecutionMode,
   CliBackendNormalizeConfigContext,
   CliBackendNativeToolMode,
   CliBackendPlugin,
-  CliBackendPreparedExecution,
-  CliBackendPrepareExecutionContext,
-  CliBackendResolveExecutionArgs,
-  CliBackendResolveExecutionArgsContext,
   CliBackendSideQuestionToolMode,
-  CliBackendThinkingLevel,
+  CliBackendToolAvailabilityEnforcement,
   CliBundleMcpMode,
   PluginTextTransforms,
 } from "./cli-backend.types.js";
@@ -69,8 +64,6 @@ export type {
 } from "./provider-config-context.types.js";
 export type {
   ProviderAuthOptionBag,
-  ProviderExternalAuthProfile,
-  ProviderResolveExternalAuthProfilesContext,
   ProviderResolveSyntheticAuthContext,
 } from "./provider-external-auth.types.js";
 export type { ProviderRuntimeModel } from "./provider-runtime-model.types.js";
@@ -129,8 +122,12 @@ export type {
   RealtimeTranscriptionProviderPlugin,
   SpeechProviderPlugin,
   TranscriptSourceProvider,
+  WorkerDesktopApp,
+  WorkerDesktopEndpoint,
   WorkerLease,
   WorkerLeaseStatus,
+  WorkerMachineOption,
+  WorkerOperatingSystem,
   WorkerProfile,
   WorkerProvider,
   WorkerSshEndpoint,
@@ -138,6 +135,7 @@ export type {
 } from "./capability-provider.types.js";
 export type {
   MigrationApplyResult,
+  MigrationConfigRuntime,
   MigrationDetection,
   MigrationItem,
   MigrationPlan,
@@ -179,7 +177,6 @@ export type {
   ProviderBuiltInModelSuppressionResult,
   ProviderCatalogContext,
   ProviderCatalogResult,
-  ProviderDiscoveryContext,
   ProviderModernModelPolicyContext,
   UnifiedModelCatalogProviderContext,
   UnifiedModelCatalogProviderPlugin,
@@ -235,8 +232,9 @@ export type {
   VideoGenerationProviderPlugin,
 } from "./capability-provider.types.js";
 export type {
-  OpenClawPluginCliCommandDescriptor,
+  OpenClawPluginCliRegistrationOptions,
   OpenClawPluginCliRegistrar,
+  OpenClawPluginCliRootCommandDescriptor,
   OpenClawPluginGatewayRuntimeScopeSurface,
   OpenClawPluginHostedMediaResolver,
   OpenClawPluginHttpRouteAuth,
@@ -247,5 +245,5 @@ export type {
 } from "./plugin-registration.types.js";
 export type { PluginHookRegistration } from "./hook-types.js";
 export type { PluginTextTransformRegistration } from "./plugin-api.types.js";
-export type { ProviderDiscoveryOrder } from "./provider-catalog.types.js";
+export type { ProviderCatalogOrder } from "./provider-catalog.types.js";
 export type { ProviderPlugin } from "./provider-plugin.types.js";

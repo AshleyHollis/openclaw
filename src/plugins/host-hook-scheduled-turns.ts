@@ -6,6 +6,10 @@ import {
 } from "@openclaw/normalization-core/number-coercion";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { CronServiceContract } from "../cron/service-contract.js";
+import {
+  readCanonicalCronListPage,
+  resolveCronListPageNextOffset,
+} from "../cron/service/list-page-validation.js";
 import type { CronJob, CronJobCreate } from "../cron/types.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
@@ -25,6 +29,9 @@ import type { PluginRegistry } from "./registry-types.js";
 const log = createSubsystemLogger("plugins/host-scheduled-turns");
 const PLUGIN_CRON_NAME_PREFIX = "plugin:";
 const PLUGIN_CRON_TAG_MARKER = ":tag:";
+const PLUGIN_CRON_CLEANUP_PAGE_SIZE = 200;
+const PLUGIN_CRON_CLEANUP_MAX_PAGES = 50;
+const PLUGIN_CRON_CLEANUP_MAX_SNAPSHOT_RESTARTS = 3;
 
 type ResolvedSessionTurnSchedule =
   | {
@@ -176,38 +183,77 @@ async function listAllCronJobsForPluginTagCleanup(
   cron: CronServiceContract,
   query: string,
 ): Promise<CronJob[]> {
-  const jobs: CronJob[] = [];
-  let offset = 0;
-  for (;;) {
-    const listResult = await cron.listPage({
-      includeDisabled: true,
-      limit: 200,
-      query,
-      sortBy: "name",
-      sortDir: "asc",
-      ...(offset > 0 ? { offset } : {}),
-    });
-    jobs.push(...listResult.jobs);
-    if (!listResult.hasMore) {
-      return jobs;
+  for (let restart = 0; restart <= PLUGIN_CRON_CLEANUP_MAX_SNAPSHOT_RESTARTS; restart += 1) {
+    const jobs: CronJob[] = [];
+    let offset = 0;
+    let snapshotRevision: string | undefined;
+    let total: number | undefined;
+    let snapshotChanged = false;
+
+    for (let pageNumber = 0; pageNumber < PLUGIN_CRON_CLEANUP_MAX_PAGES; pageNumber += 1) {
+      const page = readCanonicalCronListPage<CronJob>(
+        await cron.listPage({
+          includeDisabled: true,
+          limit: PLUGIN_CRON_CLEANUP_PAGE_SIZE,
+          offset,
+          query,
+          sortBy: "name",
+          sortDir: "asc",
+        }),
+        PLUGIN_CRON_CLEANUP_PAGE_SIZE,
+      );
+      if (
+        (snapshotRevision !== undefined && page.snapshotRevision !== snapshotRevision) ||
+        (total !== undefined && page.total !== total)
+      ) {
+        // Offset pages are independent snapshots. Never carry cleanup targets
+        // across a revision change because the boundary rows may have moved.
+        snapshotChanged = true;
+        break;
+      }
+      snapshotRevision ??= page.snapshotRevision;
+      total ??= page.total;
+      const nextOffset = resolveCronListPageNextOffset(page, offset);
+      jobs.push(...page.jobs);
+      if (nextOffset === null) {
+        return jobs;
+      }
+      offset = nextOffset;
     }
-    if (listResult.nextOffset === null || listResult.nextOffset <= offset) {
-      return jobs;
+
+    if (!snapshotChanged) {
+      throw new Error("cron.list pagination exceeded maximum pages");
     }
-    offset = listResult.nextOffset;
+    if (restart === PLUGIN_CRON_CLEANUP_MAX_SNAPSHOT_RESTARTS) {
+      throw new Error("cron.list inventory changed repeatedly during cleanup");
+    }
   }
+
+  throw new Error("cron.list inventory changed repeatedly during cleanup");
 }
 
 export async function schedulePluginSessionTurn(params: {
   pluginId: string;
   pluginName?: string;
   origin?: PluginOrigin;
+  workspaceSessionTurnScheduling?: readonly string[];
   schedule: PluginSessionTurnScheduleParams;
   shouldCommit?: () => boolean;
   cron?: CronServiceContract;
   ownerRegistry?: PluginRegistry;
 }): Promise<PluginSessionSchedulerJobHandle | undefined> {
-  if (params.origin !== "bundled") {
+  const requestedTag = normalizeOptionalString(params.schedule.tag);
+  const declaredLocalSchedulingAllowed =
+    (params.origin === "workspace" || params.origin === "config") &&
+    requestedTag !== undefined &&
+    params.workspaceSessionTurnScheduling?.some(
+      (prefix) =>
+        typeof prefix === "string" &&
+        prefix.length > 0 &&
+        requestedTag.length > prefix.length &&
+        requestedTag.startsWith(prefix),
+    ) === true;
+  if (params.origin !== "bundled" && !declaredLocalSchedulingAllowed) {
     return undefined;
   }
   const sessionKey = normalizeOptionalString(params.schedule.sessionKey);
@@ -356,10 +402,22 @@ export async function schedulePluginSessionTurn(params: {
 export async function unschedulePluginSessionTurnsByTag(params: {
   pluginId: string;
   origin?: PluginOrigin;
+  workspaceSessionTurnScheduling?: readonly string[];
   cron?: CronServiceContract;
   request: PluginSessionTurnUnscheduleByTagParams;
 }): Promise<PluginSessionTurnUnscheduleByTagResult> {
-  if (params.origin !== "bundled") {
+  const requestedTag = normalizeOptionalString(params.request.tag);
+  const declaredLocalSchedulingAllowed =
+    (params.origin === "workspace" || params.origin === "config") &&
+    requestedTag !== undefined &&
+    params.workspaceSessionTurnScheduling?.some(
+      (prefix) =>
+        typeof prefix === "string" &&
+        prefix.length > 0 &&
+        requestedTag.length > prefix.length &&
+        requestedTag.startsWith(prefix),
+    ) === true;
+  if (params.origin !== "bundled" && !declaredLocalSchedulingAllowed) {
     return { removed: 0, failed: 0 };
   }
   const sessionKey = normalizeOptionalString(params.request.sessionKey);

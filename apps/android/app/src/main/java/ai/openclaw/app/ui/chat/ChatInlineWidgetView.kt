@@ -19,6 +19,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,24 +27,38 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.ProfileStore
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -60,6 +75,16 @@ private const val INLINE_WIDGET_FETCH_TIMEOUT_SECONDS = 8L
 private const val HTTP_HEADER_ACCEPT = "Accept"
 private const val HTTP_HEADER_CACHE_CONTROL = "Cache-Control"
 
+// Socket closure may block and must finish after the widget's composition is gone.
+private val inlineWidgetCleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+internal fun closePinnedWidgetClientAsync(client: OkHttpClient) {
+  inlineWidgetCleanupScope.launch {
+    client.dispatcher.cancelAll()
+    client.connectionPool.evictAll()
+  }
+}
+
 @Composable
 internal fun ChatInlineWidget(
   preview: ChatWidgetPreview,
@@ -68,11 +93,43 @@ internal fun ChatInlineWidget(
 ) {
   var resolvedResource by remember(preview.path) { mutableStateOf<ChatWidgetResource?>(null) }
   var unavailable by remember(preview.path) { mutableStateOf(false) }
-  var recoveryAttempts by remember(preview.path) { mutableStateOf(0) }
+  var recoveryAttempts by remember(preview.path) { mutableIntStateOf(0) }
   var refreshInFlight by remember(preview.path) { mutableStateOf(false) }
   var refreshRequestId by remember(preview.path) { mutableStateOf<UUID?>(null) }
+  var exportMenuExpanded by remember(preview.path) { mutableStateOf(false) }
+  var exportTarget by remember(preview.path) { mutableStateOf<WebView?>(null) }
+  var exportInFlight by remember(preview.path) { mutableStateOf(false) }
+  val context = LocalContext.current
   val scope = rememberCoroutineScope()
   val isolatedProfileSupported = remember { WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE) }
+
+  fun export(destination: ChatWidgetExportDestination) {
+    val webView = exportTarget ?: return
+    exportMenuExpanded = false
+    exportTarget = null
+    exportInFlight = true
+    scope.launch {
+      // Let the popup dismiss before PixelCopy snapshots the activity window.
+      withFrameNanos { }
+      val result =
+        try {
+          Result.success(exportChatWidgetImage(context, webView, preview.title, destination))
+        } catch (error: CancellationException) {
+          throw error
+        } catch (error: Exception) {
+          Result.failure(error)
+        }
+      exportInFlight = false
+      val message =
+        when {
+          result.isFailure && destination == ChatWidgetExportDestination.Clipboard -> nativeString("Could not copy widget image")
+          result.isFailure -> nativeString("Could not save widget image")
+          destination == ChatWidgetExportDestination.Clipboard -> nativeString("Widget image copied")
+          else -> nativeString("Widget image saved to Downloads")
+        }
+      Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
+  }
 
   fun handleFailure(
     resource: ChatWidgetResource,
@@ -131,31 +188,71 @@ internal fun ChatInlineWidget(
         val allowsScripts = preview.sandbox == "scripts"
         // Resource identity owns the WebView, isolated profile, and cleanup handle together.
         key(resource, allowsScripts) {
-          Surface(
-            modifier = Modifier.fillMaxWidth().height(preview.height.dp),
-            shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, ClawTheme.colors.border),
-            color = ClawTheme.colors.surface,
-          ) {
-            InlineWidgetWebView(
-              resource = resource,
-              allowsScripts = allowsScripts,
-              onFailure = { handleFailure(resource, rendererGone = false) },
-              onRendererGone = { handleFailure(resource, rendererGone = true) },
-            )
+          Box {
+            Surface(
+              modifier = Modifier.fillMaxWidth().height(preview.height.dp),
+              shape = RoundedCornerShape(10.dp),
+              border = BorderStroke(1.dp, ClawTheme.colors.border),
+              color = ClawTheme.colors.surface,
+            ) {
+              InlineWidgetWebView(
+                resource = resource,
+                allowsScripts = allowsScripts,
+                onLongPress = { webView ->
+                  if (!exportInFlight) {
+                    exportTarget = webView
+                    exportMenuExpanded = true
+                  }
+                },
+                onRelease = { webView ->
+                  if (exportTarget === webView) {
+                    exportMenuExpanded = false
+                    exportTarget = null
+                  }
+                },
+                onFailure = { handleFailure(resource, rendererGone = false) },
+                onRendererGone = {
+                  exportMenuExpanded = false
+                  exportTarget = null
+                  handleFailure(resource, rendererGone = true)
+                },
+              )
+            }
+            DropdownMenu(
+              expanded = exportMenuExpanded,
+              onDismissRequest = {
+                exportMenuExpanded = false
+                exportTarget = null
+              },
+            ) {
+              DropdownMenuItem(
+                text = { Text(nativeString("Copy image")) },
+                leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+                onClick = { export(ChatWidgetExportDestination.Clipboard) },
+              )
+              DropdownMenuItem(
+                text = { Text(nativeString("Save image")) },
+                leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) },
+                onClick = { export(ChatWidgetExportDestination.Downloads) },
+              )
+            }
           }
         }
       }
-      unavailable || resolvedResource != null ->
+
+      unavailable || resolvedResource != null -> {
         Text(
           text = nativeString("Widget unavailable"),
           style = ClawTheme.type.caption,
           color = ClawTheme.colors.textMuted,
         )
-      else ->
+      }
+
+      else -> {
         Box(modifier = Modifier.fillMaxWidth().height(44.dp), contentAlignment = Alignment.Center) {
           CircularProgressIndicator(color = ClawTheme.colors.textMuted)
         }
+      }
     }
   }
 }
@@ -166,11 +263,15 @@ internal fun ChatInlineWidget(
 private fun InlineWidgetWebView(
   resource: ChatWidgetResource,
   allowsScripts: Boolean,
+  onLongPress: (WebView) -> Unit,
+  onRelease: (WebView) -> Unit,
   onFailure: () -> Unit,
   onRendererGone: () -> Unit,
 ) {
   val profileName = remember(resource, allowsScripts) { "$INLINE_WIDGET_PROFILE_PREFIX${UUID.randomUUID()}" }
   val handle = remember(profileName) { InlineWidgetWebViewHandle() }
+  val currentOnLongPress by rememberUpdatedState(onLongPress)
+  val currentOnRelease by rememberUpdatedState(onRelease)
   AndroidView(
     modifier = Modifier.fillMaxWidth(),
     factory = { context ->
@@ -189,6 +290,10 @@ private fun InlineWidgetWebView(
         )
       handle.bind(client)
       webView.apply {
+        setOnLongClickListener {
+          currentOnLongPress(this)
+          true
+        }
         settings.setAllowContentAccess(false)
         settings.setAllowFileAccess(false)
         settings.setAllowFileAccessFromFileURLs(false)
@@ -206,6 +311,7 @@ private fun InlineWidgetWebView(
       }
     },
     onRelease = { webView ->
+      currentOnRelease(webView)
       handle.release(webView)
       deleteInlineWidgetProfile(profileName)
     },
@@ -247,6 +353,8 @@ private fun deleteInlineWidgetProfile(profileName: String) {
   }
 }
 
+// WebKit 1.17's lint detector reports Kotlin WebViewClient constructors even when this callback exists.
+@SuppressLint("MissingOnRenderProcessGone")
 private class InlineWidgetWebViewClient(
   private val resource: ChatWidgetResource,
   private val onFailure: () -> Unit,
@@ -258,9 +366,9 @@ private class InlineWidgetWebViewClient(
   fun release(view: WebView) {
     if (released) return
     released = true
+    view.setOnLongClickListener(null)
     view.stopLoading()
     closePinnedClient()
-    view.webViewClient = WebViewClient()
     view.removeAllViews()
     view.destroy()
   }
@@ -268,6 +376,7 @@ private class InlineWidgetWebViewClient(
   private fun releaseAfterRendererGone(view: WebView): Boolean {
     if (released) return false
     released = true
+    view.setOnLongClickListener(null)
     // A renderer-less WebView is unusable. Remove and destroy it before
     // starting asynchronous route recovery; onRelease becomes a no-op.
     (view.parent as? ViewGroup)?.removeView(view)
@@ -277,8 +386,7 @@ private class InlineWidgetWebViewClient(
   }
 
   private fun closePinnedClient() {
-    pinnedClient?.dispatcher?.cancelAll()
-    pinnedClient?.connectionPool?.evictAll()
+    pinnedClient?.let(::closePinnedWidgetClientAsync)
   }
 
   override fun onPageCommitVisible(

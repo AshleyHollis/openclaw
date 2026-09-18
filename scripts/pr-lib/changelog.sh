@@ -187,7 +187,7 @@ validate_changelog_entry_for_pr() {
   local contrib="$2"
 
   local added_lines
-  added_lines=$(git diff --unified=0 origin/main...HEAD -- CHANGELOG.md | awk '
+  added_lines=$(git diff --unified=0 "$PR_MAIN_SHA...HEAD" -- CHANGELOG.md | awk '
     /^\+\+\+/ { next }
     /^\+/ { print substr($0, 2) }
   ')
@@ -209,7 +209,7 @@ validate_changelog_entry_for_pr() {
 
   local diff_file
   diff_file=$(mktemp)
-  git diff --unified=0 origin/main...HEAD -- CHANGELOG.md > "$diff_file"
+  git diff --unified=0 "$PR_MAIN_SHA...HEAD" -- CHANGELOG.md > "$diff_file"
 
   if ! awk -v pr_pattern="$pr_pattern" '
 BEGIN {
@@ -366,7 +366,7 @@ END {
 
 validate_changelog_merge_hygiene() {
   local diff
-  diff=$(git diff --unified=0 origin/main...HEAD -- CHANGELOG.md)
+  diff=$(git diff --unified=0 "$PR_MAIN_SHA...HEAD" -- CHANGELOG.md)
 
   local removed_lines
   removed_lines=$(printf '%s\n' "$diff" | awk '

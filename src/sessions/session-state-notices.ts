@@ -4,6 +4,7 @@ import { enqueueSystemEvent } from "../infra/system-events.js";
 import { isSubagentSessionKey, parseAgentSessionKey } from "../routing/session-key.js";
 
 const SESSION_STATE_CONTEXT_PREFIX = "session-state:";
+const SESSION_STATE_WAKE_COALESCE_MS = 20_000;
 
 function encodeNoticeTarget(sessionKey: string): string {
   return Buffer.from(sessionKey, "utf8").toString("hex");
@@ -17,7 +18,16 @@ export function decodeSessionStateNoticeContextKey(contextKey: string): string |
   if (!encoded || encoded.length % 2 !== 0 || !/^[0-9a-f]+$/.test(encoded)) {
     return undefined;
   }
-  return Buffer.from(encoded, "hex").toString("utf8");
+  // encodeNoticeTarget always writes the hex of a valid UTF-8 session key, so a
+  // payload that fails strict UTF-8 decoding is corrupt: fail closed instead of
+  // letting U+FFFD collisions acknowledge an unrelated watcher cursor.
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      Buffer.from(encoded, "hex"),
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 // Terse on purpose: this line lands in model prompts, possibly repeatedly across
@@ -60,13 +70,13 @@ export function enqueueSessionStateNotice(params: {
   if (!shouldWakeWatcher(params.watcherSessionKey)) {
     return;
   }
-  // intent "immediate": event-intent wakes defer on heartbeat dueness, which would
-  // delay stale-state notices by up to the whole heartbeat interval. Task/cron
-  // wake-now paths use the same class; the flood guard remains the backstop.
+  // Collapse bursts of watched-session changes into one main-session wake. Notices
+  // are already queued and deduped, so none are lost; 20 seconds bounds added latency.
   requestHeartbeat({
     source: "session-state",
     intent: "immediate",
     reason: `session-state:${params.targetSessionKey}`,
     sessionKey: params.watcherSessionKey,
+    coalesceMs: SESSION_STATE_WAKE_COALESCE_MS,
   });
 }

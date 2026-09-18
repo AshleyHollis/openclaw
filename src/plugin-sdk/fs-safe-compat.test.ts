@@ -5,20 +5,53 @@ import fs from "node:fs";
 import path from "node:path";
 import { loadSecretFileSync as loadSecretFileSyncFromCore } from "openclaw/plugin-sdk/core";
 import {
+  fileExists,
   readFileWithinRoot,
   removePathWithinRoot,
+  stageDurableFileInDirectory,
   writeFileWithinRoot,
 } from "openclaw/plugin-sdk/file-access-runtime";
 import {
   loadSecretFileSync,
   type SecretFileReadResult,
 } from "openclaw/plugin-sdk/secret-file-runtime";
+import { fileExists as fileExistsFromSecurity } from "openclaw/plugin-sdk/security-runtime";
+import { tryAcquireExclusiveSqliteCoordinator } from "openclaw/plugin-sdk/sqlite-runtime";
 import { describe, expect, it } from "vitest";
-import { withTempDir } from "../test-helpers/temp-dir.js";
+import { withTestDir } from "../test-helpers/temp-dir.js";
 
 describe("plugin SDK fs-safe compatibility exports", () => {
+  it("exposes the existing contentless exclusive SQLite coordinator", () => {
+    expect(tryAcquireExclusiveSqliteCoordinator).toBeTypeOf("function");
+  });
+
+  it("exposes retained-directory durable staging without widening process defaults", () => {
+    expect(stageDurableFileInDirectory).toBeTypeOf("function");
+  });
+
+  it.each([
+    { subpath: "file-access-runtime", exists: fileExists },
+    { subpath: "security-runtime", exists: fileExistsFromSecurity },
+  ])("keeps $subpath file checks limited to regular files", async ({ exists }) => {
+    await withTestDir({ prefix: "openclaw-sdk-file-exists-" }, async (root) => {
+      const filePath = path.join(root, "file.txt");
+      const symlinkPath = path.join(root, "linked.txt");
+      fs.writeFileSync(filePath, "content");
+      fs.symlinkSync(filePath, symlinkPath);
+
+      for (const [candidate, expected] of [
+        [filePath, true],
+        [path.join(root, "missing.txt"), false],
+        [root, false],
+        [symlinkPath, false],
+      ] as const) {
+        expect(exists(candidate), candidate).toBe(expected);
+      }
+    });
+  });
+
   it("keeps deprecated secret-file result helpers on public SDK subpaths", async () => {
-    await withTempDir({ prefix: "openclaw-sdk-secret-compat-" }, async (root) => {
+    await withTestDir({ prefix: "openclaw-sdk-secret-compat-" }, async (root) => {
       const secretPath = path.join(root, "token.txt");
       fs.writeFileSync(secretPath, "secret\n", { mode: 0o600 });
 
@@ -40,7 +73,7 @@ describe("plugin SDK fs-safe compatibility exports", () => {
   });
 
   it("keeps root-bounded file-access helpers on file-access-runtime", async () => {
-    await withTempDir({ prefix: "openclaw-sdk-file-access-compat-" }, async (root) => {
+    await withTestDir({ prefix: "openclaw-sdk-file-access-compat-" }, async (root) => {
       await writeFileWithinRoot({
         rootDir: root,
         relativePath: "nested/file.txt",

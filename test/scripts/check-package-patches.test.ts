@@ -1,11 +1,11 @@
 // Check Package Patches tests cover check package patches script behavior.
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { collectPackagePatchViolations } from "../../scripts/check-package-patches.mjs";
-import { cleanupTempDirs, makeTempRepoRoot, writeJsonFile } from "../helpers/temp-repo.js";
+import { collectPackagePatchViolations } from "../../scripts/check-package-patches.mts";
+import { cleanupTempDirs, makeTempDir as makeTempRepoRoot } from "../helpers/temp-dir.js";
+import { writeJsonFile } from "../helpers/temp-repo.js";
 
 const tempDirs: string[] = [];
 
@@ -53,53 +53,14 @@ afterEach(() => {
 });
 
 describe("check-package-patches", () => {
-  it("accepts only unchanged archived source patches without authorizing pnpm use", () => {
-    const dir = makeRepo();
-    const manifestPath = "downstream/releases/2026.7.1-2-nas.7.json";
-    const historicalManifest = readFileSync(
-      path.resolve(import.meta.dirname, "../..", manifestPath),
-    );
-    const manifest = JSON.parse(historicalManifest.toString());
-    const archive = manifest.patches[0].file;
-    const historicalPatch = readFileSync(path.resolve(import.meta.dirname, "../..", archive));
-    mkdirSync(path.dirname(path.join(dir, archive)), { recursive: true });
-    mkdirSync(path.join(dir, "downstream/releases"), { recursive: true });
-    writeFileSync(path.join(dir, archive), historicalPatch);
-    writeFileSync(path.join(dir, manifestPath), historicalManifest);
-    git(dir, ["add", "downstream"]);
-    expect(collectPackagePatchViolations(dir)).toEqual([]);
-
-    writeFileSync(path.join(dir, archive), "changed source export\n");
-    expect(collectPackagePatchViolations(dir)).toEqual([
-      { file: archive, kind: "patchFile", detail: "new package patch file" },
-    ]);
-    manifest.patches[0].sha256 = createHash("sha256")
-      .update("changed source export\n")
-      .digest("hex");
-    writeJsonFile(path.join(dir, manifestPath), manifest);
-    expect(collectPackagePatchViolations(dir)).toEqual([
-      { file: archive, kind: "patchFile", detail: "new package patch file" },
-    ]);
-    writeFileSync(path.join(dir, manifestPath), historicalManifest);
-    writeFileSync(path.join(dir, archive), historicalPatch);
-    const unlisted = "downstream/patches/2026.7.1-2/unlisted.patch";
-    writeFileSync(path.join(dir, unlisted), "source export\n");
-    git(dir, ["add", unlisted]);
-    writeFileSync(
-      path.join(dir, "pnpm-workspace.yaml"),
-      `packages:\n  - .\npatchedDependencies:\n  "left-pad@1.3.0": "${archive}"\n`,
-    );
-    expect(collectPackagePatchViolations(dir)).toEqual([
-      {
-        file: "pnpm-workspace.yaml",
-        kind: "patchedDependency",
-        detail: `left-pad@1.3.0 -> ${archive}`,
-      },
-      { file: unlisted, kind: "patchFile", detail: "new package patch file" },
-    ]);
-  });
-
-  it("allows approved pnpm patches", () => {
+  it("allows approved pnpm patches together", () => {
+    const approvedPatches = [
+      ["@awesome.me/webawesome@3.12.0", "patches/@awesome.me__webawesome@3.12.0.patch"],
+      ["baileys@7.0.0-rc12", "patches/baileys@7.0.0-rc12.patch"],
+      ["baileys@7.0.0-rc13", "patches/baileys@7.0.0-rc13.patch"],
+      ["vitest@5.0.0", "patches/vitest@5.0.0.patch"],
+      ["matrix-js-sdk@42.2.0", "patches/matrix-js-sdk@42.2.0.patch"],
+    ] as const;
     const dir = makeRepo();
     mkdirSync(path.join(dir, "patches"), { recursive: true });
     writeFileSync(
@@ -107,8 +68,7 @@ describe("check-package-patches", () => {
       `packages:
   - .
 patchedDependencies:
-  "@openclaw/fs-safe@0.4.1": "patches/@openclaw__fs-safe@0.4.1.patch"
-  "baileys@7.0.0-rc12": "patches/baileys@7.0.0-rc12.patch"
+${approvedPatches.map(([specifier, patchPath]) => `  "${specifier}": "${patchPath}"`).join("\n")}
 `,
       "utf8",
     );
@@ -116,19 +76,23 @@ patchedDependencies:
       path.join(dir, "pnpm-lock.yaml"),
       `lockfileVersion: '9.0'
 patchedDependencies:
-  "@openclaw/fs-safe@0.4.1": fs-safe-hash
-  baileys@7.0.0-rc12: a9aea1790d2c65b1ae543c77faca4119bbfb91ee3b6ca6c38d1cad4f5702ada2
+${approvedPatches.map(([specifier]) => `  "${specifier}": a9aea1790d2c65b1ae543c77faca4119bbfb91ee3b6ca6c38d1cad4f5702ada2`).join("\n")}
 `,
       "utf8",
     );
-    writeFileSync(path.join(dir, "patches", "baileys@7.0.0-rc12.patch"), "diff\n", "utf8");
-    writeFileSync(path.join(dir, "patches", "@openclaw__fs-safe@0.4.1.patch"), "diff\n", "utf8");
+    for (const [, patchPath] of approvedPatches) {
+      writeFileSync(path.join(dir, patchPath), "diff\n", "utf8");
+    }
     git(dir, ["add", "pnpm-workspace.yaml", "pnpm-lock.yaml", "patches"]);
 
     expect(collectPackagePatchViolations(dir)).toEqual([]);
   });
 
-  it("rejects new workspace patchedDependencies and patch files", () => {
+  it.each([
+    ["left-pad@1.3.0", "patches/left-pad@1.3.0.patch"],
+    ["matrix-js-sdk@42.2.1", "patches/matrix-js-sdk@42.2.1.patch"],
+    ["matrix-js-sdk@42.2.0", "patches/matrix-js-sdk@42.2.0-other.patch"],
+  ])("rejects unapproved workspace patch %s -> %s", (specifier, patchPath) => {
     const dir = makeRepo();
     mkdirSync(path.join(dir, "patches"), { recursive: true });
     mkdirSync(path.join(dir, "fixtures"), { recursive: true });
@@ -137,11 +101,11 @@ patchedDependencies:
       `packages:
   - .
 patchedDependencies:
-  "left-pad@1.3.0": "patches/left-pad@1.3.0.patch"
+  "${specifier}": "${patchPath}"
 `,
       "utf8",
     );
-    writeFileSync(path.join(dir, "patches", "left-pad@1.3.0.patch"), "diff\n", "utf8");
+    writeFileSync(path.join(dir, patchPath), "diff\n", "utf8");
     writeFileSync(path.join(dir, "fixtures", "fixture.patch"), "diff\n", "utf8");
     git(dir, ["add", "pnpm-workspace.yaml", "patches", "fixtures"]);
 
@@ -149,7 +113,7 @@ patchedDependencies:
       {
         file: "pnpm-workspace.yaml",
         kind: "patchedDependency",
-        detail: "left-pad@1.3.0 -> patches/left-pad@1.3.0.patch",
+        detail: `${specifier} -> ${patchPath}`,
       },
       {
         file: "fixtures/fixture.patch",
@@ -157,7 +121,7 @@ patchedDependencies:
         detail: "new package patch file",
       },
       {
-        file: "patches/left-pad@1.3.0.patch",
+        file: patchPath,
         kind: "patchFile",
         detail: "new package patch file",
       },
@@ -178,39 +142,51 @@ patchedDependencies:
     expect(collectPackagePatchViolations(dir)).toEqual([]);
   });
 
-  it("rejects lockfile-only and package-local patch declarations", () => {
-    const dir = makeRepo();
-    writeJsonFile(path.join(dir, "package.json"), {
-      name: "fixture",
-      pnpm: {
-        patchedDependencies: {
-          "nested@1.0.0": "patches/nested.patch",
+  it.each([false, true])(
+    "rejects lockfile and package-local patches with toolchain metadata %s",
+    (withToolchain) => {
+      const dir = makeRepo();
+      writeJsonFile(path.join(dir, "package.json"), {
+        name: "fixture",
+        pnpm: {
+          patchedDependencies: {
+            "nested@1.0.0": "patches/nested.patch",
+          },
         },
-      },
-    });
-    writeFileSync(
-      path.join(dir, "pnpm-lock.yaml"),
-      `lockfileVersion: '9.0'
+      });
+      writeFileSync(
+        path.join(dir, "pnpm-lock.yaml"),
+        `${withToolchain ? "---\nlockfileVersion: '9.0'\npatchedDependencies:\n  toolchain@1.0.0: toolhash\n---\n" : ""}lockfileVersion: '9.0'
 patchedDependencies:
   hidden@1.0.0: abc123
 `,
-      "utf8",
-    );
-    git(dir, ["add", "package.json", "pnpm-lock.yaml"]);
+        "utf8",
+      );
+      git(dir, ["add", "package.json", "pnpm-lock.yaml"]);
 
-    expect(collectPackagePatchViolations(dir)).toEqual([
-      {
-        file: "pnpm-lock.yaml",
-        kind: "patchedDependency",
-        detail: "hidden@1.0.0 -> abc123",
-      },
-      {
-        file: "package.json",
-        kind: "packageJsonPatchedDependency",
-        detail: "nested@1.0.0 -> patches/nested.patch",
-      },
-    ]);
-  });
+      expect(collectPackagePatchViolations(dir)).toEqual([
+        ...(withToolchain
+          ? [
+              {
+                file: "pnpm-lock.yaml",
+                kind: "patchedDependency",
+                detail: "toolchain@1.0.0 -> toolhash",
+              },
+            ]
+          : []),
+        {
+          file: "pnpm-lock.yaml",
+          kind: "patchedDependency",
+          detail: "hidden@1.0.0 -> abc123",
+        },
+        {
+          file: "package.json",
+          kind: "packageJsonPatchedDependency",
+          detail: "nested@1.0.0 -> patches/nested.patch",
+        },
+      ]);
+    },
+  );
 
   it("skips tracked package manifests deleted in the worktree", () => {
     const dir = makeRepo();
