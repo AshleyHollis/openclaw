@@ -483,11 +483,14 @@ describe("sessions.files touched-file folds", () => {
   it("omits media and other non-file references without hiding missing workspace files", async () => {
     useSqliteSession(hoisted.loadSessionEntry, workspaceRoot, "sess-touched-media-refs");
     writeWorkspaceFile(workspaceRoot, "report:2026.txt", "colon\n");
+    writeWorkspaceFile(workspaceRoot, "data:2026.txt", "data colon\n");
     mockVisibleMessages(
       [
         "media://inbound/image---15547f7e-c109-401d-93c3-7f264c1d8552.png",
         "media://inbound/example.png",
         "https://example.com/report.pdf",
+        "data:text/plain,inline",
+        "data:2026.txt",
         "report:2026.txt",
         "..cache/missing.txt",
         "src/readme.md",
@@ -503,6 +506,7 @@ describe("sessions.files touched-file folds", () => {
 
     expect((await listFiles()).map((file) => file.path)).toEqual([
       "..cache/missing.txt",
+      "data:2026.txt",
       "report:2026.txt",
       "src/readme.md",
     ]);
@@ -511,22 +515,28 @@ describe("sessions.files touched-file folds", () => {
       expect.arrayContaining([
         expect.objectContaining({ path: "..cache/missing.txt", missing: true }),
         // A literal colon is a POSIX filename, not a scheme, so it stays resolvable.
+        expect.objectContaining({ path: "data:2026.txt", missing: false }),
         expect.objectContaining({ path: "report:2026.txt", missing: false }),
         expect.objectContaining({ path: "src/readme.md", missing: false }),
       ]),
     );
 
-    const preview = expectOkPayload(
-      await invokeSessionFilesHandler("sessions.files.get", {
-        sessionKey: "agent:main:main",
-        path: "report:2026.txt",
-      }),
-    );
-    expect(preview.file).toMatchObject({
-      content: "colon\n",
-      contentEncoding: "utf8",
-      missing: false,
-      path: "report:2026.txt",
-    });
+    for (const [name, content] of [
+      ["data:2026.txt", "data colon\n"],
+      ["report:2026.txt", "colon\n"],
+    ] as const) {
+      const preview = expectOkPayload(
+        await invokeSessionFilesHandler("sessions.files.get", {
+          sessionKey: "agent:main:main",
+          path: name,
+        }),
+      );
+      expect(preview.file).toMatchObject({
+        content,
+        contentEncoding: "utf8",
+        missing: false,
+        path: name,
+      });
+    }
   });
 });
