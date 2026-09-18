@@ -17,6 +17,40 @@ function projectHistoryTransports(message: Record<string, unknown>) {
 }
 
 describe("forwarded session attribution", () => {
+  it("projects recorded cron input as an attributed automation turn", () => {
+    const sourcePromptPrefix = "[cron:daily-report Daily report]";
+    const provenance = {
+      kind: "internal_system" as const,
+      sourceTool: "cron",
+      sourcePromptPrefix,
+      jobId: "daily-report",
+      runId: "run-1",
+      sourceSessionKey: "agent:main:cron:daily-report:run:run-1",
+    };
+    const message = {
+      role: "user",
+      provenance,
+      content: `${sourcePromptPrefix} Check the queue.`,
+    };
+
+    for (const messages of projectHistoryTransports(message)) {
+      expect(messages).toStrictEqual([
+        {
+          role: "assistant",
+          provenance,
+          content: "Check the queue.",
+          senderLabel: "Forwarded from Automation",
+          senderSession: {
+            sessionKey: provenance.sourceSessionKey,
+            agentId: "main",
+            label: "Automation",
+          },
+          __openclaw: { turnBoundary: true },
+        },
+      ]);
+    }
+  });
+
   it.each([
     {
       name: "structured provenance before prompt metadata",

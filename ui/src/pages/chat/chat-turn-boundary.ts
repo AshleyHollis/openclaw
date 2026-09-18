@@ -20,7 +20,12 @@ export function safeNormalizeMessage(message: unknown): NormalizedMessage | null
 export function assistantGroupIsForwardedBoundary(group: MessageGroup): boolean {
   return group.messages.some(({ message }) => {
     const provenance = asRecord(asRecord(message)?.provenance);
-    return provenance?.kind === "inter_session" && provenance.sourceTool === "sessions_send";
+    return (
+      (provenance?.kind === "inter_session" && provenance.sourceTool === "sessions_send") ||
+      (provenance?.kind === "internal_system" &&
+        provenance.sourceTool === "cron" &&
+        Boolean(provenance.jobId && provenance.runId && provenance.sourceSessionKey))
+    );
   });
 }
 

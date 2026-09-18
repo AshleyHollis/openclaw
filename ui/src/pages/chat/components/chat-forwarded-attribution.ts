@@ -1,4 +1,4 @@
-// Attribution row for cross-session (sessions_send) forwarded messages.
+// Attribution row for forwarded agent and automation messages.
 import { html, nothing } from "lit";
 import type { AgentsListResult } from "../../../api/types.ts";
 import { icons } from "../../../components/icons.ts";
@@ -32,7 +32,8 @@ export function renderForwardedAttribution(group: MessageGroup, opts: ForwardedA
   const sourceIsMainSession = Boolean(
     sourceParsed && opts.mainKey && sourceParsed.rest === opts.mainKey,
   );
-  const sourceMainLabel = sourceIsMainSession ? sourceAgentDisplayName : undefined;
+  const sourceLabel =
+    group.senderSession?.label ?? (sourceIsMainSession ? sourceAgentDisplayName : undefined);
   const sourceAgentPrefix =
     !sourceIsMainSession && sourceParsed && sourceParsed.agentId !== opts.agentId
       ? sourceAgentDisplayName
@@ -51,17 +52,15 @@ export function renderForwardedAttribution(group: MessageGroup, opts: ForwardedA
             html`<span>${t("chat.messages.forwardedFrom")}</span>
               ${sourceAgentPrefix ? html`<span>${sourceAgentPrefix} —</span>` : nothing}
               <a
-                class="markdown-session-link${
-                  sourceMainLabel ? " markdown-session-link--titled" : ""
-                }"
+                class="markdown-session-link${sourceLabel ? " markdown-session-link--titled" : ""}"
                 role="link"
                 tabindex="0"
                 data-session-key=${linkableSourceKey}
-                .textContent=${sourceMainLabel ?? linkableSourceKey}
+                .textContent=${sourceLabel ?? linkableSourceKey}
               ></a>`
           : sourceSessionKey
             ? html`<span>${t("chat.messages.forwardedFrom")}</span>
-                <span>${sourceSessionKey}</span>`
+                <span>${sourceLabel ?? sourceSessionKey}</span>`
             : html`<span
                 >${
                   group.senderSession?.agentId
