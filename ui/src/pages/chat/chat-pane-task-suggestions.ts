@@ -1,7 +1,6 @@
 import type {
   TaskSuggestion,
   TaskSuggestionEvent,
-  TaskSuggestionsAcceptResult,
   TaskSuggestionsListResult,
 } from "../../../../packages/gateway-protocol/src/index.js";
 import { hasOperatorAdminAccess, hasOperatorWriteAccess } from "../../app/operator-access.ts";
@@ -207,13 +206,11 @@ export abstract class ChatPaneTaskSuggestions extends ChatPaneSharing {
     this.taskSuggestionBusyIds.add(suggestion.id);
     this.requestUpdate();
     try {
-      let acceptedKey: string | undefined;
       if (action === "accept") {
-        const result = await scope.client.request<TaskSuggestionsAcceptResult>(
-          "taskSuggestions.accept",
-          { taskId: suggestion.id, mode: "local" },
-        );
-        acceptedKey = result.key;
+        await scope.client.request("taskSuggestions.accept", {
+          taskId: suggestion.id,
+          mode: "local",
+        });
       } else {
         await scope.client.request("taskSuggestions.dismiss", { taskId: suggestion.id });
       }
@@ -221,9 +218,6 @@ export abstract class ChatPaneTaskSuggestions extends ChatPaneSharing {
         return;
       }
       this.setTaskSuggestions(this.taskSuggestions.filter((item) => item.id !== suggestion.id));
-      if (acceptedKey) {
-        this.onPaneSessionChange?.(this.paneId, acceptedKey);
-      }
     } catch (error) {
       if (!isCurrent()) {
         return;

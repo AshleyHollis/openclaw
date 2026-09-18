@@ -4,7 +4,6 @@ import {
   chatSessionListResponse,
   createChatFlowE2eSuite,
   controlUiSessionUrl,
-  controlUiSessionPath,
   captureUiProof,
   installMockGateway,
   waitForRequests,
@@ -72,13 +71,18 @@ suite.define(() => {
           exact: true,
         })
         .waitFor({ state: "visible", timeout: 10_000 });
+      const sourceUrl = page.url();
+      const composer = page.locator(".agent-chat__composer-combobox textarea");
+      const draft = "Continue the current conversation.";
+      await composer.fill(draft);
       await startButton.click();
 
       const acceptRequest = await gateway.waitForRequest("taskSuggestions.accept");
       expect(acceptRequest.params).toEqual({ taskId: "task_123", mode: "local" });
-      await expect
-        .poll(() => new URL(page.url()).pathname)
-        .toBe(controlUiSessionPath("agent:main:dashboard:suggested"));
+      await card.waitFor({ state: "hidden" });
+      expect(page.url()).toBe(sourceUrl);
+      expect(await composer.inputValue()).toBe(draft);
+      expect(await gateway.getRequests("taskSuggestions.accept")).toHaveLength(1);
     } finally {
       await suite.closeBrowserContext(context);
     }
