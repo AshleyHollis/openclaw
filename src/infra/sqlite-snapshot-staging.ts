@@ -220,12 +220,13 @@ export async function allocateSqliteSnapshotStagingDirectory(
           callers: 0,
           done: (async () => {
             try {
-              const { runSqliteReadOnlyWorker } = await import("./sqlite-readonly-worker.js");
+              const { reclaimSqliteSnapshotDirectories } =
+                await import("./sqlite-snapshot-reclamation-worker.js");
               if (!controller.signal.aborted) {
-                for (const message of await runSqliteReadOnlyWorker(root, {
-                  mode: "reclaim",
-                  signal: controller.signal,
-                })) {
+                for (const message of await reclaimSqliteSnapshotDirectories(
+                  root,
+                  controller.signal,
+                )) {
                   warn(message);
                 }
               }
