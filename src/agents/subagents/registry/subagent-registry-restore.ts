@@ -24,7 +24,7 @@ import {
   updateSubagentArchiveAtMs,
 } from "./subagent-registry-helpers.js";
 import type { SubagentLifecycleController } from "./subagent-registry-lifecycle.js";
-import { isRetiredSubagentExecution } from "./subagent-registry-restart-recovery-helpers.js";
+import { isRetiredSubagentSessionOwner } from "./subagent-registry-restart-recovery-helpers.js";
 import type { SubagentRunRecord } from "./subagent-registry.types.js";
 import { deleteSubagentSessionForCleanup } from "./subagent-session-cleanup.js";
 import {
@@ -330,9 +330,7 @@ export function createSubagentRegistryRestorer(config: {
       // executions. Completed sessions must resume normal settlement and delivery.
       if (
         sessionEntry?.abortedLastRun === true ||
-        (sessionEntry?.status === "running" &&
-          sessionEntry.lifecycleRunId === entry.runId &&
-          isRetiredSubagentExecution(entry))
+        isRetiredSubagentSessionOwner(entry, sessionEntry)
       ) {
         continue;
       }
