@@ -1,0 +1,47 @@
+diff --git a/dist/native-staged-file.d.ts b/dist/native-staged-file.d.ts
+--- a/dist/native-staged-file.d.ts
++++ b/dist/native-staged-file.d.ts
+@@ -25,6 +25,8 @@ export declare function stageFileInDirectory(options: {
+ export declare function stageFileInDirectory(options: {
+     directory: string | DirectoryReceipt;
+     content: string | Uint8Array;
+     /** Published mode; the unpublished stage stays at 0600. Defaults to 0600. */
+     mode?: number;
++    /** Require native staging for this operation without changing process configuration. */
++    nativeMode?: "require";
+ }): Promise<StagedFile>;
+diff --git a/dist/native-staged-file.js b/dist/native-staged-file.js
+--- a/dist/native-staged-file.js
++++ b/dist/native-staged-file.js
+@@ -352,6 +352,9 @@ export async function stageFileInDirectory(options) {
+ export async function stageFileInDirectory(options) {
++    if (options.nativeMode !== undefined && options.nativeMode !== "require") {
++        throw new FsSafeError("invalid-path", "invalid per-operation staging policy");
++    }
+     if (process.platform !== "linux" && process.platform !== "darwin") {
+         throw new FsSafeError("unsupported-platform", "retained-directory staging requires Linux or macOS");
+     }
+-    const binding = requireNativeBinding();
++    const binding = requireNativeBinding(options.nativeMode);
+     assertNativeStaging(binding);
+diff --git a/dist/native.d.ts b/dist/native.d.ts
+--- a/dist/native.d.ts
++++ b/dist/native.d.ts
+@@ -10,2 +10,2 @@ export declare function getNativeBinding(): NativeBinding | undefined;
+-export declare function getNativeBinding(): NativeBinding | undefined;
+-export declare function requireNativeBinding(): NativeBinding;
++export declare function getNativeBinding(requiredMode?: "require"): NativeBinding | undefined;
++export declare function requireNativeBinding(requiredMode?: "require"): NativeBinding;
+diff --git a/dist/native.js b/dist/native.js
+--- a/dist/native.js
++++ b/dist/native.js
+@@ -159,2 +159,2 @@ export function getNativeBinding() {
+-export function getNativeBinding() {
+-    const { mode } = getFsSafeNativeConfig();
++export function getNativeBinding(requiredMode) {
++    const mode = requiredMode ?? getFsSafeNativeConfig().mode;
+@@ -184,2 +184,2 @@ export function requireNativeBinding() {
+-export function requireNativeBinding() {
+-    const native = getNativeBinding();
++export function requireNativeBinding(requiredMode) {
++    const native = getNativeBinding(requiredMode);
