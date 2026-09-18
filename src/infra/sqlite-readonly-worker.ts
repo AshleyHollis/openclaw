@@ -118,7 +118,7 @@ export async function withSqliteReadOnlyWorkerScope<T>(
   }
 }
 
-export function isSqliteInspectionDeadlineOwnedByCaller(): boolean {
+function isSqliteInspectionDeadlineOwnedByCaller(): boolean {
   return readOnlyWorkerScope.getStore()?.deadlineOwnedByCaller === true;
 }
 

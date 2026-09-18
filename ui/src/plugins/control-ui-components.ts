@@ -1,4 +1,4 @@
-import { html, nothing, render } from "lit";
+import { html, nothing, render, type TemplateResult } from "lit";
 import type {
   ControlUiComponentHandle,
   ControlUiComponents,
@@ -219,7 +219,7 @@ export function createControlUiComponents(options: {
               }
             }
           };
-          const renderNode = (node: Node, parent = "", nested = false) => html` <ul
+          const renderNode = (node: Node, parent = "", nested = false): TemplateResult => html` <ul
             class="chat-workspace-rail__list chat-workspace-rail__list--browser"
             role=${nested ? "group" : "tree"}
           >
@@ -355,8 +355,8 @@ export function createControlUiComponents(options: {
                       path: props.currentPath,
                       parentPath: props.currentPath
                         ? props.currentPath.split("/").slice(0, -1).join("/")
-                        : null,
-                      entries: props.entries,
+                        : undefined,
+                      entries: [...props.entries],
                       search: props.query || undefined,
                     },
                   },

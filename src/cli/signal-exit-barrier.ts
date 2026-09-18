@@ -102,7 +102,3 @@ export function installCliSignalExitHandlers(): () => void {
     }
   };
 }
-
-export async function waitForCliSignalExit(): Promise<void> {
-  await cliSignalExit;
-}

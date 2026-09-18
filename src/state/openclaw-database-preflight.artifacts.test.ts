@@ -647,6 +647,7 @@ describe("schema preflight source artifacts", () => {
                 ? path.join(path.dirname(prepared.location), "missing.sqlite")
                 : prepared.location,
             cleanup,
+            cleanupAsync: prepared.cleanupAsync,
           };
         },
       );

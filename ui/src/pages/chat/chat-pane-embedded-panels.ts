@@ -1,5 +1,6 @@
 import type { ControlUiFocusBuildTarget } from "@openclaw/session-url-contract";
 import { html, nothing, type TemplateResult } from "lit";
+import type { DirectiveResult } from "lit/directive.js";
 import type { SessionObserverDigest } from "../../../../packages/gateway-protocol/src/schema/sessions.js";
 import type { ControlUiSessionPullRequest } from "../../../../src/gateway/control-ui-contract.js";
 import type {
@@ -143,7 +144,7 @@ export function sidebarPanelDefinitions(
     slot: Exclude<SidebarSlotId, `plugin:${string}`>,
     textKey: SidebarPanelTextKey,
     icon: TemplateResult,
-    content: TemplateResult | typeof nothing | null,
+    content: TemplateResult | DirectiveResult | typeof nothing | null,
     headerAction?: TemplateResult,
   ): SidebarPanelDefinition => ({
     slot,
