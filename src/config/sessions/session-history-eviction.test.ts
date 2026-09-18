@@ -47,7 +47,7 @@ import {
   replaceSessionEntrySync,
   resetSessionEntryLifecycle,
 } from "./session-accessor.js";
-import { readReferencedSessionIds } from "./session-accessor.sqlite-lifecycle-state.js";
+import * as sessionLifecycleState from "./session-accessor.sqlite-lifecycle-state.js";
 import { getSessionKysely } from "./session-accessor.sqlite-scope.js";
 import {
   enforceSqliteSessionHistoryDiskBudget,
@@ -249,9 +249,9 @@ describe("SQLite historical session disk budget", () => {
             archiveReason: "active-session-cap",
           },
         );
-        expect(readReferencedSessionIds(database(), undefined, ["oldest-history"])).toEqual(
-          new Set(["oldest-history"]),
-        );
+        expect(
+          sessionLifecycleState.readReferencedSessionIds(database(), undefined, ["oldest-history"]),
+        ).toEqual(new Set(["oldest-history"]));
       }
       setSessionUpdatedAt("newer-history", 20);
       settlePhysicalUsage();
@@ -418,8 +418,10 @@ describe("SQLite historical session disk budget", () => {
     const oldArchive = path.join(tempDir, archiveName);
     fs.writeFileSync(oldArchive, Buffer.alloc(256 * 1024));
     const before = await measureSessionPhysicalDiskUsage(storePath);
+    const readReferences = vi.spyOn(sessionLifecycleState, "readReferencedSessionIds");
 
     const result = await enforceSqliteSessionHistoryDiskBudget({
+      env: { OPENCLAW_STATE_DIR: testState.stateDir },
       storePath,
       mode: "enforce",
       maintenance: {
@@ -431,6 +433,7 @@ describe("SQLite historical session disk budget", () => {
     expect(result).toMatchObject({ removedEntries: 0, removedFiles: 1 });
     expect(fs.existsSync(oldArchive)).toBe(false);
     expect(sessionExists("archive-history")).toBe(true);
+    expect(readReferences.mock.calls.length).toBe(0);
   });
 
   it("prunes the canonical archive row and its derived file before searchable history", async () => {
