@@ -1,19 +1,20 @@
 // Keep source lifetime pinned while the snapshot owner consumes live or private bytes.
 import fs, { type BigIntStats } from "node:fs";
-import {
-  createPrivateSqliteTempDirectorySync,
-  resolvePrivateSqliteSnapshotStagingRoot,
-} from "./sqlite-private-directory.js";
+import { coerceErrorMessage } from "@openclaw/normalization-core/error-coercion";
 import {
   adoptPreparedLocation,
+  removeTempDirectory,
+  removeTempDirectoryAsync,
+  SqliteSnapshotCleanupError,
+} from "./sqlite-readonly-location-cleanup.js";
+import {
   createSqliteSnapshotStagingDirectory,
   prepareSqliteReadOnlyLocationInProcess,
   prepareSqliteReadOnlyLocationSyncInProcess,
-  removeTempDirectory,
-  SQLITE_SNAPSHOT_STAGING_PREFIX,
-  type PreparedSqliteReadOnlyLocation,
 } from "./sqlite-readonly-location.js";
+import type { PreparedSqliteReadOnlyLocation } from "./sqlite-readonly-location.types.js";
 import { runSqliteReadOnlyWorker, runSqliteReadOnlyWorkerSync } from "./sqlite-readonly-worker.js";
+import { createSqliteSnapshotStagingDirectorySync } from "./sqlite-snapshot-staging.js";
 import { withSqliteSourceHandleAsync } from "./sqlite-source-handle.js";
 import {
   hasStateDatabaseSourceExclusion,
@@ -53,7 +54,7 @@ export async function prepareSqliteReadOnlyLocation(
     }
     // A stopped worker may never publish its random snapshot path. Allocate its
     // private parent first so cancellation can join the child and remove all copies.
-    stagingRoot = await createSqliteSnapshotStagingDirectory();
+    stagingRoot = await createSqliteSnapshotStagingDirectory(undefined, false, options.signal);
     options.signal?.throwIfAborted();
     const location = await runSqliteReadOnlyWorker(pathname, {
       mode: options.preserveSourceArtifacts ? "sync" : "async",
@@ -65,10 +66,11 @@ export async function prepareSqliteReadOnlyLocation(
     // read-only handles report false so their owner can retry close.
     return adoptPreparedLocation(location, stagingRoot, options.signal !== undefined);
   } catch (error) {
-    if (stagingRoot && !removeTempDirectory(stagingRoot)) {
-      throw new Error(`SQLite read-only worker snapshot cleanup failed: ${stagingRoot}`, {
-        cause: error,
-      });
+    if (stagingRoot && !(await removeTempDirectoryAsync(stagingRoot))) {
+      throw new Error(
+        `${coerceErrorMessage(error)}; SQLite snapshot cleanup failed: ${stagingRoot}`,
+        { cause: error },
+      );
     }
     options.signal?.throwIfAborted();
     throw error;
@@ -81,17 +83,15 @@ export function prepareSqliteReadOnlyLocationSync(
   if (hasStateDatabaseSourceExclusion(pathname)) {
     return prepareSqliteReadOnlyLocationSyncInProcess(pathname);
   }
-  const stagingRoot = createPrivateSqliteTempDirectorySync(
-    resolvePrivateSqliteSnapshotStagingRoot(),
-    SQLITE_SNAPSHOT_STAGING_PREFIX,
-  );
+  const stagingRoot = createSqliteSnapshotStagingDirectorySync();
   try {
     return adoptPreparedLocation(runSqliteReadOnlyWorkerSync(pathname, stagingRoot), stagingRoot);
   } catch (error) {
     if (!removeTempDirectory(stagingRoot)) {
-      throw new Error(`SQLite read-only worker snapshot cleanup failed: ${stagingRoot}`, {
-        cause: error,
-      });
+      throw new SqliteSnapshotCleanupError(
+        `${coerceErrorMessage(error)}; SQLite snapshot cleanup failed: ${stagingRoot}`,
+        { cause: error },
+      );
     }
     throw error;
   }
@@ -139,6 +139,6 @@ export async function withSqliteSnapshotSource<T>(
       return await operation(prepared.location);
     }
   } finally {
-    prepared?.cleanup();
+    await prepared?.cleanupAsync();
   }
 }
