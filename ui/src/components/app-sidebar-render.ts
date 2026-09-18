@@ -264,7 +264,9 @@ export function renderAppSidebarHomeRow(host: AppSidebarRenderHost) {
 export function renderAppSidebarPagesHead(host: AppSidebarRenderHost) {
   return html`
     <div class="sidebar-nav__head">
-      <span class="sidebar-recent-sessions__label-text sr-only">${t("nav.toolsAndManagement")}</span>
+      <span class="sidebar-recent-sessions__label-text sr-only"
+        >${t("nav.toolsAndManagement")}</span
+      >
       <button
         type="button"
         class="sidebar-nav__head-action"

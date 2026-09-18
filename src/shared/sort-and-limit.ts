@@ -19,7 +19,9 @@ export function sortAndLimitBy<T extends object>(
       }
       const insertAt = beforeFirst
         ? 0
-        : selected.findIndex((candidate, index) => index > 0 && compare(entry, candidate) < 0);
+        : selected.findIndex(
+            (candidate, candidateIndex) => candidateIndex > 0 && compare(entry, candidate) < 0,
+          );
       if (insertAt >= 0) {
         selected.splice(insertAt, 0, entry);
         if (selected.length > limit) {

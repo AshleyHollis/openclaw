@@ -663,7 +663,10 @@ describe("plugin HTTP route runtime scopes", () => {
   );
   it("preserves the gateway lifecycle resolver for authenticated plugin routes", async () => {
     const resolver = vi.fn<() => GatewayRequestContext | undefined>();
-    const context = { label: "current-gateway", resolveGatewayContext: resolver } as unknown as GatewayRequestContext;
+    const context = {
+      label: "current-gateway",
+      resolveGatewayContext: resolver,
+    } as unknown as GatewayRequestContext;
     resolver.mockReturnValue(context);
     let observed:
       | {
@@ -699,5 +702,4 @@ describe("plugin HTTP route runtime scopes", () => {
     resolver.mockReturnValue(undefined);
     expect(observed?.resolver?.()).toBeUndefined();
   });
-
 });

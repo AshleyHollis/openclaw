@@ -255,8 +255,8 @@ describe("AppSidebar interleaved zone", () => {
     expect(tools?.open).toBe(false);
     expect(tools?.querySelector("summary")?.textContent).toContain("Tools & management");
     expect(
-      [...(tools?.querySelectorAll<HTMLElement>(".sidebar-zone-entry") ?? [])].map((entry) =>
-        entry.dataset.sidebarEntry,
+      [...(tools?.querySelectorAll<HTMLElement>(".sidebar-zone-entry") ?? [])].map(
+        (entry) => entry.dataset.sidebarEntry,
       ),
     ).toEqual(["route:usage", "route:plugins"]);
     expect(sidebar.querySelector(".nav-item--home")?.closest("details")).toBeNull();

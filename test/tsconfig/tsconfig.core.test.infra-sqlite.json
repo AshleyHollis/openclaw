@@ -1,13 +1,9 @@
 {
   "extends": "./tsconfig.core.test.shard.json",
   "compilerOptions": {
-    "tsBuildInfoFile": "../../.artifacts/tsgo-cache/core-test-infra.tsbuildinfo"
+    "tsBuildInfoFile": "../../.artifacts/tsgo-cache/core-test-infra-sqlite.tsbuildinfo"
   },
   "include": [
-    "../../src/infra/**/*.test.ts",
-    "../../src/infra/**/*.test.tsx"
-  ],
-  "exclude": [
     "../../src/infra/sqlite*.test.ts",
     "../../src/infra/sqlite*.test.tsx"
   ]

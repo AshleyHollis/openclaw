@@ -177,6 +177,14 @@ function parseSqliteReadOnlyWorkerResult(
 
 function readSqliteReadOnlyWorkerValue(
   params: SqliteReadOnlyWorkerOutput,
+  mode: "sync" | "async",
+): string;
+function readSqliteReadOnlyWorkerValue(
+  params: SqliteReadOnlyWorkerOutput,
+  mode: "reclaim",
+): string[];
+function readSqliteReadOnlyWorkerValue(
+  params: SqliteReadOnlyWorkerOutput,
   mode: SqliteReadOnlyWorkerMode,
 ): string | string[] {
   let result: SqliteReadOnlyWorkerResult;
@@ -327,7 +335,7 @@ function runSqliteReadOnlyWorkerOnce(
       options.signal?.removeEventListener("abort", abort);
       try {
         if (options.mode === "reclaim") {
-          const warnings = readSqliteReadOnlyWorkerValue(output, "reclaim") as string[];
+          const warnings = readSqliteReadOnlyWorkerValue(output, "reclaim");
           if (reclamationDeadline) {
             warnings.push(
               sqliteInspectionTimeoutError("reclamation", pathname, timeoutMs, size).message,
@@ -337,7 +345,7 @@ function runSqliteReadOnlyWorkerOnce(
           return;
         }
         options.signal?.throwIfAborted();
-        resolve(readSqliteReadOnlyWorkerValue(output, options.mode) as string);
+        resolve(readSqliteReadOnlyWorkerValue(output, options.mode));
       } catch (workerError) {
         reject(workerError instanceof Error ? workerError : new Error(String(workerError)));
       }
@@ -371,5 +379,5 @@ export function runSqliteReadOnlyWorkerSync(pathname: string, stagingRoot: strin
       stdout: result.stdout,
     },
     "sync",
-  ) as string;
+  );
 }
