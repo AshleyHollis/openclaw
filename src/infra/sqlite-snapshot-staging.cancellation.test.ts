@@ -13,11 +13,7 @@ import { requireNodeSqlite } from "./node-sqlite.js";
 import { SQLITE_READONLY_CHILD_ARG } from "./runtime-process-entrypoints.js";
 import * as workerUrls from "./runtime-worker-url.js";
 import { withSqliteReadOnlyWorkerScope } from "./sqlite-readonly-worker.js";
-import {
-  inspectSqliteSchemaHeader,
-  prepareSqliteReadOnlyLocation,
-} from "./sqlite-snapshot-source.js";
-import { readUpdateStateSchemaVersions } from "./update-candidate-state.js";
+import { prepareSqliteReadOnlyLocation } from "./sqlite-snapshot-source.js";
 
 const processMocks = vi.hoisted(() => ({
   execFile: vi.fn<typeof import("node:child_process").execFile>(),
@@ -207,39 +203,26 @@ function createOwnedDatabase() {
 it("detaches a cancelled snapshot caller while reclamation finishes its directory", async () => {
   // This fork predates schema-header and update-state inspection through the
   // shared snapshot worker. Exercise the cancellation contract it implements.
-  const modes: readonly ("snapshot" | "header" | "update" | "owned")[] = ["snapshot"];
-  for (const mode of modes) {
+  for (const mode of ["snapshot", "owned"] as const) {
     const owned = mode === "owned" ? createOwnedDatabase() : undefined;
     const f = mode === "snapshot" ? fixture(64, 4 * 1024 * 1024) : fixture();
     const controller = new AbortController();
     const reason = new DOMException(`${mode} caller stopped`, "AbortError");
     const operation = withSqliteReadOnlyWorkerScope(async () => {
-      if (mode === "snapshot") {
+      if (!owned) {
         await readSnapshot(f.source, controller.signal);
-      } else if (mode === "header") {
-        await inspectSqliteSchemaHeader(f.source, { signal: controller.signal });
-      } else if (mode === "update") {
-        await readUpdateStateSchemaVersions({
-          stateDir: path.dirname(f.source),
-          config: {},
-          signal: controller.signal,
+        return;
+      }
+      vi.stubEnv("XDG_CACHE_HOME", owned.bootstrapCache);
+      const owner = acquireOpenClawStateDatabaseFileExclusion(owned.options.path);
+      try {
+        await owner.mutate(owner.assertCurrent, async () => {
+          openOpenClawStateDatabase(owned.options);
+          vi.stubEnv("XDG_CACHE_HOME", path.dirname(f.cache));
+          await readSnapshot(owned.options.path, controller.signal);
         });
-      } else {
-        if (!owned) {
-          throw new Error("Owned database fixture is unavailable");
-        }
-        // Cold-open repair must not consume the backlog reserved for the owned snapshot.
-        vi.stubEnv("XDG_CACHE_HOME", owned.bootstrapCache);
-        const owner = acquireOpenClawStateDatabaseFileExclusion(owned.options.path);
-        try {
-          await owner.mutate(owner.assertCurrent, async () => {
-            openOpenClawStateDatabase(owned.options);
-            vi.stubEnv("XDG_CACHE_HOME", path.dirname(f.cache));
-            await readSnapshot(owned.options.path, controller.signal);
-          });
-        } finally {
-          owner.release();
-        }
+      } finally {
+        owner.release();
       }
     }).then(
       () => undefined,

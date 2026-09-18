@@ -415,16 +415,21 @@ export function acquireOpenClawStateDatabaseFileExclusion(pathname: string) {
           value: await handles.runWithCanonicalMutation(
             assertCurrent,
             operation,
-            async (assertInspection) => {
+            async (assertInspection, signal) => {
+              signal?.throwIfAborted();
               assertInspection();
               const opened = getOpenClawStateDatabaseIfOpenAtPath(databasePath);
               if (opened) {
-                return await prepareSqliteReadOnlyLocationFromOwnedDatabase(opened.db, () => {
-                  assertInspection();
-                  if (getOpenClawStateDatabaseIfOpenAtPath(databasePath) !== opened) {
-                    throw new Error("SQLite inspection lost its original native owner");
-                  }
-                });
+                return await prepareSqliteReadOnlyLocationFromOwnedDatabase(
+                  opened.db,
+                  () => {
+                    assertInspection();
+                    if (getOpenClawStateDatabaseIfOpenAtPath(databasePath) !== opened) {
+                      throw new Error("SQLite inspection lost its original native owner");
+                    }
+                  },
+                  signal,
+                );
               }
               // Before first open, no cached OR uncached source handle may exist.
               handles.assertDrainedDuringMutation();

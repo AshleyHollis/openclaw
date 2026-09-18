@@ -24,7 +24,7 @@ type SourceReadScope = {
   mutation?: boolean;
   assertCurrent: () => void;
   pin: () => { release: () => void };
-  snapshot?: () => Promise<PreparedSqliteReadOnlyLocation>;
+  snapshot?: (signal?: AbortSignal) => Promise<PreparedSqliteReadOnlyLocation>;
   snapshots?: Promise<unknown>[];
 };
 const sourceReadScopes = new AsyncLocalStorage<ReadonlyMap<string, SourceReadScope>>();
@@ -274,7 +274,10 @@ export function acquireStateDatabaseHandleExclusion(params: CoordinatorOptions) 
     async runWithCanonicalMutation<T>(
       assertAuthority: () => void,
       operation: () => Promise<T>,
-      snapshot: (assertCurrent: () => void) => Promise<PreparedSqliteReadOnlyLocation>,
+      snapshot: (
+        assertCurrent: () => void,
+        signal?: AbortSignal,
+      ) => Promise<PreparedSqliteReadOnlyLocation>,
     ): Promise<T> {
       const retained = pin();
       const snapshots: Promise<unknown>[] = [];
@@ -290,13 +293,13 @@ export function acquireStateDatabaseHandleExclusion(params: CoordinatorOptions) 
       };
       const scopes = new Map(canonicalWriteScopes.getStore());
       scopes.set(coordinator.path, scope);
-      scope.snapshot = () =>
+      scope.snapshot = (signal) =>
         snapshot(() => {
           if (!scope.active) {
             throw new SqliteCoordinatorError("SQLite mutation inspection scope is closed");
           }
           scope.assertCurrent();
-        });
+        }, signal);
       try {
         scope.assertCurrent();
         const result = await canonicalWriteScopes.run(scopes, operation);
@@ -415,7 +418,8 @@ export function prepareStateDatabaseCanonicalMutation(
 
 /** The mutation owner alone supplies private snapshots while its native source
  * may still be open. This never authorizes a child process or a source reopen. */
-export function prepareStateDatabaseMutationSnapshot(databasePath: string) {
+export function prepareStateDatabaseMutationSnapshot(databasePath: string, signal?: AbortSignal) {
+  signal?.throwIfAborted();
   const pathname = resolveLifecycleCoordinatorPath("state-handles", {
     databasePath,
     runtimeDirectory: resolveStateLifecycleRuntimeDirectory(),
@@ -429,7 +433,7 @@ export function prepareStateDatabaseMutationSnapshot(databasePath: string) {
     throw new SqliteCoordinatorError("SQLite mutation inspection scope is closed");
   }
   scope.assertCurrent();
-  const pending = scope.snapshot();
+  const pending = scope.snapshot(signal);
   scope.snapshots.push(pending);
   void pending.catch(() => undefined);
   return pending;
