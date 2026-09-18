@@ -8,7 +8,9 @@ export function sortAndLimitBy<T extends object>(
 ): T[] {
   if (limit !== undefined && limit <= TOP_N_LIMIT) {
     const selected: T[] = [];
-    for (const entry of entries) {
+    let index = 0;
+    while (index < entries.length) {
+      const entry = entries[index++]!;
       const first = selected[0];
       const beforeFirst = first && compare(entry, first) < 0;
       const worst = selected[limit - 1];

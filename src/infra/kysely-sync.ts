@@ -158,6 +158,15 @@ export function prepareSqliteQuerySync<Params, Row = unknown>(
     });
 }
 
+/** Compile a fixed first-row read once and bind fresh values on every execution. */
+export function prepareSqliteQueryTakeFirstSync<Params, Row = unknown>(
+  db: DatabaseSync,
+  build: SqliteQueryBindingBuilder<Params, Row>,
+): (params: Params) => Row | undefined {
+  const query = prepareSqliteQuerySync(db, build);
+  return (params) => query(params).rows[0];
+}
+
 /** Compile and lazily iterate a Kysely query synchronously against node:sqlite. */
 export function* iterateSqliteQuerySync<Row>(
   db: DatabaseSync,

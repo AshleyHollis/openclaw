@@ -7,6 +7,7 @@ import { formatByteSize } from "@openclaw/normalization-core";
 import { sliceUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { hasErrnoCode } from "./errno.js";
+import { resolveNodeCompileCacheEnv } from "./node-compile-cache-env.js";
 import {
   runtimeProcessEntrypoints,
   SQLITE_READONLY_CHILD_ARG,
@@ -271,6 +272,7 @@ function runSqliteReadOnlyWorkerOnce(
       sqliteReadOnlyWorkerArgv(pathname, options.mode, options.stagingRoot),
       {
         encoding: "utf8",
+        env: resolveNodeCompileCacheEnv(),
         maxBuffer: SQLITE_READONLY_WORKER_MAX_BUFFER,
         timeout: reclaim || isSqliteInspectionDeadlineOwnedByCaller() ? undefined : timeoutMs,
         killSignal: "SIGKILL",
@@ -350,6 +352,7 @@ export function runSqliteReadOnlyWorkerSync(pathname: string, stagingRoot: strin
     sqliteReadOnlyWorkerArgv(pathname, "sync", stagingRoot),
     {
       encoding: "utf8",
+      env: resolveNodeCompileCacheEnv(),
       timeout: timeoutMs,
       killSignal: "SIGKILL",
     },
