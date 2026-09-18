@@ -839,7 +839,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("preserves ready-card history on idle Gateway dispatch passes", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = new WorkboardStore(createMemoryStore());
     await store.create({ title: "Occupied owner", status: "running", agentId: "main" });
     const cards = await Promise.all(
       [undefined, { dispatchCount: 225, lastDispatchAt: 1 }].map((automation) =>
