@@ -12,6 +12,7 @@ import {
 } from "../config/sessions/session-accessor.sqlite-scope.js";
 import { runWithSessionTranscriptReadFence } from "../config/sessions/session-transcript-read-fence.js";
 import { waitForSessionTranscriptIndexReconcile } from "../config/sessions/session-transcript-reconcile.js";
+import { closeOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.js";
 import {
   appendSessionTranscriptMessageByIdentity,
   readSessionTranscriptVisibleMessageDelta,
@@ -27,6 +28,7 @@ describe("session transcript visible cursor SDK", () => {
   });
 
   afterEach(() => {
+    closeOpenClawAgentDatabasesForTest();
     fs.rmSync(tempDir, { force: true, recursive: true });
   });
 
@@ -67,7 +69,9 @@ describe("session transcript visible cursor SDK", () => {
           parentId: null,
         },
       ],
+      generation: expect.any(String),
       hasMore: true,
+      totalMessages: 2,
     });
     if (first.kind !== "page") {
       throw new Error("expected first visible transcript page");
@@ -108,10 +112,34 @@ describe("session transcript visible cursor SDK", () => {
         },
       ],
       hasMore: false,
+      totalMessages: 2,
     });
     if (second.kind !== "page") {
       throw new Error("expected second visible transcript page");
     }
+    await expect(
+      readSessionTranscriptVisibleMessageDelta({
+        ...scope,
+        offset: 1,
+        maxBytes: 10_000,
+        maxMessages: 1,
+      }),
+    ).resolves.toMatchObject({
+      kind: "page",
+      entries: [{ entryId: firstBranch.messageId, parentId: root.messageId }],
+      generation: first.generation,
+      hasMore: false,
+      totalMessages: 2,
+    });
+    await expect(
+      readSessionTranscriptVisibleMessageDelta({
+        ...scope,
+        cursor: first.cursor,
+        offset: 1,
+        maxBytes: 10_000,
+        maxMessages: 1,
+      }),
+    ).rejects.toThrow("cannot be combined");
     const movedAnchorCursor = Buffer.from(
       JSON.stringify({
         ...(JSON.parse(Buffer.from(second.cursor, "base64url").toString("utf8")) as object),

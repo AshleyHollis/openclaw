@@ -260,6 +260,8 @@ export type SessionTranscriptVisibleMessageDeltaLimits = {
   maxBytes?: number;
   /** Maximum number of visible messages returned by this page. */
   maxMessages?: number;
+  /** Zero-based visible-message position for a fresh bounded page. */
+  offset?: number;
 };
 
 /** One active-path message row selected from the materialized projection. */
@@ -278,12 +280,16 @@ export type SessionTranscriptVisibleMessageDeltaResult =
       cursor: string;
       /** Ordered active-path message events selected for this page. */
       events: SessionTranscriptVisibleMessageEventRow[];
+      /** Rewrite identity captured in the same SQLite read snapshot as this page. */
+      generation: string;
       /** True when another visible message remains after this page. */
       hasMore: boolean;
       /** First unread event size when it cannot fit under maxBytes. */
       requiredBytes?: number;
       /** Stored JSONL bytes represented by events. */
       serializedBytes: number;
+      /** Visible message count captured in the same SQLite read snapshot as this page. */
+      totalMessages: number;
     }
   | {
       kind: "reset";

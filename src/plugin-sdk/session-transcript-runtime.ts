@@ -131,12 +131,16 @@ export type SessionTranscriptVisibleMessageDeltaResult =
       cursor: string;
       /** Ordered active-path message entries selected for this page. */
       entries: SessionTranscriptMessageEntry[];
+      /** Rewrite identity captured in the same SQLite read snapshot as this page. */
+      generation: string;
       /** True when another visible message remains after this page. */
       hasMore: boolean;
       /** First unread event size when it cannot fit under maxBytes. */
       requiredBytes?: number;
       /** Stored JSONL bytes represented by entries. */
       serializedBytes: number;
+      /** Visible message count captured in the same SQLite read snapshot as this page. */
+      totalMessages: number;
     }
   | {
       kind: "reset";
@@ -275,13 +279,14 @@ export async function readSessionTranscriptRawDelta(
 export async function readSessionTranscriptVisibleMessageDelta(
   params: SessionTranscriptVisibleMessageDeltaParams,
 ): Promise<SessionTranscriptVisibleMessageDeltaResult> {
-  const { cursor, maxBytes, maxMessages, ...target } = params;
+  const { cursor, maxBytes, maxMessages, offset, ...target } = params;
   let result: ReturnType<typeof readVisibleMessageDelta>;
   try {
     result = readVisibleMessageDelta(bindSessionTranscriptStoreScope(target), {
       ...(cursor !== undefined ? { cursor } : {}),
       ...(maxBytes !== undefined ? { maxBytes } : {}),
       ...(maxMessages !== undefined ? { maxMessages } : {}),
+      ...(offset !== undefined ? { offset } : {}),
     });
   } catch (error) {
     if (isSessionTranscriptProjectionUnavailableError(error)) {
