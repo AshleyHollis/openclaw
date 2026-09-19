@@ -99,7 +99,7 @@ for (const scenario of [
         await initialize(tooling);
         for (const relative of [
           "scripts/resolve-openclaw-package-candidate.mts",
-          "scripts/npm-runner.mjs",
+          "scripts/npm-runner.mts",
           "scripts/windows-cmd-helpers.mjs",
           "scripts/lib/windows-taskkill.mjs",
         ]) {

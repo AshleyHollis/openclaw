@@ -452,7 +452,7 @@ jobs:
           node-version: "24.20.0"
           install-bun: "true"
           install-deps: "true"
-          use-actions-cache: "false"
+          cache-mode: "off"
 
       - name: Build exact runtime package using the existing owner
         env:
