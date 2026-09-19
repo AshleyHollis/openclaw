@@ -3746,6 +3746,13 @@ openclaw-sidebar-attention {
   box-shadow: var(--focus-ring);
 }
 
+@media (forced-colors: active) {
+  .sidebar-issues-button:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
 .sidebar-issues-button__icon,
 .sidebar-issues-button__icon svg {
   width: 18px;
