@@ -11,7 +11,7 @@ const require = createRequire("/app/package.json");
 const { stageDurableFileInDirectory } = await import(
   pathToFileURL(require.resolve("openclaw/plugin-sdk/file-access-runtime")).href
 );
-const { getFsSafeNativeConfig } = await import(
+const { configureFsSafeNative, getFsSafeNativeConfig } = await import(
   pathToFileURL(require.resolve("@openclaw/fs-safe/config")).href
 );
 const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "packaged-fs-smoke-")));
@@ -29,9 +29,10 @@ try {
   await assert.rejects(duplicate.publish("identity", { overwrite: false }));
   assert.equal(await readFile(path.join(directory, "identity"), "utf8"), "original");
 
-  // Unexpected sync failures must still reject staging and publication. fs-safe
-  // intentionally treats EPERM as best effort, so use a hard I/O failure here.
-  const failure = Object.assign(new Error("synthetic sync failure"), { code: "EIO" });
+  // Exercise the JavaScript fallback explicitly. In native auto mode the helper
+  // owns durability and does not call the monkey-patched Node fs.fsyncSync.
+  configureFsSafeNative({ mode: "off" });
+  const failure = Object.assign(new Error("synthetic sync failure"), { code: "EPERM" });
   const isSyncFailure = (error) => {
     for (let cause = error; cause; cause = cause.cause) {
       if (cause === failure) return true;
@@ -58,12 +59,14 @@ try {
     await assert.rejects(publishing.publish(`sync-${failAt}`, { overwrite: false }), isSyncFailure);
     fs.fsyncSync = originalSync;
   }
+  configureFsSafeNative({ mode: "auto" });
   assert.equal(getFsSafeNativeConfig().mode, "auto");
   console.log(
     "PASS packaged SDK: durable staging, no-overwrite, strict sync failure, unchanged global policy",
   );
 } finally {
   fs.fsyncSync = originalSync;
+  configureFsSafeNative({ mode: "auto" });
   for (const stage of stages) await stage.cleanup();
   await rm(directory, { recursive: true, force: true });
 }
