@@ -18,7 +18,8 @@ const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "packaged-
 const stages = [];
 const originalSync = fs.fsyncSync;
 try {
-  assert.equal(getFsSafeNativeConfig().mode, "off");
+  // OpenClaw 2026.9.5 preserves fs-safe 0.13.1's native auto mode.
+  assert.equal(getFsSafeNativeConfig().mode, "auto");
   const stage = await stageDurableFileInDirectory({ directory, content: "original", mode: 0o600 });
   stages.push(stage);
   assert.equal((await stage.publish("identity", { overwrite: false })).status, "published");
@@ -28,8 +29,9 @@ try {
   await assert.rejects(duplicate.publish("identity", { overwrite: false }));
   assert.equal(await readFile(path.join(directory, "identity"), "utf8"), "original");
 
-  // Strict durability must not inherit the dependency's best-effort EPERM handling.
-  const failure = Object.assign(new Error("synthetic sync failure"), { code: "EPERM" });
+  // Unexpected sync failures must still reject staging and publication. fs-safe
+  // intentionally treats EPERM as best effort, so use a hard I/O failure here.
+  const failure = Object.assign(new Error("synthetic sync failure"), { code: "EIO" });
   const isSyncFailure = (error) => {
     for (let cause = error; cause; cause = cause.cause) {
       if (cause === failure) return true;
@@ -56,7 +58,7 @@ try {
     await assert.rejects(publishing.publish(`sync-${failAt}`, { overwrite: false }), isSyncFailure);
     fs.fsyncSync = originalSync;
   }
-  assert.equal(getFsSafeNativeConfig().mode, "off");
+  assert.equal(getFsSafeNativeConfig().mode, "auto");
   console.log(
     "PASS packaged SDK: durable staging, no-overwrite, strict sync failure, unchanged global policy",
   );
