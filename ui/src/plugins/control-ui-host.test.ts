@@ -67,8 +67,12 @@ describe("native UI roster refresh", () => {
       Object.assign(fixture.context.gateway, { setSessionKey });
       try {
         const target = { sessionKey: "agent:main:linked", agentId: "main" };
-        fixture.host.sessions.openFiles(target);
-        fixture.host.sessions.openFiles(target);
+        const openFiles = fixture.host.sessions.openFiles;
+        if (!openFiles) {
+          throw new Error("Expected the native Files capability");
+        }
+        openFiles(target);
+        openFiles(target);
         expect(navigate).toHaveBeenCalledTimes(2);
         const [first, second] = navigate.mock.calls.map((call) => call[1]);
         expect(first.pathname).toBe(second.pathname);
