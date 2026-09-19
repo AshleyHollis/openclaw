@@ -366,8 +366,8 @@ jobs:
           docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
             --tmpfs /tmp:rw,nosuid,nodev,size=1g \
             -v "$GITHUB_WORKSPACE/downstream/scripts/smoke-image-runtime.mjs:/smoke.mjs:ro" \
-            -e EXPECTED_OPENCLAW_VERSION=2026.9.2 -e EXPECTED_CODEX_VERSION=2026.9.2 \
-            -e EXPECTED_DISCORD_VERSION=2026.9.2 -e EXPECTED_QMD_VERSION=2.1.0 \
+            -e EXPECTED_OPENCLAW_VERSION=2026.9.5 -e EXPECTED_CODEX_VERSION=2026.9.5 \
+            -e EXPECTED_DISCORD_VERSION=2026.9.5 -e EXPECTED_QMD_VERSION=2.1.0 \
             --entrypoint node "$IMAGE" /smoke.mjs
 
       - name: Scan before publication

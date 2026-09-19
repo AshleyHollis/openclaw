@@ -1,23 +1,23 @@
 {
   "schemaVersion": 1,
-  "sourceCommit": "3040eff630e5a6d9a9f9f5ce52af3c0971776f15",
-  "hostVersion": "2026.9.2",
-  "hostSha256": "6b4c749f4635b9519bf3c88f75adb2bccbf28db8d80c7f1d236b9c4cf9aea177",
-  "hostRunId": 34484589896,
-  "hostRunCommit": "1170045b4e6f2c457888ce97ec019d987db024f4",
-  "hostArtifactId": 10155511849,
-  "hostArtifactName": "nas-runtime-package-3040eff630e5a6d9a9f9f5ce52af3c0971776f15-34484589896-1",
-  "hostArtifactDigest": "sha256:16ff2bf25a535502cdd2d812844d2eebfcf543696edd70785a6ee687900ebffc",
+  "sourceCommit": "8490d8016bdd46c8e29301efbc91f99eaab7de8d",
+  "hostVersion": "2026.9.5",
+  "hostSha256": "482c026e9db7d7df380367e4bd53c36eabd82c1ee1c36fdfae4a2eb373b20aa1",
+  "hostRunId": 35449026991,
+  "hostRunCommit": "851506d6466268251af31baf53607f0e92855f45",
+  "hostArtifactId": 10585847625,
+  "hostArtifactName": "nas-runtime-package-8490d8016bdd46c8e29301efbc91f99eaab7de8d-35449026991-1",
+  "hostArtifactDigest": "sha256:1edac7356f993474c69ee354d62ddfd0c2553bfa7285616b58a34d7029d31d7c",
   "components": {
     "codex": {
-      "version": "2026.9.2",
-      "url": "https://registry.npmjs.org/@openclaw/codex/-/codex-2026.9.2.tgz",
-      "sha256": "6a668785e6b97a63514cecb31c3ac60a41203a62ada146c035a5d4d880b59797"
+      "version": "2026.9.5",
+      "url": "https://registry.npmjs.org/@openclaw/codex/-/codex-2026.9.5.tgz",
+      "sha256": "252947ea110df95ec35a00d844ef70b3c8e18f55ff6113673949f5888fb24143"
     },
     "discord": {
-      "version": "2026.9.2",
-      "url": "https://registry.npmjs.org/@openclaw/discord/-/discord-2026.9.2.tgz",
-      "sha256": "358b88763e7697e29eb1807240ab5cdc04e38662462fb93c14e2b563ca7521d6"
+      "version": "2026.9.5",
+      "url": "https://registry.npmjs.org/@openclaw/discord/-/discord-2026.9.5.tgz",
+      "sha256": "4759c1f5ac1feb9b6ebb78f6dd3f3f65fb8080c29d06d126c30c9a5027abc008"
     },
     "qmd": {
       "version": "2.1.0",
