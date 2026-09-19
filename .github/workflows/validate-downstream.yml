@@ -40,5 +40,11 @@ jobs:
           bash downstream/scripts/check-patch-series.sh downstream/patches/2026.7.1-2/series.json
 
       - name: Reject whitespace errors
-        # E-mail patch whitespace is integrity-protected and semantically meaningful.
-        run: git diff --check HEAD^ HEAD -- . ':(exclude)downstream/patches/**'
+        # Patch payload whitespace is semantically meaningful, and CHANGELOG contains
+        # immutable upstream release snapshots. Keep the guard on all maintained code,
+        # configuration, tests, release manifests, and scripts.
+        run: >-
+          git diff --check HEAD^ HEAD -- .
+          ':(exclude)CHANGELOG/**'
+          ':(exclude)patches/**'
+          ':(exclude)downstream/patches/**'
