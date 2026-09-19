@@ -8,6 +8,7 @@ import {
   requireNodeSqlite,
   resolveSqliteFilesystemPath,
 } from "./node-sqlite.js";
+import { setSqliteBusyTimeout } from "./sqlite-busy-timeout.js";
 import { resolvePrivateSqliteSnapshotStagingRoot } from "./sqlite-private-directory.js";
 import {
   adoptPreparedLocation,
@@ -17,14 +18,23 @@ import {
 } from "./sqlite-readonly-location-cleanup.js";
 import type { PreparedSqliteReadOnlyLocation } from "./sqlite-readonly-location.types.js";
 import {
+  readSqliteSchemaHeader,
+  readSqliteSchemaHeaderFromSnapshot,
+} from "./sqlite-schema-header.js";
+import {
   allocateSqliteSnapshotStagingDirectory,
   createSqliteSnapshotStagingDirectorySync,
 } from "./sqlite-snapshot-staging.js";
-import { withSqliteSourceHandle, withSqliteSourceHandleAsync } from "./sqlite-source-handle.js";
+import {
+  withSqliteSourceHandle,
+  withSqliteSourceHandleAsync,
+  withSqliteSourceReadDatabase,
+} from "./sqlite-source-handle.js";
 
 const MAX_SNAPSHOT_ATTEMPTS = 10;
 const COPY_BUFFER_BYTES = 1024 * 1024;
 const SQLITE_HEADER_BYTES = 20;
+const SQLITE_SOURCE_READ_BUSY_TIMEOUT_MS = 30_000;
 const SQLITE_READONLY_RESULT_CODE = 8;
 const SQLITE_RESULT_CODE_MASK = 0xff;
 const SQLITE_JOURNAL_MAGIC = Buffer.from([0xd9, 0xd5, 0x05, 0xf9, 0x20, 0xa1, 0x63, 0xd7]);
@@ -43,9 +53,7 @@ type SourceSidecars = {
 
 type SourceJournalMode = "empty" | "rollback" | "unknown" | "wal";
 
-export type { PreparedSqliteReadOnlyLocation } from "./sqlite-readonly-location.types.js";
-
-class SqliteSourceChangedError extends Error {}
+export class SqliteSourceChangedError extends Error {}
 
 function sqliteSnapshotStagingError(tempDir: string, cause: unknown, allocation = false): unknown {
   for (let depth = 0, error = cause; depth < 8 && error instanceof Error; depth += 1) {
@@ -76,7 +84,7 @@ function statIfPresent(pathname: string): BigIntStats | undefined {
   }
 }
 
-function readSourceSidecars(pathname: string): SourceSidecars {
+export function readSourceSidecars(pathname: string): SourceSidecars {
   return {
     journal: Boolean(statIfPresent(`${pathname}-journal`)),
     shm: Boolean(statIfPresent(`${pathname}-shm`)),
@@ -111,7 +119,7 @@ function openPinnedFile(pathname: string): PinnedFile {
   }
 }
 
-function readSourceJournalMode(pathname: string): SourceJournalMode {
+export function readSourceJournalMode(pathname: string): SourceJournalMode {
   const source = openPinnedFile(pathname);
   try {
     const header = Buffer.alloc(SQLITE_HEADER_BYTES);
@@ -258,7 +266,7 @@ function replaceFile(sourcePath: string, targetPath: string): void {
   fs.renameSync(sourcePath, targetPath);
 }
 
-function isSqliteReadOnlyError(error: unknown): boolean {
+export function isSqliteReadOnlyError(error: unknown): boolean {
   let current = error;
   for (let depth = 0; depth < 8 && current && typeof current === "object"; depth += 1) {
     const details = current as { cause?: unknown; errcode?: unknown };
@@ -435,7 +443,9 @@ async function createOnlineReadOnlyBackup(
     }
     const source = openNodeSqliteDatabase(pathname, { readOnly: true });
     try {
-      source.exec("PRAGMA busy_timeout = 30000; PRAGMA trusted_schema = OFF; BEGIN;");
+      source.exec(
+        `PRAGMA busy_timeout = ${SQLITE_SOURCE_READ_BUSY_TIMEOUT_MS}; PRAGMA trusted_schema = OFF; BEGIN;`,
+      );
       source.prepare("PRAGMA schema_version;").get();
       await retainSnapshotWork(sqlite.backup(source, resolveSqliteFilesystemPath(snapshotPath)));
       source.exec("ROLLBACK;");
@@ -549,9 +559,12 @@ async function prepareReadOnlySourceInProcess(
       lastChange = error;
     }
   }
-  throw new Error(`SQLite source did not stabilize for read-only inspection: ${canonicalPath}`, {
-    cause: lastChange,
-  });
+  throw new Error(
+    `SQLite source did not stabilize after ${MAX_SNAPSHOT_ATTEMPTS} read-only inspection attempts (the database may be under concurrent write activity): ${canonicalPath}. Wait a moment for write activity to settle, then retry the inspection`,
+    {
+      cause: lastChange,
+    },
+  );
 }
 
 function prepareReadOnlySourceSyncInProcess(
@@ -587,8 +600,54 @@ function prepareReadOnlySourceSyncInProcess(
       lastChange = error;
     }
   }
-  throw new Error(`SQLite source did not stabilize for read-only inspection: ${canonicalPath}`, {
-    cause: lastChange,
+  throw new Error(
+    `SQLite source did not stabilize after ${MAX_SNAPSHOT_ATTEMPTS} read-only inspection attempts (the database may be under concurrent write activity): ${canonicalPath}. Wait a moment for write activity to settle, then retry the inspection`,
+    {
+      cause: lastChange,
+    },
+  );
+}
+
+/** Fixed metadata inspection in the read-only child; no payload scan or backup
+ * unless source journal state requires private recovery/artifact preservation. */
+export function inspectSqliteSchemaHeaderInProcess(
+  pathname: string,
+  stagingRoot?: string,
+  agentSchemaVersionForOwnership?: number,
+) {
+  return withSqliteSourceHandleAsync(pathname, async () => {
+    const canonicalPath = fs.realpathSync.native(pathname);
+    const mode = readSourceJournalMode(canonicalPath);
+    const sidecars = readSourceSidecars(canonicalPath);
+    if (mode !== "wal" || (sidecars.wal && sidecars.shm)) {
+      let readError: unknown;
+      try {
+        return withSqliteSourceReadDatabase(canonicalPath, (database) => {
+          try {
+            setSqliteBusyTimeout(database, SQLITE_SOURCE_READ_BUSY_TIMEOUT_MS);
+            return readSqliteSchemaHeader(database, agentSchemaVersionForOwnership);
+          } catch (error) {
+            readError = error;
+            throw error;
+          }
+        });
+      } catch (error) {
+        // Only SQLite's recovery-required refusal permits private recovery.
+        // Ordinary I/O, admission, and native close errors must stay failures.
+        if (
+          error !== readError ||
+          !isSqliteReadOnlyError(error) ||
+          !statIfPresent(`${canonicalPath}-journal`) ||
+          readSourceJournalMode(canonicalPath) !== "rollback"
+        ) {
+          throw error;
+        }
+      }
+    }
+    // An incomplete WAL family would create source sidecars on native open.
+    // The existing snapshot owner also handles hot rollback recovery privately.
+    const prepared = await prepareReadOnlySourceInProcess(canonicalPath, stagingRoot);
+    return readSqliteSchemaHeaderFromSnapshot(prepared, undefined, agentSchemaVersionForOwnership);
   });
 }
 

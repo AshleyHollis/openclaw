@@ -11,6 +11,12 @@ import {
 import { createDeferred } from "../../../test/helpers/promise.js";
 import { DEFAULT_CRON_MAX_CONCURRENT_RUNS } from "../../config/cron-limits.js";
 import {
+  captureGatewayDeviceRevocation,
+  closeGatewayDeviceRevocation,
+} from "../../gateway/device-revocation.js";
+import { resolveCronMutationCommitGuard } from "../../gateway/server-methods/cron-caller-scope.js";
+import type { GatewayRequestContext } from "../../gateway/server-methods/types.js";
+import {
   clearCommandLane,
   enqueueCommandInLane,
   getTotalQueueSize,
@@ -27,6 +33,7 @@ import { CommandLane } from "../../process/lanes.js";
 import { openOpenClawStateDatabase } from "../../state/openclaw-state-db.js";
 import { mockCall } from "../../test-utils/mock-call-assertions.js";
 import { isCronJobActive } from "../active-jobs.js";
+import { createCronMutationCompletion } from "../mutation-completion.js";
 import { loadCronStore, saveCronStore } from "../store.js";
 import { cronStoreKey } from "../store/key.js";
 import { readCronTaskRunHistoryPage } from "../task-run-history.js";
@@ -154,17 +161,35 @@ describe("cron service ops regressions", () => {
       runIsolatedAgentJob,
       onEvent,
     });
+    const context = {} as GatewayRequestContext;
+    const caller = captureGatewayDeviceRevocation(
+      context,
+      { deviceId: "closed-admission-device", role: "operator" },
+      () => true,
+    );
+    const commitGuard = resolveCronMutationCommitGuard(null, context, undefined, {
+      hasCurrentClientAuthority: caller.isCurrent,
+    });
+    const completion = createCronMutationCompletion("cron.run");
+    if (!completion) {
+      throw new Error("Expected Cron completion owner");
+    }
 
     try {
       markGatewayRestartDraining();
-      await expect(enqueueRun(state, job.id, "force")).rejects.toThrow(
-        "gateway is draining for restart",
-      );
+      await expect(
+        completion.run(() => enqueueRun(state, job.id, "force", { commitGuard })),
+      ).rejects.toThrow("gateway is draining for restart");
+      expect(completion.isCommitted()).toBe(false);
       expect(getTotalQueueSize()).toBe(0);
       expect(getActiveGatewayRootWorkCount()).toBe(0);
       expect(onEvent).not.toHaveBeenCalled();
       expect(runIsolatedAgentJob).not.toHaveBeenCalled();
+      caller.release();
+      expect(caller.isCurrent()).toBe(false);
     } finally {
+      caller.release();
+      closeGatewayDeviceRevocation(context);
       resetGatewayWorkAdmission();
     }
   });
@@ -405,7 +430,7 @@ describe("cron service ops regressions", () => {
       scheduledAt: nowMs,
       schedule: { kind: "every", everyMs: 60_000, anchorMs: nowMs - 60_000 },
       payload: { kind: "agentTurn", message: "manual paced due slot" },
-      state: { nextRunAtMs: dueSlot, pacedNextRunAtMs: dueSlot },
+      state: { nextRunAtMs: dueSlot, pacedNextRunAtMs: dueSlot, startupCatchupAtMs: dueSlot },
     });
     job.pacing = { min: "15m", max: "4h" };
     await saveCronStore(store.storePath, { version: 1, jobs: [job] });
@@ -426,6 +451,7 @@ describe("cron service ops regressions", () => {
     expect(stored?.state.nextRunAtMs).toBe(dueSlot);
     expect(stored?.state.pacedNextRunAtMs).toBe(dueSlot);
     expect(stored?.state.forcePreservedNextRunAtMs).toBe(dueSlot);
+    expect(stored?.state.startupCatchupAtMs).toBe(dueSlot);
 
     const restarted = createCronServiceState({
       cronEnabled: false,
@@ -442,6 +468,7 @@ describe("cron service ops regressions", () => {
     expect(reloaded?.state.nextRunAtMs).toBe(dueSlot);
     expect(reloaded?.state.pacedNextRunAtMs).toBe(dueSlot);
     expect(reloaded?.state.forcePreservedNextRunAtMs).toBe(dueSlot);
+    expect(reloaded?.state.startupCatchupAtMs).toBe(dueSlot);
   });
 
   it("passes the rehydrated agentTurn payload message to isolated manual runs", async () => {

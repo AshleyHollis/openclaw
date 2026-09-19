@@ -30,7 +30,7 @@ export function assistantGroupIsForwardedBoundary(group: MessageGroup): boolean 
 }
 
 // Display attribution also accepts projected source metadata; turn ownership
-// above still requires the original sessions_send provenance.
+// above requires the original forwarded-input provenance.
 export function hasForwardedSource(group: MessageGroup): boolean {
   return Boolean(group.senderSession) || assistantGroupIsForwardedBoundary(group);
 }

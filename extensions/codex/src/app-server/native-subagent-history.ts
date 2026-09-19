@@ -8,14 +8,14 @@ import {
   readCodexNativeSubagentHistoryOwner,
 } from "./native-subagent-history-owner.js";
 import {
-  CODEX_NATIVE_SUBAGENT_RUN_ID_PREFIX,
   CODEX_NATIVE_SUBAGENT_TASK_KIND,
+  readCodexNativeSubagentRunId,
 } from "./native-subagent-task-ids.js";
 import {
   buildCodexAppServerConnectionFingerprint,
   buildCodexAppServerRuntimeFingerprint,
 } from "./plugin-app-cache-key.js";
-import type { CodexThread } from "./protocol.js";
+import type { CodexAppServerRequestParams, CodexThread } from "./protocol.js";
 import { sessionBindingIdentity } from "./session-binding-record.js";
 import type { CodexAppServerBindingStore } from "./session-binding.js";
 import {
@@ -52,9 +52,7 @@ export async function readCodexNativeSubagentHistory(
   const { task, cfg } = params;
   const sessionKey = task.requesterSessionKey;
   const agentId = task.agentId;
-  const threadId = task.runId?.startsWith(CODEX_NATIVE_SUBAGENT_RUN_ID_PREFIX)
-    ? task.runId.slice(CODEX_NATIVE_SUBAGENT_RUN_ID_PREFIX.length)
-    : undefined;
+  const threadId = readCodexNativeSubagentRunId(task.runId)?.threadId;
   if (task.taskKind !== CODEX_NATIVE_SUBAGENT_TASK_KIND || !sessionKey || !agentId || !threadId) {
     throw new Error("Subagent transcript owner is unavailable.");
   }
@@ -117,10 +115,12 @@ export async function readCodexNativeSubagentHistory(
     }
   };
   const agentDir = resolveAgentDir(cfg, agentId);
-  const connection = resolveCodexBindingAppServerConnection({
+  const connection = await resolveCodexBindingAppServerConnection({
     binding,
     pluginConfig: options.pluginConfig,
     agentDir,
+    config: cfg,
+    assertCurrent,
     authProfileId: binding.authProfileId,
   });
   const client = await getLeasedSharedCodexAppServerClient({
@@ -147,12 +147,16 @@ export async function readCodexNativeSubagentHistory(
     ) {
       throw new Error("Subagent connection changed; reconnect its parent session.");
     }
-    const { thread } = await client.request(
-      "thread/read",
-      { threadId, includeTurns: false },
-      { assertCurrent },
-    );
-    assertCurrent();
+    const read = async <M extends "thread/read" | "thread/items/list" | "thread/turns/list">(
+      method: M,
+      request: CodexAppServerRequestParams<M>,
+    ) => {
+      assertCurrent();
+      const result = await client.request(method, request, { assertCurrent });
+      assertCurrent();
+      return result;
+    };
+    const { thread } = await read("thread/read", { threadId, includeTurns: false });
     if (thread.id !== threadId || threadId === historyParentThreadId) {
       throw new Error("Subagent transcript does not belong to this parent session.");
     }
@@ -168,12 +172,7 @@ export async function readCodexNativeSubagentHistory(
         throw new Error("Subagent transcript does not belong to this parent session.");
       }
       visited.add(parentId);
-      const response = await client.request(
-        "thread/read",
-        { threadId: parentId, includeTurns: false },
-        { assertCurrent },
-      );
-      assertCurrent();
+      const response = await read("thread/read", { threadId: parentId, includeTurns: false });
       if (response.thread.id !== parentId) {
         throw new Error("Subagent transcript does not belong to this parent session.");
       }
@@ -181,18 +180,8 @@ export async function readCodexNativeSubagentHistory(
     }
     const page = await readCodexThreadHistoryPage(
       {
-        listItemPage: async (request) => {
-          assertCurrent();
-          const result = await client.request("thread/items/list", request, { assertCurrent });
-          assertCurrent();
-          return result;
-        },
-        listTurnPage: async (request) => {
-          assertCurrent();
-          const result = await client.request("thread/turns/list", request, { assertCurrent });
-          assertCurrent();
-          return result;
-        },
+        listItemPage: (request) => read("thread/items/list", request),
+        listTurnPage: (request) => read("thread/turns/list", request),
       },
       thread,
       {

@@ -1,12 +1,66 @@
 // Workboard tests cover dispatcher plugin behavior.
 import { describe, expect, it, vi } from "vitest";
 import { dispatchAndStartWorkboardCards } from "./dispatcher.js";
-import { createMemoryStore } from "./dispatcher.test-support.js";
-import { WorkboardStore } from "./store.js";
+import { createWorkboardSqliteTestStore } from "./test/sqlite-store.js";
 
 describe("dispatchAndStartWorkboardCards", () => {
+  it("persists the resolved subagent runtime on new executions", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const card = await store.create({
+      title: "Claude worker",
+      status: "ready",
+      workspaceAccess: { unrestricted: true },
+    });
+    const run = vi.fn().mockResolvedValue({
+      runId: "run-claude",
+      runtime: {
+        harness: "claude-cli",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+      },
+    });
+
+    await dispatchAndStartWorkboardCards({
+      store,
+      subagent: { run },
+      options: { now: 10, maxStarts: 1 },
+    });
+
+    await expect(store.get(card.id)).resolves.toMatchObject({
+      execution: {
+        id: `${card.id}:agent-session`,
+        engine: "claude-cli",
+        model: "anthropic/claude-sonnet-4-6",
+        runId: "run-claude",
+      },
+    });
+  });
+
+  it("omits unresolved runtime metadata instead of labeling it codex", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const card = await store.create({
+      title: "Unknown runtime worker",
+      status: "ready",
+      workspaceAccess: { unrestricted: true },
+    });
+
+    await dispatchAndStartWorkboardCards({
+      store,
+      subagent: { run: vi.fn().mockResolvedValue({ runId: "run-unknown" }) },
+      options: { now: 10, maxStarts: 1 },
+    });
+
+    const execution = (await store.get(card.id))?.execution;
+    expect(execution).toMatchObject({
+      id: `${card.id}:agent-session`,
+      runId: "run-unknown",
+    });
+    expect(execution).not.toHaveProperty("engine");
+    expect(execution).not.toHaveProperty("model");
+  });
+
   it("materializes managed worktrees, supplies cwd, and persists them", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Isolated worker",
       status: "ready",
@@ -65,7 +119,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("requires explicit reauthorization for legacy cards under full-host dispatch", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Legacy worker",
       status: "ready",
@@ -99,7 +153,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("adopts current authority for a legacy card without a host workspace path", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({ title: "Legacy scratch worker", status: "ready" });
     const run = vi.fn().mockResolvedValue({ runId: "run-legacy-scratch" });
 
@@ -117,7 +171,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("does not claim a card whose workspace authority changed after preflight", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Racing authority update",
       status: "ready",
@@ -154,7 +208,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("rejects worktree sources outside the dispatcher's workspace boundary", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Protected checkout",
       status: "ready",
@@ -189,7 +243,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("leaves inaccessible directory workspaces ready and unclaimed", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Protected directory",
       status: "ready",
@@ -221,7 +275,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("does not launch a mutable nested directory for a workspace-bound caller", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Mutable nested directory",
       status: "ready",
@@ -249,7 +303,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("does not let an implicit target agent workspace widen caller access", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Other agent scratch",
       status: "ready",
@@ -279,7 +333,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("pins an allowed implicit worker to the caller's workspace root", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Workspace scratch",
       status: "ready",
@@ -320,7 +374,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("rejects a restricted card when the target agent is not sandboxed", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Restricted worker",
       status: "ready",
@@ -358,7 +412,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("rejects a restricted card when the target workspace is read-only", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Read-only worker",
       status: "ready",
@@ -395,7 +449,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("keeps read-only card authority after a later full-host dispatch", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Persisted read-only worker",
       status: "ready",
@@ -420,7 +474,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("rejects a target sandbox root broader than the card authority", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Broader target worker",
       status: "ready",
@@ -461,7 +515,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("rejects a restricted card when the target sandbox has an escape path", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Escaping worker",
       status: "ready",
@@ -499,7 +553,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("rejects a restricted workspace nested inside a broader Git checkout", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Nested checkout worker",
       status: "ready",
@@ -541,7 +595,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("keeps a card's persisted workspace ceiling during a later admin dispatch", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Persisted restricted worker",
       status: "ready",
@@ -586,7 +640,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("runs an authorized worktree request directly in a workspace-bound caller's root", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Workspace-bound worker",
       status: "ready",
@@ -625,7 +679,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("rejects linked-worktree metadata outside a restricted workspace mount", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Linked worktree worker",
       status: "ready",
@@ -664,7 +718,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("does not reuse a generated branch as an omitted source base", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Branchless retry",
       status: "ready",
@@ -701,7 +755,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("claims ready cards and starts bounded subagent worker runs", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const first = await store.create({
       title: "First worker",
       status: "ready",
@@ -766,7 +820,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("preserves ready-card history on idle Gateway dispatch passes", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     await store.create({ title: "Occupied owner", status: "running", agentId: "main" });
     const cards = await Promise.all(
       [undefined, { dispatchCount: 225, lastDispatchAt: 1 }].map((automation) =>
@@ -796,7 +850,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("shares one worker slot across cards dispatched with the same explicit owner", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const first = await store.create({
       title: "First shared worker",
       status: "ready",
@@ -830,7 +884,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("counts the active claim owner when checking worker capacity", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const running = await store.create({
       title: "Already claimed worker",
       status: "running",
@@ -860,7 +914,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   it.each(["worker", "other-worker"])(
     "starts recoverable work after a higher-priority worker fails (next owner: %s)",
     async (nextOwner) => {
-      const store = new WorkboardStore(createMemoryStore());
+      const store = createWorkboardSqliteTestStore();
       const failed = await store.create({
         title: "Unavailable urgent worker",
         status: "ready",
@@ -898,7 +952,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   );
 
   it("does not let review cards consume an agent running slot", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     await store.create({
       title: "Waiting for operator review",
       status: "review",
@@ -930,7 +984,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("starts workers only for the selected board", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const ops = await store.create({
       title: "Ops worker",
       status: "ready",
@@ -966,7 +1020,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("keeps claimed review cards in the owner running slot", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const review = await store.create({
       title: "Claimed operator review",
       status: "review",
@@ -993,7 +1047,7 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("blocks a card when worker start fails after claim", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Fail worker",
       status: "ready",

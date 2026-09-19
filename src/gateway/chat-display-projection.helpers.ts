@@ -1,7 +1,7 @@
 import { asOptionalRecord as readRecord } from "@openclaw/normalization-core/record-coerce";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { isMeaningfulMediaFact, readPersistedMediaFacts } from "../media/media-facts.js";
-import { isRelativeAssistantMediaReference, splitMediaFromOutput } from "../media/parse.js";
+import { isRelativeAssistantMediaReference, splitMediaOutput } from "../media/parse-output.js";
 import { normalizeInputProvenance } from "../sessions/input-provenance.js";
 import { isSuppressedControlReplyText } from "./control-reply-text.js";
 
@@ -60,9 +60,8 @@ export function stripAssistantMediaDirectivesForDisplay(
     return text;
   }
   const managed = new Set(managedMediaUrls.map((url) => url.trim()).filter(Boolean));
-  const parsed = splitMediaFromOutput(text, {
+  const parsed = splitMediaOutput(text, {
     extractAudioDirectives: false,
-    extractMarkdownImages: false,
   });
   if (
     !parsed.mediaUrls?.some(
@@ -180,7 +179,7 @@ export function hasAssistantDisplayableNonTextContent(message: unknown): boolean
 }
 
 export function shouldPreserveAssistantControlReplyText(message: Record<string, unknown>): boolean {
-  if (isProjectedSessionsSendForwardedMessage(message)) {
+  if (isProjectedForwardedMessage(message)) {
     return true;
   }
   if (!hasAssistantDisplayableNonTextContent(message)) {
@@ -279,7 +278,7 @@ export function isCronRunMessage(message: Record<string, unknown>): boolean {
   );
 }
 
-export function isSessionsSendInterSessionUserMessage(message: Record<string, unknown>): boolean {
+export function isForwardedUserMessage(message: Record<string, unknown>): boolean {
   if (message.role !== "user") {
     return false;
   }
@@ -290,7 +289,7 @@ export function isSessionsSendInterSessionUserMessage(message: Record<string, un
   );
 }
 
-export function isProjectedSessionsSendForwardedMessage(message: Record<string, unknown>): boolean {
+export function isProjectedForwardedMessage(message: Record<string, unknown>): boolean {
   if (message.role !== "assistant") {
     return false;
   }

@@ -24,8 +24,11 @@ export {
 export {
   assertNoSymlinkParents,
   assertNoSymlinkParentsSync,
+  readFileHandleBounded,
+  resolvePathPrefixSync,
   stageDurableFileInDirectory,
 } from "../infra/fs-safe-advanced.js";
+export { readFileWindowFully } from "../infra/file-read.js";
 export {
   ensureDurableDirectory,
   syncDirectory,

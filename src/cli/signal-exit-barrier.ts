@@ -66,6 +66,8 @@ function handleCliSignal(signal: "SIGINT" | "SIGTERM"): void {
   }
   const listener = signal === "SIGINT" ? onCliSigint : onCliSigterm;
   if (process.listeners(signal).some((existing) => existing !== listener)) {
+    // Run first and relinquish the fallback synchronously: signal-exit observers
+    // must see their original listener count, and custom owners retain their drain.
     detachCliSignalExitHandlers();
     return;
   }
@@ -86,6 +88,8 @@ function detachCliSignalExitHandlers(): void {
   process.off("SIGTERM", onCliSigterm);
 }
 
+/** Executable CLI commands share one signal owner; Gateway and update handlers
+ * keep their specialized lifecycle and use these same barriers. */
 export function installCliSignalExitHandlers(): () => void {
   if (cliSignalOwners++ === 0) {
     process.prependListener("SIGINT", onCliSigint);
@@ -101,4 +105,9 @@ export function installCliSignalExitHandlers(): () => void {
       detachCliSignalExitHandlers();
     }
   };
+}
+
+/** Command error/output finalization cannot race an accepted signal's cleanup. */
+export async function waitForCliSignalExit(): Promise<void> {
+  await cliSignalExit;
 }

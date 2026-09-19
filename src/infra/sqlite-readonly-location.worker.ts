@@ -5,6 +5,7 @@ import { SQLITE_READONLY_CHILD_ARG } from "./runtime-process-entrypoints.js";
 import { formatSqliteErrorCodeSuffix } from "./sqlite-error-diagnostics.js";
 import { releaseSnapshotTempDirectory } from "./sqlite-readonly-location-cleanup.js";
 import {
+  inspectSqliteSchemaHeaderInProcess,
   prepareSqliteReadOnlyLocationInProcess,
   prepareSqliteReadOnlyLocationSyncInProcess,
 } from "./sqlite-readonly-location.js";
@@ -21,7 +22,11 @@ async function inspect(args: string[]): Promise<SqliteReadOnlyWorkerResult> {
   const mode = args[0];
   const pathname = args[1];
   const stagingRoot = args[2];
-  if ((mode !== "sync" && mode !== "async" && mode !== "reclaim") || !pathname) {
+  const agentSchemaVersionForOwnership = args[3] === undefined ? undefined : Number(args[3]);
+  if (
+    (mode !== "sync" && mode !== "async" && mode !== "schema-header" && mode !== "reclaim") ||
+    !pathname
+  ) {
     return {
       ok: false,
       message: "SQLite read-only worker requires a mode and a database path",
@@ -37,6 +42,7 @@ async function inspect(args: string[]): Promise<SqliteReadOnlyWorkerResult> {
       const stop = () => {
         stopped = true;
       };
+      // EOF also handles a vanished parent. Never interrupt a directory's delete.
       process.stdin.once("end", stop);
       process.stdin.once("error", stop);
       process.stdin.resume();
@@ -59,6 +65,21 @@ async function inspect(args: string[]): Promise<SqliteReadOnlyWorkerResult> {
       }
       return { ok: true, warnings };
     }
+    if (mode === "schema-header") {
+      if (
+        agentSchemaVersionForOwnership !== undefined &&
+        (!Number.isSafeInteger(agentSchemaVersionForOwnership) ||
+          agentSchemaVersionForOwnership < 0)
+      ) {
+        throw new Error("SQLite schema header requires a valid supported agent schema version");
+      }
+      const header = await inspectSqliteSchemaHeaderInProcess(
+        pathname,
+        stagingRoot,
+        agentSchemaVersionForOwnership,
+      );
+      return { ok: true, header };
+    }
     const prepared =
       mode === "sync"
         ? prepareSqliteReadOnlyLocationSyncInProcess(pathname, stagingRoot)
@@ -71,17 +92,68 @@ async function inspect(args: string[]): Promise<SqliteReadOnlyWorkerResult> {
   }
 }
 
-if (process.argv[2] === SQLITE_READONLY_CHILD_ARG) {
-  void inspect(process.argv.slice(3)).then((result) => {
-    if (!result.ok) {
-      process.exitCode = 1;
+function runSession(): void {
+  let busy = false;
+  process.once("disconnect", () => {
+    if (busy) {
+      process.exit(1);
     }
-    const encoded = JSON.stringify(result);
-    if (Buffer.byteLength(encoded) > SQLITE_READONLY_WORKER_MAX_BUFFER) {
-      process.exitCode = 1;
-      process.stdout.write(JSON.stringify({ ok: false, message: "exceeded its output buffer" }));
+  });
+  process.on("message", (message: unknown) => {
+    if (message === "close" && !busy) {
+      process.disconnect?.();
       return;
     }
-    process.stdout.write(encoded);
+    if (
+      busy ||
+      !message ||
+      typeof message !== "object" ||
+      Object.keys(message).length !== 2 ||
+      !("id" in message) ||
+      typeof message.id !== "number" ||
+      !Number.isSafeInteger(message.id) ||
+      !("args" in message) ||
+      !Array.isArray(message.args) ||
+      message.args[0] !== "sync" ||
+      !message.args.every((arg): arg is string => typeof arg === "string")
+    ) {
+      process.exit(1);
+    }
+    busy = true;
+    const id = message.id;
+    void inspect(message.args).then((inspected) => {
+      const result: SqliteReadOnlyWorkerResult =
+        Buffer.byteLength(JSON.stringify(inspected)) > SQLITE_READONLY_WORKER_MAX_BUFFER
+          ? { ok: false, message: "exceeded its output buffer" }
+          : inspected;
+      if (result.ok) {
+        busy = false;
+      }
+      process.send?.({ id, result }, (error) => {
+        if (error || !result.ok) {
+          // A failed inspection may still own a native handle and admission.
+          process.exit(1);
+        }
+      });
+    });
   });
+}
+
+if (process.argv[2] === SQLITE_READONLY_CHILD_ARG) {
+  if (process.argv[3] === "session" && process.send) {
+    runSession();
+  } else {
+    void inspect(process.argv.slice(3)).then((result) => {
+      if (!result.ok) {
+        process.exitCode = 1;
+      }
+      const encoded = JSON.stringify(result);
+      if (Buffer.byteLength(encoded) > SQLITE_READONLY_WORKER_MAX_BUFFER) {
+        process.exitCode = 1;
+        process.stdout.write(JSON.stringify({ ok: false, message: "exceeded its output buffer" }));
+        return;
+      }
+      process.stdout.write(encoded);
+    });
+  }
 }
