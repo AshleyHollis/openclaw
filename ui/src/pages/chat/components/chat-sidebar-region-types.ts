@@ -2,7 +2,9 @@ import { nothing, type TemplateResult } from "lit";
 import type { DirectiveResult } from "lit/directive.js";
 import type { SidebarSlotId } from "../sidebar-layout.ts";
 
-export type SidebarPanelTemplates = Partial<Record<SidebarSlotId, TemplateResult | typeof nothing>>;
+export type SidebarPanelTemplates = Partial<
+  Record<SidebarSlotId, TemplateResult | DirectiveResult | typeof nothing>
+>;
 
 export type SidebarPanelDefinition = {
   slot: SidebarSlotId;
