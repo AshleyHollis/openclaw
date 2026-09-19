@@ -62,6 +62,10 @@ for (const scenario of [
           path.join(source, "package.json"),
           '{"name":"openclaw","version":"2026.9.2"}\n',
         );
+        await writeFile(
+          path.join(source, "CHANGELOG.md"),
+          "# Changelog\n\n## 2026.9.2\n\n- Synthetic package source fixture with sufficient release detail.\n",
+        );
         const input = path.join(root, "input");
         await mkdir(path.join(input, "package"), { recursive: true });
         await copyFile(path.join(source, "package.json"), path.join(input, "package/package.json"));
