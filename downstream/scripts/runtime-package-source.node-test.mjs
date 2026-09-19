@@ -98,10 +98,21 @@ for (const scenario of [
 
         await initialize(tooling);
         for (const relative of [
+          "packages/normalization-core/src/record-coerce.ts",
+          "scripts/lib/arg-utils.mts",
+          "scripts/lib/bounded-output-tail.mjs",
+          "scripts/lib/error-format.mts",
+          "scripts/lib/managed-child-process.mts",
+          "scripts/lib/npm-json-output.mts",
+          "scripts/lib/repo-root.mjs",
+          "scripts/lib/vitest-resource-ownership.mts",
+          "scripts/lib/windows-taskkill.mjs",
           "scripts/resolve-openclaw-package-candidate.mts",
           "scripts/npm-runner.mts",
+          "scripts/package-source-dependencies.mjs",
+          "scripts/package-source-preflight.mjs",
+          "scripts/prepublish-plugin-registry-artifact.mjs",
           "scripts/windows-cmd-helpers.mjs",
-          "scripts/lib/windows-taskkill.mjs",
         ]) {
           await mkdir(path.dirname(path.join(tooling, relative)), { recursive: true });
           await copyFile(path.join(repository, relative), path.join(tooling, relative));
