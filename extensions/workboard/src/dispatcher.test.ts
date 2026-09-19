@@ -1,83 +1,10 @@
 // Workboard tests cover dispatcher plugin behavior.
 import { describe, expect, it, vi } from "vitest";
 import { dispatchAndStartWorkboardCards } from "./dispatcher.js";
-import type { PersistedWorkboardCard, WorkboardKeyedStore } from "./persistence-types.js";
+import { createMemoryStore } from "./dispatcher.test-support.js";
 import { WorkboardStore } from "./store.js";
 
-function createMemoryStore<T = PersistedWorkboardCard>(): WorkboardKeyedStore<T> {
-  const entries = new Map<string, T>();
-  return {
-    async register(key, value) {
-      entries.set(key, value);
-    },
-    async lookup(key) {
-      return entries.get(key);
-    },
-    async delete(key) {
-      return entries.delete(key);
-    },
-    async entries() {
-      return [...entries].flatMap(([key, value]) => (value ? [{ key, value }] : []));
-    },
-  };
-}
-
 describe("dispatchAndStartWorkboardCards", () => {
-  it("persists the resolved subagent runtime on new executions", async () => {
-    const store = new WorkboardStore(createMemoryStore());
-    const card = await store.create({
-      title: "Claude worker",
-      status: "ready",
-      workspaceAccess: { unrestricted: true },
-    });
-    const run = vi.fn().mockResolvedValue({
-      runId: "run-claude",
-      runtime: {
-        harness: "claude-cli",
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
-      },
-    });
-
-    await dispatchAndStartWorkboardCards({
-      store,
-      subagent: { run },
-      options: { now: 10, maxStarts: 1 },
-    });
-
-    await expect(store.get(card.id)).resolves.toMatchObject({
-      execution: {
-        id: `${card.id}:agent-session`,
-        engine: "claude-cli",
-        model: "anthropic/claude-sonnet-4-6",
-        runId: "run-claude",
-      },
-    });
-  });
-
-  it("omits unresolved runtime metadata instead of labeling it codex", async () => {
-    const store = new WorkboardStore(createMemoryStore());
-    const card = await store.create({
-      title: "Unknown runtime worker",
-      status: "ready",
-      workspaceAccess: { unrestricted: true },
-    });
-
-    await dispatchAndStartWorkboardCards({
-      store,
-      subagent: { run: vi.fn().mockResolvedValue({ runId: "run-unknown" }) },
-      options: { now: 10, maxStarts: 1 },
-    });
-
-    const execution = (await store.get(card.id))?.execution;
-    expect(execution).toMatchObject({
-      id: `${card.id}:agent-session`,
-      runId: "run-unknown",
-    });
-    expect(execution).not.toHaveProperty("engine");
-    expect(execution).not.toHaveProperty("model");
-  });
-
   it("materializes managed worktrees, supplies cwd, and persists them", async () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
@@ -835,10 +762,37 @@ describe("dispatchAndStartWorkboardCards", () => {
       "workboard_complete",
       "workboard_block",
     ]);
-    await expect(store.get(second.id)).resolves.toMatchObject({
-      status: "ready",
-      metadata: { automation: { dispatchCount: 1 } },
-    });
+    await expect(store.get(second.id)).resolves.toEqual(second);
+  });
+
+  it("preserves ready-card history on idle Gateway dispatch passes", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    await store.create({ title: "Occupied owner", status: "running", agentId: "main" });
+    const cards = await Promise.all(
+      [undefined, { dispatchCount: 225, lastDispatchAt: 1 }].map((automation) =>
+        store.create({
+          title: "Waiting for owner capacity",
+          status: "ready",
+          agentId: "main",
+          metadata: { automation },
+        }),
+      ),
+    );
+    const run = vi.fn();
+
+    for (const now of [10, 20, 30]) {
+      const result = await dispatchAndStartWorkboardCards({
+        store,
+        subagent: { run },
+        options: { now, maxStarts: 1 },
+      });
+      expect(result.started).toEqual([]);
+      expect(result.startFailures).toEqual([]);
+      for (const card of cards) {
+        await expect(store.get(card.id)).resolves.toEqual(card);
+      }
+    }
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("shares one worker slot across cards dispatched with the same explicit owner", async () => {

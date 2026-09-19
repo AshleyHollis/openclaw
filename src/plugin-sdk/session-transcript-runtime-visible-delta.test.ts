@@ -12,6 +12,7 @@ import {
 } from "../config/sessions/session-accessor.sqlite-scope.js";
 import { runWithSessionTranscriptReadFence } from "../config/sessions/session-transcript-read-fence.js";
 import { waitForSessionTranscriptIndexReconcile } from "../config/sessions/session-transcript-reconcile.js";
+import { closeOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.js";
 import {
   appendSessionTranscriptMessageByIdentity,
   readSessionTranscriptVisibleMessageDelta,
@@ -27,6 +28,7 @@ describe("session transcript visible cursor SDK", () => {
   });
 
   afterEach(() => {
+    closeOpenClawAgentDatabasesForTest();
     fs.rmSync(tempDir, { force: true, recursive: true });
   });
 
@@ -60,6 +62,7 @@ describe("session transcript visible cursor SDK", () => {
     });
     expect(first).toMatchObject({
       kind: "page",
+      activeLeafEntryId: firstBranch.messageId,
       entries: [
         {
           entryId: root.messageId,
@@ -67,7 +70,9 @@ describe("session transcript visible cursor SDK", () => {
           parentId: null,
         },
       ],
+      generation: expect.any(String),
       hasMore: true,
+      totalMessages: 2,
     });
     if (first.kind !== "page") {
       throw new Error("expected first visible transcript page");
@@ -108,9 +113,44 @@ describe("session transcript visible cursor SDK", () => {
         },
       ],
       hasMore: false,
+      totalMessages: 2,
     });
     if (second.kind !== "page") {
       throw new Error("expected second visible transcript page");
+    }
+    await expect(
+      readSessionTranscriptVisibleMessageDelta({
+        ...scope,
+        offset: 1,
+        maxBytes: 10_000,
+        maxMessages: 1,
+      }),
+    ).resolves.toMatchObject({
+      kind: "page",
+      activeLeafEntryId: firstBranch.messageId,
+      entries: [{ entryId: firstBranch.messageId, parentId: root.messageId }],
+      generation: first.generation,
+      hasMore: false,
+      totalMessages: 2,
+    });
+    await expect(
+      readSessionTranscriptVisibleMessageDelta({
+        ...scope,
+        cursor: first.cursor,
+        offset: 1,
+        maxBytes: 10_000,
+        maxMessages: 1,
+      }),
+    ).rejects.toThrow("cannot be combined");
+    for (const offset of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      await expect(
+        readSessionTranscriptVisibleMessageDelta({
+          ...scope,
+          offset,
+          maxBytes: 10_000,
+          maxMessages: 1,
+        }),
+      ).rejects.toThrow("non-negative safe integer");
     }
     const movedAnchorCursor = Buffer.from(
       JSON.stringify({
@@ -201,6 +241,7 @@ describe("session transcript visible cursor SDK", () => {
       }),
     ).resolves.toMatchObject({
       kind: "page",
+      activeLeafEntryId: "replacement-branch",
       entries: [
         { entryId: root.messageId, parentId: null },
         { entryId: "replacement-branch", parentId: root.messageId },

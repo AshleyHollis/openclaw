@@ -67,8 +67,12 @@ describe("native UI roster refresh", () => {
       Object.assign(fixture.context.gateway, { setSessionKey });
       try {
         const target = { sessionKey: "agent:main:linked", agentId: "main" };
-        fixture.host.sessions.openFiles(target);
-        fixture.host.sessions.openFiles(target);
+        const openFiles = fixture.host.sessions.openFiles;
+        if (!openFiles) {
+          throw new Error("Expected the native Files capability");
+        }
+        openFiles(target);
+        openFiles(target);
         expect(navigate).toHaveBeenCalledTimes(2);
         const [first, second] = navigate.mock.calls.map((call) => call[1]);
         expect(first.pathname).toBe(second.pathname);
@@ -86,7 +90,9 @@ describe("native UI roster refresh", () => {
         expect(setSessionKey).toHaveBeenNthCalledWith(2, target.sessionKey);
       } finally {
         fixture.dispose();
-        if (fallback) vi.unstubAllGlobals();
+        if (fallback) {
+          vi.unstubAllGlobals();
+        }
       }
     },
   );
@@ -580,14 +586,12 @@ describe("native UI page navigation", () => {
 
 describe("declared authenticated plugin HTTP relay", () => {
   it("relays only the declared Command Center actions without exposing the credential", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        new Response('{"status":"applied"}', {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('{"status":"applied"}', {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const context = {
       gateway: { connection: { token: "fixture-private-token" } },

@@ -1,6 +1,5 @@
 import type { ProgressCard } from "@openclaw/gateway-protocol";
 import { html, nothing } from "lit";
-import { findInlineApproval } from "../../app/approval-presentation.ts";
 import { hasOperatorAdminAccess, hasOperatorWriteAccess } from "../../app/operator-access.ts";
 import { cancelQuestionPrompt, submitQuestionPrompt } from "../../app/question-prompt.ts";
 import { patchSettings } from "../../app/settings.ts";
@@ -34,6 +33,7 @@ import { clearChatHistory } from "./chat-history-actions.ts";
 import { getChatHistoryLoadState } from "./chat-history-state.ts";
 import { resolveChatMessageAccess } from "./chat-message-access.ts";
 import { requiresChatModelSetup } from "./chat-model-setup.ts";
+import { projectConversationAttention } from "./chat-pane-attention.ts";
 import { ChatPaneLayoutRender } from "./chat-pane-layout-render.ts";
 import { createChatPaneRails } from "./chat-pane-rails.ts";
 import {
@@ -54,6 +54,7 @@ import { refreshChatCommands, refreshPageChat } from "./chat-state-refresh.ts";
 import {
   resolveChatAgentId,
   resolveChatAvatarUrl,
+  projectChatPublicationRow,
   selectedChatSessionRow,
 } from "./chat-state-route.ts";
 import type { ChatProps } from "./chat-view.ts";
@@ -126,9 +127,14 @@ export class ChatPane extends ChatPaneLayoutRender {
     const currentAgentId = resolveChatAgentId(state);
     const { catalogKey, chatProps } = resolveChatMessageAccess(state);
     const overlays = this.context?.overlays;
-    const inlineApproval =
-      findInlineApproval(state.chatSessionApprovalQueue ?? [], state.sessionKey) ??
-      findInlineApproval(overlays?.snapshot?.approvalQueue ?? [], state.sessionKey);
+    const sessionAttention = projectConversationAttention(
+      state,
+      state.sessionKey,
+      currentAgentId,
+      this.questionPrompts,
+      [...(state.chatSessionApprovalQueue ?? []), ...(overlays?.snapshot?.approvalQueue ?? [])],
+    );
+    const inlineApproval = sessionAttention.approval;
     const selectedAgent = this.context.agents.state.agentsList?.agents.find(
       (agent) => agent.id === currentAgentId,
     );
@@ -269,16 +275,8 @@ export class ChatPane extends ChatPaneLayoutRender {
         });
     const composerState = getChatComposerState(this.presentationId);
     const publicationScope = this.captureConnectionScope();
-    const readPublicationRow = () => {
-      const row = selectedChatSessionRow(state);
-      return (
-        row && {
-          ...row,
-          agentId: row.agentId ?? resolveChatAgentId(state) ?? undefined,
-          archived: this.isCurrentSessionArchived(state),
-        }
-      );
-    };
+    const readPublicationRow = () =>
+      projectChatPublicationRow(state, this.isCurrentSessionArchived(state));
     const publicationRow = readPublicationRow();
     if (
       !publicationScope ||
@@ -390,7 +388,8 @@ export class ChatPane extends ChatPaneLayoutRender {
       progressCard: this.progressCard.card,
       collapseTaskProgress: state.settings.chatCollapseTaskProgress === true,
       onDismissProgressCard,
-      gatewayQuestionPrompts: catalogKey || sessionParticipationBlocked ? [] : this.questionPrompts,
+      gatewayQuestionPrompts:
+        catalogKey || sessionParticipationBlocked ? [] : sessionAttention.questions,
       onGatewayQuestionChange: () => {
         this.questionPrompts = [...this.questionPrompts];
         this.requestUpdate();

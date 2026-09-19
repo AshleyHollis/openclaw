@@ -260,6 +260,8 @@ export type SessionTranscriptVisibleMessageDeltaLimits = {
   maxBytes?: number;
   /** Maximum number of visible messages returned by this page. */
   maxMessages?: number;
+  /** Zero-based visible-message position for a fresh bounded page; mutually exclusive with cursor. */
+  offset?: number;
 };
 
 /** One active-path message row selected from the materialized projection. */
@@ -270,7 +272,7 @@ export type SessionTranscriptVisibleMessageEventRow = SessionTranscriptEventRow 
   parentId: string | null;
 };
 
-/** Generation-aware outcome for one bounded visible-message read. */
+/** Generation-aware outcome for one bounded visible-message read, including same-snapshot proof facts. */
 export type SessionTranscriptVisibleMessageDeltaResult =
   | {
       kind: "page";
@@ -278,12 +280,18 @@ export type SessionTranscriptVisibleMessageDeltaResult =
       cursor: string;
       /** Ordered active-path message events selected for this page. */
       events: SessionTranscriptVisibleMessageEventRow[];
+      /** Active transcript leaf captured in the same SQLite read snapshot as this page. */
+      activeLeafEntryId: string | null;
+      /** Rewrite identity captured in the same SQLite read snapshot as this page. */
+      generation: string;
       /** True when another visible message remains after this page. */
       hasMore: boolean;
       /** First unread event size when it cannot fit under maxBytes. */
       requiredBytes?: number;
       /** Stored JSONL bytes represented by events. */
       serializedBytes: number;
+      /** Visible message count captured in the same SQLite read snapshot as this page. */
+      totalMessages: number;
     }
   | {
       kind: "reset";

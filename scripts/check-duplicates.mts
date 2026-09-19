@@ -17,6 +17,7 @@ const targets = [
   "ui",
   "apps",
   "docs",
+  "downstream",
   "qa",
   "security",
   "test",

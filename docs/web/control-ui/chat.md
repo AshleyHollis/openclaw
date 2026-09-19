@@ -33,6 +33,14 @@ navigable without a card; links to other origins keep normal browser behavior.
 Document-relative hrefs are never session links; file references such as
 `src/utils/foo.ts` retain workspace file handling.
 
+## Suggested tasks
+
+Suggested task cards offer **Start in a new session** and **Start in a new
+worktree**. Both start the task in the background and keep your current
+conversation and draft open. The card disappears after the task starts; select
+the new session in the sidebar when you want to follow its progress.
+**Start in this session** runs the task in the current conversation.
+
 ## Composer capability menu
 
 Select **+** beside the chat composer to open attachments and session capabilities in one menu:

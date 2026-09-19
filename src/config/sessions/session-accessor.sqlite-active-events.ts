@@ -251,6 +251,13 @@ export function readSessionTranscriptVisibleMessageDeltaCore(
     MAX_VISIBLE_MESSAGE_MAX_BYTES,
     "maxBytes",
   );
+  if (limits.cursor !== undefined && limits.offset !== undefined) {
+    throw new Error("Transcript visible-message offset cannot be combined with a cursor");
+  }
+  if (limits.offset !== undefined && (!Number.isSafeInteger(limits.offset) || limits.offset < 0)) {
+    throw new Error("Transcript visible-message offset must be a non-negative safe integer");
+  }
+  const requestedOffset = limits.offset ?? 0;
   return withCurrentProjectionSnapshot(scope, (projection) => {
     const db = getActiveTranscriptKysely(projection.database);
     const transcriptFence = resolveSqliteSessionTranscriptReadFence({
@@ -274,7 +281,7 @@ export function readSessionTranscriptVisibleMessageDeltaCore(
       cursor: encodeVisibleMessageCursor(initialCursor),
       reason,
     });
-    const cursor =
+    let cursor =
       limits.cursor !== undefined ? parseVisibleMessageCursor(limits.cursor) : initialCursor;
     if (!cursor) {
       return reset("invalid_cursor");
@@ -315,7 +322,36 @@ export function readSessionTranscriptVisibleMessageDeltaCore(
         return reset("anchor_moved");
       }
       startPosition = anchor.message_position + 1;
+    } else if (requestedOffset > 0) {
+      const availableMessages = Math.min(
+        projection.state.activeMessageCount,
+        transcriptFence?.beforeActiveMessagePosition ?? projection.state.activeMessageCount,
+      );
+      startPosition = Math.min(requestedOffset, availableMessages);
+      if (startPosition > 0) {
+        const anchor = executeSqliteQueryTakeFirstSync(
+          projection.database.db,
+          db
+            .selectFrom("session_transcript_active_events")
+            .select("event_seq")
+            .where("session_id", "=", projection.resolved.sessionId)
+            .where("message_position", "=", startPosition - 1),
+        );
+        if (!anchor) {
+          return reset("anchor_missing");
+        }
+        cursor = {
+          ...cursor,
+          lastEventSeq: anchor.event_seq,
+          lastMessagePosition: startPosition - 1,
+        };
+      }
     }
+
+    const totalMessages = Math.min(
+      projection.state.activeMessageCount,
+      transcriptFence?.beforeActiveMessagePosition ?? projection.state.activeMessageCount,
+    );
 
     const metadata = executeSqliteQuerySync(
       projection.database.db,
@@ -403,11 +439,14 @@ export function readSessionTranscriptVisibleMessageDeltaCore(
       selectedCount === 0 && metadata[0] ? metadata[0].serialized_bytes : undefined;
     return {
       kind: "page",
+      activeLeafEntryId: projection.state.leafEventId,
       cursor: encodeVisibleMessageCursor({ ...cursor, lastEventSeq, lastMessagePosition }),
       events: rows,
+      generation,
       hasMore: selectedCount < metadata.length,
       ...(requiredBytes !== undefined ? { requiredBytes } : {}),
       serializedBytes,
+      totalMessages,
     };
   });
 }

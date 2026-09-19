@@ -505,6 +505,10 @@ export function createPluginRuntimeMock(overrides: DeepPartial<PluginRuntime> = 
   };
   const base: PluginRuntime = {
     version: "1.0.0-test",
+    fileAccess: {
+      stageDurableFileInDirectory:
+        vi.fn<PluginRuntime["fileAccess"]["stageDurableFileInDirectory"]>(),
+    },
     gateway: {
       isAvailable: vi.fn(async () => false),
       request: vi.fn(),

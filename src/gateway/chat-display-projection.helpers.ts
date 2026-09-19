@@ -270,12 +270,24 @@ export function extractProjectedText(content: unknown): string {
   return parts.join("\n");
 }
 
+export function isCronRunMessage(message: Record<string, unknown>): boolean {
+  const provenance = normalizeInputProvenance(message.provenance);
+  return (
+    provenance?.kind === "internal_system" &&
+    provenance.sourceTool === "cron" &&
+    Boolean(provenance.jobId && provenance.runId && provenance.sourceSessionKey)
+  );
+}
+
 export function isSessionsSendInterSessionUserMessage(message: Record<string, unknown>): boolean {
   if (message.role !== "user") {
     return false;
   }
   const provenance = normalizeInputProvenance(message.provenance);
-  return provenance?.kind === "inter_session" && provenance.sourceTool === "sessions_send";
+  return (
+    (provenance?.kind === "inter_session" && provenance.sourceTool === "sessions_send") ||
+    isCronRunMessage(message)
+  );
 }
 
 export function isProjectedSessionsSendForwardedMessage(message: Record<string, unknown>): boolean {
@@ -283,5 +295,8 @@ export function isProjectedSessionsSendForwardedMessage(message: Record<string, 
     return false;
   }
   const provenance = normalizeInputProvenance(message.provenance);
-  return provenance?.kind === "inter_session" && provenance.sourceTool === "sessions_send";
+  return (
+    (provenance?.kind === "inter_session" && provenance.sourceTool === "sessions_send") ||
+    isCronRunMessage(message)
+  );
 }

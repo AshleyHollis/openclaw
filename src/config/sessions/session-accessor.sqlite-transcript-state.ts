@@ -3,6 +3,7 @@ import { uniqueStrings } from "@openclaw/normalization-core/string-normalization
 import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
+  prepareSqliteQuerySync,
 } from "../../infra/kysely-sync.js";
 import { coerceRequiredSqliteNumber as sqliteNumber } from "../../infra/sqlite-number.js";
 import type { OpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
@@ -26,30 +27,58 @@ export type SessionTranscriptContextVersion = {
   updatedAt: number | null;
 };
 
+function createTranscriptContextVersionQuery(database: Pick<OpenClawAgentDatabase, "db">) {
+  const db = getSessionKysely(database.db);
+  const query = prepareSqliteQuerySync<string, SessionTranscriptContextVersion>(
+    database.db,
+    (parameter) =>
+      db
+        .selectFrom("transcript_events")
+        .select((eb) => [
+          eb.fn.max<number | null>("seq").as("rawSeq"),
+          eb
+            .selectFrom("transcript_rewrite_watermarks")
+            .select("generation")
+            .where(
+              "session_id",
+              "=",
+              parameter((sessionId) => sessionId),
+            )
+            .as("generation"),
+          eb
+            .selectFrom("session_windows")
+            .select("transcript_updated_at")
+            .where(
+              "session_id",
+              "=",
+              parameter((sessionId) => sessionId),
+            )
+            .as("updatedAt"),
+        ])
+        .where(
+          "session_id",
+          "=",
+          parameter((sessionId) => sessionId),
+        ),
+  );
+  return (sessionId: string) => query(sessionId).rows[0];
+}
+
+const transcriptContextVersionQueries = new WeakMap<
+  OpenClawAgentDatabase["db"],
+  ReturnType<typeof createTranscriptContextVersionQuery>
+>();
+
 export function readTranscriptContextVersionInTransaction(
   database: Pick<OpenClawAgentDatabase, "db">,
   sessionId: string,
 ) {
-  const db = getSessionKysely(database.db);
-  return executeSqliteQueryTakeFirstSync(
-    database.db,
-    db
-      .selectFrom("transcript_events")
-      .select((eb) => [
-        eb.fn.max<number | null>("seq").as("rawSeq"),
-        eb
-          .selectFrom("transcript_rewrite_watermarks")
-          .select("generation")
-          .where("session_id", "=", sessionId)
-          .as("generation"),
-        eb
-          .selectFrom("session_windows")
-          .select("transcript_updated_at")
-          .where("session_id", "=", sessionId)
-          .as("updatedAt"),
-      ])
-      .where("session_id", "=", sessionId),
-  )!;
+  let query = transcriptContextVersionQueries.get(database.db);
+  if (!query) {
+    query = createTranscriptContextVersionQuery(database);
+    transcriptContextVersionQueries.set(database.db, query);
+  }
+  return query(sessionId)!;
 }
 
 function createTranscriptGeneration(): string {

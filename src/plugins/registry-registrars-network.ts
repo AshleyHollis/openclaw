@@ -103,7 +103,7 @@ export function createNetworkRegistrars(state: PluginRegistryState) {
     const gatewayMethodDispatchMethods =
       requestedDispatchMethods === undefined
         ? undefined
-        : [...requestedDispatchMethods.map((value) => value.trim())];
+        : requestedDispatchMethods.map((value) => value.trim());
     if (
       gatewayMethodDispatchMethods?.some((value) => !value) ||
       (gatewayMethodDispatchMethods &&

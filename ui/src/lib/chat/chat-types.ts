@@ -251,7 +251,7 @@ export type MessageGroup = {
   key: string;
   role: string;
   senderLabel?: string | null;
-  senderSession?: { sessionKey?: string; agentId?: string } | null;
+  senderSession?: { sessionKey?: string; agentId?: string; label?: string } | null;
   sender?: SenderIdentity;
   replyToSender?: SenderIdentity;
   messages: Array<{ message: unknown; key: string; duplicateCount?: number }>;
@@ -319,7 +319,7 @@ export type NormalizedMessage = {
   timestamp: number;
   id?: string;
   senderLabel?: string | null;
-  senderSession?: { sessionKey?: string; agentId?: string } | null;
+  senderSession?: { sessionKey?: string; agentId?: string; label?: string } | null;
   sender?: SenderIdentity;
   audioAsVoice?: boolean;
   replyPreview?: { text: string; senderLabel?: string | null };

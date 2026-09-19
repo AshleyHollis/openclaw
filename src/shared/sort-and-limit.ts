@@ -8,7 +8,9 @@ export function sortAndLimitBy<T extends object>(
 ): T[] {
   if (limit !== undefined && limit <= TOP_N_LIMIT) {
     const selected: T[] = [];
-    for (const entry of entries) {
+    let index = 0;
+    while (index < entries.length) {
+      const entry = entries[index++]!;
       const first = selected[0];
       const beforeFirst = first && compare(entry, first) < 0;
       const worst = selected[limit - 1];
@@ -17,7 +19,9 @@ export function sortAndLimitBy<T extends object>(
       }
       const insertAt = beforeFirst
         ? 0
-        : selected.findIndex((candidate, index) => index > 0 && compare(entry, candidate) < 0);
+        : selected.findIndex(
+            (candidate, candidateIndex) => candidateIndex > 0 && compare(entry, candidate) < 0,
+          );
       if (insertAt >= 0) {
         selected.splice(insertAt, 0, entry);
         if (selected.length > limit) {

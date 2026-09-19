@@ -1,8 +1,7 @@
-import { html, nothing, render } from "lit";
+import { html, nothing, render, type TemplateResult } from "lit";
 import type {
   ControlUiComponentHandle,
   ControlUiComponents,
-  ControlUiFileExplorerProps,
 } from "../../../src/plugin-sdk/control-ui-components.js";
 import type { RouteId } from "../app-routes.ts";
 import type { ApplicationContext } from "../app/context.ts";
@@ -103,7 +102,9 @@ export function createControlUiComponents(options: {
         }
       };
       const paint = () => {
-        if (!active) return;
+        if (!active) {
+          return;
+        }
         cancelScrollRestore();
         const previousScroll = root.querySelector<HTMLElement>(
           ".chat-workspace-rail__scroll",
@@ -144,44 +145,86 @@ export function createControlUiComponents(options: {
           const expanded = new Set(props.expandedPaths);
           const folderPaths = new Set<string>();
           for (const entry of props.entries) {
-            const parts = entry.path.split('/').filter(Boolean);
-            const limit = entry.kind === 'directory' ? parts.length : Math.max(0, parts.length - 1);
-            for (let index = 1; index <= limit; index += 1) folderPaths.add(parts.slice(0, index).join('/'));
+            const parts = entry.path.split("/").filter(Boolean);
+            const limit = entry.kind === "directory" ? parts.length : Math.max(0, parts.length - 1);
+            for (let index = 1; index <= limit; index += 1) {
+              folderPaths.add(parts.slice(0, index).join("/"));
+            }
           }
           const fileIcon = (name: string) => {
-            const extension = name.toLocaleLowerCase().split('.').at(-1) ?? '';
-            if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(extension)) return icons.image;
-            if (['eml', 'msg'].includes(extension)) return icons.mail;
-            if (['md', 'markdown', 'txt', 'text'].includes(extension)) return icons.fileText;
-            if (extension === 'pdf') return icons.scrollText;
-            if (['xls', 'xlsx', 'csv', 'ods'].includes(extension)) return icons.layoutGrid;
+            const extension = name.toLocaleLowerCase().split(".").at(-1) ?? "";
+            if (["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(extension)) {
+              return icons.image;
+            }
+            if (["eml", "msg"].includes(extension)) {
+              return icons.mail;
+            }
+            if (["md", "markdown", "txt", "text"].includes(extension)) {
+              return icons.fileText;
+            }
+            if (extension === "pdf") {
+              return icons.scrollText;
+            }
+            if (["xls", "xlsx", "csv", "ods"].includes(extension)) {
+              return icons.layoutGrid;
+            }
             return icons.file;
           };
           const updateExpansion = (path: string, open: boolean) => {
             const next = new Set(props.expandedPaths);
-            if (open) next.add(path);
-            else next.delete(path);
-            props.onExpandedPathsChange?.([...next].sort());
+            if (open) {
+              next.add(path);
+            } else {
+              next.delete(path);
+            }
+            props.onExpandedPathsChange?.([...next].toSorted());
           };
           const handleTreeKey = (event: KeyboardEvent) => {
             const tree = event.currentTarget as HTMLElement;
-            const controls = [...tree.querySelectorAll<HTMLElement>('summary, .chat-workspace-rail__file-open')].filter((item) => item.offsetParent !== null);
-            const current = event.target as HTMLElement; const index = controls.indexOf(current);
-            if (index < 0) return;
-            const focus = (next: number) => controls[Math.max(0, Math.min(controls.length - 1, next))]?.focus();
-            if (event.key === 'ArrowDown') { event.preventDefault(); focus(index + 1); }
-            else if (event.key === 'ArrowUp') { event.preventDefault(); focus(index - 1); }
-            else if (event.key === 'Home') { event.preventDefault(); focus(0); }
-            else if (event.key === 'End') { event.preventDefault(); focus(controls.length - 1); }
-            else if (event.key === 'ArrowRight' && current.tagName === 'SUMMARY') { const details = current.parentElement as HTMLDetailsElement; if (!details.open) { event.preventDefault(); details.open = true; updateExpansion(current.dataset.treePath ?? '', true); } }
-            else if (event.key === 'ArrowLeft' && current.tagName === 'SUMMARY') { const details = current.parentElement as HTMLDetailsElement; if (details.open) { event.preventDefault(); details.open = false; updateExpansion(current.dataset.treePath ?? '', false); } }
+            const controls = [
+              ...tree.querySelectorAll<HTMLElement>("summary, .chat-workspace-rail__file-open"),
+            ].filter((item) => item.offsetParent !== null);
+            const current = event.target as HTMLElement;
+            const index = controls.indexOf(current);
+            if (index < 0) {
+              return;
+            }
+            const focus = (next: number) =>
+              controls[Math.max(0, Math.min(controls.length - 1, next))]?.focus();
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              focus(index + 1);
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              focus(index - 1);
+            } else if (event.key === "Home") {
+              event.preventDefault();
+              focus(0);
+            } else if (event.key === "End") {
+              event.preventDefault();
+              focus(controls.length - 1);
+            } else if (event.key === "ArrowRight" && current.tagName === "SUMMARY") {
+              const details = current.parentElement as HTMLDetailsElement;
+              if (!details.open) {
+                event.preventDefault();
+                details.open = true;
+                updateExpansion(current.dataset.treePath ?? "", true);
+              }
+            } else if (event.key === "ArrowLeft" && current.tagName === "SUMMARY") {
+              const details = current.parentElement as HTMLDetailsElement;
+              if (details.open) {
+                event.preventDefault();
+                details.open = false;
+                updateExpansion(current.dataset.treePath ?? "", false);
+              }
+            }
           };
-          const renderNode = (node: Node, parent = "", nested = false) => html` <ul
+          const renderNode = (node: Node, parent = "", nested = false): TemplateResult => html` <ul
             class="chat-workspace-rail__list chat-workspace-rail__list--browser"
             role=${nested ? "group" : "tree"}
           >
             ${[...node.folders.entries()]
-              .sort(([left], [right]) => left.localeCompare(right))
+              .toSorted(([left], [right]) => left.localeCompare(right))
               .map(([name, child]) => {
                 const path = parent ? `${parent}/${name}` : name;
                 const open = expanded.has(path);
@@ -190,7 +233,10 @@ export function createControlUiComponents(options: {
                     ?open=${open}
                     @toggle=${(event: Event) => updateExpansion(path, (event.currentTarget as HTMLDetailsElement).open)}
                   >
-                    <summary class="chat-workspace-rail__file chat-workspace-rail__file--directory" data-tree-path=${path}>
+                    <summary
+                      class="chat-workspace-rail__file chat-workspace-rail__file--directory"
+                      data-tree-path=${path}
+                    >
                       <span class="chat-workspace-rail__file-icon">${icons.folder}</span>
                       <span class="chat-workspace-rail__file-main"
                         ><span class="chat-workspace-rail__file-name">${name}</span></span
@@ -201,7 +247,7 @@ export function createControlUiComponents(options: {
                 </li>`;
               })}
             ${[...node.files]
-              .sort((left, right) => left.path.localeCompare(right.path))
+              .toSorted((left, right) => left.path.localeCompare(right.path))
               .map(
                 (entry) => html` <li
                   class="chat-workspace-rail__file ${props.selectedPath === entry.path ? "chat-workspace-rail__file--active" : ""}"
@@ -234,9 +280,27 @@ export function createControlUiComponents(options: {
                   @input=${(event: Event) => props.onQueryChange((event.currentTarget as HTMLInputElement).value)}
                 />
               </label>
-              ${props.query.trim() ? html`<button class="rail-header__action" type="button" aria-label="Clear file filter" @click=${() => props.onQueryChange('')}>${icons.circleX}</button>` : nothing}
-              <button class="rail-header__action" type="button" aria-label="Expand all folders" title="Expand all folders" ?disabled=${Boolean(props.query.trim())} @click=${() => props.onExpandedPathsChange?.([...folderPaths].sort())}>${icons.arrowDown}</button>
-              <button class="rail-header__action" type="button" aria-label="Collapse all folders" title="Collapse all folders" ?disabled=${Boolean(props.query.trim())} @click=${() => props.onExpandedPathsChange?.([])}>${icons.arrowUp}</button>
+              ${props.query.trim() ? html`<button class="rail-header__action" type="button" aria-label="Clear file filter" @click=${() => props.onQueryChange("")}>${icons.circleX}</button>` : nothing}
+              <button
+                class="rail-header__action"
+                type="button"
+                aria-label="Expand all folders"
+                title="Expand all folders"
+                ?disabled=${Boolean(props.query.trim())}
+                @click=${() => props.onExpandedPathsChange?.([...folderPaths].toSorted())}
+              >
+                ${icons.arrowDown}
+              </button>
+              <button
+                class="rail-header__action"
+                type="button"
+                aria-label="Collapse all folders"
+                title="Collapse all folders"
+                ?disabled=${Boolean(props.query.trim())}
+                @click=${() => props.onExpandedPathsChange?.([])}
+              >
+                ${icons.arrowUp}
+              </button>
               <button
                 class="rail-header__action chat-workspace-rail__refresh"
                 type="button"
@@ -247,7 +311,10 @@ export function createControlUiComponents(options: {
                 ${icons.refresh}
               </button>
             </div>
-            <div class="chat-workspace-rail__filter-status" role="status">${props.entries.filter((entry) => entry.kind === 'file').length} file${props.entries.filter((entry) => entry.kind === 'file').length === 1 ? '' : 's'}${props.query.trim() ? ' matching filter' : ''}</div>
+            <div class="chat-workspace-rail__filter-status" role="status">
+              ${props.entries.filter((entry) => entry.kind === "file").length}
+              file${props.entries.filter((entry) => entry.kind === "file").length === 1 ? "" : "s"}${props.query.trim() ? " matching filter" : ""}
+            </div>
             ${props.query.trim() ? html`<p class="chat-workspace-rail__filter-help">Clear the filter to change folder expansion.</p>` : nothing}
             ${
               props.error
@@ -257,10 +324,16 @@ export function createControlUiComponents(options: {
                 : props.loading
                   ? html`<div class="chat-workspace-rail__state">Loading Topic files…</div>`
                   : props.entries.length === 0
-                    ? html`<div class="chat-workspace-rail__state">${props.query.trim() ? 'No files match this filter.' : 'No files in this Topic.'}</div>`
-                  : html` <div class="chat-workspace-rail__scroll" tabindex="0" @keydown=${handleTreeKey}>
-                      ${renderNode(rootNode)}
-                    </div>`
+                    ? html`<div class="chat-workspace-rail__state">
+                        ${props.query.trim() ? "No files match this filter." : "No files in this Topic."}
+                      </div>`
+                    : html` <div
+                        class="chat-workspace-rail__scroll"
+                        tabindex="0"
+                        @keydown=${handleTreeKey}
+                      >
+                        ${renderNode(rootNode)}
+                      </div>`
             }
           </aside>`;
         };
@@ -282,8 +355,8 @@ export function createControlUiComponents(options: {
                       path: props.currentPath,
                       parentPath: props.currentPath
                         ? props.currentPath.split("/").slice(0, -1).join("/")
-                        : null,
-                      entries: props.entries,
+                        : undefined,
+                      entries: [...props.entries],
                       search: props.query || undefined,
                     },
                   },
@@ -315,7 +388,9 @@ export function createControlUiComponents(options: {
             next.addEventListener("scroll", cancelScrollRestore, { once: true });
             pendingScrollRestore = requestAnimationFrame(() => {
               pendingScrollRestore = undefined;
-              if (!active || generation !== scrollRestoreGeneration) return;
+              if (!active || generation !== scrollRestoreGeneration) {
+                return;
+              }
               next.scrollTop = previousScroll;
             });
           }
@@ -325,7 +400,9 @@ export function createControlUiComponents(options: {
       container.append(root);
       paint();
       const dispose = () => {
-        if (!active) return;
+        if (!active) {
+          return;
+        }
         cancelScrollRestore();
         active = false;
         render(null, root);
@@ -334,7 +411,9 @@ export function createControlUiComponents(options: {
       options.signal.addEventListener("abort", dispose, { once: true });
       return {
         update(next) {
-          if (!active) throw new Error("This plugin component has been disposed.");
+          if (!active) {
+            throw new Error("This plugin component has been disposed.");
+          }
           options.signal.throwIfAborted();
           props = next;
           paint();

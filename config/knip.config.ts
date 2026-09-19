@@ -501,6 +501,11 @@ const config = {
     // production uses them through their owning module/controller.
     "ui/src/pages/chat/chat-state-refresh.ts": ["exports"],
     "ui/src/pages/chat/composer-persistence.ts": ["exports"],
+    // Focused tests consume these explicit lifecycle and presentation seams;
+    // their owning production modules use the same helpers internally.
+    "src/infra/sqlite-readonly-worker.ts": ["exports"],
+    "ui/src/app/approval-presentation.ts": ["exports"],
+    "ui/src/pages/chat/chat-pane-embedded-panels.ts": ["exports"],
     // Focused media tests consume these explicit seams; production uses the helpers in-module.
     "src/agents/embedded-agent-subscribe.handlers.lifecycle.ts": ["exports"],
     "src/gateway/server-methods/chat-webchat-media.ts": ["exports"],

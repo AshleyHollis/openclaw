@@ -82,6 +82,7 @@ describe("session transcript runtime SDK", () => {
     const message = {
       content: "email fictional@example.test",
       role: "user",
+      timestamp: 1,
     } as const;
     const config = {
       logging: { redactPatterns: ["fictional@example\\.test"] },
@@ -94,7 +95,11 @@ describe("session transcript runtime SDK", () => {
       content: expect.not.stringContaining("fictional@example.test"),
       role: "user",
     });
-    expect(message).toEqual({ content: "email fictional@example.test", role: "user" });
+    expect(message).toEqual({
+      content: "email fictional@example.test",
+      role: "user",
+      timestamp: 1,
+    });
   });
 
   it("does not persist sessionFile metadata for identity-only reads", async () => {

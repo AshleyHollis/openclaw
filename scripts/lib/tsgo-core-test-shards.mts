@@ -28,6 +28,11 @@ export const TSGO_CORE_TEST_SHARDS = [
   },
   { name: "infra", group: "src", config: "test/tsconfig/tsconfig.core.test.infra.json" },
   {
+    name: "infra-sqlite",
+    group: "src",
+    config: "test/tsconfig/tsconfig.core.test.infra-sqlite.json",
+  },
+  {
     name: "state-logging",
     group: "src",
     config: "test/tsconfig/tsconfig.core.test.state-logging.json",

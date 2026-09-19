@@ -39,6 +39,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { buildGenericCliContextEngineHostSupport } from "../../context-engine/host-compat.js";
 import { registerCronRunExecSource } from "../../infra/cron-run-exec-source.js";
 import type { SourceDeliveryPlan } from "../../infra/outbound/source-delivery-plan.js";
+import type { InputProvenance } from "../../sessions/input-provenance.js";
 import {
   createUserTurnTranscriptRecorder,
   type UserTurnTranscriptRecorder,
@@ -272,6 +273,7 @@ type CronRunExecutionParams = {
   liveSelection: CronLiveSelection;
   cronSession: MutableCronSession;
   commandBody: string;
+  inputProvenance?: InputProvenance;
   persistSessionEntry: PersistCronSessionEntry;
   persistRunContinuationSession?: CronRunContinuationSession["sync"];
   setRunContinuationCliExecutionProvider?: (provider?: string) => Promise<void>;
@@ -415,7 +417,7 @@ function createCronPromptExecutor(
       pendingUserTurn?.promptText === promptText
         ? pendingUserTurn.recorder
         : createUserTurnTranscriptRecorder({
-            input: { text: promptText },
+            input: { text: promptText, provenance: params.inputProvenance },
             target: {
               ...sessionTarget,
               sessionEntry: params.cronSession.sessionEntry,
@@ -944,6 +946,7 @@ export async function executeCronRun(params: CronRunExecutionParams): Promise<Cr
     modelFallbacksOverride: params.modelFallbacksOverride,
     liveSelection: params.liveSelection,
     cronSession: params.cronSession,
+    inputProvenance: params.inputProvenance,
     persistSessionEntry: params.persistSessionEntry,
     persistRunContinuationSession: params.persistRunContinuationSession,
     setRunContinuationCliExecutionProvider: params.setRunContinuationCliExecutionProvider,

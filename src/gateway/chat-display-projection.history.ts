@@ -21,6 +21,7 @@ import {
   extractProjectedText,
   hasAssistantNonTextContent,
   hasTranscriptMediaFacts,
+  isCronRunMessage,
   isEmptyTextOnlyContent,
   isProjectedSessionsSendForwardedMessage,
   isSessionsSendInterSessionUserMessage,
@@ -435,9 +436,9 @@ export function filterVisibleProjectedHistoryMessages(
   };
 }
 
-function stripInterSessionPromptPrefixFromContent(content: unknown): unknown {
+function stripPromptPrefixFromContent(content: unknown, strip: (text: string) => string): unknown {
   if (typeof content === "string") {
-    return stripInterSessionPromptPrefixForDisplay(content);
+    return strip(content);
   }
   if (!Array.isArray(content)) {
     return content;
@@ -450,7 +451,7 @@ function stripInterSessionPromptPrefixFromContent(content: unknown): unknown {
     if (typeof record.text !== "string") {
       return block;
     }
-    const stripped = stripInterSessionPromptPrefixForDisplay(record.text);
+    const stripped = strip(record.text);
     return stripped === record.text ? block : { ...record, text: stripped };
   });
 }
@@ -469,14 +470,15 @@ function extractPromptPrefixField(text: string, field: string): string | undefin
 
 function resolveSessionsSendForwardedSenderSession(
   message: Record<string, unknown>,
-): { sessionKey?: string; agentId?: string } | undefined {
+): { sessionKey?: string; agentId?: string; label?: string } | undefined {
   const provenance = normalizeInputProvenance(message.provenance);
   const text = extractProjectedText(message.content ?? message.text);
   const sourceSessionKey =
     provenance?.sourceSessionKey ?? extractPromptPrefixField(text, "sourceSession");
   const agentId = parseAgentSessionKey(sourceSessionKey)?.agentId;
+  const label = isCronRunMessage(message) ? "Automation" : undefined;
   return sourceSessionKey
-    ? { sessionKey: sourceSessionKey, ...(agentId ? { agentId } : {}) }
+    ? { sessionKey: sourceSessionKey, ...(agentId ? { agentId } : {}), ...(label ? { label } : {}) }
     : undefined;
 }
 
@@ -485,24 +487,49 @@ export function projectSessionsSendInterSessionMessages(
 ): Array<Record<string, unknown>> {
   let changed = false;
   const projected = messages.map((message) => {
-    if (!isSessionsSendInterSessionUserMessage(message)) {
+    if (
+      !isSessionsSendInterSessionUserMessage(message) &&
+      !isProjectedSessionsSendForwardedMessage(message)
+    ) {
       return message;
     }
-    changed = true;
     const senderSession = resolveSessionsSendForwardedSenderSession(message);
+    if (message.role === "assistant") {
+      const previous = readRecord(message.senderSession);
+      if (previous?.label === senderSession?.label) {
+        return message;
+      }
+      changed = true;
+      return {
+        ...message,
+        senderSession,
+        senderLabel: `Forwarded from ${senderSession?.label ?? senderSession?.agentId}`,
+      };
+    }
+    changed = true;
+    const cronRun = isCronRunMessage(message);
+    const prefix = normalizeInputProvenance(message.provenance)?.sourcePromptPrefix;
+    const strip = cronRun
+      ? (text: string) =>
+          prefix && text.startsWith(prefix) ? text.slice(prefix.length).replace(/^ /u, "") : text
+      : stripInterSessionPromptPrefixForDisplay;
     const next: Record<string, unknown> = {
       ...message,
       role: "assistant",
-      senderLabel: senderSession?.agentId
-        ? `Forwarded from ${senderSession.agentId}`
-        : "Forwarded agent message",
+      ...(cronRun
+        ? { __openclaw: { ...readRecord(message["__openclaw"]), turnBoundary: true } }
+        : {}),
+      senderLabel:
+        senderSession?.label || senderSession?.agentId
+          ? `Forwarded from ${senderSession.label ?? senderSession.agentId}`
+          : "Forwarded agent message",
       ...(senderSession ? { senderSession } : {}),
     };
     if ("content" in next) {
-      next.content = stripInterSessionPromptPrefixFromContent(next.content);
+      next.content = stripPromptPrefixFromContent(next.content, strip);
     }
     if (typeof next.text === "string") {
-      next.text = stripInterSessionPromptPrefixForDisplay(next.text);
+      next.text = strip(next.text);
     }
     return next;
   });

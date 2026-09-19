@@ -1,6 +1,7 @@
 import "../../../styles/chat/side-panel.css";
 import { html, nothing, render as renderTemplate, type TemplateResult } from "lit";
 import { property } from "lit/decorators.js";
+import type { DirectiveResult } from "lit/directive.js";
 import { repeat } from "lit/directives/repeat.js";
 import { icons } from "../../../components/icons.ts";
 import { renderPanelEmptyState } from "../../../components/panel-empty-state.ts";
@@ -285,7 +286,9 @@ class ChatSidebarRegion extends OpenClawLightDomElement {
     `;
   }
 
-  private renderHeaderActions(panelActions: TemplateResult | typeof nothing | null) {
+  private renderHeaderActions(
+    panelActions: TemplateResult | DirectiveResult | typeof nothing | null,
+  ) {
     const active = sidebarActivePanel(this.layout);
     const expanded = this.layout.expanded === true && this.layout.expandedSide === true;
     const expandLabel = expanded

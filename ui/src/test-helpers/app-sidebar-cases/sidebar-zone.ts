@@ -230,7 +230,7 @@ describe("AppSidebar interleaved zone", () => {
     );
     expect(labels).toEqual(["Alpha", "Usage", "Plugins"]);
     const tools = sidebar.querySelector<HTMLDetailsElement>(".sidebar-nav__tools");
-    expect(tools?.open).toBe(false);
+    expect(tools?.open).toBe(true);
     expect(pinnedRow?.closest(".sidebar-nav__tools")).toBeNull();
     expect(
       [...(tools?.querySelectorAll<HTMLElement>(".sidebar-zone-entry") ?? [])].map(
@@ -245,18 +245,18 @@ describe("AppSidebar interleaved zone", () => {
     expect(sidebar.querySelector(".nav-item--home")?.hasAttribute("draggable")).toBe(false);
   });
 
-  it("keeps pinned pages inside a collapsed native Tools & management disclosure", async () => {
+  it("keeps pinned pages visible inside an expandable native Tools & management disclosure", async () => {
     const { sidebar } = await mountZone();
     sidebar.sidebarEntries = ["route:usage", "route:plugins"];
     await sidebar.updateComplete;
 
     const tools = sidebar.querySelector<HTMLDetailsElement>(".sidebar-nav__tools");
     expect(tools).not.toBeNull();
-    expect(tools?.open).toBe(false);
+    expect(tools?.open).toBe(true);
     expect(tools?.querySelector("summary")?.textContent).toContain("Tools & management");
     expect(
-      [...(tools?.querySelectorAll<HTMLElement>(".sidebar-zone-entry") ?? [])].map((entry) =>
-        entry.dataset.sidebarEntry,
+      [...(tools?.querySelectorAll<HTMLElement>(".sidebar-zone-entry") ?? [])].map(
+        (entry) => entry.dataset.sidebarEntry,
       ),
     ).toEqual(["route:usage", "route:plugins"]);
     expect(sidebar.querySelector(".nav-item--home")?.closest("details")).toBeNull();

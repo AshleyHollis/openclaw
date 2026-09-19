@@ -36,6 +36,8 @@ beforeEach(() => {
   logs.debug.mockClear();
 });
 
+afterEach(() => vi.unstubAllEnvs());
+
 function createDatabase(paddingBytes: number | null): string {
   const source = path.join(tempDirs.make("openclaw-snapshot-budget-"), "source.sqlite");
   const database = new (requireNodeSqlite().DatabaseSync)(source);
@@ -147,5 +149,17 @@ describe.each(["async", "sync"] as const)("SQLite read-only snapshot worker (%s)
     await expect(run(source)).rejects.toThrow(/SQLite read-only worker.*ENOENT/);
     expectBudget(30_000);
     expect(logs.debug).not.toHaveBeenCalled();
+  });
+
+  it("propagates the active Node compile cache to the worker", async () => {
+    const cacheDir = path.join(tempDirs.make("openclaw-worker-compile-cache-"), "cache");
+    vi.stubEnv("NODE_COMPILE_CACHE", cacheDir);
+    const source = createDatabase(null);
+    await run(source);
+    const calls =
+      mode === "sync" ? vi.mocked(spawnSync).mock.calls : vi.mocked(execFile).mock.calls;
+    expect(calls[0]?.[2]).toMatchObject({
+      env: expect.objectContaining({ NODE_COMPILE_CACHE: cacheDir }),
+    });
   });
 });

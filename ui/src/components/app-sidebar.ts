@@ -611,46 +611,44 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                 @contextmenu=${this.sidebarMenus.openCustomizeMenuFromContext}
               >
                 ${renderAppSidebarPagesHead(this)}
-                <div
-                  class="nav-section__items"
-                >
-                  ${renderAppSidebarHomeRow(this)}
-                </div>
+                <div class="nav-section__items">${renderAppSidebarHomeRow(this)}</div>
                 ${sidebarZone.entries
                   .filter((entry) => entry.type === "session")
                   .map((entry) => renderAppSidebarZoneEntry(this, entry, sidebarZone.sessionRows))}
-                <details class="sidebar-nav__tools">
+                <details class="sidebar-nav__tools" open>
                   <summary class="sidebar-nav__tools-summary">
                     <span class="sidebar-nav__tools-label">${t("nav.toolsAndManagement")}</span>
                   </summary>
                   <div
                     class="nav-section__items"
-                  @dragover=${(event: DragEvent) =>
-                    this.sessionOrganizer.handleSidebarZoneDragOver(event)}
-                  @dragleave=${(event: DragEvent) =>
-                    this.sessionOrganizer.handleSidebarZoneDragLeave(event)}
-                  @drop=${(event: DragEvent) => this.sessionOrganizer.handleSidebarZoneDrop(event)}
-                >
-                  ${sidebarZone.entries
-                    .filter((entry) => entry.type !== "session")
-                    .map((entry) => renderAppSidebarZoneEntry(this, entry, sidebarZone.sessionRows))}
-                  ${sidebarPluginTabs(this.context?.gateway.snapshot.hello?.controlUiTabs)
-                    .filter(
-                      (tab) =>
-                        (!tab.placement || !occupiedPluginPlacements.has(tab.placement)) &&
-                        !this.pluginNavigation().some(
-                          (entry) =>
-                            entry.pluginId === tab.pluginId && entry.value.page.id === tab.id,
-                        ),
-                    )
-                    .map((tab) => renderAppSidebarPluginTabEntry(this, tab))}
-                  <openclaw-plugin-contributions
-                    .kind=${"navigation"}
-                    .excludedNavigationKeys=${sidebarZone.entries
-                      .filter((entry) => entry.type === "plugin")
-                      .map((entry) => entry.key)}
-                  ></openclaw-plugin-contributions>
-                </div>
+                    @dragover=${(event: DragEvent) =>
+                      this.sessionOrganizer.handleSidebarZoneDragOver(event)}
+                    @dragleave=${(event: DragEvent) =>
+                      this.sessionOrganizer.handleSidebarZoneDragLeave(event)}
+                    @drop=${(event: DragEvent) => this.sessionOrganizer.handleSidebarZoneDrop(event)}
+                  >
+                    ${sidebarZone.entries
+                      .filter((entry) => entry.type !== "session")
+                      .map((entry) =>
+                        renderAppSidebarZoneEntry(this, entry, sidebarZone.sessionRows),
+                      )}
+                    ${sidebarPluginTabs(this.context?.gateway.snapshot.hello?.controlUiTabs)
+                      .filter(
+                        (tab) =>
+                          (!tab.placement || !occupiedPluginPlacements.has(tab.placement)) &&
+                          !this.pluginNavigation().some(
+                            (entry) =>
+                              entry.pluginId === tab.pluginId && entry.value.page.id === tab.id,
+                          ),
+                      )
+                      .map((tab) => renderAppSidebarPluginTabEntry(this, tab))}
+                    <openclaw-plugin-contributions
+                      .kind=${"navigation"}
+                      .excludedNavigationKeys=${sidebarZone.entries
+                        .filter((entry) => entry.type === "plugin")
+                        .map((entry) => entry.key)}
+                    ></openclaw-plugin-contributions>
+                  </div>
                 </details>
               </nav>
               ${renderAppSidebarOnline(this)} ${this.renderSessions()}

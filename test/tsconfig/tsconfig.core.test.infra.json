@@ -6,5 +6,9 @@
   "include": [
     "../../src/infra/**/*.test.ts",
     "../../src/infra/**/*.test.tsx"
+  ],
+  "exclude": [
+    "../../src/infra/sqlite*.test.ts",
+    "../../src/infra/sqlite*.test.tsx"
   ]
 }

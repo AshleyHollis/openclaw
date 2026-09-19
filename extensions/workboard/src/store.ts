@@ -519,9 +519,6 @@ export class WorkboardStore extends WorkboardNotificationStore {
           });
           blocked.push(latest);
         }
-        if (latest.status === "ready" && !latest.metadata?.archivedAt) {
-          latest = await this.recordDispatch(latest, now);
-        }
         if (await this.shouldAutoOrchestrate(latest)) {
           const latestBoardId = cardBoardId(latest);
           const board = await this.boardStore.lookup(latestBoardId);
