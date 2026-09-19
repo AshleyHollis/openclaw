@@ -1,83 +1,10 @@
 // Workboard tests cover dispatcher plugin behavior.
 import { describe, expect, it, vi } from "vitest";
 import { dispatchAndStartWorkboardCards } from "./dispatcher.js";
-import type { PersistedWorkboardCard, WorkboardKeyedStore } from "./persistence-types.js";
+import { createMemoryStore } from "./dispatcher.test-support.js";
 import { WorkboardStore } from "./store.js";
 
-function createMemoryStore<T = PersistedWorkboardCard>(): WorkboardKeyedStore<T> {
-  const entries = new Map<string, T>();
-  return {
-    async register(key, value) {
-      entries.set(key, value);
-    },
-    async lookup(key) {
-      return entries.get(key);
-    },
-    async delete(key) {
-      return entries.delete(key);
-    },
-    async entries() {
-      return [...entries].flatMap(([key, value]) => (value ? [{ key, value }] : []));
-    },
-  };
-}
-
 describe("dispatchAndStartWorkboardCards", () => {
-  it("persists the resolved subagent runtime on new executions", async () => {
-    const store = new WorkboardStore(createMemoryStore());
-    const card = await store.create({
-      title: "Claude worker",
-      status: "ready",
-      workspaceAccess: { unrestricted: true },
-    });
-    const run = vi.fn().mockResolvedValue({
-      runId: "run-claude",
-      runtime: {
-        harness: "claude-cli",
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
-      },
-    });
-
-    await dispatchAndStartWorkboardCards({
-      store,
-      subagent: { run },
-      options: { now: 10, maxStarts: 1 },
-    });
-
-    await expect(store.get(card.id)).resolves.toMatchObject({
-      execution: {
-        id: `${card.id}:agent-session`,
-        engine: "claude-cli",
-        model: "anthropic/claude-sonnet-4-6",
-        runId: "run-claude",
-      },
-    });
-  });
-
-  it("omits unresolved runtime metadata instead of labeling it codex", async () => {
-    const store = new WorkboardStore(createMemoryStore());
-    const card = await store.create({
-      title: "Unknown runtime worker",
-      status: "ready",
-      workspaceAccess: { unrestricted: true },
-    });
-
-    await dispatchAndStartWorkboardCards({
-      store,
-      subagent: { run: vi.fn().mockResolvedValue({ runId: "run-unknown" }) },
-      options: { now: 10, maxStarts: 1 },
-    });
-
-    const execution = (await store.get(card.id))?.execution;
-    expect(execution).toMatchObject({
-      id: `${card.id}:agent-session`,
-      runId: "run-unknown",
-    });
-    expect(execution).not.toHaveProperty("engine");
-    expect(execution).not.toHaveProperty("model");
-  });
-
   it("materializes managed worktrees, supplies cwd, and persists them", async () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
@@ -1103,5 +1030,3 @@ describe("dispatchAndStartWorkboardCards", () => {
     expect((await store.get(card.id))?.metadata?.claim).toBeUndefined();
   });
 });
-
-/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

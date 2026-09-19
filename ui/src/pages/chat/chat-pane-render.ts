@@ -54,6 +54,7 @@ import { refreshChatCommands, refreshPageChat } from "./chat-state-refresh.ts";
 import {
   resolveChatAgentId,
   resolveChatAvatarUrl,
+  projectChatPublicationRow,
   selectedChatSessionRow,
 } from "./chat-state-route.ts";
 import type { ChatProps } from "./chat-view.ts";
@@ -274,16 +275,8 @@ export class ChatPane extends ChatPaneLayoutRender {
         });
     const composerState = getChatComposerState(this.presentationId);
     const publicationScope = this.captureConnectionScope();
-    const readPublicationRow = () => {
-      const row = selectedChatSessionRow(state);
-      return (
-        row && {
-          ...row,
-          agentId: row.agentId ?? resolveChatAgentId(state) ?? undefined,
-          archived: this.isCurrentSessionArchived(state),
-        }
-      );
-    };
+    const readPublicationRow = () =>
+      projectChatPublicationRow(state, this.isCurrentSessionArchived(state));
     const publicationRow = readPublicationRow();
     if (
       !publicationScope ||
@@ -711,5 +704,3 @@ export class ChatPane extends ChatPaneLayoutRender {
     });
   }
 }
-
-/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

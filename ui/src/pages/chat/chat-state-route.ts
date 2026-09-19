@@ -81,6 +81,17 @@ export function selectedChatSessionRow(state: ChatPageHost) {
   return row;
 }
 
+export function projectChatPublicationRow(state: ChatPageHost, archived: boolean) {
+  const row = selectedChatSessionRow(state);
+  return (
+    row && {
+      ...row,
+      agentId: row.agentId ?? resolveChatAgentId(state) ?? undefined,
+      archived,
+    }
+  );
+}
+
 export function resolveChatAvatarUrl(state: ChatPageHost): string | null {
   const agentId = resolveChatAgentId(state);
   if (state.chatAvatarUrl) {
