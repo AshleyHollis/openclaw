@@ -19,7 +19,7 @@ let cleanupExitHandlerInstalled = false;
 const activeSnapshotWork = new Map<Promise<unknown>, () => void>();
 let pendingSignalCleanup: Promise<void> | undefined;
 
-function cleanupSnapshotOperations(): Promise<void> {
+export function cleanupSnapshotOperations(): Promise<void> {
   pendingSignalCleanup ??= (async () => {
     while (activeSnapshotWork.size > 0) {
       for (const stop of activeSnapshotWork.values()) {

@@ -3,20 +3,23 @@ import "./fs-safe-defaults.js";
 import { stageFileInDirectory } from "@openclaw/fs-safe/advanced";
 
 /**
- * Restricted plugin-facing durable publication. It requires the native helper
- * for this one operation without changing OpenClaw's process-wide fs-safe mode.
+ * Restricted plugin-facing durable publication. The fs-safe staging primitive
+ * requires its native helper without changing OpenClaw's process-wide mode.
  */
 export function stageDurableFileInDirectory(
   options: Pick<Parameters<typeof stageFileInDirectory>[0], "directory" | "content" | "mode">,
 ) {
-  return stageFileInDirectory({ ...options, nativeMode: "require" });
+  return stageFileInDirectory(options);
 }
 
 // Advanced fs-safe helpers for symlink, hardlink, and sibling-temp protections.
 export {
   assertNoSymlinkParents,
   assertNoSymlinkParentsSync,
+  buildRandomTempFilePath,
+  probePathCaseInsensitiveSync,
   readFileHandleBounded,
+  resolvePathPrefixSync,
   type FileIdentityStat,
   sameFileIdentity,
   sanitizeUntrustedFileName,

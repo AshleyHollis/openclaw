@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import { sessionsFilesHandlers } from "./sessions-files.js";
 import {
   assistantToolCall,
@@ -192,6 +193,7 @@ describe("sessions.files touched-file folds", () => {
 
   it("yields between SQLite pages and shares one concurrent fold per session", async () => {
     useSqliteSession(hoisted.loadSessionEntry, workspaceRoot, "sess-touched-singleflight");
+    const firstPageRead = createDeferred();
     let otherWorkRan = false;
     setImmediate(() => {
       otherWorkRan = true;
@@ -200,6 +202,8 @@ describe("sessions.files touched-file folds", () => {
       if (limits.cursor !== undefined) {
         expect(limits.cursor).toBe("singleflight-page-1");
         expect(otherWorkRan).toBe(true);
+      } else {
+        firstPageRead.resolve();
       }
       return {
         kind: "page",
@@ -214,6 +218,7 @@ describe("sessions.files touched-file folds", () => {
     const first = invokeSessionFilesHandler("sessions.files.list", params);
     const second = invokeSessionFilesHandler("sessions.files.list", params);
 
+    await firstPageRead.promise;
     expect(hoisted.readSessionTranscriptVisibleMessageDeltaCore).toHaveBeenCalledTimes(1);
     for (const result of await Promise.all([first, second])) {
       expectOkPayload(result);
@@ -515,11 +520,15 @@ describe("sessions.files touched-file folds", () => {
       expect.arrayContaining([
         expect.objectContaining({ path: "..cache/missing.txt", missing: true }),
         // A literal colon is a POSIX filename, not a scheme, so it stays resolvable.
-        expect.objectContaining({ path: "data:2026.txt", missing: false }),
-        expect.objectContaining({ path: "report:2026.txt", missing: false }),
+        expect.objectContaining({ path: "data:2026.txt", missing: process.platform === "win32" }),
+        expect.objectContaining({ path: "report:2026.txt", missing: process.platform === "win32" }),
         expect.objectContaining({ path: "src/readme.md", missing: false }),
       ]),
     );
+
+    if (process.platform === "win32") {
+      return;
+    }
 
     for (const [name, content] of [
       ["data:2026.txt", "data colon\n"],
