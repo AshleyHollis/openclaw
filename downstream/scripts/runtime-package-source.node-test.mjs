@@ -100,19 +100,26 @@ for (const scenario of [
         for (const relative of [
           "packages/normalization-core/src/record-coerce.ts",
           "scripts/lib/arg-utils.mts",
+          "scripts/lib/arg-utils.runtime.mjs",
           "scripts/lib/bounded-output-tail.mjs",
           "scripts/lib/error-format.mts",
           "scripts/lib/managed-child-process.mts",
+          "scripts/lib/managed-windows-job-entrypoint.mts",
+          "scripts/lib/managed-windows-job.mts",
           "scripts/lib/npm-json-output.mts",
           "scripts/lib/repo-root.mjs",
+          "scripts/lib/release-changelog.mjs",
+          "scripts/lib/release-notes-compaction.mjs",
           "scripts/lib/vitest-resource-ownership.mts",
           "scripts/lib/windows-taskkill.mjs",
           "scripts/resolve-openclaw-package-candidate.mts",
           "scripts/npm-runner.mts",
+          "scripts/package-changelog.mjs",
           "scripts/package-source-dependencies.mjs",
           "scripts/package-source-preflight.mjs",
           "scripts/prepublish-plugin-registry-artifact.mjs",
           "scripts/windows-cmd-helpers.mjs",
+          "src/process/supervisor/service-child-windows-job-native.ts",
         ]) {
           await mkdir(path.dirname(path.join(tooling, relative)), { recursive: true });
           await copyFile(path.join(repository, relative), path.join(tooling, relative));
