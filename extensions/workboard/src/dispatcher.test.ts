@@ -1103,3 +1103,5 @@ describe("dispatchAndStartWorkboardCards", () => {
     expect((await store.get(card.id))?.metadata?.claim).toBeUndefined();
   });
 });
+
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

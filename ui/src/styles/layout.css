@@ -3466,7 +3466,7 @@ a:is(
 }
 
 /* Optional workspace pages stay available without competing with Topics.
-   Native <details> keeps the default collapsed state keyboard-accessible. */
+   Native <details> keeps the expanded group keyboard-accessible and user-collapsible. */
 .sidebar-nav__tools {
   margin-top: 2px;
 }

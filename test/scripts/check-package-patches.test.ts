@@ -56,6 +56,7 @@ describe("check-package-patches", () => {
   it("allows approved pnpm patches together", () => {
     const approvedPatches = [
       ["@awesome.me/webawesome@3.12.0", "patches/@awesome.me__webawesome@3.12.0.patch"],
+      ["@openclaw/fs-safe@0.8.5", "patches/@openclaw__fs-safe@0.8.5.patch"],
       ["baileys@7.0.0-rc12", "patches/baileys@7.0.0-rc12.patch"],
       ["baileys@7.0.0-rc13", "patches/baileys@7.0.0-rc13.patch"],
       ["vitest@5.0.0", "patches/vitest@5.0.0.patch"],
@@ -116,16 +117,24 @@ patchedDependencies:
         detail: `${specifier} -> ${patchPath}`,
       },
       {
-        file: "fixtures/fixture.patch",
-        kind: "patchFile",
-        detail: "new package patch file",
-      },
-      {
         file: patchPath,
         kind: "patchFile",
         detail: "new package patch file",
       },
     ]);
+  });
+
+  it("ignores tracked patch artifacts outside the package-patch directory", () => {
+    const dir = makeRepo();
+    mkdirSync(path.join(dir, "downstream", "patches"), { recursive: true });
+    writeFileSync(
+      path.join(dir, "downstream", "patches", "source-history.patch"),
+      "diff\n",
+      "utf8",
+    );
+    git(dir, ["add", "downstream"]);
+
+    expect(collectPackagePatchViolations(dir)).toEqual([]);
   });
 
   it("allows deleted legacy patch files during the commit that removes them", () => {

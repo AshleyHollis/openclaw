@@ -615,7 +615,7 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                 ${sidebarZone.entries
                   .filter((entry) => entry.type === "session")
                   .map((entry) => renderAppSidebarZoneEntry(this, entry, sidebarZone.sessionRows))}
-                <details class="sidebar-nav__tools">
+                <details class="sidebar-nav__tools" open>
                   <summary class="sidebar-nav__tools-summary">
                     <span class="sidebar-nav__tools-label">${t("nav.toolsAndManagement")}</span>
                   </summary>

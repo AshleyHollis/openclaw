@@ -63,6 +63,7 @@ export function createWorkboardTestHost() {
         return { refresh: vi.fn(async () => publish()), dispose: vi.fn() };
       }),
       open: vi.fn(),
+      openChat: vi.fn(),
       create: vi.fn(async () => null),
       patch: vi.fn(async () => undefined),
     },
@@ -93,6 +94,9 @@ export function createWorkboardTestHost() {
         throw new Error("This test did not install DOM components");
       },
       mountDashboard: () => {
+        throw new Error("This test did not install DOM components");
+      },
+      mountFileExplorer: () => {
         throw new Error("This test did not install DOM components");
       },
     },
