@@ -1,0 +1,14 @@
+{
+  "name": "openclaw-nas-host-runtime",
+  "private": true,
+  "dependencies": {
+    "openclaw": "file:../tmp/openclaw-current.tgz"
+  },
+  "allowScripts": {
+    "file:/tmp/openclaw-current.tgz": true,
+    "koffi@3.2.1": true,
+    "tree-sitter-bash@0.25.1": true,
+    "protobufjs@7.6.6": true,
+    "@google/genai@2.21.0": true
+  }
+}

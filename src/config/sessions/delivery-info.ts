@@ -17,9 +17,8 @@ import {
   loadExactSessionEntryCandidatesReadOnlyBatch,
   loadExactSessionEntryReadOnly,
   openSessionEntryReadView,
-  type SessionEntryReadSource,
-  type SessionEntryReadView,
 } from "./session-accessor.js";
+import type { SessionEntryReadSource, SessionEntryReadView } from "./session-accessor.types.js";
 import {
   foldedSessionKeyAliasCandidates,
   hasMismatchedCaseSensitiveDeliveryProof,
@@ -110,6 +109,27 @@ export function extractDeliveryInfoBatch(
   } catch {
     return results;
   }
+  let storeTargets: ReturnType<typeof resolveAllAgentSessionStoreTargetsSync> | undefined;
+  function prepareDeliveryLookup(sessionKey: string, baseSessionKey: string): DeliveryLookup {
+    const { agentId, canonicalKey: canonicalBaseKey } = resolveSessionStoreIdentity({
+      cfg,
+      sessionKey: baseSessionKey,
+    });
+    const canonicalKey = resolveSessionStoreKey({ cfg, sessionKey, storeAgentId: agentId });
+    const storePaths = new Set([resolveSessionStorePathCore(cfg.session?.store, { agentId })]);
+    // Share only successful discovery within this synchronous batch. A later request
+    // can retry a failure; every new batch discovers fresh targets, primary path first.
+    for (const target of (storeTargets ??= resolveAllAgentSessionStoreTargetsSync(cfg))) {
+      if (target.agentId === agentId) {
+        storePaths.add(target.storePath);
+      }
+    }
+    return {
+      sessionKeys: [sessionKey, canonicalKey],
+      baseKeys: [baseSessionKey, canonicalBaseKey],
+      storePaths: [...storePaths],
+    };
+  }
   const reads: Array<{
     storePath: string;
     sessionKeys: string[];
@@ -120,7 +140,7 @@ export function extractDeliveryInfoBatch(
       return [];
     }
     try {
-      const lookup = prepareDeliveryLookup({ cfg, sessionKey, baseSessionKey });
+      const lookup = prepareDeliveryLookup(sessionKey, baseSessionKey);
       // Incognito keyed reads retain their existing process-owned handle lifetime.
       const readIndexes = isIncognitoSessionKey(sessionKey)
         ? undefined
@@ -253,19 +273,6 @@ function lazyDeliveryIndex(scope: {
   };
 }
 
-function resolveDeliveryStorePaths(cfg: OpenClawConfig, agentId: string): string[] {
-  const paths = new Set<string>();
-  paths.add(resolveSessionStorePathCore(cfg.session?.store, { agentId }));
-  // Delivery can be restored from any resolved agent target; store order keeps the configured
-  // primary path first while still covering per-agent stores.
-  for (const target of resolveAllAgentSessionStoreTargetsSync(cfg)) {
-    if (target.agentId === agentId) {
-      paths.add(target.storePath);
-    }
-  }
-  return [...paths];
-}
-
 function findSessionEntryInStore(store: DeliveryStoreRead, keys: readonly string[]) {
   let bestEntry: SessionEntry | undefined;
   let bestUpdatedAt = 0;
@@ -377,27 +384,6 @@ function buildFreshestSessionEntryIndex(store: SessionEntryReadView): Map<string
     }
   }
   return index;
-}
-
-function prepareDeliveryLookup(params: {
-  cfg: OpenClawConfig;
-  sessionKey: string;
-  baseSessionKey: string;
-}): DeliveryLookup {
-  const { agentId, canonicalKey: canonicalBaseKey } = resolveSessionStoreIdentity({
-    cfg: params.cfg,
-    sessionKey: params.baseSessionKey,
-  });
-  const canonicalKey = resolveSessionStoreKey({
-    cfg: params.cfg,
-    sessionKey: params.sessionKey,
-    storeAgentId: agentId,
-  });
-  return {
-    sessionKeys: [params.sessionKey, canonicalKey],
-    baseKeys: [params.baseSessionKey, canonicalBaseKey],
-    storePaths: resolveDeliveryStorePaths(params.cfg, agentId),
-  };
 }
 
 function loadDeliverySessionEntry(

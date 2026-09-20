@@ -16,12 +16,19 @@ class PluginSurfaceDirective extends AsyncDirective {
   private consumer?: ContextConsumer<typeof applicationContext, LitElement>;
   private runtime?: ControlUiPluginCapability;
   private unsubscribe?: () => void;
-  private args?: [ControlUiSurface, unknown, unknown, boolean, ControlUiViewContext["panel"]?];
+  private args?: [
+    ControlUiSurface,
+    unknown,
+    unknown,
+    boolean,
+    unknown,
+    ControlUiViewContext["panel"]?,
+  ];
   private pending = false;
 
   override update(
     part: ChildPart,
-    args: [ControlUiSurface, unknown, unknown, boolean, ControlUiViewContext["panel"]?],
+    args: [ControlUiSurface, unknown, unknown, boolean, unknown, ControlUiViewContext["panel"]?],
   ) {
     this.args = args;
     const host = part.options?.host;
@@ -89,6 +96,7 @@ class PluginSurfaceDirective extends AsyncDirective {
     props: unknown,
     defaultView: unknown,
     presented: boolean,
+    replacementCompanion: unknown,
     panel?: ControlUiViewContext["panel"],
   ) {
     // Built-in renderers remain synchronous and do not create a component for
@@ -99,6 +107,7 @@ class PluginSurfaceDirective extends AsyncDirective {
           .surface=${surface}
           .props=${props}
           .defaultView=${defaultView}
+          .replacementCompanion=${replacementCompanion}
           .defaultHost=${this.host}
           .presented=${presented}
           .panelPresentation=${panel}
@@ -114,9 +123,10 @@ export function renderPluginSurface<S extends ControlUiSurface>(
   props: ControlUiSurfaceProps[S],
   defaultView: unknown,
   presented = true,
+  replacementCompanion: unknown = nothing,
   panel?: ControlUiViewContext["panel"],
 ) {
-  return pluginSurface(surface, props, defaultView, presented, panel);
+  return pluginSurface(surface, props, defaultView, presented, replacementCompanion, panel);
 }
 
 export function renderPluginContribution(

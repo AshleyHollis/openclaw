@@ -73,6 +73,10 @@ function snapshotToken(directory: string, mode: "create" | "read" | "reclaim"): 
         db.exec("BEGIN IMMEDIATE");
       }
       db.exec("PRAGMA user_version=1; COMMIT");
+    } else if (db.isTransaction) {
+      // Bun can retain statements after close_v2; end the transaction now so
+      // a released worker cannot keep its parent's retirement commit locked.
+      db.exec("ROLLBACK");
     }
     db.close();
   };
@@ -220,13 +224,12 @@ export async function allocateSqliteSnapshotStagingDirectory(
           callers: 0,
           done: (async () => {
             try {
-              const { reclaimSqliteSnapshotDirectories } =
-                await import("./sqlite-snapshot-reclamation-worker.js");
+              const { runSqliteReadOnlyWorker } = await import("./sqlite-readonly-worker.js");
               if (!controller.signal.aborted) {
-                for (const message of await reclaimSqliteSnapshotDirectories(
-                  root,
-                  controller.signal,
-                )) {
+                for (const message of await runSqliteReadOnlyWorker(root, {
+                  mode: "reclaim",
+                  signal: controller.signal,
+                })) {
                   warn(message);
                 }
               }

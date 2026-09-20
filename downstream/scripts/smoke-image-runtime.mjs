@@ -8,10 +8,17 @@ import path from "node:path";
 
 const expectedOpenClawVersion = process.env.EXPECTED_OPENCLAW_VERSION;
 const expectedCodexVersion = process.env.EXPECTED_CODEX_VERSION;
+// Preserve the historical July invocation; modern images require an explicit
+// selection at their image-owned validation boundary below.
 const expectedDiscordVersion = process.env.EXPECTED_DISCORD_VERSION ?? "2026.7.1";
 const expectedQmdVersion = process.env.EXPECTED_QMD_VERSION;
-if (!expectedOpenClawVersion || !expectedCodexVersion || !expectedQmdVersion) {
-  throw new Error("expected OpenClaw, Codex, and QMD versions are required");
+if (
+  !expectedOpenClawVersion ||
+  !expectedCodexVersion ||
+  !expectedDiscordVersion ||
+  !expectedQmdVersion
+) {
+  throw new Error("expected OpenClaw, Codex, Discord, and QMD versions are required");
 }
 
 const imagePluginRuntimeRoot = "/opt/openclaw-plugin-runtime";
@@ -238,20 +245,34 @@ try {
 
 async function validateAndHydrateImagePluginRuntime() {
   const imagePluginPath = path.join(imagePluginRuntimeRoot, "node_modules/@openclaw/codex");
-  const [manifest, shrinkwrap] = await Promise.all(
-    ["package.json", "npm-shrinkwrap.json"].map(async (fileName) =>
-      JSON.parse(await readFile(path.join(imagePluginPath, fileName), "utf8")),
-    ),
-  );
-  if (
-    manifest.name !== "@openclaw/codex" ||
-    manifest.version !== expectedCodexVersion ||
-    shrinkwrap.name !== manifest.name ||
-    shrinkwrap.version !== manifest.version ||
-    shrinkwrap.packages?.[""]?.version !== manifest.version
-  ) {
-    throw new Error("image Codex package and shrinkwrap metadata disagree");
+  const manifest = JSON.parse(await readFile(path.join(imagePluginPath, "package.json"), "utf8"));
+  const packagedValidator = "/opt/openclaw-runtime/validate-plugin-runtime.mjs";
+  const modern = await lstat(packagedValidator).catch((error) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (modern) {
+    if (!process.env.EXPECTED_DISCORD_VERSION) {
+      throw new Error("packaged runtime requires an explicit Discord version");
+    }
+    const { validateInstalledPluginRuntime } = await import(packagedValidator);
+    await validateInstalledPluginRuntime(imagePluginRuntimeRoot);
+  } else {
+    const shrinkwrap = JSON.parse(
+      await readFile(path.join(imagePluginPath, "npm-shrinkwrap.json"), "utf8"),
+    );
+    if (
+      manifest.name !== "@openclaw/codex" ||
+      manifest.version !== expectedCodexVersion ||
+      shrinkwrap.name !== manifest.name ||
+      shrinkwrap.version !== manifest.version ||
+      shrinkwrap.packages?.[""]?.version !== manifest.version
+    ) {
+      throw new Error("image Codex package and shrinkwrap metadata disagree");
+    }
   }
+  if (manifest.name !== "@openclaw/codex" || manifest.version !== expectedCodexVersion)
+    throw new Error("image Codex version differs");
   await cp(imagePluginRuntimeRoot, managedPluginRuntimeRoot, {
     recursive: true,
     errorOnExist: true,

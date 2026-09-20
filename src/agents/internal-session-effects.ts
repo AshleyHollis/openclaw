@@ -182,17 +182,34 @@ export function createInternalSessionEffectsCleanup(params: {
 /** Hard-deletes a run-owned hidden session and its SQLite transcript rows. */
 export async function removeInternalSessionEffectsSession(
   target: AgentRunSessionTarget | undefined,
+  expectedOwner?: Pick<InternalSessionEntry, "lifecycleRevision" | "activeWriterRunId">,
 ): Promise<void> {
   if (!target?.sessionKey || !target.storePath) {
     return;
   }
-  await applySessionEntryLifecycleMutation({
+  const scope = {
     ...(target.agentId ? { agentId: target.agentId } : {}),
     storePath: target.storePath,
+  };
+  const expectedEntry = expectedOwner
+    ? loadExactSessionEntry({ ...scope, sessionKey: target.sessionKey })?.entry
+    : undefined;
+  if (
+    expectedOwner &&
+    (!expectedEntry ||
+      expectedEntry.sessionId !== target.sessionId ||
+      expectedEntry.lifecycleRevision !== expectedOwner.lifecycleRevision ||
+      expectedEntry.activeWriterRunId !== expectedOwner.activeWriterRunId)
+  ) {
+    return;
+  }
+  await applySessionEntryLifecycleMutation({
+    ...scope,
     removals: [
       {
         sessionKey: target.sessionKey,
         ...(target.sessionId ? { expectedSessionId: target.sessionId } : {}),
+        ...(expectedEntry ? { expectedEntry } : {}),
         archiveRemovedTranscript: false,
       },
     ],
