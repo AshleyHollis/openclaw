@@ -466,8 +466,7 @@ export function createPluginRuntimeMock(overrides: PluginRuntimeMockOverrides = 
   const base: PluginRuntime = {
     version: "1.0.0-test",
     fileAccess: {
-      stageDurableFileInDirectory:
-        vi.fn<PluginRuntime["fileAccess"]["stageDurableFileInDirectory"]>(),
+      stageDurableFileInDirectory: vi.fn(),
     },
     gateway: {
       isAvailable: vi.fn(async () => false),

@@ -40,3 +40,7 @@ export { isPathInside, isPathStrictlyInside } from "../infra/path-guards.js";
 export { getFileWatchCapacityCode } from "../infra/fs-watch-errors.js";
 export { resolvePreferredOpenClawTmpDir } from "../infra/tmp-openclaw-dir.js";
 export { readFileRangeAsync } from "../config/sessions/file-range.js";
+export {
+  readDurableFilesystemIdentity,
+  type DurableFilesystemIdentity,
+} from "../infra/filesystem-identity.js";
