@@ -1,7 +1,6 @@
 import { resolveSandboxWorkspaceAuthority } from "../../agents/sandbox/workspace-authority.js";
 // Plugin runtime entrypoint assembles runtime helpers available to activated plugins.
 import { getRuntimeConfig } from "../../config/config.js";
-import { readDurableFilesystemIdentity } from "../../infra/filesystem-identity.js";
 import { stageDurableFileInDirectory } from "../../infra/fs-safe-advanced.js";
 import {
   listImageGenerationProviders,
@@ -226,7 +225,6 @@ export const createPluginRuntime: PluginRuntimeFactory = (
     worktrees: createRuntimeWorktrees(),
     fileAccess: {
       stageDurableFileInDirectory,
-      readDurableFilesystemIdentity,
     },
     system: base.system,
     media: createRuntimeMedia(),

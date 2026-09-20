@@ -51,8 +51,8 @@ refresh path.
 
 ### Durable filesystem identity
 
-`api.runtime.fileAccess.readDurableFilesystemIdentity(descriptor)` and the
-matching `openclaw/plugin-sdk/file-access-runtime` export read the Btrfs
+`readDurableFilesystemIdentity(descriptor)` from
+`openclaw/plugin-sdk/file-access-runtime` reads the Btrfs
 filesystem UUID and the containing subvolume ID for a held Linux file
 descriptor. The call does not require elevated privileges. It rejects other
 platforms and filesystems with `code: "capability-unavailable"`.

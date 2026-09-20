@@ -467,7 +467,6 @@ export function createPluginRuntimeMock(overrides: PluginRuntimeMockOverrides = 
     version: "1.0.0-test",
     fileAccess: {
       stageDurableFileInDirectory: vi.fn(),
-      readDurableFilesystemIdentity: vi.fn(),
     },
     gateway: {
       isAvailable: vi.fn(async () => false),
