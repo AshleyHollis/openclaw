@@ -442,6 +442,7 @@ export type PluginRuntimeCore = {
    */
   fileAccess: {
     stageDurableFileInDirectory: typeof import("../../infra/fs-safe-advanced.js").stageDurableFileInDirectory;
+    readDurableFilesystemIdentity: typeof import("../../infra/filesystem-identity.js").readDurableFilesystemIdentity;
   };
   media: {
     loadWebMedia: typeof import("../../media/web-media.js").loadWebMedia;

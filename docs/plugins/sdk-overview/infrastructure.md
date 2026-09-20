@@ -49,6 +49,18 @@ forward directory-scan errors through the same error event. Use the result in
 the watcher lifecycle owner to stop native retries and select an existing
 refresh path.
 
+### Durable filesystem identity
+
+`api.runtime.fileAccess.readDurableFilesystemIdentity(descriptor)` and the
+matching `openclaw/plugin-sdk/file-access-runtime` export read the Btrfs
+filesystem UUID and the containing subvolume ID for a held Linux file
+descriptor. The call does not require elevated privileges. It rejects other
+platforms and filesystems with `code: "capability-unavailable"`.
+
+Use this witness when durable plugin metadata must distinguish a Btrfs
+subvolume or snapshot across remounts. Keep the descriptor open, and retain
+ordinary device and inode checks for changes during the current operation.
+
 ### SQLite write admission
 
 `runSqliteImmediateTransaction(db, prepare, options?)` from

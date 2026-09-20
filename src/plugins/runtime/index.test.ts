@@ -13,6 +13,7 @@ import {
   type OpenClawConfig,
 } from "../../config/config.js";
 import { onAgentEvent } from "../../infra/agent-events.js";
+import { readDurableFilesystemIdentity } from "../../infra/filesystem-identity.js";
 import { stageDurableFileInDirectory } from "../../infra/fs-safe-advanced.js";
 import { requestHeartbeat, setHeartbeatWakeHandler } from "../../infra/heartbeat-wake.js";
 import * as execModule from "../../process/exec.js";
@@ -209,6 +210,12 @@ describe("plugin runtime command execution", () => {
       readValue: (runtime: ReturnType<typeof createPluginRuntime>) =>
         runtime.fileAccess.stageDurableFileInDirectory,
       expected: stageDurableFileInDirectory,
+    },
+    {
+      name: "exposes durable filesystem identity through runtime.fileAccess",
+      readValue: (runtime: ReturnType<typeof createPluginRuntime>) =>
+        runtime.fileAccess.readDurableFilesystemIdentity,
+      expected: readDurableFilesystemIdentity,
     },
     {
       name: "exposes deprecated runtime.system.requestHeartbeatNow",
