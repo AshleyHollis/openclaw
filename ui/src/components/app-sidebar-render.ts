@@ -556,6 +556,7 @@ export function renderAppSidebarZoneEntry(
   entry: SidebarZoneEntry,
   sessionRows: ReadonlyMap<string, SidebarRecentSession>,
   pluginTabs: ReadonlyMap<string, GatewayControlUiPluginTab>,
+  allowReorder = true,
 ) {
   if (entry.type === "route" && !host.sidebarMenus.isRouteEnabled(entry.route)) {
     return nothing;
@@ -579,7 +580,7 @@ export function renderAppSidebarZoneEntry(
           : sessionRows.has(entry.key)
             ? host.renderPinnedSidebarSession(sessionRows.get(entry.key)!)
             : nothing;
-  const draggable = entry.type === "route" || entry.type === "plugin";
+  const draggable = allowReorder && (entry.type === "route" || entry.type === "plugin");
   return html`
     <div
       class="sidebar-zone-entry ${dropPosition ? `sidebar-zone-entry--drop-${dropPosition}` : ""} ${
@@ -590,16 +591,21 @@ export function renderAppSidebarZoneEntry(
       data-sidebar-entry=${serialized}
       draggable=${draggable ? "true" : "false"}
       @dragstart=${
-        entry.type === "route"
-          ? (event: DragEvent) => host.sessionOrganizer.startSidebarRouteDrag(event, entry.route)
-          : entry.type === "plugin"
-            ? (event: DragEvent) => host.sessionOrganizer.startSidebarPluginDrag(event, entry.key)
-            : nothing
+        !draggable
+          ? nothing
+          : entry.type === "route"
+            ? (event: DragEvent) => host.sessionOrganizer.startSidebarRouteDrag(event, entry.route)
+            : entry.type === "plugin"
+              ? (event: DragEvent) => host.sessionOrganizer.startSidebarPluginDrag(event, entry.key)
+              : nothing
       }
       @dragend=${draggable ? () => host.sessionOrganizer.finishSidebarEntryDrag() : nothing}
-      @dragover=${(event: DragEvent) =>
-        host.sessionOrganizer.handleSidebarZoneDragOver(event, serialized)}
-      @drop=${(event: DragEvent) => host.sessionOrganizer.handleSidebarZoneDrop(event, serialized)}
+      @dragover=${
+        allowReorder
+          ? (event: DragEvent) => host.sessionOrganizer.handleSidebarZoneDragOver(event, serialized)
+          : nothing
+      }
+      @drop=${allowReorder ? (event: DragEvent) => host.sessionOrganizer.handleSidebarZoneDrop(event, serialized) : nothing}
     >
       ${content}
     </div>

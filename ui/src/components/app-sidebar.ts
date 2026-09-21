@@ -1,5 +1,6 @@
 import { html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { state } from "lit/decorators.js";
+import { repeat } from "lit/directives/repeat.js";
 import type {
   FsListDirResult,
   WorktreeRepositoryStatus,
@@ -660,6 +661,32 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                       sidebarZone.pluginTabs,
                     ),
                   )}
+                ${repeat(
+                  sidebarZone.navigationGroups,
+                  (group) => group.key,
+                  (group) => html`
+                    <details
+                      class="sidebar-nav__tools sidebar-nav__plugin-group"
+                      open
+                      data-plugin-navigation-group=${group.key}
+                    >
+                      <summary class="sidebar-nav__tools-summary">
+                        <span class="sidebar-nav__tools-label">${group.label}</span>
+                      </summary>
+                      <div class="nav-section__items">
+                        ${group.entries.map((entry) =>
+                          renderAppSidebarZoneEntry(
+                            this,
+                            entry,
+                            sidebarZone.sessionRows,
+                            sidebarZone.pluginTabs,
+                            false,
+                          ),
+                        )}
+                      </div>
+                    </details>
+                  `,
+                )}
                 <details class="sidebar-nav__tools" open>
                   <summary class="sidebar-nav__tools-summary">
                     <span class="sidebar-nav__tools-label">${t("nav.toolsAndManagement")}</span>
@@ -673,7 +700,14 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                     @drop=${(event: DragEvent) => this.sessionOrganizer.handleSidebarZoneDrop(event)}
                   >
                     ${sidebarZone.entries
-                      .filter((entry) => entry.type !== "session")
+                      .filter(
+                        (entry) =>
+                          entry.type !== "session" &&
+                          !(
+                            entry.type === "plugin" &&
+                            sidebarZone.groupedNavigationKeys.has(entry.key)
+                          ),
+                      )
                       .map((entry) =>
                         renderAppSidebarZoneEntry(
                           this,
