@@ -28,12 +28,14 @@ import { SETTINGS_ROUTE_TARGETS } from "../pages/config/route-data.ts";
 import "../plugins/control-ui-contributions.ts";
 import { renderPluginSurface } from "../plugins/control-ui-view.ts";
 import "../styles/app-sidebar.css";
+import { isUngroupedSidebarEntry } from "./app-sidebar-plugin-navigation-groups.ts";
 import {
   renderAppSidebarBrand,
   renderAppSidebarFooterBar,
   renderAppSidebarHomeRow,
   renderAppSidebarOnline,
   renderAppSidebarPagesHead,
+  renderAppSidebarPluginNavigationGroups,
   renderAppSidebarZoneEntry,
 } from "./app-sidebar-render.ts";
 import type { SessionCatalogGroupsRenderer } from "./app-sidebar-session-catalog-render.ts";
@@ -660,6 +662,12 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                       sidebarZone.pluginTabs,
                     ),
                   )}
+                ${renderAppSidebarPluginNavigationGroups(
+                  this,
+                  sidebarZone.navigationGroups,
+                  sidebarZone.sessionRows,
+                  sidebarZone.pluginTabs,
+                )}
                 <details class="sidebar-nav__tools" open>
                   <summary class="sidebar-nav__tools-summary">
                     <span class="sidebar-nav__tools-label">${t("nav.toolsAndManagement")}</span>
@@ -673,7 +681,9 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                     @drop=${(event: DragEvent) => this.sessionOrganizer.handleSidebarZoneDrop(event)}
                   >
                     ${sidebarZone.entries
-                      .filter((entry) => entry.type !== "session")
+                      .filter((entry) =>
+                        isUngroupedSidebarEntry(entry, sidebarZone.groupedNavigationKeys),
+                      )
                       .map((entry) =>
                         renderAppSidebarZoneEntry(
                           this,
@@ -687,6 +697,7 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                       .excludedNavigationKeys=${sidebarZone.entries
                         .filter((entry) => entry.type === "plugin")
                         .map((entry) => entry.key)}
+                      .currentNavigationHref=${`${window.location.pathname}${window.location.search}`}
                     ></openclaw-plugin-contributions>
                   </div>
                 </details>

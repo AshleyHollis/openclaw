@@ -42,6 +42,7 @@ import { reconcileSidebarZone } from "../lib/sidebar-zone.ts";
 import { pluginTabKey } from "../pages/plugin/route.ts";
 import type { ControlUiRegistration } from "../plugins/control-ui-capability.ts";
 import { sidebarPluginTabs } from "./app-sidebar-nav-menus.ts";
+import { buildPluginNavigationGroups } from "./app-sidebar-plugin-navigation-groups.ts";
 import {
   SIDEBAR_SESSION_NO_ATTENTION,
   summarizeSidebarSessionAttention,
@@ -349,8 +350,11 @@ export function buildReconciledSidebarZone(input: {
     new Set([...pluginTabs.keys(), ...navigation.map((entry) => entry.key)]),
     defaultPluginNavigationKeys,
   );
+  // Session replacements and native routes keep their existing owners and placement.
+  const groups = buildPluginNavigationGroups(reconciled.entries, navigation);
   return {
     ...reconciled,
+    ...groups,
     sessionRows: new Map(pinnedRows.map((row) => [row.key, row])),
     pluginTabs,
     defaultPluginNavigationKeys,
