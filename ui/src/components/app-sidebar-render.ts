@@ -576,6 +576,7 @@ export function renderAppSidebarZoneEntry(
           ? html`<openclaw-plugin-contributions
               .kind=${"navigation"}
               .navigationKey=${entry.key}
+              .currentNavigationHref=${`${window.location.pathname}${window.location.search}`}
             ></openclaw-plugin-contributions>`
           : sessionRows.has(entry.key)
             ? host.renderPinnedSidebarSession(sessionRows.get(entry.key)!)

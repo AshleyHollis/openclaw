@@ -64,8 +64,10 @@ suite.define(() => {
         expect(await sidebar.getByRole("link", { name: "Overview", exact: true }).count()).toBe(1);
         expect(await group.getByRole("region", { name: "PARA topics" }).count()).toBe(0);
         await sidebar.getByRole("region", { name: "PARA topics" }).waitFor();
-        await group.getByRole("link", { name: "Planner", exact: true }).click();
+        const plannerLink = group.getByRole("link", { name: "Planner", exact: true });
+        await plannerLink.click();
         await page.getByRole("heading", { name: "Planner", exact: true }).waitFor();
+        await expect.poll(() => plannerLink.getAttribute("aria-current")).toBe("page");
         await page.screenshot({ path: path.join(suite.artifactDir, "sidebar-after.png") });
         const summary = group.locator("summary");
         await summary.focus();
@@ -80,6 +82,11 @@ suite.define(() => {
         await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();
         await page.reload();
         await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();
+        await expect
+          .poll(() =>
+            group.getByRole("link", { name: "Overview", exact: true }).getAttribute("aria-current"),
+          )
+          .toBe("page");
         await page.setViewportSize({ width: 900, height: 900 });
         await page.locator(".topbar-nav-toggle").click();
         await group.getByRole("link", { name: "Planner", exact: true }).waitFor();

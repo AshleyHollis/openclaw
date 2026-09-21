@@ -721,6 +721,7 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                       .excludedNavigationKeys=${sidebarZone.entries
                         .filter((entry) => entry.type === "plugin")
                         .map((entry) => entry.key)}
+                      .currentNavigationHref=${`${window.location.pathname}${window.location.search}`}
                     ></openclaw-plugin-contributions>
                   </div>
                 </details>

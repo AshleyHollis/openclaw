@@ -1,7 +1,11 @@
 import type { LitElement } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginControlUiDiagnostic } from "../../../packages/gateway-protocol/src/schema/plugins.js";
-import type { ControlUiAction } from "../../../src/plugin-sdk/control-ui.js";
+import type {
+  ControlUiAction,
+  ControlUiHost,
+  ControlUiNavigationItem,
+} from "../../../src/plugin-sdk/control-ui.js";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { GatewaySessionRow } from "../api/types.ts";
@@ -22,13 +26,62 @@ import "./control-ui-contributions.ts";
 import "./control-ui-view.runtime.ts";
 
 type ContributionsElement = LitElement & {
-  kind: "header" | "composer";
+  kind: "navigation" | "header" | "composer";
   sessionKey: string;
   agentId?: string;
+  navigationKey: string;
+  currentNavigationHref: string;
   presented: boolean;
 };
 const sessionKey = "agent:main:main";
 const cleanups: (() => void)[] = [];
+
+it("updates native plugin navigation active state when the route changes", async () => {
+  const href = "/plugin?plugin=fixture&id=dashboard";
+  const openPage = vi.fn();
+  const navigation: ControlUiNavigationItem = {
+    id: "dashboard",
+    label: "Dashboard",
+    page: { id: "dashboard" },
+  };
+  const entry = {
+    key: "fixture/dashboard" as const,
+    pluginId: "fixture",
+    value: navigation,
+    host: {
+      navigation: {
+        pageHref: () => href,
+        openPage,
+      },
+    } as unknown as ControlUiHost,
+    signal: new AbortController().signal,
+  };
+  const plugins = {
+    registrations: (kind: string) => (kind === "navigation" ? [entry] : []),
+    subscribe: () => () => undefined,
+    reportError: vi.fn(),
+  } as unknown as ControlUiPluginRuntime;
+  const provider = createApplicationContextProvider({ plugins } as unknown as ApplicationContext);
+  const element = document.createElement("openclaw-plugin-contributions") as ContributionsElement;
+  element.kind = "navigation";
+  element.navigationKey = entry.key;
+  element.currentNavigationHref = "/chat";
+  provider.append(element);
+  document.body.append(provider);
+  try {
+    await element.updateComplete;
+    expect(element.querySelector("a")?.getAttribute("aria-current")).toBeNull();
+
+    element.currentNavigationHref = href;
+    await element.updateComplete;
+    const link = element.querySelector<HTMLAnchorElement>("a");
+    expect(link?.getAttribute("aria-current")).toBe("page");
+    link?.click();
+    expect(openPage).toHaveBeenCalledExactlyOnceWith(navigation.page);
+  } finally {
+    provider.remove();
+  }
+});
 
 it("opens customization once and retains reload state across close and reopen", async () => {
   const listeners = new Set<() => void>();
