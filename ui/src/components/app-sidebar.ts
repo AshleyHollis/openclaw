@@ -1,6 +1,5 @@
 import { html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { state } from "lit/decorators.js";
-import { repeat } from "lit/directives/repeat.js";
 import type {
   FsListDirResult,
   WorktreeRepositoryStatus,
@@ -29,12 +28,14 @@ import { SETTINGS_ROUTE_TARGETS } from "../pages/config/route-data.ts";
 import "../plugins/control-ui-contributions.ts";
 import { renderPluginSurface } from "../plugins/control-ui-view.ts";
 import "../styles/app-sidebar.css";
+import { isUngroupedSidebarEntry } from "./app-sidebar-plugin-navigation-groups.ts";
 import {
   renderAppSidebarBrand,
   renderAppSidebarFooterBar,
   renderAppSidebarHomeRow,
   renderAppSidebarOnline,
   renderAppSidebarPagesHead,
+  renderAppSidebarPluginNavigationGroups,
   renderAppSidebarZoneEntry,
 } from "./app-sidebar-render.ts";
 import type { SessionCatalogGroupsRenderer } from "./app-sidebar-session-catalog-render.ts";
@@ -661,31 +662,11 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                       sidebarZone.pluginTabs,
                     ),
                   )}
-                ${repeat(
+                ${renderAppSidebarPluginNavigationGroups(
+                  this,
                   sidebarZone.navigationGroups,
-                  (group) => group.key,
-                  (group) => html`
-                    <details
-                      class="sidebar-nav__tools sidebar-nav__plugin-group"
-                      open
-                      data-plugin-navigation-group=${group.key}
-                    >
-                      <summary class="sidebar-nav__tools-summary">
-                        <span class="sidebar-nav__tools-label">${group.label}</span>
-                      </summary>
-                      <div class="nav-section__items">
-                        ${group.entries.map((entry) =>
-                          renderAppSidebarZoneEntry(
-                            this,
-                            entry,
-                            sidebarZone.sessionRows,
-                            sidebarZone.pluginTabs,
-                            false,
-                          ),
-                        )}
-                      </div>
-                    </details>
-                  `,
+                  sidebarZone.sessionRows,
+                  sidebarZone.pluginTabs,
                 )}
                 <details class="sidebar-nav__tools" open>
                   <summary class="sidebar-nav__tools-summary">
@@ -700,13 +681,8 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                     @drop=${(event: DragEvent) => this.sessionOrganizer.handleSidebarZoneDrop(event)}
                   >
                     ${sidebarZone.entries
-                      .filter(
-                        (entry) =>
-                          entry.type !== "session" &&
-                          !(
-                            entry.type === "plugin" &&
-                            sidebarZone.groupedNavigationKeys.has(entry.key)
-                          ),
+                      .filter((entry) =>
+                        isUngroupedSidebarEntry(entry, sidebarZone.groupedNavigationKeys),
                       )
                       .map((entry) =>
                         renderAppSidebarZoneEntry(

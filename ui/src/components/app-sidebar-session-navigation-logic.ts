@@ -42,6 +42,7 @@ import { reconcileSidebarZone } from "../lib/sidebar-zone.ts";
 import { pluginTabKey } from "../pages/plugin/route.ts";
 import type { ControlUiRegistration } from "../plugins/control-ui-capability.ts";
 import { sidebarPluginTabs } from "./app-sidebar-nav-menus.ts";
+import { buildPluginNavigationGroups } from "./app-sidebar-plugin-navigation-groups.ts";
 import {
   SIDEBAR_SESSION_NO_ATTENTION,
   summarizeSidebarSessionAttention,
@@ -349,38 +350,11 @@ export function buildReconciledSidebarZone(input: {
     new Set([...pluginTabs.keys(), ...navigation.map((entry) => entry.key)]),
     defaultPluginNavigationKeys,
   );
-  // Group only visible destinations. Session replacements and native routes
-  // keep their existing owners and placement; group identities are plugin-local.
-  const navigationByKey = new Map<string, (typeof navigation)[number]>(
-    navigation.map((entry) => [entry.key, entry]),
-  );
-  const navigationGroups = new Map<
-    string,
-    {
-      key: string;
-      label: string;
-      entries: typeof reconciled.entries;
-    }
-  >();
-  const groupedNavigationKeys = new Set<string>();
-  for (const entry of reconciled.entries) {
-    if (entry.type !== "plugin") continue;
-    const registration = navigationByKey.get(entry.key);
-    const group = registration?.value.group;
-    if (!registration || !group?.id.trim() || !group.label.trim()) continue;
-    const key = JSON.stringify([registration.pluginId, group.id]);
-    let section = navigationGroups.get(key);
-    if (!section) {
-      section = { key, label: group.label, entries: [] };
-      navigationGroups.set(key, section);
-    }
-    section.entries.push(entry);
-    groupedNavigationKeys.add(entry.key);
-  }
+  // Session replacements and native routes keep their existing owners and placement.
+  const groups = buildPluginNavigationGroups(reconciled.entries, navigation);
   return {
     ...reconciled,
-    navigationGroups: [...navigationGroups.values()],
-    groupedNavigationKeys,
+    ...groups,
     sessionRows: new Map(pinnedRows.map((row) => [row.key, row])),
     pluginTabs,
     defaultPluginNavigationKeys,

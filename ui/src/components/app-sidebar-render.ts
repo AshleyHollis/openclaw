@@ -41,6 +41,7 @@ import {
 } from "../lib/sessions/session-key.ts";
 import { pluginTabKey } from "../pages/plugin/route.ts";
 import { renderSidebarPluginTab } from "./app-sidebar-nav-menus.ts";
+import type { SidebarPluginNavigationGroup } from "./app-sidebar-plugin-navigation-groups.ts";
 import { renderSidebarSessionFilter } from "./app-sidebar-session-filter-summary.ts";
 import type { AppSidebarSessionNavigationElement } from "./app-sidebar-session-navigation.ts";
 import { renderSidebarSessionSectionHeader } from "./app-sidebar-session-section-header.ts";
@@ -611,6 +612,34 @@ export function renderAppSidebarZoneEntry(
       ${content}
     </div>
   `;
+}
+
+export function renderAppSidebarPluginNavigationGroups(
+  host: AppSidebarRenderHost,
+  groups: readonly SidebarPluginNavigationGroup[],
+  sessionRows: ReadonlyMap<string, SidebarRecentSession>,
+  pluginTabs: ReadonlyMap<string, GatewayControlUiPluginTab>,
+) {
+  return repeat(
+    groups,
+    (group) => group.key,
+    (group) => html`
+      <details
+        class="sidebar-nav__tools sidebar-nav__plugin-group"
+        open
+        data-plugin-navigation-group=${group.key}
+      >
+        <summary class="sidebar-nav__tools-summary">
+          <span class="sidebar-nav__tools-label">${group.label}</span>
+        </summary>
+        <div class="nav-section__items">
+          ${group.entries.map((entry) =>
+            renderAppSidebarZoneEntry(host, entry, sessionRows, pluginTabs, false),
+          )}
+        </div>
+      </details>
+    `,
+  );
 }
 
 function renderAppSidebarPluginTab(host: AppSidebarRenderHost, tab: GatewayControlUiPluginTab) {
