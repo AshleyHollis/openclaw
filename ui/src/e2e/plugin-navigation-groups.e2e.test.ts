@@ -81,6 +81,9 @@ suite.define(() => {
         await page.reload();
         await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();
         await page.setViewportSize({ width: 900, height: 900 });
+        await page.locator(".topbar-nav-toggle").click();
+        await group.getByRole("link", { name: "Planner", exact: true }).waitFor();
+        expect(await sidebar.getByRole("region", { name: "PARA topics" }).isVisible()).toBe(true);
         await page.screenshot({ path: path.join(suite.artifactDir, "sidebar-narrow.png") });
       },
     );
