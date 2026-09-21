@@ -83,6 +83,12 @@ suite.define(() => {
         await page.setViewportSize({ width: 900, height: 900 });
         await page.locator(".topbar-nav-toggle").click();
         await group.getByRole("link", { name: "Planner", exact: true }).waitFor();
+        await expect
+          .poll(async () => {
+            const bounds = await page.locator(".shell-nav").boundingBox();
+            return bounds !== null && bounds.x >= 0;
+          })
+          .toBe(true);
         expect(await sidebar.getByRole("region", { name: "PARA topics" }).isVisible()).toBe(true);
         await page.screenshot({ path: path.join(suite.artifactDir, "sidebar-narrow.png") });
       },
