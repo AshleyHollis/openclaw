@@ -6,6 +6,7 @@ export function isCronInvalidRequestError(err: unknown): boolean {
     message.startsWith("unknown cron job id:") ||
     message.startsWith("cron job already exists:") ||
     message.includes("cron job id must not be blank") ||
+    message.includes("invalid cron task run job id") ||
     message.includes("cron declarationKey") ||
     message.includes("cron displayName") ||
     message.includes("cron announce delivery requires an explicit channel") ||
