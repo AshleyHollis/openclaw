@@ -1,0 +1,44 @@
+From 8f91ea43e207e8432898dfa05e0adf8ae9ca7e46 Mon Sep 17 00:00:00 2001
+From: OpenClaw <openclaw@ashleyhollis.com>
+Date: Sat, 18 Jul 2026 16:33:31 +1000
+Subject: [PATCH 5/6] fix(agents): expire invalid thinking signature sessions
+
+---
+ .../embedded-agent-helpers.isbillingerrormessage.test.ts     | 4 ++++
+ src/agents/embedded-agent-helpers/errors.ts                  | 5 ++++-
+ 2 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/src/agents/embedded-agent-helpers.isbillingerrormessage.test.ts b/src/agents/embedded-agent-helpers.isbillingerrormessage.test.ts
+index 4fc9e548e35..7aa4055aa78 100644
+--- a/src/agents/embedded-agent-helpers.isbillingerrormessage.test.ts
++++ b/src/agents/embedded-agent-helpers.isbillingerrormessage.test.ts
+@@ -783,6 +783,10 @@ describe("classifyFailoverReason HTTP 410 handling", () => {
+     );
+   });
+ 
++  it("classifies expired Claude thinking signatures as session_expired", () => {
++    expect(classifyFailoverReason("invalid signature in thinking block")).toBe("session_expired");
++  });
++
+   it("keeps explicit billing and auth signals on 410 text", () => {
+     expect(classifyFailoverReason("HTTP 410: invalid_api_key")).toBe("auth");
+     expect(classifyFailoverReason("HTTP 410: authentication failed")).toBe("auth");
+diff --git a/src/agents/embedded-agent-helpers/errors.ts b/src/agents/embedded-agent-helpers/errors.ts
+index de52c3b5d76..8302f83ae8e 100644
+--- a/src/agents/embedded-agent-helpers/errors.ts
++++ b/src/agents/embedded-agent-helpers/errors.ts
+@@ -1795,7 +1795,10 @@ function isCliSessionExpiredErrorMessage(raw: string): boolean {
+     lower.includes("no such session") ||
+     lower.includes("invalid session") ||
+     lower.includes("session id not found") ||
+-    lower.includes("conversation id not found")
++    lower.includes("conversation id not found") ||
++    // Thinking block signatures are time-limited; when one expires during
++    // resume, retry with a fresh session instead of treating it as provider failure.
++    lower.includes("invalid signature in thinking")
+   );
+ }
+ 
+-- 
+2.43.0
+

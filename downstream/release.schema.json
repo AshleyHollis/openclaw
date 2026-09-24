@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AshleyHollis/openclaw/blob/main/downstream/release.schema.json",
+  "title": "OpenClaw NAS downstream release",
+  "type": "object",
+  "required": ["schemaVersion", "releaseId", "status", "npm", "source", "node", "externalPlugins", "patches", "artifact", "image", "testResults"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "releaseId": { "type": "string", "pattern": "^[0-9]{4}\\.[0-9]+\\.[0-9]+(?:-[0-9]+)?\\+nas\\.[0-9]+$" },
+    "status": { "enum": ["preserved", "candidate", "blocked", "qualified"] },
+    "blockingIssues": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "npm": {
+      "type": "object",
+      "required": ["version", "distTag", "integrity", "tarball"],
+      "properties": {
+        "version": { "type": "string" },
+        "distTag": { "const": "latest" },
+        "integrity": { "type": "string", "pattern": "^sha512-" },
+        "tarball": { "type": "string", "pattern": "^https://registry\\.npmjs\\.org/" }
+      },
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "required": ["ref", "baseCommit", "commit", "stableDivergence", "mainDivergence"],
+      "properties": {
+        "ref": { "type": "string" },
+        "baseCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "stableDivergence": { "$ref": "#/$defs/divergence" },
+        "mainDivergence": { "$ref": "#/$defs/divergence" }
+      },
+      "additionalProperties": false
+    },
+    "node": {
+      "type": "object",
+      "required": ["buildVersion", "engine"],
+      "properties": {
+        "buildVersion": { "type": "string" },
+        "engine": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "externalPlugins": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "package", "version", "integrity", "tarball", "artifact"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "package": { "type": "string", "pattern": "^@openclaw/[a-z0-9-]+$" },
+          "version": { "type": "string" },
+          "integrity": { "type": "string", "pattern": "^sha512-" },
+          "tarball": { "type": "string", "pattern": "^https://registry\\.npmjs\\.org/@openclaw/" },
+          "artifact": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "required": ["filename", "url", "sha256"],
+                "properties": {
+                  "filename": { "type": "string", "pattern": "\\.tgz$" },
+                  "url": { "type": "string", "pattern": "^https://github\\.com/AshleyHollis/openclaw/releases/download/" },
+                  "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "runtimeTools": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "package", "version", "integrity", "tarball", "artifact"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "package": { "type": "string", "pattern": "^@[a-z0-9-]+/[a-z0-9-]+$" },
+          "version": { "type": "string" },
+          "integrity": { "type": "string", "pattern": "^sha512-" },
+          "tarball": { "type": "string", "pattern": "^https://registry\\.npmjs\\.org/" },
+          "artifact": {
+            "type": "object",
+            "required": ["filename", "url", "sha256"],
+            "properties": {
+              "filename": { "type": "string", "pattern": "\\.tgz$" },
+              "url": { "type": "string", "pattern": "^https://github\\.com/AshleyHollis/openclaw/releases/download/" },
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "patches": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "file", "sha256", "status", "tests"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "file": { "type": "string", "pattern": "^downstream/patches/" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "status": { "enum": ["required", "superseded", "obsolete", "conflicting"] },
+          "tests": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["filename", "url", "sha256", "validation"],
+      "properties": {
+        "filename": { "type": "string", "pattern": "\\.tgz$" },
+        "url": { "type": "string", "pattern": "^https://github\\.com/AshleyHollis/openclaw/releases/download/" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "validation": {
+          "type": "object",
+          "required": ["fullBuild", "focusedAssertions", "packageSmoke", "externalPluginRegistration", "scopedLoopbackRpc", "dependencyMetadataCheck", "discordRuntimeFiles", "patchTests", "imageSmoke", "imageScan"],
+          "properties": {
+            "fullBuild": { "type": "boolean" },
+            "focusedAssertions": { "type": "integer", "minimum": 0 },
+            "packageSmoke": { "type": "boolean" },
+            "externalPluginRegistration": { "type": "boolean" },
+            "scopedLoopbackRpc": { "type": "boolean" },
+            "dependencyMetadataCheck": { "type": "boolean" },
+            "qmdRuntime": { "type": "boolean" },
+            "discordRuntimeFiles": { "type": "integer", "minimum": 0 },
+            "patchTests": { "type": "boolean" },
+            "imageSmoke": { "type": "boolean" },
+            "imageScan": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "image": {
+      "type": "object",
+      "required": ["repository", "tag", "digest", "attestationDigest", "sbomDigest", "provenanceDigest"],
+      "properties": {
+        "repository": { "const": "ghcr.io/ashleyhollis/openclaw" },
+        "tag": { "type": ["string", "null"] },
+        "digest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+        "attestationDigest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+        "sbomDigest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+        "provenanceDigest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "testResults": {
+      "type": "object",
+      "required": ["downstreamGuard", "dryRun", "publish"],
+      "properties": {
+        "downstreamGuard": { "type": ["string", "null"], "pattern": "^https://github\\.com/AshleyHollis/openclaw/actions/runs/" },
+        "dryRun": { "type": ["string", "null"], "pattern": "^https://github\\.com/AshleyHollis/openclaw/actions/runs/" },
+        "publish": { "type": ["string", "null"], "pattern": "^https://github\\.com/AshleyHollis/openclaw/actions/runs/" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "divergence": {
+      "type": "object",
+      "required": ["ahead", "behind"],
+      "properties": {
+        "ahead": { "type": "integer", "minimum": 0 },
+        "behind": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "blocked" } } },
+      "then": { "required": ["blockingIssues"] },
+      "else": { "not": { "required": ["blockingIssues"] } }
+    }
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,111 @@
+ARG OPENCLAW_NODE_IMAGE="docker.io/library/node:22.23.1-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3"
+FROM ${OPENCLAW_NODE_IMAGE}
+
+ARG OPENCLAW_TARBALL_SHA256
+ARG CODEX_TARBALL_SHA256
+ARG CODEX_VERSION
+ARG DISCORD_TARBALL_SHA256="28f1511de04906def70f7ff6950cd2d26f52be0ec93c5efce8f5c07cb46bc521"
+ARG DISCORD_TARBALL_URL="https://registry.npmjs.org/@openclaw/discord/-/discord-2026.7.1.tgz"
+ARG DISCORD_VERSION="2026.7.1"
+ARG OPENCLAW_SOURCE_COMMIT
+ARG OPENCLAW_VERSION
+ARG QMD_TARBALL_SHA256
+ARG QMD_VERSION
+
+LABEL org.opencontainers.image.source="https://github.com/AshleyHollis/openclaw" \
+  org.opencontainers.image.revision="${OPENCLAW_SOURCE_COMMIT}" \
+  org.opencontainers.image.version="${OPENCLAW_VERSION}" \
+  org.opencontainers.image.title="OpenClaw NAS downstream" \
+  org.opencontainers.image.licenses="MIT"
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ca-certificates chromium curl git hostname lsof openssl procps python3 python3-requests tini && \
+    update-ca-certificates
+
+RUN npm install --global npm@12.0.1 && \
+    test "$(npm --version)" = "12.0.1" && \
+    node -e "const version=require('/usr/local/lib/node_modules/npm/node_modules/tar/package.json').version;if(version!=='7.5.19')throw new Error('unexpected npm tar '+version)"
+
+WORKDIR /app
+COPY openclaw-current.tgz /tmp/openclaw-current.tgz
+COPY codex-current.tgz /tmp/codex-current.tgz
+COPY qmd-current.tgz /tmp/qmd-current.tgz
+
+RUN test -n "$OPENCLAW_TARBALL_SHA256" && \
+    printf '%s  %s\n' "$OPENCLAW_TARBALL_SHA256" /tmp/openclaw-current.tgz | sha256sum -c - && \
+    npm install --omit=dev --ignore-scripts=false --no-audit --no-fund /tmp/openclaw-current.tgz && \
+    test "$(node -p "require('/app/node_modules/openclaw/package.json').version")" = "$OPENCLAW_VERSION" && \
+    node /app/node_modules/openclaw/openclaw.mjs --version && \
+    rm -f /tmp/openclaw-current.tgz
+
+RUN test -n "$CODEX_TARBALL_SHA256" && \
+    test -n "$CODEX_VERSION" && \
+    printf '%s  %s\n' "$CODEX_TARBALL_SHA256" /tmp/codex-current.tgz | sha256sum -c - && \
+    npm install --prefix /opt/openclaw-plugin-runtime \
+      --install-strategy=nested --omit=dev --ignore-scripts=false --no-audit --no-fund \
+      /tmp/codex-current.tgz && \
+    test "$(node -p "require('/opt/openclaw-plugin-runtime/node_modules/@openclaw/codex/package.json').version")" = "$CODEX_VERSION" && \
+    node -e "const fs=require('node:fs');const path=require('node:path');const root='/opt/openclaw-plugin-runtime/node_modules/@openclaw/codex/node_modules';const expected={\"@openai/codex\":\"0.144.3\",typebox:\"1.3.3\",ws:\"8.21.0\",zod:\"4.4.3\"};for(const [name,version] of Object.entries(expected)){const actual=JSON.parse(fs.readFileSync(path.join(root,name,'package.json'),'utf8')).version;if(actual!==version)throw new Error(name+' version '+actual)}" && \
+    ln -s /app/node_modules/openclaw /opt/openclaw-plugin-runtime/node_modules/@openclaw/codex/node_modules/openclaw && \
+    test "$(readlink /opt/openclaw-plugin-runtime/node_modules/@openclaw/codex/node_modules/openclaw)" = /app/node_modules/openclaw && \
+    chmod -R go-w /opt/openclaw-plugin-runtime && \
+    rm -f /tmp/codex-current.tgz && \
+    npm cache clean --force
+
+# Discord is an official external plugin in this release line. Keep its source,
+# digest and version controller-owned so a candidate cannot silently omit it or
+# widen the package selected during the authenticated image build.
+RUN test -n "$DISCORD_TARBALL_SHA256" && \
+    test -n "$DISCORD_TARBALL_URL" && \
+    test -n "$DISCORD_VERSION" && \
+    curl --fail --location --proto '=https' --tlsv1.2 \
+      "$DISCORD_TARBALL_URL" --output /tmp/discord-current.tgz && \
+    printf '%s  %s\n' "$DISCORD_TARBALL_SHA256" /tmp/discord-current.tgz | sha256sum -c - && \
+    npm install --prefix /opt/openclaw-plugin-runtime \
+      --install-strategy=nested --omit=dev --ignore-scripts=false --no-audit --no-fund \
+      /tmp/discord-current.tgz && \
+    test "$(node -p "require('/opt/openclaw-plugin-runtime/node_modules/@openclaw/discord/package.json').version")" = "$DISCORD_VERSION" && \
+    ln -s /app/node_modules/openclaw /opt/openclaw-plugin-runtime/node_modules/@openclaw/discord/node_modules/openclaw && \
+    test "$(readlink /opt/openclaw-plugin-runtime/node_modules/@openclaw/discord/node_modules/openclaw)" = /app/node_modules/openclaw && \
+    chmod -R go-w /opt/openclaw-plugin-runtime && \
+    rm -f /tmp/discord-current.tgz && \
+    npm cache clean --force
+
+RUN test -n "$QMD_TARBALL_SHA256" && \
+    test -n "$QMD_VERSION" && \
+    printf '%s  %s\n' "$QMD_TARBALL_SHA256" /tmp/qmd-current.tgz | sha256sum -c - && \
+    npm install --prefix /opt/qmd-runtime \
+      --install-strategy=nested --omit=dev --ignore-scripts=false --no-audit --no-fund \
+      /tmp/qmd-current.tgz && \
+    npm --prefix /opt/qmd-runtime/node_modules/@tobilu/qmd/node_modules/better-sqlite3 run install && \
+    test "$(node -p "require('/opt/qmd-runtime/node_modules/@tobilu/qmd/package.json').version")" = "$QMD_VERSION" && \
+    node -e "const fs=require('node:fs');const root='/opt/qmd-runtime/node_modules/@tobilu/qmd';const manifest=JSON.parse(fs.readFileSync(root+'/package.json','utf8'));const shrinkwrap=JSON.parse(fs.readFileSync(root+'/npm-shrinkwrap.json','utf8'));if(manifest.name!=='@tobilu/qmd'||manifest.version!==process.env.QMD_VERSION||shrinkwrap.name!==manifest.name||shrinkwrap.version!==manifest.version||shrinkwrap.packages?.['']?.version!==manifest.version)throw new Error('QMD runtime metadata mismatch')" && \
+    /opt/qmd-runtime/node_modules/.bin/qmd --version | grep -F "qmd $QMD_VERSION" && \
+    ln -s /opt/qmd-runtime/node_modules/.bin/qmd /usr/local/bin/qmd && \
+    chmod -R go-w /opt/qmd-runtime && \
+    rm -f /tmp/qmd-current.tgz && \
+    npm cache clean --force
+
+RUN install -d -m 0755 -o node -g node /home/node/.config && \
+    install -d -m 0700 -o node -g node \
+      /home/node/.openclaw \
+      /home/node/.openclaw/workspace \
+      /home/node/.cache/qmd/models \
+      /home/node/.config/openclaw && \
+    chown -R node:node /app
+
+RUN ln -sf /app/node_modules/openclaw/openclaw.mjs /usr/local/bin/openclaw && \
+    chmod 755 /app/node_modules/openclaw/openclaw.mjs
+
+ENV NODE_ENV=production
+USER node
+WORKDIR /app/node_modules/openclaw
+
+HEALTHCHECK --interval=3m --timeout=10s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+ENTRYPOINT ["tini", "-s", "--"]
+CMD ["node", "openclaw.mjs", "gateway"]

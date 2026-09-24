@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "releaseId": "2026.7.1-2+nas.7",
+  "status": "qualified",
+  "npm": {
+    "version": "2026.7.1-2",
+    "distTag": "latest",
+    "integrity": "sha512-ycF3yPcbjN6bUPeaUx6Mh6vze1hQWoD3CT/wWcmD7a8xaHHHRUaAlaq+lFxMHf1ssEgODVAwjlzYqp2twkYZ7g==",
+    "tarball": "https://registry.npmjs.org/openclaw/-/openclaw-2026.7.1-2.tgz"
+  },
+  "source": {
+    "ref": "refs/heads/release/2026.7.1",
+    "baseCommit": "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c",
+    "commit": "9a7ded2d57ac2d19475eee7538b07168f7e8376d",
+    "stableDivergence": { "ahead": 11, "behind": 0 },
+    "mainDivergence": { "ahead": 12, "behind": 482 }
+  },
+  "node": {
+    "buildVersion": "22.23.1",
+    "engine": ">=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0"
+  },
+  "externalPlugins": [
+    {
+      "id": "codex",
+      "package": "@openclaw/codex",
+      "version": "2026.7.1-1",
+      "integrity": "sha512-fRQITjqjC4Q/M6WmkR9XPWPuL+7vcvyVUWIDztB08X2G/mhzSwCYwQp4hugxAtuKmO3yx/7ULMK3nyeKsg5zGw==",
+      "tarball": "https://registry.npmjs.org/@openclaw/codex/-/codex-2026.7.1-1.tgz",
+      "artifact": {
+        "filename": "openclaw-codex-2026.7.1-1-nas.6.tgz",
+        "url": "https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-codex-2026.7.1-1-nas.6.tgz",
+        "sha256": "9336e6e0ad7697a94257253665b0f4e7fcfdc2af567610a549ace519d442b94b"
+      }
+    }
+  ],
+  "runtimeTools": [
+    {
+      "id": "qmd",
+      "package": "@tobilu/qmd",
+      "version": "2.1.0",
+      "integrity": "sha512-oOuCoiWL9R2urgj0C336Qpv8qpq1SHhx80Vg5cQo+QRB26XPXqy7MTg/CWS6WAe6ruvVul7kEv21M5YhRzreAw==",
+      "tarball": "https://registry.npmjs.org/@tobilu/qmd/-/qmd-2.1.0.tgz",
+      "artifact": {
+        "filename": "openclaw-qmd-2.1.0-nas.6.tgz",
+        "url": "https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-qmd-2.1.0-nas.6.tgz",
+        "sha256": "4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a"
+      }
+    }
+  ],
+  "patches": [
+    {
+      "id": "qmd-gpu-off",
+      "file": "downstream/patches/2026.7.1-2/0001-fix-memory-disable-QMD-GPU-acceleration-by-default.patch",
+      "sha256": "22d17b6d1585d5241d38560e6b4f455468ae5b21fe20a007e05cd7b94c8029f9",
+      "status": "required",
+      "tests": ["extensions/memory-core/src/memory/qmd-manager.test.ts"]
+    },
+    {
+      "id": "discord-package-runtime",
+      "file": "downstream/patches/2026.7.1-2/0002-fix-package-include-Discord-runtime-in-distribution.patch",
+      "sha256": "202beb8cb9d71660d7f570d702bbede5a470953bdc0928d3114fe0387d1fd5d3",
+      "status": "required",
+      "tests": ["node scripts/check-openclaw-package-tarball.mjs"]
+    },
+    {
+      "id": "discord-runtime-dependencies",
+      "file": "downstream/patches/2026.7.1-2/0003-fix-discord-pin-required-voice-runtime-dependencies.patch",
+      "sha256": "6115babd78206c44ecd30b3d42e1c1714e5643891913bf10d98dee60e1eeb364",
+      "status": "required",
+      "tests": ["pnpm deps:shrinkwrap:check", "node scripts/check-openclaw-package-tarball.mjs"]
+    },
+    {
+      "id": "suppress-jsonl-fallback",
+      "file": "downstream/patches/2026.7.1-2/0004-fix-agents-suppress-raw-JSONL-fallback-output.patch",
+      "sha256": "4ab935c69104a2362edabc2eff17f04613bfd4560c5081ea7af7dc68c9df587b",
+      "status": "required",
+      "tests": ["src/agents/cli-output.test.ts"]
+    },
+    {
+      "id": "invalid-thinking-session-expired",
+      "file": "downstream/patches/2026.7.1-2/0005-fix-agents-expire-invalid-thinking-signature-session.patch",
+      "sha256": "47a9f96c84e5713df600ac39f23a1a169453278b0fd805bb8e2b7826e71bfe36",
+      "status": "required",
+      "tests": ["src/agents/embedded-agent-helpers.isbillingerrormessage.test.ts"]
+    },
+    {
+      "id": "channels-status-cli-identity",
+      "file": "downstream/patches/2026.7.1-2/0006-fix-channels-use-CLI-identity-for-status-RPC.patch",
+      "sha256": "abe6078c4ab0825fa9f2b616954e6bf0ec3e4f5bea3ea980074b0aad93114ca2",
+      "status": "required",
+      "tests": ["src/commands/channels/status.test.ts"]
+    },
+    {
+      "id": "codex-lazy-plugin-state",
+      "file": "downstream/patches/2026.7.1-2/0007-fix-codex-defer-plugin-state-until-runtime-use.patch",
+      "sha256": "11d5df26868aab81356919cff284cbd177d2d7508fea12711ec8706a1b3ca706",
+      "status": "required",
+      "tests": ["extensions/codex/index.test.ts", "downstream/scripts/smoke-external-plugin.sh"]
+    },
+    {
+      "id": "shrinkwrap-dependency-forks",
+      "file": "downstream/patches/2026.7.1-2/0008-fix-deps-restore-shrinkwrap-dependency-forks.patch",
+      "sha256": "edc91e3879f2c7f399b90a09432bba4614a482ae12137e558c9ccb5c1b0b6900",
+      "status": "required",
+      "tests": ["test/scripts/generate-npm-shrinkwrap.test.ts", "pnpm deps:shrinkwrap:check"]
+    },
+    {
+      "id": "codex-correction-cohort-runtime",
+      "file": "downstream/patches/2026.7.1-2/0009-fix-codex-accept-stable-correction-cohort-runtime.patch",
+      "sha256": "9ee3e87c681abdc070273beab7f51f9a57b174b9754912ee6bfd17c91ed35a7a",
+      "status": "required",
+      "tests": ["src/commands/doctor/shared/missing-configured-plugin-install.test.ts", "downstream/scripts/smoke-image-runtime.mjs"]
+    },
+    {
+      "id": "shrinkwrap-scoped-overrides",
+      "file": "downstream/patches/2026.7.1-2/0010-fix-deps-normalize-scoped-shrinkwrap-overrides.patch",
+      "sha256": "87b4fba71d4367a085a7e00a983e61053bed41bc1bac767af22a6ad3eb23b2cb",
+      "status": "required",
+      "tests": ["test/scripts/generate-npm-shrinkwrap.test.ts", "pnpm deps:shrinkwrap:check"]
+    },
+    {
+      "id": "shrinkwrap-authoritative-policy",
+      "file": "downstream/patches/2026.7.1-2/0011-fix-deps-prefer-authoritative-shrinkwrap-policy.patch",
+      "sha256": "f1eb035f28319d3fbda96056ba144c8d11ed97a037a8c60af968a55949b8495a",
+      "status": "required",
+      "tests": ["test/scripts/generate-npm-shrinkwrap.test.ts", "pnpm deps:shrinkwrap:check"]
+    }
+  ],
+  "artifact": {
+    "filename": "openclaw-2026.7.1-2-nas.6.tgz",
+    "url": "https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-2026.7.1-2-nas.6.tgz",
+    "sha256": "d2f504caa46df621c9742d4b5f8f648b5f20bb279270f6eb063136af82900848",
+    "validation": {
+      "fullBuild": true,
+      "focusedAssertions": 568,
+      "packageSmoke": true,
+      "externalPluginRegistration": true,
+      "scopedLoopbackRpc": true,
+      "dependencyMetadataCheck": true,
+      "dependencyInstallProofs": true,
+      "qmdRuntime": true,
+      "discordRuntimeFiles": 61,
+      "patchTests": true,
+      "imageSmoke": true,
+      "imageScan": true
+    }
+  },
+  "image": {
+    "repository": "ghcr.io/ashleyhollis/openclaw",
+    "tag": "nas-2026.7.1-2-nas.7",
+    "digest": "sha256:4a10348b997381fc294281375c1f208fbd6208abd7fb6b274053d572c93b8e79",
+    "attestationDigest": "sha256:1173f4685910667c5e679dd35d2f717918a5c25d64b7d9292104345b01faf18d",
+    "sbomDigest": "sha256:88fe75e5f48d244101dff4250cb0116ba70a8a480240885ac7391211278d95d9",
+    "provenanceDigest": "sha256:e9c4fe3a118eec55fd477f1807d7e5f9f247093f72e369ea8ed087a2777dcb4e"
+  },
+  "testResults": {
+    "downstreamGuard": "https://github.com/AshleyHollis/openclaw/actions/runs/30003967117",
+    "dryRun": "https://github.com/AshleyHollis/openclaw/actions/runs/30004134557",
+    "publish": "https://github.com/AshleyHollis/openclaw/actions/runs/30004739477"
+  }
+}

@@ -1,0 +1,274 @@
+From 768258f09b4bfdd6e21c47a003470f37f2f5bda9 Mon Sep 17 00:00:00 2001
+From: OpenClaw <openclaw@ashleyhollis.com>
+Date: Sun, 19 Jul 2026 11:23:27 +1000
+Subject: [PATCH] fix(deps): restore shrinkwrap dependency forks
+
+---
+ extensions/llama-cpp/npm-shrinkwrap.json     | 63 +++++++++++++-------
+ extensions/twitch/npm-shrinkwrap.json        | 12 ++--
+ scripts/generate-npm-shrinkwrap.mjs          | 50 ++++++++++++++++
+ test/scripts/generate-npm-shrinkwrap.test.ts | 62 +++++++++++++++++++
+ 4 files changed, 161 insertions(+), 26 deletions(-)
+
+diff --git a/extensions/llama-cpp/npm-shrinkwrap.json b/extensions/llama-cpp/npm-shrinkwrap.json
+index 8b23f185b19..cf2ba3e0b36 100644
+--- a/extensions/llama-cpp/npm-shrinkwrap.json
++++ b/extensions/llama-cpp/npm-shrinkwrap.json
+@@ -724,13 +724,6 @@
+         "node": ">= 8"
+       }
+     },
+-    "node_modules/cross-spawn/node_modules/isexe": {
+-      "version": "2.0.0",
+-      "resolved": "https://registry.npmjs.org/isexe/-/isexe-2.0.0.tgz",
+-      "integrity": "sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==",
+-      "license": "ISC",
+-      "optional": true
+-    },
+     "node_modules/cross-spawn/node_modules/which": {
+       "version": "2.0.2",
+       "resolved": "https://registry.npmjs.org/which/-/which-2.0.2.tgz",
+@@ -948,19 +941,6 @@
+       "license": "MIT",
+       "optional": true
+     },
+-    "node_modules/ipull/node_modules/parse-ms": {
+-      "version": "3.0.0",
+-      "resolved": "https://registry.npmjs.org/parse-ms/-/parse-ms-3.0.0.tgz",
+-      "integrity": "sha512-Tpb8Z7r7XbbtBTrM9UhpkzzaMrqA2VXMT3YChzYltwV3P3pM6t8wl7TvpMnSTosz1aQAdVib7kdoys7vYOPerw==",
+-      "license": "MIT",
+-      "optional": true,
+-      "engines": {
+-        "node": ">=12"
+-      },
+-      "funding": {
+-        "url": "https://github.com/sponsors/sindresorhus"
+-      }
+-    },
+     "node_modules/ipull/node_modules/pretty-ms": {
+       "version": "8.0.0",
+       "resolved": "https://registry.npmjs.org/pretty-ms/-/pretty-ms-8.0.0.tgz",
+@@ -1629,6 +1609,29 @@
+         "url": "https://github.com/sponsors/sindresorhus"
+       }
+     },
++    "node_modules/string-width/node_modules/ansi-regex": {
++      "version": "5.0.1",
++      "resolved": "https://registry.npmjs.org/ansi-regex/-/ansi-regex-5.0.1.tgz",
++      "integrity": "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">=8"
++      }
++    },
++    "node_modules/string-width/node_modules/strip-ansi": {
++      "version": "6.0.1",
++      "resolved": "https://registry.npmjs.org/strip-ansi/-/strip-ansi-6.0.1.tgz",
++      "integrity": "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "ansi-regex": "^5.0.1"
++      },
++      "engines": {
++        "node": ">=8"
++      }
++    },
+     "node_modules/strip-ansi": {
+       "version": "7.2.0",
+       "resolved": "https://registry.npmjs.org/strip-ansi/-/strip-ansi-7.2.0.tgz",
+@@ -1906,6 +1909,26 @@
+       "funding": {
+         "url": "https://github.com/sponsors/sindresorhus"
+       }
++    },
++    "node_modules/cross-spawn/node_modules/isexe": {
++      "version": "2.0.0",
++      "resolved": "https://registry.npmjs.org/isexe/-/isexe-2.0.0.tgz",
++      "integrity": "sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==",
++      "license": "ISC",
++      "optional": true
++    },
++    "node_modules/ipull/node_modules/parse-ms": {
++      "version": "3.0.0",
++      "resolved": "https://registry.npmjs.org/parse-ms/-/parse-ms-3.0.0.tgz",
++      "integrity": "sha512-Tpb8Z7r7XbbtBTrM9UhpkzzaMrqA2VXMT3YChzYltwV3P3pM6t8wl7TvpMnSTosz1aQAdVib7kdoys7vYOPerw==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">=12"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/sindresorhus"
++      }
+     }
+   }
+ }
+diff --git a/extensions/twitch/npm-shrinkwrap.json b/extensions/twitch/npm-shrinkwrap.json
+index 004f9ce3a03..16dafd482a5 100644
+--- a/extensions/twitch/npm-shrinkwrap.json
++++ b/extensions/twitch/npm-shrinkwrap.json
+@@ -244,12 +244,6 @@
+         "undici-types": "~8.3.0"
+       }
+     },
+-    "node_modules/@types/ws/node_modules/undici-types": {
+-      "version": "8.3.0",
+-      "resolved": "https://registry.npmjs.org/undici-types/-/undici-types-8.3.0.tgz",
+-      "integrity": "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==",
+-      "license": "MIT"
+-    },
+     "node_modules/ircv3": {
+       "version": "0.33.1",
+       "resolved": "https://registry.npmjs.org/ircv3/-/ircv3-0.33.1.tgz",
+@@ -327,6 +321,12 @@
+       "funding": {
+         "url": "https://github.com/sponsors/colinhacks"
+       }
++    },
++    "node_modules/@types/ws/node_modules/undici-types": {
++      "version": "8.3.0",
++      "resolved": "https://registry.npmjs.org/undici-types/-/undici-types-8.3.0.tgz",
++      "integrity": "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==",
++      "license": "MIT"
+     }
+   }
+ }
+diff --git a/scripts/generate-npm-shrinkwrap.mjs b/scripts/generate-npm-shrinkwrap.mjs
+index 60e4f05c183..367fdb6a6d7 100644
+--- a/scripts/generate-npm-shrinkwrap.mjs
++++ b/scripts/generate-npm-shrinkwrap.mjs
+@@ -1054,6 +1054,56 @@ function restoreCurrentPnpmLockedPackages(
+     generatedPackages[lockPath] = currentMetadata;
+   }
+ 
++  // npm 10 can hoist the wrong version and omit the nested package record when
++  // scoped overrides force multiple versions of one dependency (for example
++  // which/isexe and pretty-ms/parse-ms). Restore only records that a generated
++  // dependency edge requires and that are already proven by both the current
++  // shrinkwrap and canonical pnpm lock. Iterate because a restored record may
++  // itself expose a required transitive edge.
++  let restoredMissingPackage;
++  do {
++    restoredMissingPackage = false;
++    for (const [parentLockPath, metadata] of Object.entries(generatedPackages)) {
++      if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
++        continue;
++      }
++      const dependencies = {
++        ...(metadata.dependencies ?? {}),
++        ...(metadata.optionalDependencies ?? {}),
++      };
++      for (const [dependencyName, dependencySpec] of Object.entries(dependencies)) {
++        const generatedResolved = resolveShrinkwrapDependency(
++          generatedPackages,
++          parentLockPath,
++          dependencyName,
++        );
++        if (
++          generatedResolved &&
++          versionSatisfiesSimpleSpec(generatedResolved.version, dependencySpec)
++        ) {
++          continue;
++        }
++        const currentResolved = resolveShrinkwrapDependency(
++          currentPackages,
++          parentLockPath,
++          dependencyName,
++        );
++        const currentMetadata = currentResolved ? currentPackages[currentResolved.path] : undefined;
++        if (
++          !currentResolved ||
++          !currentMetadata ||
++          generatedPackages[currentResolved.path]?.version === currentResolved.version ||
++          !versionSatisfiesSimpleSpec(currentResolved.version, dependencySpec) ||
++          !pnpmLockPackages.has(`${dependencyName}@${currentResolved.version}`)
++        ) {
++          continue;
++        }
++        generatedPackages[currentResolved.path] = currentMetadata;
++        restoredMissingPackage = true;
++      }
++    }
++  } while (restoredMissingPackage);
++
+   return generated;
+ }
+ 
+diff --git a/test/scripts/generate-npm-shrinkwrap.test.ts b/test/scripts/generate-npm-shrinkwrap.test.ts
+index 4bd4043eee0..2e1b2cacf83 100644
+--- a/test/scripts/generate-npm-shrinkwrap.test.ts
++++ b/test/scripts/generate-npm-shrinkwrap.test.ts
+@@ -290,6 +290,68 @@ describe("generate-npm-shrinkwrap", () => {
+     });
+   });
+ 
++  it("restores dependency-required entries misresolved by npm when they remain pnpm locked", () => {
++    const generated = {
++      packages: {
++        "": {},
++        "node_modules/cross-spawn/node_modules/which": {
++          version: "2.0.2",
++          dependencies: {
++            isexe: "^2.0.0",
++          },
++        },
++        "node_modules/isexe": {
++          version: "2.0.0",
++        },
++        "node_modules/which": {
++          version: "6.0.1",
++          dependencies: {
++            isexe: "^4.0.0",
++          },
++        },
++      },
++    };
++    const current = {
++      packages: {
++        "": {},
++        "node_modules/cross-spawn/node_modules/isexe": {
++          version: "2.0.0",
++          resolved: "https://registry.npmjs.org/isexe/-/isexe-2.0.0.tgz",
++          integrity: "sha512-nested-current",
++        },
++        "node_modules/cross-spawn/node_modules/which":
++          generated.packages["node_modules/cross-spawn/node_modules/which"],
++        "node_modules/which": generated.packages["node_modules/which"],
++        "node_modules/isexe": {
++          version: "4.0.0",
++          resolved: "https://registry.npmjs.org/isexe/-/isexe-4.0.0.tgz",
++          integrity: "sha512-current",
++        },
++        "node_modules/orphan": {
++          version: "1.0.0",
++        },
++      },
++    };
++
++    expect(
++      restoreCurrentPnpmLockedPackages(
++        generated,
++        current,
++        new Set(["which@2.0.2", "which@6.0.1", "isexe@2.0.0", "isexe@4.0.0", "orphan@1.0.0"]),
++      ),
++    ).toEqual({
++      packages: {
++        "": {},
++        "node_modules/cross-spawn/node_modules/isexe":
++          current.packages["node_modules/cross-spawn/node_modules/isexe"],
++        "node_modules/cross-spawn/node_modules/which":
++          generated.packages["node_modules/cross-spawn/node_modules/which"],
++        "node_modules/which": generated.packages["node_modules/which"],
++        "node_modules/isexe": current.packages["node_modules/isexe"],
++      },
++    });
++  });
++
+   it("does not restore versions that no longer satisfy the dependency edge", () => {
+     const generated = {
+       packages: {
+-- 
+2.43.0
+
