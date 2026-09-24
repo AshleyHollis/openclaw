@@ -174,6 +174,17 @@ export function openSlot(layout: SidebarLayout, slot: SidebarSlotId): SidebarLay
   return next;
 }
 
+/** Reveal Files and Chat together without changing their preferred main/side order. */
+export function openFilesWithConversation(layout: SidebarLayout): SidebarLayout {
+  let next = ensureSidebarConversation(layout);
+  const mainSlot = sidebarMainPanel(next)?.slot;
+  if (mainSlot !== "conversation" && mainSlot !== "workspace") {
+    const conversation = next.columns[0]!.panels.find((panel) => panel.slot === "conversation")!;
+    next = promoteSidebarPanel(next, conversation.id);
+  }
+  return openSlot(openSlot(next, "conversation"), "workspace");
+}
+
 export function closeSlot(layout: SidebarLayout, slot: SidebarSlotId): SidebarLayout {
   let next = cloneLayout(layout);
   const panel = next.columns

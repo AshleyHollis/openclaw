@@ -99,6 +99,12 @@ applicable policy also requires fresh publication admission.
     `details`, retry metadata, and the Gateway error code for recovery flows. Use `isAvailable()`
     before choosing this path from tools that can also run in standalone agent processes.
 
+    A plugin Gateway method may instead declare `gatewayMethodDispatchMethods` when it registers.
+    This is limited to the listed core methods, only while that authenticated Gateway request is
+    active, and still requires `contracts.gatewayMethodDispatch: ["authenticated-request"]`.
+    Use this for a small native composition seam; do not use a loopback connection or a broad
+    catch-all allowlist.
+
   </Accordion>
   <Accordion title="api.runtime.nodes">
     List connected nodes and invoke a node-host command from Gateway-loaded plugin code or from plugin CLI commands. Use this when a plugin owns local work on a paired device, for example a browser or audio bridge on another Mac.

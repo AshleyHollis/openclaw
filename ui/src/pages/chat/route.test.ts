@@ -165,6 +165,30 @@ describe("loadChatRoute", () => {
     ).resolves.toMatchObject({ kind: "missing-session" });
     expect(request).toHaveBeenCalledOnce();
   });
+  it("preserves each Files request and draft for the same exact conversation", async () => {
+    const { context, list } = contextFor();
+    for (const request of ["1", "files-request-one", "files-request-two"]) {
+      await expect(
+        loadChatRoute(
+          context,
+          {
+            pathname: "/chat/main/telegram/12345",
+            search: `?draft=unsent&__openclawFilesPanel=${request}`,
+            hash: "",
+          },
+          "chat",
+          new AbortController().signal,
+        ),
+      ).resolves.toMatchObject({
+        kind: "session",
+        sessionKey: "agent:main:telegram:12345",
+        draft: "unsent",
+        filesOpenRequest: request,
+      });
+    }
+    expect(list).not.toHaveBeenCalled();
+  });
+
   it("leaves a bare namespace unresolved instead of inventing a main session", async () => {
     const { context, list } = contextFor({ ok: false }, "workspace");
     const loaded = await loadChatRoute(

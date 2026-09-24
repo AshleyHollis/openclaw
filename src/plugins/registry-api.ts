@@ -245,6 +245,7 @@ export function createPluginApiFactory(
                   pluginId: record.id,
                   pluginName: record.name,
                   origin: record.origin,
+                  workspaceSessionTurnScheduling: record.contracts?.workspaceSessionTurnScheduling,
                   schedule,
                   cron: getHostCronService(),
                   shouldCommit: shouldCommitWorkflowSideEffect,
@@ -262,6 +263,7 @@ export function createPluginApiFactory(
                 return unschedulePluginSessionTurnsByTag({
                   pluginId: record.id,
                   origin: record.origin,
+                  workspaceSessionTurnScheduling: record.contracts?.workspaceSessionTurnScheduling,
                   cron: getHostCronService(),
                   request,
                 });

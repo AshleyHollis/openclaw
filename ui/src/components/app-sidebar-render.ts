@@ -37,6 +37,7 @@ import {
 } from "../lib/sessions/session-key.ts";
 import { pluginTabKey } from "../pages/plugin/route.ts";
 import { renderSidebarPluginTab } from "./app-sidebar-nav-menus.ts";
+import type { SidebarPluginNavigationGroup } from "./app-sidebar-plugin-navigation-groups.ts";
 import { renderSidebarSessionFilter } from "./app-sidebar-session-filter-summary.ts";
 import type { AppSidebarSessionNavigationElement } from "./app-sidebar-session-navigation.ts";
 import { renderSidebarSessionSectionHeader } from "./app-sidebar-session-section-header.ts";
@@ -337,7 +338,9 @@ export function renderAppSidebarHomeRow(host: AppSidebarRenderHost) {
 export function renderAppSidebarPagesHead(host: AppSidebarRenderHost) {
   return html`
     <div class="sidebar-nav__head">
-      <span class="sidebar-recent-sessions__label-text sr-only">${t("nav.pages")}</span>
+      <span class="sidebar-recent-sessions__label-text sr-only"
+        >${t("nav.toolsAndManagement")}</span
+      >
       <button
         type="button"
         class="sidebar-nav__head-action"
@@ -555,6 +558,7 @@ export function renderAppSidebarZoneEntry(
   entry: SidebarZoneEntry,
   sessionRows: ReadonlyMap<string, SidebarRecentSession>,
   pluginTabs: ReadonlyMap<string, GatewayControlUiPluginTab>,
+  allowReorder = true,
 ) {
   if (entry.type === "route" && !host.sidebarMenus.isRouteEnabled(entry.route)) {
     return nothing;
@@ -574,11 +578,12 @@ export function renderAppSidebarZoneEntry(
           ? html`<openclaw-plugin-contributions
               .kind=${"navigation"}
               .navigationKey=${entry.key}
+              .currentNavigationHref=${`${window.location.pathname}${window.location.search}`}
             ></openclaw-plugin-contributions>`
           : sessionRows.has(entry.key)
             ? host.renderPinnedSidebarSession(sessionRows.get(entry.key)!)
             : nothing;
-  const draggable = entry.type === "route" || entry.type === "plugin";
+  const draggable = allowReorder && (entry.type === "route" || entry.type === "plugin");
   return html`
     <div
       class="sidebar-zone-entry ${dropPosition ? `sidebar-zone-entry--drop-${dropPosition}` : ""} ${
@@ -589,20 +594,53 @@ export function renderAppSidebarZoneEntry(
       data-sidebar-entry=${serialized}
       draggable=${draggable ? "true" : "false"}
       @dragstart=${
-        entry.type === "route"
-          ? (event: DragEvent) => host.sessionOrganizer.startSidebarRouteDrag(event, entry.route)
-          : entry.type === "plugin"
-            ? (event: DragEvent) => host.sessionOrganizer.startSidebarPluginDrag(event, entry.key)
-            : nothing
+        !draggable
+          ? nothing
+          : entry.type === "route"
+            ? (event: DragEvent) => host.sessionOrganizer.startSidebarRouteDrag(event, entry.route)
+            : entry.type === "plugin"
+              ? (event: DragEvent) => host.sessionOrganizer.startSidebarPluginDrag(event, entry.key)
+              : nothing
       }
       @dragend=${draggable ? () => host.sessionOrganizer.finishSidebarEntryDrag() : nothing}
-      @dragover=${(event: DragEvent) =>
-        host.sessionOrganizer.handleSidebarZoneDragOver(event, serialized)}
-      @drop=${(event: DragEvent) => host.sessionOrganizer.handleSidebarZoneDrop(event, serialized)}
+      @dragover=${
+        allowReorder
+          ? (event: DragEvent) => host.sessionOrganizer.handleSidebarZoneDragOver(event, serialized)
+          : nothing
+      }
+      @drop=${allowReorder ? (event: DragEvent) => host.sessionOrganizer.handleSidebarZoneDrop(event, serialized) : nothing}
     >
       ${content}
     </div>
   `;
+}
+
+export function renderAppSidebarPluginNavigationGroups(
+  host: AppSidebarRenderHost,
+  groups: readonly SidebarPluginNavigationGroup[],
+  sessionRows: ReadonlyMap<string, SidebarRecentSession>,
+  pluginTabs: ReadonlyMap<string, GatewayControlUiPluginTab>,
+) {
+  return repeat(
+    groups,
+    (group) => group.key,
+    (group) => html`
+      <details
+        class="sidebar-nav__tools sidebar-nav__plugin-group"
+        open
+        data-plugin-navigation-group=${group.key}
+      >
+        <summary class="sidebar-nav__tools-summary">
+          <span class="sidebar-nav__tools-label">${group.label}</span>
+        </summary>
+        <div class="nav-section__items">
+          ${group.entries.map((entry) =>
+            renderAppSidebarZoneEntry(host, entry, sessionRows, pluginTabs, false),
+          )}
+        </div>
+      </details>
+    `,
+  );
 }
 
 function renderAppSidebarPluginTab(host: AppSidebarRenderHost, tab: GatewayControlUiPluginTab) {

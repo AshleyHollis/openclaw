@@ -47,6 +47,55 @@ function createRosterHost(request: GatewayBrowserClient["request"]) {
 }
 
 describe("native UI roster refresh", () => {
+  it.each([false, true])(
+    "issues a fresh Files request for the same exact conversation (crypto fallback: %s)",
+    (fallback) => {
+      if (fallback) {
+        vi.stubGlobal("crypto", {
+          getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto),
+        });
+      }
+      const fixture = createRosterHost(vi.fn());
+      const selection = createAgentSelectionCapability(
+        { ...fixture.context.gateway, connection: { gatewayUrl: "ws://localhost:18789" } },
+        fixture.agents,
+      );
+      const navigate = vi.fn();
+      const setSessionKey = vi.fn();
+      Object.assign(fixture.context, { basePath: "", agentSelection: selection, navigate });
+      Object.assign(fixture.context.gateway, { setSessionKey });
+      try {
+        const target = { sessionKey: "agent:main:linked", agentId: "main" };
+        const openFiles = fixture.host.sessions.openFiles;
+        if (!openFiles) {
+          throw new Error("Expected the native Files capability");
+        }
+        openFiles(target);
+        openFiles(target);
+        expect(navigate).toHaveBeenCalledTimes(2);
+        const [first, second] = navigate.mock.calls.map((call) => call[1]);
+        expect(first.pathname).toBe(second.pathname);
+        const firstSearch = new URLSearchParams(first.search);
+        const secondSearch = new URLSearchParams(second.search);
+        expect(firstSearch.get("__openclawFilesPanel")).toBeTruthy();
+        expect(secondSearch.get("__openclawFilesPanel")).toBeTruthy();
+        expect(secondSearch.get("__openclawFilesPanel")).not.toBe(
+          firstSearch.get("__openclawFilesPanel"),
+        );
+        firstSearch.delete("__openclawFilesPanel");
+        secondSearch.delete("__openclawFilesPanel");
+        expect(secondSearch.toString()).toBe(firstSearch.toString());
+        expect(setSessionKey).toHaveBeenNthCalledWith(1, target.sessionKey);
+        expect(setSessionKey).toHaveBeenNthCalledWith(2, target.sessionKey);
+      } finally {
+        fixture.dispose();
+        if (fallback) {
+          vi.unstubAllGlobals();
+        }
+      }
+    },
+  );
+
   it("observes independent session windows without replacing or exposing the application roster", async () => {
     const primary = sessionsResult(
       [{ key: "agent:main:current", kind: "direct", updatedAt: 1 }],
@@ -532,4 +581,100 @@ describe("native UI page navigation", () => {
       }
     },
   );
+});
+
+describe("declared authenticated plugin HTTP relay", () => {
+  it("relays only the declared Command Center actions without exposing the credential", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('{"status":"applied"}', {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const context = {
+      gateway: { connection: { token: "fixture-private-token" } },
+    } as unknown as ApplicationContext<RouteId>;
+    const abort = new AbortController();
+    const owner = {
+      abort,
+      client: { request: vi.fn() } as unknown as GatewayBrowserClient,
+      descriptor: { pluginId: "command-center" },
+      disposers: new Set(),
+    } as Omit<ControlUiPluginOwner, "host">;
+    const runtime = {
+      isCurrent: (current: Omit<ControlUiPluginOwner, "host">) =>
+        current === owner && !current.abort.signal.aborted,
+    } as ControlUiPluginRuntime;
+    const host = createControlUiPluginHost(() => context, runtime, owner);
+    try {
+      await expect(
+        host.httpRequest({
+          method: "POST",
+          path: "/plugins/command-center/api/topic/actions",
+          body: '{"schemaVersion":1}',
+        }),
+      ).resolves.toEqual({ status: 200, body: '{"status":"applied"}' });
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.objectContaining({ pathname: "/plugins/command-center/api/topic/actions" }),
+        expect.objectContaining({
+          method: "POST",
+          body: '{"schemaVersion":1}',
+          headers: expect.objectContaining({ Authorization: "Bearer fixture-private-token" }),
+        }),
+      );
+      await expect(
+        host.httpRequest({
+          method: "POST",
+          path: "/plugins/command-center/api/not-declared",
+          body: "{}",
+        }),
+      ).rejects.toThrow("Undeclared plugin HTTP route.");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+      abort.abort();
+    }
+  });
+});
+describe("bootstrap credential relay", () => {
+  it("relays the host-only bootstrap credential when no persistent token is present", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response('{"status":"clear"}', { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const context = {
+      gateway: { connection: { token: "", bootstrapToken: "fixture-bootstrap-token" } },
+    } as unknown as ApplicationContext<RouteId>;
+    const abort = new AbortController();
+    const owner = {
+      abort,
+      client: { request: vi.fn() } as unknown as GatewayBrowserClient,
+      descriptor: { pluginId: "command-center" },
+      disposers: new Set(),
+    } as Omit<ControlUiPluginOwner, "host">;
+    const runtime = {
+      isCurrent: (current: Omit<ControlUiPluginOwner, "host">) =>
+        current === owner && !current.abort.signal.aborted,
+    } as ControlUiPluginRuntime;
+    const host = createControlUiPluginHost(() => context, runtime, owner);
+    try {
+      await expect(
+        host.httpRequest({
+          method: "POST",
+          path: "/plugins/command-center/api/topic/actions",
+          body: '{"schemaVersion":1,"action":"conversations.creation.inspect"}',
+        }),
+      ).resolves.toEqual({ status: 200, body: '{"status":"clear"}' });
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.objectContaining({ pathname: "/plugins/command-center/api/topic/actions" }),
+        expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: "Bearer fixture-bootstrap-token" }),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      abort.abort();
+    }
+  });
 });

@@ -4,6 +4,9 @@ import type {
   ControlUiPageNavigationOptions,
   ControlUiPageTarget,
 } from "../../../src/plugin-sdk/control-ui.js";
+
+type ControlUiHttpRequest = Parameters<ControlUiHost["httpRequest"]>[0];
+type ControlUiHttpResponse = Awaited<ReturnType<ControlUiHost["httpRequest"]>>;
 import { isRouteId, pathForRoute, pluginTabLocation } from "../app-route-paths.ts";
 import { selectApplicationSession } from "../app/agent-selection.ts";
 import type { ApplicationContext } from "../app/context.ts";
@@ -15,8 +18,68 @@ import {
   sessionNavigationTarget,
 } from "../lib/sessions/route-navigation.ts";
 import { normalizeSessionKeyForUiComparison } from "../lib/sessions/session-key.ts";
+import { generateUUID } from "../lib/uuid.ts";
 import { createControlUiComponents } from "./control-ui-components.ts";
 import type { ControlUiPluginOwner, ControlUiPluginRuntime } from "./control-ui-runtime.ts";
+
+const DECLARED_PLUGIN_HTTP_ROUTES: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  [
+    "command-center",
+    new Set([
+      "/plugins/command-center/api/topics/actions",
+      "/plugins/command-center/api/topic/actions",
+    ]),
+  ],
+]);
+
+function declaredPluginHttpRoute(pluginId: string, request: ControlUiHttpRequest): string {
+  if (request.method !== "POST" || typeof request.body !== "string") {
+    throw new Error("Unsupported plugin HTTP request.");
+  }
+  const routes = DECLARED_PLUGIN_HTTP_ROUTES.get(pluginId);
+  if (!routes?.has(request.path)) {
+    throw new Error("Undeclared plugin HTTP route.");
+  }
+  if (new TextEncoder().encode(request.body).byteLength > 12 * 1024 * 1024) {
+    throw new Error("Plugin HTTP request exceeds the supported size.");
+  }
+  return request.path;
+}
+
+async function relayDeclaredPluginHttpRequest(
+  context: ApplicationContext,
+  pluginId: string,
+  request: ControlUiHttpRequest,
+  signal?: AbortSignal,
+): Promise<ControlUiHttpResponse> {
+  const path = declaredPluginHttpRoute(pluginId, request);
+  const credential = (
+    context.gateway.connection.token || context.gateway.connection.bootstrapToken
+  ).trim();
+  if (!credential) {
+    throw new Error("Authenticated plugin HTTP access is unavailable.");
+  }
+  const target = new URL(path, window.location.origin);
+  if (target.origin !== window.location.origin) {
+    throw new Error("Plugin HTTP relay must remain same-origin.");
+  }
+  const response = await fetch(target, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: "Bearer " + credential,
+      "Content-Type": "application/json",
+    },
+    body: request.body,
+    credentials: "same-origin",
+    signal,
+  });
+  const body = await response.text();
+  if (new TextEncoder().encode(body).byteLength > 1024 * 1024) {
+    throw new Error("Plugin HTTP response exceeds the supported size.");
+  }
+  return { status: response.status, body };
+}
 
 export function createControlUiPluginHost(
   getContext: () => ApplicationContext,
@@ -109,6 +172,15 @@ export function createControlUiPluginHost(
       };
     },
     request: (method, params = {}) => call(() => owner.client.request(method, params)),
+    httpRequest: (request, options) =>
+      call((context) =>
+        relayDeclaredPluginHttpRequest(
+          context,
+          owner.descriptor.pluginId,
+          request,
+          options?.signal,
+        ),
+      ),
     onEvent(event, listener) {
       return retain(
         current().gateway.subscribeEvents((frame) => {
@@ -209,6 +281,43 @@ export function createControlUiPluginHost(
           agentId,
         });
         context.navigate(face, target.options);
+      },
+      openChat({ sessionKey, agentId }) {
+        const context = current();
+        const target = sessionNavigationTarget({
+          context,
+          face: "chat",
+          sessionKey,
+          agentId,
+          exactKey: true,
+        });
+        selectApplicationSession({
+          selection: context.agentSelection,
+          gateway: context.gateway,
+          sessionKey,
+          agentId,
+        });
+        context.navigate("chat", target.options);
+      },
+      openFiles({ sessionKey, agentId }) {
+        const context = current();
+        const target = sessionNavigationTarget({
+          context,
+          face: "chat",
+          sessionKey,
+          agentId,
+          exactKey: true,
+        });
+        selectApplicationSession({
+          selection: context.agentSelection,
+          gateway: context.gateway,
+          sessionKey,
+          agentId,
+        });
+        const search = new URLSearchParams(target.options.search ?? "");
+        // A fresh request must reopen Files even when the selected Chat has not changed.
+        search.set("__openclawFilesPanel", generateUUID());
+        context.navigate("chat", { ...target.options, search: `?${search.toString()}` });
       },
       create: (params) => call((context) => context.sessions.create(params)),
       patch: ({ sessionKey, agentId }, patch) =>

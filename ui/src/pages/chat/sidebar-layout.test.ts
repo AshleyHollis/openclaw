@@ -8,6 +8,7 @@ import {
   initializeBrowserSidebarWidth,
   isSidebarSlotVisible,
   normalizeSidebarLayout,
+  openFilesWithConversation,
   openSlot,
   promoteSidebarPanel,
   reorderPanel,
@@ -27,6 +28,43 @@ function openAll(): SidebarLayout {
 }
 
 describe("sidebar layout", () => {
+  it("reopens closed Files alongside the existing conversation, idempotently", () => {
+    const split = openFilesWithConversation({ columns: [] });
+    const closed = closeSlot(split, "workspace");
+    expect(isSidebarSlotVisible(closed, "workspace")).toBe(false);
+    const reopened = openFilesWithConversation(closed);
+    expect(isSidebarSlotVisible(reopened, "workspace")).toBe(true);
+    expect(isSidebarSlotVisible(reopened, "conversation")).toBe(true);
+    expect(openFilesWithConversation(reopened)).toEqual(reopened);
+  });
+
+  it.each(["left", "right", "bottom"] as const)(
+    "restores minimized Chat beside main Files without changing the %s dock or panel identities",
+    (dock) => {
+      const split = setSidebarDock(openFilesWithConversation({ columns: [] }), dock);
+      const promoted = promoteSidebarPanel(split, "workspace");
+      const minimized = closeSlot(promoted, "conversation");
+      expect(isSidebarSlotVisible(minimized, "conversation")).toBe(false);
+      const reopened = openFilesWithConversation(minimized);
+      expect(reopened.mainPanelId).toBe(promoted.mainPanelId);
+      expect(reopened.dock).toBe(dock);
+      expect(reopened.columns).toEqual(promoted.columns);
+      expect(isSidebarSlotVisible(reopened, "workspace")).toBe(true);
+      expect(isSidebarSlotVisible(reopened, "conversation")).toBe(true);
+    },
+  );
+
+  it("leaves focus mode and restores the pair when an unrelated panel is main", () => {
+    const focused = setSidebarExpanded(
+      promoteSidebarPanel(ensureSidebarConversation(openAll()), "dashboard"),
+      true,
+    );
+    const opened = openFilesWithConversation(focused);
+    expect(isSidebarSlotVisible(opened, "workspace")).toBe(true);
+    expect(isSidebarSlotVisible(opened, "conversation")).toBe(true);
+    expect(opened.columns[0]?.panels.some((panel) => panel.slot === "dashboard")).toBe(true);
+  });
+
   it.each(["left", "right", "bottom"] as const)(
     "restores the original %s split after focusing the side in place",
     (dock) => {

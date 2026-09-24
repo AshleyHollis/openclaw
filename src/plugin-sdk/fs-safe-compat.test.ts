@@ -8,6 +8,7 @@ import {
   fileExists,
   readFileWithinRoot,
   removePathWithinRoot,
+  stageDurableFileInDirectory,
   writeFileWithinRoot,
 } from "openclaw/plugin-sdk/file-access-runtime";
 import {
@@ -15,10 +16,19 @@ import {
   type SecretFileReadResult,
 } from "openclaw/plugin-sdk/secret-file-runtime";
 import { fileExists as fileExistsFromSecurity } from "openclaw/plugin-sdk/security-runtime";
+import { tryAcquireExclusiveSqliteCoordinator } from "openclaw/plugin-sdk/sqlite-runtime";
 import { describe, expect, it } from "vitest";
 import { withTestDir } from "../test-helpers/temp-dir.js";
 
 describe("plugin SDK fs-safe compatibility exports", () => {
+  it("exposes the existing contentless exclusive SQLite coordinator", () => {
+    expect(tryAcquireExclusiveSqliteCoordinator).toBeTypeOf("function");
+  });
+
+  it("exposes retained-directory durable staging without widening process defaults", () => {
+    expect(stageDurableFileInDirectory).toBeTypeOf("function");
+  });
+
   it.each([
     { subpath: "file-access-runtime", exists: fileExists },
     { subpath: "security-runtime", exists: fileExistsFromSecurity },

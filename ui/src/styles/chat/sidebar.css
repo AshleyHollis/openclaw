@@ -138,6 +138,8 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  /* Preserve user scroll through native pane reflow; do not let browser scroll anchoring choose a new tree item. */
+  overflow-anchor: none;
 }
 
 .chat-workspace-rail__list {

@@ -559,6 +559,11 @@ export type PluginManifestContracts = {
   usageProviders?: string[];
   migrationProviders?: string[];
   gatewayMethodDispatch?: string[];
+  /**
+   * Tag prefixes that authorize a workspace plugin's narrowly scoped native
+   * one-shot session turns. The host still owns Cron and session delivery.
+   */
+  workspaceSessionTurnScheduling?: string[];
   tools?: string[];
 };
 

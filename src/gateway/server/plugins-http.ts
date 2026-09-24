@@ -188,7 +188,14 @@ function createPluginRouteRuntimeScope(params: {
             hasCurrentGatewayOperatorAccess(operatorAccessAuthority),
         }
       : {}),
-    ...(params.gatewayRequestContext ? { context: params.gatewayRequestContext } : {}),
+    ...(params.gatewayRequestContext
+      ? {
+          context: params.gatewayRequestContext,
+          ...(params.gatewayRequestContext.resolveGatewayContext
+            ? { resolveGatewayContext: params.gatewayRequestContext.resolveGatewayContext }
+            : {}),
+        }
+      : {}),
     client: runtimeClient,
     ...(operatorAccessAuthority ? { signal: operatorAccessAuthority.signal } : {}),
     isWebchatConnect: () => false,

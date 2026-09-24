@@ -26,6 +26,7 @@ import {
   formatSessionTranscriptMemoryHitKey,
   parseSessionTranscriptMemoryHitKey,
   publishSessionTranscriptUpdateByIdentity,
+  redactSessionTranscriptMessage,
   readLatestAssistantTextByIdentity,
   readSessionTranscriptRawDelta,
   readSessionTranscriptEvents,
@@ -75,6 +76,30 @@ describe("session transcript runtime SDK", () => {
     });
     expect(identity).not.toHaveProperty("sessionFile");
     await expect(readSessionTranscriptEvents(scope)).resolves.toEqual([event]);
+  });
+
+  it("projects supplied transcript messages through storage redaction without mutation", () => {
+    const message = {
+      content: "email fictional@example.test",
+      role: "user",
+      timestamp: 1,
+    } as const;
+    const config = {
+      logging: { redactPatterns: ["fictional@example\\.test"] },
+    };
+
+    const projected = redactSessionTranscriptMessage(message, config);
+
+    expect(projected).not.toBe(message);
+    expect(projected).toMatchObject({
+      content: expect.not.stringContaining("fictional@example.test"),
+      role: "user",
+    });
+    expect(message).toEqual({
+      content: "email fictional@example.test",
+      role: "user",
+      timestamp: 1,
+    });
   });
 
   it("does not persist sessionFile metadata for identity-only reads", async () => {

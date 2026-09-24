@@ -34,6 +34,7 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) defaultView: unknown = nothing;
   @property({ attribute: false }) replacementCompanion: unknown = nothing;
   @property({ attribute: false }) defaultHost?: LitElement;
+  @property({ attribute: false }) panelPresentation?: ControlUiViewContext["panel"];
   @property({ type: Boolean }) presented = true;
   @state() private error = "";
   private registration?: ViewRegistration;
@@ -158,6 +159,7 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
               }
             };
           },
+          panel: this.scopedPanelPresentation(abort.signal),
         };
         this.handle = registration.value.mount(container, this.viewContext);
       } else if (this.viewContext) {
@@ -165,6 +167,7 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
           ...this.viewContext,
           props: this.scopedProps(this.mountAbort.signal),
           presented: this.presented,
+          panel: this.scopedPanelPresentation(this.mountAbort.signal),
         };
         this.handle?.update?.(this.viewContext);
       }
@@ -177,7 +180,38 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
   }
 
   private scopedProps(signal: AbortSignal): unknown {
-    if (this.kind !== "replacements" || this.surface !== "composer") {
+    if (this.kind !== "replacements") {
+      return structuredClone(this.props);
+    }
+    if (this.surface === "session-list") {
+      // A session-list replacement may request the host's next roster page.
+      // That callback is deliberately lifetime-bound and cannot pass through
+      // structuredClone with the immutable roster snapshot.
+      const props = this.props as ControlUiSurfaceProps["session-list"];
+      const { loadMoreNativeSessions, ...cloneable } = props;
+      const generation = this.mountGeneration;
+      const check = () => {
+        if (
+          !this.presented ||
+          generation !== this.mountGeneration ||
+          signal.aborted ||
+          this.registration?.signal.aborted
+        ) {
+          throw new Error("This plugin UI view has ended.");
+        }
+      };
+      return {
+        ...structuredClone(cloneable),
+        loadMoreNativeSessions: loadMoreNativeSessions
+          ? async () => {
+              check();
+              await loadMoreNativeSessions();
+              check();
+            }
+          : undefined,
+      };
+    }
+    if (this.surface !== "composer") {
       return structuredClone(this.props);
     }
     // SAFETY: renderPluginSurface supplies composer props only for the discriminants checked above.
@@ -212,6 +246,31 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
           }
         : undefined,
     };
+  }
+
+  private scopedPanelPresentation(signal: AbortSignal): ControlUiViewContext["panel"] {
+    if (!this.panelPresentation) {
+      return undefined;
+    }
+    const mountGeneration = this.mountGeneration;
+    return Object.freeze({
+      showInMain: () => {
+        if (
+          signal.aborted ||
+          this.mountAbort?.signal !== signal ||
+          this.mountGeneration !== mountGeneration ||
+          !this.isConnected ||
+          !this.presented
+        ) {
+          throw new Error("This plugin UI view has ended.");
+        }
+        const presentation = this.panelPresentation;
+        if (!presentation) {
+          throw new Error("This plugin UI view has ended.");
+        }
+        presentation.showInMain();
+      },
+    });
   }
 
   override focus(options?: FocusOptions): void {
@@ -302,6 +361,7 @@ class ControlUiPluginContributions extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) sessionKey = "";
   @property({ attribute: false }) agentId?: string;
   @property({ attribute: false }) navigationKey = "";
+  @property({ attribute: false }) currentNavigationHref = "";
   @property({ type: Boolean }) presented = true;
   @state() private actionError = "";
   private readonly subscriptions = new SubscriptionsController(this)
@@ -393,7 +453,9 @@ class ControlUiPluginContributions extends OpenClawLightDomContentsElement {
         .filter((entry) => entry.key === this.navigationKey)
         .map((entry) => {
           const href = entry.host.navigation.pageHref(entry.value.page);
-          const active = href === `${window.location.pathname}${window.location.search}`;
+          const active =
+            href ===
+            (this.currentNavigationHref || `${window.location.pathname}${window.location.search}`);
           let icon: IconName = "plug";
           if (entry.value.icon && Object.hasOwn(icons, entry.value.icon)) {
             // SAFETY: the own-key check narrows this plugin-provided name to the icon registry.

@@ -317,6 +317,7 @@ it.each(["cjs", "ts"])(
             "nodes",
             "sandbox",
             "worktrees",
+            "fileAccess",
             "webSearch",
             "tasks",
           ] as const) {

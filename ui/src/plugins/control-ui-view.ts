@@ -4,6 +4,7 @@ import { AsyncDirective, directive } from "lit/async-directive.js";
 import type {
   ControlUiSurface,
   ControlUiSurfaceProps,
+  ControlUiViewContext,
 } from "../../../src/plugin-sdk/control-ui.js";
 import { applicationContext } from "../app/context.ts";
 import type { ControlUiPluginCapability } from "./control-ui-capability.ts";
@@ -15,10 +16,20 @@ class PluginSurfaceDirective extends AsyncDirective {
   private consumer?: ContextConsumer<typeof applicationContext, LitElement>;
   private runtime?: ControlUiPluginCapability;
   private unsubscribe?: () => void;
-  private args?: [ControlUiSurface, unknown, unknown, boolean, unknown];
+  private args?: [
+    ControlUiSurface,
+    unknown,
+    unknown,
+    boolean,
+    unknown,
+    ControlUiViewContext["panel"]?,
+  ];
   private pending = false;
 
-  override update(part: ChildPart, args: [ControlUiSurface, unknown, unknown, boolean, unknown]) {
+  override update(
+    part: ChildPart,
+    args: [ControlUiSurface, unknown, unknown, boolean, unknown, ControlUiViewContext["panel"]?],
+  ) {
     this.args = args;
     const host = part.options?.host;
     if (host instanceof LitElement && this.host !== host) {
@@ -86,6 +97,7 @@ class PluginSurfaceDirective extends AsyncDirective {
     defaultView: unknown,
     presented: boolean,
     replacementCompanion: unknown,
+    panel?: ControlUiViewContext["panel"],
   ) {
     // Built-in renderers remain synchronous and do not create a component for
     // every transcript row. Only a selected replacement owns a DOM mount.
@@ -98,6 +110,7 @@ class PluginSurfaceDirective extends AsyncDirective {
           .replacementCompanion=${replacementCompanion}
           .defaultHost=${this.host}
           .presented=${presented}
+          .panelPresentation=${panel}
         ></openclaw-plugin-view>`
       : defaultView;
   }
@@ -111,8 +124,9 @@ export function renderPluginSurface<S extends ControlUiSurface>(
   defaultView: unknown,
   presented = true,
   replacementCompanion: unknown = nothing,
+  panel?: ControlUiViewContext["panel"],
 ) {
-  return pluginSurface(surface, props, defaultView, presented, replacementCompanion);
+  return pluginSurface(surface, props, defaultView, presented, replacementCompanion, panel);
 }
 
 export function renderPluginContribution(
@@ -121,6 +135,7 @@ export function renderPluginContribution(
   props: unknown,
   defaultView: unknown = nothing,
   presented = true,
+  panel?: ControlUiViewContext["panel"],
 ) {
   return html`<openclaw-plugin-view
     .kind=${kind}
@@ -128,5 +143,6 @@ export function renderPluginContribution(
     .props=${props}
     .defaultView=${defaultView}
     .presented=${presented}
+    .panelPresentation=${panel}
   ></openclaw-plugin-view>`;
 }

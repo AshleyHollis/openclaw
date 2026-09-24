@@ -225,17 +225,52 @@ describe("AppSidebar interleaved zone", () => {
     sidebar.sidebarEntries = ["route:usage", "session:agent:main:alpha", "route:plugins"];
     await sidebar.updateComplete;
 
+    const pinnedRow = sidebar.querySelector('[data-session-key="agent:main:alpha"]');
     const labels = [...sidebar.querySelectorAll<HTMLElement>(".sidebar-zone-entry")].map((entry) =>
       entry.textContent?.trim(),
     );
-    expect(labels).toEqual(["Usage", "Alpha", "Plugins"]);
+    expect(labels).toEqual(["Alpha", "Usage", "Plugins"]);
+    const tools = sidebar.querySelector<HTMLDetailsElement>(".sidebar-nav__tools");
+    expect(tools?.open).toBe(true);
+    expect(pinnedRow?.closest(".sidebar-nav__tools")).toBeNull();
+    expect(
+      [...(tools?.querySelectorAll<HTMLElement>(".sidebar-zone-entry") ?? [])].map(
+        (entry) => entry.dataset.sidebarEntry,
+      ),
+    ).toEqual(["route:usage", "route:plugins"]);
     expect(sidebar.querySelector('[data-session-section="pinned"]')).toBeNull();
-    const pinnedRow = sidebar.querySelector('[data-session-key="agent:main:alpha"]');
     const pinnedTree = pinnedRow?.closest(".sidebar-session-tree");
     expect(pinnedRow?.hasAttribute("role")).toBe(false);
     expect(pinnedTree?.hasAttribute("role")).toBe(false);
     expect(pinnedRow?.closest('[role="list"]')).toBeNull();
     expect(sidebar.querySelector(".nav-item--home")?.hasAttribute("draggable")).toBe(false);
+  });
+
+  it("keeps pinned pages visible inside an expandable native Tools & management disclosure", async () => {
+    const { sidebar } = await mountZone();
+    sidebar.sidebarEntries = ["route:usage", "route:plugins"];
+    await sidebar.updateComplete;
+
+    const tools = sidebar.querySelector<HTMLDetailsElement>(".sidebar-nav__tools");
+    expect(tools).not.toBeNull();
+    expect(tools?.open).toBe(true);
+    expect(tools?.querySelector("summary")?.textContent).toContain("Tools & management");
+    expect(
+      [...(tools?.querySelectorAll<HTMLElement>(".sidebar-zone-entry") ?? [])].map(
+        (entry) => entry.dataset.sidebarEntry,
+      ),
+    ).toEqual(["route:usage", "route:plugins"]);
+    expect(sidebar.querySelector(".nav-item--home")?.closest("details")).toBeNull();
+    expect(sidebar.querySelector(".sidebar-nav__head-action")?.getAttribute("aria-label")).toBe(
+      "Edit pinned items",
+    );
+
+    tools!.open = true;
+    expect(
+      [...tools!.querySelectorAll<HTMLElement>(".sidebar-zone-entry")].map(
+        (entry) => entry.dataset.sidebarEntry,
+      ),
+    ).toEqual(["route:usage", "route:plugins"]);
   });
 
   it.each([

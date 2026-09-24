@@ -166,6 +166,7 @@ function expectSessionTurnHandle(
 async function scheduleWorkflowTurn(
   params: Omit<ScheduleSessionTurnRequest, "pluginId" | "origin" | "schedule"> & {
     origin?: ScheduleSessionTurnRequest["origin"];
+    workspaceSessionTurnScheduling?: readonly string[];
     schedule?: Partial<SessionTurnSchedule>;
   } = {},
 ) {
@@ -243,6 +244,50 @@ describe("plugin scheduled turns", () => {
     expect(job.delivery).toEqual({ mode: "announce", channel: "last" });
     expect(job.payload).toEqual({ kind: "agentTurn", message: "wake" });
     expect(listPluginSessionSchedulerJobs(WORKFLOW_PLUGIN_ID)).toHaveLength(1);
+  });
+
+  it("permits declared workspace or configured-local turns only through their tag-prefix contract", async () => {
+    mockCronAdd(makeCronJob({ id: "workspace-maintenance-job" }));
+    const declared = ["command-center-note-maintenance-"];
+    await expect(
+      scheduleWorkflowTurn({
+        origin: "workspace",
+        workspaceSessionTurnScheduling: declared,
+        schedule: { tag: "command-center-note-maintenance-123" },
+      }),
+    ).resolves.toEqual({
+      id: "workspace-maintenance-job",
+      pluginId: WORKFLOW_PLUGIN_ID,
+      sessionKey: MAIN_SESSION_KEY,
+      kind: "session-turn",
+    });
+    mockCronAdd(makeCronJob({ id: "configured-maintenance-job" }));
+    await expect(
+      scheduleWorkflowTurn({
+        origin: "config",
+        workspaceSessionTurnScheduling: declared,
+        schedule: { tag: "command-center-note-maintenance-456" },
+      }),
+    ).resolves.toEqual({
+      id: "configured-maintenance-job",
+      pluginId: WORKFLOW_PLUGIN_ID,
+      sessionKey: MAIN_SESSION_KEY,
+      kind: "session-turn",
+    });
+    await expect(
+      scheduleWorkflowTurn({
+        origin: "workspace",
+        workspaceSessionTurnScheduling: declared,
+        schedule: { tag: "other-workspace-job" },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      scheduleWorkflowTurn({
+        origin: "workspace",
+        schedule: { tag: "command-center-note-maintenance-789" },
+      }),
+    ).resolves.toBeUndefined();
+    expect(workflowMocks.cronAdd).toHaveBeenCalledTimes(2);
   });
 
   it("prefixes explicit untagged schedule names with plugin ownership metadata", async () => {

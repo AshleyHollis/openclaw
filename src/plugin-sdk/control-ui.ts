@@ -24,6 +24,18 @@ export type ControlUiConnection = {
   assistantAgentId: string | null;
 };
 
+/** A host-relayed, declared same-origin HTTP route. Credentials stay host-owned. */
+type ControlUiHttpRequest = Readonly<{
+  method: "POST";
+  path: string;
+  body: string;
+}>;
+
+type ControlUiHttpResponse = Readonly<{
+  status: number;
+  body: string;
+}>;
+
 export type ControlUiSession = Readonly<
   SessionRow & {
     /** Live activity from the Control UI session owner; absent while activity is unknown. */
@@ -80,7 +92,16 @@ export type ControlUiPageNavigationOptions = {
 };
 
 export type ControlUiSurfaceProps = {
-  "session-list": BoardGetParams & { sessions: readonly ControlUiSession[] };
+  "session-list": BoardGetParams & {
+    sessions: readonly ControlUiSession[];
+    /** Configured by the native host; plugins must not guess a General key. */
+    mainSessionKey?: string;
+    /** Native roster pagination remains owned by the host. */
+    nativeSessionsHaveMore?: boolean;
+    loadMoreNativeSessions?: () => Promise<void>;
+  };
+  /** The native Files slot for the selected Conversation. */
+  "session-files": BoardGetParams;
   composer: BoardGetParams & {
     agentId: string;
     draft: string;
@@ -117,6 +138,14 @@ export type ControlUiViewContext<T = Readonly<Record<string, string>>> = {
   readonly presented: boolean;
   /** Mount the host's built-in view inside a replacement; it keeps receiving host updates. */
   mountDefault: (container: HTMLElement) => ControlUiDisposer;
+  /**
+   * Presentation controls supplied only to a currently mounted native Chat panel.
+   * They affect the caller's own panel and end with that view lifetime.
+   */
+  readonly panel?: Readonly<{
+    /** Swap this already-mounted panel into the native Chat main region. */
+    showInMain: () => void;
+  }>;
 };
 
 export type ControlUiView<T = Readonly<Record<string, string>>> = (
@@ -138,6 +167,8 @@ export type ControlUiNavigationItem = {
   id: string;
   label: string;
   page: ControlUiPageTarget;
+  /** Optional sidebar disclosure group, scoped to the registering plugin. */
+  group?: { id: string; label: string };
   icon?: string;
   order?: number;
   /** False offers the destination in the pin editor without adding it to the sidebar. */
@@ -209,6 +240,11 @@ export type ControlUiHost = {
    * The Gateway enforces connection scopes, not a per-plugin RPC allowlist.
    */
   request: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
+  /** Relays only host-declared plugin action routes with the operator credential kept private. */
+  httpRequest: (
+    request: ControlUiHttpRequest,
+    options?: Readonly<{ signal?: AbortSignal }>,
+  ) => Promise<ControlUiHttpResponse>;
   onEvent: (event: string, listener: (payload: unknown) => void) => ControlUiDisposer;
   subscribe: (listener: () => void) => ControlUiDisposer;
   sessions: {
@@ -222,6 +258,11 @@ export type ControlUiHost = {
       query: ControlUiSessionListQuery,
       listener: (snapshot: ControlUiSessionListSnapshot) => void,
     ) => ControlUiSessionListSubscription;
+    /** Opens this exact Session in native Chat, irrespective of its saved board face. */
+    openChat: (session: BoardGetParams) => void;
+    /** Opens this exact Session with the native Files slot selected. */
+    openFiles?: (session: BoardGetParams) => void;
+    /** Opens this exact Session using its saved board face. */
     open: (session: BoardGetParams) => void;
     create: (params?: { agentId?: string; label?: string }) => Promise<string | null>;
     patch: (

@@ -67,7 +67,7 @@ import { exportChatMarkdown } from "./export.ts";
 import { admitChatSubmission } from "./history-merge.ts";
 import { admitInitialTurnHandoff, subscribeInitialTurnHandoff } from "./initial-turn-handoff.ts";
 import { applyChatCacheSnapshot, readChatSessionSnapshot } from "./session-message-cache.ts";
-import { closeSlot, isSidebarSlotVisible } from "./sidebar-layout.ts";
+import { closeSlot, isSidebarSlotVisible, openFilesWithConversation } from "./sidebar-layout.ts";
 
 export abstract class ChatPaneLifecycle extends ChatPaneSessionObservation {
   private readonly sessionPanelToggles = new ChatPaneSessionPanelToggleController({
@@ -553,6 +553,11 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionObservation {
   override updated(changedProperties: Map<PropertyKey, unknown> = new Map()) {
     this.syncQueuedEditRetention();
     void chatAvatars.refreshSenderAgentAvatars(this.state);
+    if (changedProperties.has("filesOpenRequest") && this.filesOpenRequest && this.state) {
+      // This one-shot route hint opens the existing native slot; it does not
+      // create a second files surface or mutate the selected Conversation.
+      this.state.updateSidebarLayout(openFilesWithConversation(this.state.sidebarLayout));
+    }
     if (!this.chatRouteReadyReported && this.querySelector(CHAT_COMPOSER_TEXTAREA_SELECTOR)) {
       // The outer router commit is not a meaningful chat paint. Keep the
       // handoff cover until this pane has committed its usable composer.

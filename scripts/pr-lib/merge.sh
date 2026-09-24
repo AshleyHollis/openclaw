@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # shellcheck source=scripts/pr-lib/github.sh
 source "$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)/github.sh" || return 1
 

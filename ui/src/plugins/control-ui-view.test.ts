@@ -441,3 +441,77 @@ describe("native UI built-in delegation", () => {
     expect(host.textContent).toBe("Plugin content");
   });
 });
+
+describe("native panel presentation contract", () => {
+  it("gives a mounted panel a lifetime-bound request to promote only itself", async () => {
+    const contexts: Array<ControlUiViewContext & { panel?: Readonly<{ showInMain: () => void }> }> =
+      [];
+    const abort = new AbortController();
+    const promote = vi.fn();
+    const pluginHost = {
+      signal: abort.signal,
+      request: vi.fn(),
+      sessions: {},
+      agents: {},
+      navigation: {},
+      ui: {},
+      components: {},
+    } as unknown as ControlUiHost;
+    const registration = {
+      key: "fixture/topic-notes",
+      pluginId: "fixture",
+      value: {
+        id: "topic-notes",
+        label: "Topic Notes",
+        mount(_container: HTMLElement, context: ControlUiViewContext) {
+          contexts.push(context);
+        },
+      },
+      host: pluginHost,
+      signal: abort.signal,
+    };
+    const listeners = new Set<() => void>();
+    const provider = createApplicationContextProvider({
+      plugins: {
+        registrations: (kind: string) => (kind === "panels" ? [registration] : []),
+        subscribe: (listener: () => void) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+        reportError: vi.fn(),
+      },
+    } as unknown as ApplicationContext<RouteId>);
+    const view = document.createElement("openclaw-plugin-view") as LitElement & {
+      kind: string;
+      contributionKey: string;
+      props: { sessionKey: string; agentId: string };
+      presented: boolean;
+      panelPresentation?: Readonly<{ showInMain: () => void }>;
+    };
+    view.kind = "panels";
+    view.contributionKey = registration.key;
+    view.props = { sessionKey: "agent:main:topic", agentId: "main" };
+    view.presented = true;
+    view.panelPresentation = { showInMain: promote };
+    provider.append(view);
+    document.body.append(provider);
+
+    await vi.waitFor(() => expect(contexts).toHaveLength(1));
+    expect(contexts[0]?.panel).toBeDefined();
+    contexts[0]?.panel?.showInMain();
+    expect(promote).toHaveBeenCalledOnce();
+
+    const rerenderedPromotion = vi.fn();
+    view.panelPresentation = { showInMain: rerenderedPromotion };
+    view.requestUpdate();
+    await view.updateComplete;
+    contexts[0]?.panel?.showInMain();
+    expect(rerenderedPromotion).toHaveBeenCalledOnce();
+
+    view.presented = false;
+    view.requestUpdate();
+    await view.updateComplete;
+    expect(() => contexts[0]?.panel?.showInMain()).toThrow("view has ended");
+    expect(promote).toHaveBeenCalledOnce();
+  });
+});

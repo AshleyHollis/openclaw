@@ -329,7 +329,13 @@ describe("renderCostWindowComparison", () => {
     }));
     expect(cards).toEqual([
       { label: "Selected Range", value: "$10.00" },
-      { label: "Jul 1", value: "$5.00" },
+      {
+        label: new Date(2026, 6, 1).toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+        }),
+        value: "$5.00",
+      },
       { label: "Last 7 days", value: "$9.00" },
       { label: "Last 30 days", value: "$9.00" },
     ]);

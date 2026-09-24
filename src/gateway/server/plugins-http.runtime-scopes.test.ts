@@ -742,6 +742,47 @@ describe("plugin HTTP route runtime scopes", () => {
       expect(observedScopes).toEqual(expectedScopes);
     },
   );
+  it("preserves the gateway lifecycle resolver for authenticated plugin routes", async () => {
+    const resolver = vi.fn<() => GatewayRequestContext | undefined>();
+    const context = {
+      label: "current-gateway",
+      resolveGatewayContext: resolver,
+    } as unknown as GatewayRequestContext;
+    resolver.mockReturnValue(context);
+    let observed:
+      | {
+          context: GatewayRequestContext | undefined;
+          resolver: (() => GatewayRequestContext | undefined) | undefined;
+        }
+      | undefined;
+    const handler = createPluginRequestHandler({
+      routes: [
+        createRoute({
+          path: SECURE_HOOK_PATH,
+          auth: "gateway",
+          gatewayMethodDispatchAllowed: true,
+          handler: async () => {
+            const scope = getPluginRuntimeGatewayRequestScope();
+            observed = {
+              context: scope?.context,
+              resolver: scope?.resolveGatewayContext,
+            };
+            return true;
+          },
+        }),
+      ],
+      getGatewayRequestContext: () => context,
+    });
+
+    const { handled, res } = await dispatchTrustedGatewayRequest(handler, SECURE_HOOK_PATH);
+
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(200);
+    expect(observed).toEqual({ context, resolver });
+    expect(observed?.resolver?.()).toBe(context);
+    resolver.mockReturnValue(undefined);
+    expect(observed?.resolver?.()).toBeUndefined();
+  });
 });
 
 type SessionReadMethod = "sessions.list" | "sessions.describe";

@@ -314,7 +314,13 @@ if (process.argv[2] === SQLITE_READONLY_CHILD_ARG) {
       if (!result.ok) {
         process.exitCode = 1;
       }
-      process.stdout.write(JSON.stringify(result));
+      const encoded = JSON.stringify(result);
+      if (Buffer.byteLength(encoded) > SQLITE_READONLY_WORKER_MAX_BUFFER) {
+        process.exitCode = 1;
+        process.stdout.write(JSON.stringify({ ok: false, message: "exceeded its output buffer" }));
+        return;
+      }
+      process.stdout.write(encoded);
     });
   }
 }

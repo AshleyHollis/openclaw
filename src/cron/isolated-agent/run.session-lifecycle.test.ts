@@ -75,6 +75,77 @@ describe("runCronIsolatedAgentTurn session lifecycle", () => {
     mockRunCronFallbackPassthrough();
   });
 
+  it("persists structured automation provenance on the recorded cron prompt", async () => {
+    const accessor = await vi.importActual<
+      typeof import("../../config/sessions/session-accessor.js")
+    >("../../config/sessions/session-accessor.js");
+    const dir = tempDirs.make("openclaw-cron-prompt-provenance-");
+    const sessionId = "cron-provenance-run";
+    const jobId = "daily-monitor";
+    const runSessionKey = `agent:main:cron:${jobId}:run:${sessionId}`;
+    const storePath = path.join(dir, "openclaw-agent.sqlite");
+    resolveCronSessionMock.mockReturnValue(
+      makeCronSession({
+        storePath,
+        store: {},
+        sessionEntry: makeCronSessionEntry({ sessionId }),
+      }),
+    );
+    let modelPrompt: string | undefined;
+    let recordedInput: UserTurnTranscriptRecorder["message"];
+    runEmbeddedAgentMock.mockImplementationOnce(
+      async (runParams: {
+        prompt: string;
+        userTurnTranscriptRecorder: UserTurnTranscriptRecorder;
+      }) => {
+        modelPrompt = runParams.prompt;
+        recordedInput = runParams.userTurnTranscriptRecorder.message;
+        await runParams.userTurnTranscriptRecorder.persistApproved({ cwd: dir });
+        return { payloads: [{ text: "Monitor complete" }], meta: { agentMeta: {} } };
+      },
+    );
+
+    const result = await runCronIsolatedAgentTurn(
+      makeIsolatedAgentParamsFixture({
+        agentId: "main",
+        sessionKey: `cron:${jobId}`,
+        job: makeIsolatedAgentJobFixture({
+          id: jobId,
+          name: "Daily monitor",
+          sessionTarget: "isolated",
+          payload: { kind: "agentTurn", message: "Read REFRESH.md." },
+        }),
+      }),
+    );
+
+    expect(result.status).toBe("ok");
+    expect(result.sessionKey).toBe(runSessionKey);
+    expect(recordedInput?.provenance).toMatchObject({ sourceTool: "cron", jobId });
+    const entries = (
+      await accessor.loadTranscriptEvents({
+        agentId: "main",
+        sessionId,
+        sessionKey: runSessionKey,
+        storePath,
+      })
+    ).filter((entry) => asOptionalRecord(entry)?.type === "message");
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      message: {
+        role: "user",
+        content: modelPrompt,
+        provenance: {
+          kind: "internal_system",
+          sourceTool: "cron",
+          sourcePromptPrefix: `[cron:${jobId} Daily monitor]`,
+          jobId,
+          runId: sessionId,
+          sourceSessionKey: runSessionKey,
+        },
+      },
+    });
+  });
+
   it.each([
     { sessionTarget: "isolated", runner: "embedded" },
     { sessionTarget: "current", runner: "embedded" },

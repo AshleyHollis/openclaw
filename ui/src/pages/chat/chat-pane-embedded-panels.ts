@@ -1,8 +1,13 @@
 import type { ControlUiFocusBuildTarget } from "@openclaw/session-url-contract";
 import { html, nothing, type TemplateResult } from "lit";
+import type { DirectiveResult } from "lit/directive.js";
 import type { SessionObserverDigest } from "../../../../packages/gateway-protocol/src/schema/sessions.js";
 import type { ControlUiSessionPullRequest } from "../../../../src/gateway/control-ui-contract.js";
-import type { ControlUiPanel } from "../../../../src/plugin-sdk/control-ui.js";
+import type {
+  ControlUiPanel,
+  ControlUiSurfaceProps,
+  ControlUiViewContext,
+} from "../../../../src/plugin-sdk/control-ui.js";
 import type { ControlUiLinkReaderDescriptor } from "../../../../src/shared/control-ui-link-reader.js";
 import { isBrowserPanelAvailable } from "../../app/panel-availability.ts";
 import type { BrowserTabSelection } from "../../components/browser/browser-target.ts";
@@ -14,7 +19,7 @@ import { registerBackgroundTasksEnglish } from "../../i18n/locales/en-background
 import { canCallGatewayMethod } from "../../lib/gateway-methods.ts";
 import { formatKeyboardShortcutCombo } from "../../lib/keyboard-shortcut-catalog.ts";
 import type { ControlUiRegistration } from "../../plugins/control-ui-capability.ts";
-import { renderPluginContribution } from "../../plugins/control-ui-view.ts";
+import { renderPluginContribution, renderPluginSurface } from "../../plugins/control-ui-view.ts";
 import { SIDEBAR_PANEL_SHORTCUTS } from "./chat-pane-panel-shortcuts.ts";
 import { resolveAssistantAttachmentAuthToken } from "./chat-pane-state.ts";
 import type {
@@ -35,7 +40,7 @@ import type {
 import type { SidebarContent } from "./components/chat-sidebar.ts";
 import type { SessionDiscussionPanelConfig } from "./components/session-discussion-panel.ts";
 import type { SidebarSlotId } from "./sidebar-layout-types.ts";
-import { sidebarMainPanel } from "./sidebar-layout.ts";
+import { promoteSidebarPanel, sidebarMainPanel } from "./sidebar-layout.ts";
 
 registerBackgroundTasksEnglish();
 
@@ -93,6 +98,40 @@ type SidebarPanelTextKey =
   | "review"
   | "files";
 
+export function pluginPanelPresentation(params: {
+  state: ChatPageHost | undefined;
+  slot: SidebarSlotId;
+  sessionKey: string;
+}): ControlUiViewContext["panel"] {
+  const state = params.state;
+  const connectionEpoch = state?.connectionEpoch;
+  const panelId = state?.sidebarLayout.columns
+    .flatMap((column) => column.panels)
+    .find((panel) => panel.slot === params.slot)?.id;
+  if (!state || !panelId) {
+    return undefined;
+  }
+  return Object.freeze({
+    showInMain: () => {
+      if (
+        !state.connected ||
+        state.connectionEpoch !== connectionEpoch ||
+        state.sessionKey !== params.sessionKey
+      ) {
+        return;
+      }
+      const layout = state.sidebarLayout;
+      const current = layout.columns
+        .flatMap((column) => column.panels)
+        .find((panel) => panel.id === panelId && panel.slot === params.slot);
+      if (!current) {
+        return;
+      }
+      state.updateSidebarLayout(promoteSidebarPanel(layout, current.id));
+    },
+  });
+}
+
 function panelExternalLink(href: string | null | undefined, label: string) {
   return href
     ? html`<a
@@ -121,7 +160,7 @@ export function sidebarPanelDefinitions(
     slot: Exclude<SidebarSlotId, `plugin:${string}`>,
     textKey: SidebarPanelTextKey,
     icon: TemplateResult,
-    content: TemplateResult | typeof nothing | null,
+    content: TemplateResult | DirectiveResult | typeof nothing | null,
     headerAction?: TemplateResult,
   ): SidebarPanelDefinition => ({
     slot,
@@ -247,7 +286,7 @@ export function sidebarPanelDefinitions(
   // same cached diff loader so their live content and selection survive.
   const detailContent =
     state?.sidebarContent ?? (state ? resolveSessionDiffSidebarContent(state) : null);
-  const workspaceContent =
+  const nativeWorkspaceContent =
     state && params && workspace
       ? html`<openclaw-chat-files-panel
           .tabsInHeader=${sidebarMainPanel(state.sidebarLayout)?.slot !== "workspace"}
@@ -259,6 +298,21 @@ export function sidebarPanelDefinitions(
           .onClose=${(id: string) => closeSessionWorkspacePreview(state, id)}
         ></openclaw-chat-files-panel>`
       : (params?.workspace ?? null);
+  // The replacement owns only the existing native Files slot. The default
+  // continues to render unchanged when no plugin selects this surface.
+  const workspaceContent = state
+    ? renderPluginSurface(
+        "session-files",
+        {
+          sessionKey: state.sessionKey,
+          agentId: params?.agentId ?? undefined,
+        } as ControlUiSurfaceProps["session-files"],
+        nativeWorkspaceContent,
+        params?.isPluginPanelPresented?.("workspace") ?? false,
+        nothing,
+        pluginPanelPresentation({ state, slot: "workspace", sessionKey: state.sessionKey }),
+      )
+    : nativeWorkspaceContent;
   const pluginPanels = new Map<SidebarSlotId, ControlUiRegistration<ControlUiPanel> | undefined>(
     (params?.pluginPanels ?? []).map((entry) => [`plugin:${entry.key}`, entry]),
   );
@@ -381,7 +435,12 @@ export function sidebarPanelDefinitions(
             entry.key,
             { sessionKey: state?.sessionKey ?? "", agentId: params?.agentId ?? undefined },
             nothing,
-            params?.isPluginPanelPresented(slot),
+            params?.isPluginPanelPresented?.(slot) ?? false,
+            pluginPanelPresentation({
+              state,
+              slot,
+              sessionKey: state?.sessionKey ?? "",
+            }),
           )
         : null,
       loading: renderPanelLoadingSkeleton("files", t("common.loading")),

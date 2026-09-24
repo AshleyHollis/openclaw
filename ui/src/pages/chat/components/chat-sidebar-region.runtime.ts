@@ -2,6 +2,7 @@ import "../../../styles/chat/side-panel.css";
 import "./chat-files-panel.ts";
 import { html, nothing, render as renderTemplate, type TemplateResult } from "lit";
 import { property } from "lit/decorators.js";
+import type { DirectiveResult } from "lit/directive.js";
 import { repeat } from "lit/directives/repeat.js";
 import { beginNativeWindowDrag } from "../../../app/native-window-drag.ts";
 import { icons } from "../../../components/icons.ts";
@@ -432,7 +433,7 @@ class ChatSidebarRegion extends OpenClawLightDomElement {
   }
 
   private renderHeaderActions(
-    panelActions: TemplateResult | typeof nothing | null,
+    panelActions: TemplateResult | DirectiveResult | typeof nothing | null,
     hostedActions: TemplateResult | typeof nothing,
   ) {
     const active = sidebarActivePanel(this.layout);
@@ -615,7 +616,7 @@ class ChatSidebarRegion extends OpenClawLightDomElement {
   protected override updated() {
     const root = this.parentElement?.querySelector<HTMLElement>(".sidebar-region__right-runtime");
     if (root) {
-      renderTemplate(this.renderPanel(), root);
+      renderTemplate(this.renderPanel(), root, { host: this });
       this.scheduleGeometryCommit();
     }
   }

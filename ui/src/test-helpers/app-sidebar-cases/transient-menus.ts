@@ -98,10 +98,10 @@ describe("AppSidebar transient menus", () => {
       ".sidebar-nav__head .sidebar-recent-sessions__label-text",
     );
     expect(pagesLabel?.classList.contains("sr-only")).toBe(true);
-    expect(pagesLabel?.textContent).toBe("Pages");
+    expect(pagesLabel?.textContent).toBe("Tools & management");
     const trigger = sidebar.querySelector<HTMLButtonElement>(".sidebar-nav__head-action");
     if (!trigger) {
-      throw new Error("expected Pages menu trigger");
+      throw new Error("expected Tools & management menu trigger");
     }
 
     trigger.click();

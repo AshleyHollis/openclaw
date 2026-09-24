@@ -3619,6 +3619,14 @@ a:is(
   stroke-linejoin: round;
 }
 
+/* Native details keeps optional pages keyboard-accessible and collapsible. */
+.sidebar-nav__tools-summary {
+  padding: 4px 10px;
+  color: var(--muted);
+  font-size: var(--control-ui-text-xs);
+  font-weight: 600;
+}
+
 /* Home keeps run state plus outbox/draft counts together at the row edge. */
 .nav-item__state {
   flex: none;
@@ -3697,6 +3705,13 @@ openclaw-sidebar-attention {
 .sidebar-issues-button:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
+}
+
+@media (forced-colors: active) {
+  .sidebar-issues-button:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
 }
 
 .sidebar-issues-button__icon,

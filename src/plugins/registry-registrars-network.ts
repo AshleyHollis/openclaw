@@ -38,8 +38,10 @@ import type {
 const GATEWAY_METHOD_DISPATCH_CONTRACT = "authenticated-request";
 
 function adaptPluginGatewayMethodHandler(
+  pluginId: string,
   handler: GatewayRequestHandler,
   mayDispatch: boolean,
+  gatewayMethodDispatchMethods?: readonly string[],
 ): GatewayRequestHandler {
   return async (opts) => {
     let responded = false;
@@ -54,7 +56,14 @@ function adaptPluginGatewayMethodHandler(
     const result = (
       scope
         ? await withPluginRuntimeGatewayRequestScope(
-            { ...scope, gatewayMethodDispatchAllowed: mayDispatch && scope.client != null },
+            {
+              ...scope,
+              pluginId,
+              gatewayMethodDispatchAllowed:
+                mayDispatch && scope.client != null && gatewayMethodDispatchMethods === undefined,
+              gatewayMethodDispatchMethods:
+                mayDispatch && scope.client != null ? gatewayMethodDispatchMethods : undefined,
+            },
             invoke,
           )
         : await invoke()
@@ -81,7 +90,11 @@ export function createNetworkRegistrars(state: PluginRegistryState) {
     record: PluginRecord,
     method: string,
     handler: GatewayRequestHandler,
-    opts?: { scope?: OperatorScope; profileAccess?: GatewayMethodProfileAccess },
+    opts?: {
+      scope?: OperatorScope;
+      profileAccess?: GatewayMethodProfileAccess;
+      gatewayMethodDispatchMethods?: readonly string[];
+    },
   ) => {
     const trimmed = method.trim();
     if (!trimmed) {
@@ -91,9 +104,34 @@ export function createNetworkRegistrars(state: PluginRegistryState) {
       reportRegistrationError(record, `gateway method already registered: ${trimmed}`);
       return;
     }
+    const requestedDispatchMethods = opts?.gatewayMethodDispatchMethods;
+    if (
+      requestedDispatchMethods !== undefined &&
+      (!Array.isArray(requestedDispatchMethods) ||
+        requestedDispatchMethods.length === 0 ||
+        requestedDispatchMethods.some(
+          (value) => typeof value !== "string" || !value.trim() || value !== value.trim(),
+        ) ||
+        new Set(requestedDispatchMethods).size !== requestedDispatchMethods.length)
+    ) {
+      reportRegistrationError(
+        record,
+        `gateway method dispatch allowlist must contain unique non-empty exact method names: ${trimmed}`,
+      );
+      return;
+    }
+    if (requestedDispatchMethods && !canDispatchGatewayMethods(record)) {
+      reportRegistrationError(
+        record,
+        `gateway method dispatch allowlist requires contracts.gatewayMethodDispatch: ["${GATEWAY_METHOD_DISPATCH_CONTRACT}"]: ${trimmed}`,
+      );
+      return;
+    }
     const wrappedHandler = adaptPluginGatewayMethodHandler(
+      record.id,
       handler,
       canDispatchGatewayMethods(record),
+      requestedDispatchMethods,
     );
     registry.gatewayHandlers[trimmed] = wrappedHandler;
     const normalizedScope = normalizePluginGatewayMethodScope(trimmed, opts?.scope);

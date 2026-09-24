@@ -13,6 +13,7 @@ import {
   type OpenClawConfig,
 } from "../../config/config.js";
 import { onAgentEvent } from "../../infra/agent-events.js";
+import { stageDurableFileInDirectory } from "../../infra/fs-safe-advanced.js";
 import { requestHeartbeat, setHeartbeatWakeHandler } from "../../infra/heartbeat-wake.js";
 import * as execModule from "../../process/exec.js";
 import { onSessionTranscriptUpdate } from "../../sessions/transcript-events.js";
@@ -202,6 +203,12 @@ describe("plugin runtime command execution", () => {
       readValue: (runtime: ReturnType<typeof createPluginRuntime>) =>
         runtime.system.requestHeartbeat,
       expected: requestHeartbeat,
+    },
+    {
+      name: "exposes descriptor-safe durable staging through runtime.fileAccess",
+      readValue: (runtime: ReturnType<typeof createPluginRuntime>) =>
+        runtime.fileAccess.stageDurableFileInDirectory,
+      expected: stageDurableFileInDirectory,
     },
     {
       name: "exposes deprecated runtime.system.requestHeartbeatNow",

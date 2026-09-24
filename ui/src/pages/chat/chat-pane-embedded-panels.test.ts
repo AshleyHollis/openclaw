@@ -16,7 +16,11 @@ import {
 import { gatewayHelloForMethods } from "../../test-helpers/gateway-methods.ts";
 import { resolveChatAgentId } from "./chat-agent-id.ts";
 import { resolveChatMessageAccess } from "./chat-message-access.ts";
-import { availableSidebarSlots, sidebarPanelDefinitions } from "./chat-pane-embedded-panels.ts";
+import {
+  availableSidebarSlots,
+  pluginPanelPresentation,
+  sidebarPanelDefinitions,
+} from "./chat-pane-embedded-panels.ts";
 import { createGatewayBrowserClientFixture } from "./chat-pane.test-support.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import { createTestTranscript } from "./chat-view.test-helpers.ts";
@@ -45,6 +49,7 @@ import {
   ensureSidebarConversation,
   isSidebarSlotVisible,
   openSlot,
+  sidebarMainPanel,
   setSidebarExpanded,
   setSidebarOpen,
   type SidebarLayout,
@@ -64,6 +69,34 @@ afterEach(() => {
 });
 
 describe("chat pane embedded panels", () => {
+  it("promotes a plugin panel without changing the selected Chat or its draft", () => {
+    const { state } = createReviewFixture();
+    state.connected = true;
+    state.connectionEpoch = 1;
+    state.sessionKey = "agent:main:topic-primary";
+    state.chatMessage = "Keep this unsent draft";
+    state.sidebarLayout = openSlot(
+      openSlot({ columns: [] }, "conversation"),
+      "plugin:command-center/topic-notes",
+    );
+    const selectedSession = state.sessionKey;
+    const unsentDraft = state.chatMessage;
+    const panel = state.sidebarLayout.columns[0]?.panels.find(
+      (entry) => entry.slot === "plugin:command-center/topic-notes",
+    );
+    expect(panel).toBeDefined();
+
+    pluginPanelPresentation({
+      state,
+      slot: "plugin:command-center/topic-notes",
+      sessionKey: selectedSession,
+    })?.showInMain();
+
+    expect(sidebarMainPanel(state.sidebarLayout)?.id).toBe(panel?.id);
+    expect(state.sessionKey).toBe(selectedSession);
+    expect(state.chatMessage).toBe(unsentDraft);
+  });
+
   it("navigates an existing file tab to an explicit line without resetting its editor or draft", async () => {
     const descriptors = ["getClientRects", "getBoundingClientRect"].map(
       (key) => [key, Object.getOwnPropertyDescriptor(Range.prototype, key)] as const,

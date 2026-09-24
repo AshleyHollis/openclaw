@@ -87,6 +87,17 @@ export type SessionTranscriptEvent = unknown;
 
 export type SessionTranscriptTargetParams = SessionTranscriptReadParams;
 
+/**
+ * Projects supplied transcript content through the host's canonical storage redaction policy.
+ * This does not authorize transcript access or prove that a message was persisted.
+ */
+export function redactSessionTranscriptMessage(
+  message: AgentMessage,
+  config?: OpenClawConfig,
+): AgentMessage {
+  return redactTranscriptMessage(message, config);
+}
+
 /** Persists a successful yield's private context through the admitted session writer. */
 export async function appendSessionYieldContext(
   params: SessionTranscriptTargetParams & {
@@ -118,11 +129,14 @@ export type SessionTranscriptRawDeltaParams = SessionTranscriptTargetParams &
   SessionTranscriptRawDeltaLimits;
 export type { SessionTranscriptRawDeltaResult };
 
-/** Scoped target and bounds for one active-path visible-message page. */
+/**
+ * Scoped target and bounds for one active-path visible-message page.
+ * Use either an opaque continuation cursor or a direct zero-based offset, never both.
+ */
 export type SessionTranscriptVisibleMessageDeltaParams = SessionTranscriptTargetParams &
   SessionTranscriptVisibleMessageDeltaLimits;
 
-/** Generation-aware outcome for one bounded visible-message read. */
+/** Generation-aware outcome with generation, count, and leaf proof from the page snapshot. */
 export type SessionTranscriptVisibleMessageDeltaResult =
   | {
       kind: "page";
@@ -130,12 +144,18 @@ export type SessionTranscriptVisibleMessageDeltaResult =
       cursor: string;
       /** Ordered active-path message entries selected for this page. */
       entries: SessionTranscriptMessageEntry[];
+      /** Active transcript leaf captured in the same SQLite read snapshot as this page. */
+      activeLeafEntryId: string | null;
+      /** Rewrite identity captured in the same SQLite read snapshot as this page. */
+      generation: string;
       /** True when another visible message remains after this page. */
       hasMore: boolean;
       /** First unread event size when it cannot fit under maxBytes. */
       requiredBytes?: number;
       /** Stored JSONL bytes represented by entries. */
       serializedBytes: number;
+      /** Visible message count captured in the same SQLite read snapshot as this page. */
+      totalMessages: number;
     }
   | {
       kind: "reset";
@@ -275,11 +295,11 @@ export async function readSessionTranscriptRawDelta(
   );
 }
 
-/** Reads one bounded active-path page that resumes appends and resets after discontinuities. */
+/** Reads one bounded active-path cursor/offset page and returns same-snapshot proof facts. */
 export async function readSessionTranscriptVisibleMessageDelta(
   params: SessionTranscriptVisibleMessageDeltaParams,
 ): Promise<SessionTranscriptVisibleMessageDeltaResult> {
-  const { cursor, maxBytes, maxMessages, ...target } = params;
+  const { cursor, maxBytes, maxMessages, offset, ...target } = params;
   const scope = bindSessionTranscriptStoreScope(target);
   const { readRestoredSessionTranscript } =
     await import("../config/sessions/session-cold-storage-read.js");
@@ -290,6 +310,7 @@ export async function readSessionTranscriptVisibleMessageDelta(
         ...(cursor !== undefined ? { cursor } : {}),
         ...(maxBytes !== undefined ? { maxBytes } : {}),
         ...(maxMessages !== undefined ? { maxMessages } : {}),
+        ...(offset !== undefined ? { offset } : {}),
       }),
     );
   } catch (error) {

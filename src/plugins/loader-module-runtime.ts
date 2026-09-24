@@ -57,6 +57,7 @@ const LAZY_RUNTIME_PROPERTIES = {
   nodes: true,
   sandbox: true,
   worktrees: true,
+  fileAccess: true,
   webSearch: true,
   tasks: true,
   modelConfig: true,

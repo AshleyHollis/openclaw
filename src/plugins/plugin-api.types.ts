@@ -243,6 +243,8 @@ export type OpenClawPluginApi = {
     opts?: {
       scope?: OperatorScope;
       profileAccess?: "independent" | "required";
+      /** Exact core methods this authenticated handler may dispatch. Requires the manifest entitlement. */
+      gatewayMethodDispatchMethods?: readonly string[];
     },
   ) => void;
   /** Add a plugin-owned lifetime requirement to authenticated person admission. */

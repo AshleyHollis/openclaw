@@ -236,12 +236,24 @@ export async function schedulePluginSessionTurn(params: {
   pluginId: string;
   pluginName?: string;
   origin?: PluginOrigin;
+  workspaceSessionTurnScheduling?: readonly string[];
   schedule: PluginSessionTurnScheduleParams;
   shouldCommit?: () => boolean;
   cron?: CronServiceContract;
   ownerRegistry?: PluginRegistry;
 }): Promise<PluginSessionSchedulerJobHandle | undefined> {
-  if (params.origin !== "bundled") {
+  const requestedTag = normalizeOptionalString(params.schedule.tag);
+  const declaredLocalSchedulingAllowed =
+    (params.origin === "workspace" || params.origin === "config") &&
+    requestedTag !== undefined &&
+    params.workspaceSessionTurnScheduling?.some(
+      (prefix) =>
+        typeof prefix === "string" &&
+        prefix.length > 0 &&
+        requestedTag.length > prefix.length &&
+        requestedTag.startsWith(prefix),
+    ) === true;
+  if (params.origin !== "bundled" && !declaredLocalSchedulingAllowed) {
     return undefined;
   }
   const sessionKey = normalizeOptionalString(params.schedule.sessionKey);
@@ -390,10 +402,22 @@ export async function schedulePluginSessionTurn(params: {
 export async function unschedulePluginSessionTurnsByTag(params: {
   pluginId: string;
   origin?: PluginOrigin;
+  workspaceSessionTurnScheduling?: readonly string[];
   cron?: CronServiceContract;
   request: PluginSessionTurnUnscheduleByTagParams;
 }): Promise<PluginSessionTurnUnscheduleByTagResult> {
-  if (params.origin !== "bundled") {
+  const requestedTag = normalizeOptionalString(params.request.tag);
+  const declaredLocalSchedulingAllowed =
+    (params.origin === "workspace" || params.origin === "config") &&
+    requestedTag !== undefined &&
+    params.workspaceSessionTurnScheduling?.some(
+      (prefix) =>
+        typeof prefix === "string" &&
+        prefix.length > 0 &&
+        requestedTag.length > prefix.length &&
+        requestedTag.startsWith(prefix),
+    ) === true;
+  if (params.origin !== "bundled" && !declaredLocalSchedulingAllowed) {
     return { removed: 0, failed: 0 };
   }
   const sessionKey = normalizeOptionalString(params.request.sessionKey);

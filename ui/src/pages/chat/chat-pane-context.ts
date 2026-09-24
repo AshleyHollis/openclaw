@@ -317,7 +317,9 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
       gatewayQuestionPrompts: this.questionProjection.prompts,
       // Session replay already owns the parent's presentation scope for delegated approvals.
       inlineApproval: visible
-        ? (state.chatSessionApprovalQueue?.[0] ??
+        ? (state.chatSessionApprovalQueue?.find((approval) =>
+            matchesConversation(approval.request),
+          ) ??
           this.context.overlays?.snapshot?.approvalQueue?.find((approval) =>
             matchesConversation(approval.request),
           ) ??

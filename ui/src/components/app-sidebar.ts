@@ -28,12 +28,14 @@ import { SETTINGS_ROUTE_TARGETS } from "../pages/config/route-data.ts";
 import "../plugins/control-ui-contributions.ts";
 import { renderPluginSurface } from "../plugins/control-ui-view.ts";
 import "../styles/app-sidebar.css";
+import { isUngroupedSidebarEntry } from "./app-sidebar-plugin-navigation-groups.ts";
 import {
   renderAppSidebarBrand,
   renderAppSidebarFooterBar,
   renderAppSidebarHomeRow,
   renderAppSidebarOnline,
   renderAppSidebarPagesHead,
+  renderAppSidebarPluginNavigationGroups,
   renderAppSidebarZoneEntry,
 } from "./app-sidebar-render.ts";
 import type { SessionCatalogGroupsRenderer } from "./app-sidebar-session-catalog-render.ts";
@@ -553,6 +555,9 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
         sessionKey: this.sessionKey,
         agentId: this.getSessionNavigationState().selectedAgentId,
         sessions: this.context?.sessions.state.result?.sessions ?? [],
+        mainSessionKey: this.sessionMainKey(),
+        nativeSessionsHaveMore: this.sessionData.sessionsResult?.hasMore === true,
+        loadMoreNativeSessions: () => this.loadMoreSidebarSessions(),
       },
       this.renderSessionsBody(),
     );
@@ -648,28 +653,58 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                 @contextmenu=${this.sidebarMenus.openCustomizeMenuFromContext}
               >
                 ${renderAppSidebarPagesHead(this)}
-                <div
-                  class="nav-section__items"
-                  @dragover=${(event: DragEvent) =>
-                    this.sessionOrganizer.handleSidebarZoneDragOver(event)}
-                  @dragleave=${(event: DragEvent) =>
-                    this.sessionOrganizer.handleSidebarZoneDragLeave(event)}
-                  @drop=${(event: DragEvent) => this.sessionOrganizer.handleSidebarZoneDrop(event)}
-                >
-                  ${renderAppSidebarHomeRow(this)}
-                  ${sidebarZone.entries
-                    .filter(
-                      (entry) => this.sidebarAgentsMode !== "roster" || entry.type !== "session",
-                    )
-                    .map((entry) =>
-                      renderAppSidebarZoneEntry(
-                        this,
-                        entry,
-                        sidebarZone.sessionRows,
-                        sidebarZone.pluginTabs,
-                      ),
-                    )}
-                </div>
+                <div class="nav-section__items">${renderAppSidebarHomeRow(this)}</div>
+                ${sidebarZone.entries
+                  .filter(
+                    (entry) => entry.type === "session" && this.sidebarAgentsMode !== "roster",
+                  )
+                  .map((entry) =>
+                    renderAppSidebarZoneEntry(
+                      this,
+                      entry,
+                      sidebarZone.sessionRows,
+                      sidebarZone.pluginTabs,
+                    ),
+                  )}
+                ${renderAppSidebarPluginNavigationGroups(
+                  this,
+                  sidebarZone.navigationGroups,
+                  sidebarZone.sessionRows,
+                  sidebarZone.pluginTabs,
+                )}
+                <details class="sidebar-nav__tools" open>
+                  <summary class="sidebar-nav__tools-summary">
+                    <span class="sidebar-nav__tools-label">${t("nav.toolsAndManagement")}</span>
+                  </summary>
+                  <div
+                    class="nav-section__items"
+                    @dragover=${(event: DragEvent) =>
+                      this.sessionOrganizer.handleSidebarZoneDragOver(event)}
+                    @dragleave=${(event: DragEvent) =>
+                      this.sessionOrganizer.handleSidebarZoneDragLeave(event)}
+                    @drop=${(event: DragEvent) => this.sessionOrganizer.handleSidebarZoneDrop(event)}
+                  >
+                    ${sidebarZone.entries
+                      .filter((entry) =>
+                        isUngroupedSidebarEntry(entry, sidebarZone.groupedNavigationKeys),
+                      )
+                      .map((entry) =>
+                        renderAppSidebarZoneEntry(
+                          this,
+                          entry,
+                          sidebarZone.sessionRows,
+                          sidebarZone.pluginTabs,
+                        ),
+                      )}
+                    <openclaw-plugin-contributions
+                      .kind=${"navigation"}
+                      .excludedNavigationKeys=${sidebarZone.entries
+                        .filter((entry) => entry.type === "plugin")
+                        .map((entry) => entry.key)}
+                      .currentNavigationHref=${`${window.location.pathname}${window.location.search}`}
+                    ></openclaw-plugin-contributions>
+                  </div>
+                </details>
               </nav>
               <div class="sidebar-session-content" ?hidden=${Boolean(this.contextualSidebar)}>
                 ${renderAppSidebarOnline(this)} ${this.renderSessions()}

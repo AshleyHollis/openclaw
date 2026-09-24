@@ -2,13 +2,21 @@
 
 import { html, nothing } from "lit";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import type {
+  ControlUiHost,
+  ControlUiReplacement,
+} from "../../../../../src/plugin-sdk/control-ui.js";
 import { GatewayBrowserClient } from "../../../api/gateway.ts";
+import type { ApplicationContext } from "../../../app/context.ts";
 import "../../../components/resizable-divider.ts";
 import { createControlUiPluginHost } from "../../../plugins/control-ui-host.ts";
+import "../../../plugins/control-ui-view.runtime.ts";
 import {
   ControlUiPluginRuntime,
   type ControlUiPluginOwner,
 } from "../../../plugins/control-ui-runtime.ts";
+import { renderPluginSurface } from "../../../plugins/control-ui-view.ts";
+import { createApplicationContextProvider } from "../../../test-helpers/application-context.ts";
 import {
   availableSidebarSlots,
   sidebarPanelDefinitions,
@@ -39,6 +47,7 @@ const regions: Region[] = [];
 async function createRegion(
   layout: SidebarLayout = openSlot({ columns: [] }, "detail"),
   definitions?: SidebarPanelDefinition[],
+  mount: HTMLElement = document.body,
 ) {
   const shell = document.createElement("div");
   shell.className = "sidebar-region";
@@ -73,7 +82,7 @@ async function createRegion(
   const rightRuntime = document.createElement("div");
   rightRuntime.className = "sidebar-region__right-runtime";
   shell.append(region, primary, rightRuntime);
-  document.body.append(shell);
+  mount.append(shell);
   regions.push(region);
   await region.updateComplete;
   return region;
@@ -90,6 +99,86 @@ afterEach(() => {
 });
 
 describe("chat sidebar region", () => {
+  it("mounts a selected Files replacement and restores ordinary Files on deselection", async () => {
+    const abort = new AbortController();
+    const listeners = new Set<() => void>();
+    const pluginHost = {
+      signal: abort.signal,
+      sessions: {},
+      agents: {},
+      navigation: {},
+      ui: {},
+      components: {},
+      request: vi.fn(),
+    } as unknown as ControlUiHost;
+    const replacement: ControlUiReplacement<"session-files"> = {
+      id: "topic-files",
+      label: "Topic Files",
+      surface: "session-files",
+      mount(container) {
+        const view = document.createElement("div");
+        view.dataset.pluginTopicFiles = "";
+        view.textContent = "Topic Files replacement";
+        container.append(view);
+      },
+    };
+    let selected: typeof replacement | undefined = replacement;
+    const context = {
+      plugins: {
+        selectedReplacement: (surface: string) =>
+          surface === "session-files" && selected
+            ? {
+                key: "fixture/topic-files",
+                pluginId: "fixture",
+                value: selected,
+                host: pluginHost,
+                signal: abort.signal,
+              }
+            : undefined,
+        subscribe: (listener: () => void) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+        reportError: vi.fn(),
+      },
+    } as unknown as ApplicationContext;
+    const provider = createApplicationContextProvider(context);
+    const regionPromise = createRegion(openSlot({ columns: [] }, "workspace"), undefined, provider);
+    document.body.append(provider);
+    const region = await regionPromise;
+    onTestFinished(() => {
+      abort.abort();
+      provider.remove();
+    });
+    region.panelTemplates = {
+      workspace: renderPluginSurface(
+        "session-files",
+        { sessionKey: "agent:main:fixture", agentId: "main" },
+        html`<div data-panel="workspace">Ordinary Files</div>`,
+        true,
+      ),
+    };
+    region.requestUpdate();
+    await region.updateComplete;
+    await vi.waitFor(() =>
+      expect(root(region).querySelector("[data-plugin-topic-files]")).not.toBeNull(),
+    );
+
+    selected = undefined;
+    listeners.forEach((listener) => listener());
+    await vi.waitFor(() =>
+      expect(root(region).querySelector("[data-panel=workspace]")?.textContent).toBe(
+        "Ordinary Files",
+      ),
+    );
+
+    selected = replacement;
+    listeners.forEach((listener) => listener());
+    await vi.waitFor(() =>
+      expect(root(region).querySelector("[data-plugin-topic-files]")).not.toBeNull(),
+    );
+  });
+
   it("coalesces committed geometry and retires disconnected measurements", async () => {
     vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame"] });
     onTestFinished(() => {

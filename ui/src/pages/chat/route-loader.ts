@@ -48,11 +48,13 @@ import type { ChatRouteData, SessionRouteCandidate } from "./session-route-data.
 export type { ChatRouteData, SessionChatRouteData } from "./session-route-data.ts";
 
 function sessionRouteHints(location: RouteLocation) {
+  const filesOpenRequest = new URLSearchParams(location.search).get("__openclawFilesPanel");
   return {
     ...draftRouteDataFromLocation(location),
     ...(new URLSearchParams(location.search).get(SESSION_DASHBOARD_EXPANDED_PARAM) === "expanded"
       ? { dashboardExpanded: true as const }
       : {}),
+    ...(filesOpenRequest ? { filesOpenRequest } : {}),
   };
 }
 

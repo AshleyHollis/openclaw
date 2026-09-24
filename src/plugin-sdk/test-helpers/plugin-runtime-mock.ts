@@ -480,6 +480,9 @@ export function createPluginRuntimeMock(overrides: PluginRuntimeMockOverrides = 
   } satisfies PluginRuntime["channel"]["inbound"];
   const base: PluginRuntime = {
     version: "1.0.0-test",
+    fileAccess: {
+      stageDurableFileInDirectory: vi.fn(),
+    },
     ...createPluginModelRuntimeMock({ provider: DEFAULT_PROVIDER, model: DEFAULT_MODEL }),
     gateway: {
       isAvailable: vi.fn(async () => false),

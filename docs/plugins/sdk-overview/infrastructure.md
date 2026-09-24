@@ -40,6 +40,8 @@ background services, plus the SDK helpers those surfaces depend on. Part of the
 
 Gateway methods default to `profileAccess: "required"`, so authenticated-profile verification fails closed before plugin dispatch. Set `profileAccess: "independent"` only for an audited method that neither reads nor mutates durable user or session state. Operator scope remains a separate authorization requirement.
 
+An authenticated plugin HTTP route with `contracts.gatewayMethodDispatch: ["authenticated-request"]` may use `dispatchGatewayMethod` during its request. A registered plugin Gateway method with that contract may dispatch only its own declared method while its handler is running. The grant does not carry into another plugin's scope.
+
 ### File-watch capacity errors
 
 `getFileWatchCapacityCode(error)` from `openclaw/plugin-sdk/file-access-runtime`
@@ -48,6 +50,20 @@ for other errors. It requires `syscall: "watch"` because watcher libraries can
 forward directory-scan errors through the same error event. Use the result in
 the watcher lifecycle owner to stop native retries and select an existing
 refresh path.
+
+### Durable filesystem identity
+
+`readDurableFilesystemIdentity(descriptor)` from
+`openclaw/plugin-sdk/file-access-runtime` reads the Btrfs filesystem UUID and
+containing subvolume ID for a held Linux file descriptor without elevated
+privileges. Other platforms and filesystems return `capability-unavailable`.
+Keep the descriptor open and retain device and inode checks for changes during
+the current operation.
+
+`stageDurableFileInDirectory` stages a file through the native fs-safe helper
+for atomic replacement in its destination directory. It requires the host's
+native fs-safe binding; callers must still verify the file identity and their
+own write admission before publishing it.
 
 ### Streaming file verification
 

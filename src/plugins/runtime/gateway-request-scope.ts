@@ -130,6 +130,11 @@ function applyPluginScope(
   scoped: PluginRuntimeGatewayRequestScope,
   scope: PluginRuntimePluginScope,
 ): void {
+  if (scoped.pluginId !== scope.pluginId) {
+    // A nested plugin invocation cannot inherit another plugin's request-time dispatch grant.
+    delete scoped.gatewayMethodDispatchAllowed;
+    delete scoped.gatewayMethodDispatchMethods;
+  }
   scoped.pluginId = scope.pluginId;
   if (scope.pluginSource !== undefined) {
     scoped.pluginSource = scope.pluginSource;
