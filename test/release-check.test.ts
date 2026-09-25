@@ -53,6 +53,9 @@ function withProcessEnv<T>(env: Record<string, string>, callback: () => T): T {
 
 const requiredBundledPluginPackPaths = listBundledPluginPackArtifacts();
 
+// Prepare the public SDK graph through the test runner before the consumer test deadline.
+await import("openclaw/plugin-sdk/channel-outbound");
+
 describe("collectAppcastSparkleVersionErrors", () => {
   it("accepts legacy 9-digit calver builds before lane-floor cutover", () => {
     const xml = `<rss><channel>${makeItem("2026.2.26", "202602260")}</channel></rss>`;
@@ -646,9 +649,45 @@ describe("packed install verification", () => {
 });
 
 describe("createPackedPluginSdkTypescriptSmokeProject", () => {
-  it("limits setupSurface omission to the recorded frozen target", async () => {
+  it("preserves the unchanged released progress consumer behavior", async () => {
+    await import("../scripts/fixtures/packed-plugin-sdk-progress-consumer.js");
+  });
+
+  it("creates a focused strict-declaration progress consumer without source aliases", () => {
+    const consumerDir = mkdtempSync(join(tmpdir(), "release-check-progress-consumer-"));
+    try {
+      createPackedPluginSdkTypescriptSmokeProject({
+        consumerDir,
+        packageSpec: "2026.9.4",
+        progressConsumerOnly: true,
+      });
+      expect(JSON.parse(readFileSync(join(consumerDir, "tsconfig.json"), "utf8"))).toEqual({
+        compilerOptions: {
+          module: "NodeNext",
+          moduleResolution: "NodeNext",
+          noEmit: true,
+          strict: true,
+          skipLibCheck: false,
+          types: ["node"],
+          target: "ES2022",
+        },
+        include: ["src/packed-plugin-sdk-progress-consumer.ts"],
+      });
+      expect(
+        readFileSync(join(consumerDir, "src/packed-plugin-sdk-progress-consumer.ts"), "utf8"),
+      ).toBe(readFileSync("scripts/fixtures/packed-plugin-sdk-progress-consumer.ts", "utf8"));
+    } finally {
+      rmSync(consumerDir, { recursive: true, force: true });
+    }
+  });
+
+  it("limits setupSurface omission to the recorded frozen targets", async () => {
     const { packedPluginSdkMayOmitSetupSurface } = await import("../scripts/release-check.js");
     expect(packedPluginSdkMayOmitSetupSurface("2026.7.33")).toBe(true);
+    expect(packedPluginSdkMayOmitSetupSurface("2026.7.34")).toBe(true);
+    expect(packedPluginSdkMayOmitSetupSurface("2026.7.35")).toBe(true);
+    expect(packedPluginSdkMayOmitSetupSurface("2026.7.36")).toBe(false);
+    expect(packedPluginSdkMayOmitSetupSurface("2026.7.35-beta.1")).toBe(false);
     expect(packedPluginSdkMayOmitSetupSurface("2026.9.4")).toBe(false);
     expect(packedPluginSdkMayOmitSetupSurface("2026.10.1")).toBe(false);
   });
@@ -702,7 +741,7 @@ describe("collectPackUnpackedSizeErrors", () => {
   it.each([
     { label: "ordinary package", unpackedSize: 120_354_302 },
     { label: "required native payload", unpackedSize: 243_066_603 },
-    { label: "exact budget", unpackedSize: 235 * 1024 * 1024 },
+    { label: "exact budget", unpackedSize: 320 * 1024 * 1024 },
   ])("accepts pack results at or below the budget: $label", ({ unpackedSize }) => {
     expect(
       collectPackUnpackedSizeErrors([makePackResult("candidate.tgz", unpackedSize)]),
@@ -719,9 +758,9 @@ describe("collectPackUnpackedSizeErrors", () => {
 
   it("rejects pack results one byte above the unpacked size budget", () => {
     expect(
-      collectPackUnpackedSizeErrors([makePackResult("candidate.tgz", 235 * 1024 * 1024 + 1)]),
+      collectPackUnpackedSizeErrors([makePackResult("candidate.tgz", 320 * 1024 * 1024 + 1)]),
     ).toEqual([
-      "candidate.tgz unpackedSize 246415361 bytes (235.0 MiB) exceeds budget 246415360 bytes (235.0 MiB). Investigate duplicate channel shims, copied extension trees, or other accidental pack bloat before release.",
+      "candidate.tgz unpackedSize 335544321 bytes (320.0 MiB) exceeds budget 335544320 bytes (320.0 MiB). Investigate duplicate channel shims, copied extension trees, or other accidental pack bloat before release.",
     ]);
   });
 

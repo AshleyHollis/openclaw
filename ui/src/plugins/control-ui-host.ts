@@ -1,12 +1,12 @@
 import type {
   ControlUiDisposer,
   ControlUiHost,
-  ControlUiHttpRequest,
-  ControlUiHttpResponse,
   ControlUiPageNavigationOptions,
   ControlUiPageTarget,
 } from "../../../src/plugin-sdk/control-ui.js";
-import type { RouteId } from "../app-route-paths.ts";
+
+type ControlUiHttpRequest = Parameters<ControlUiHost["httpRequest"]>[0];
+type ControlUiHttpResponse = Awaited<ReturnType<ControlUiHost["httpRequest"]>>;
 import { isRouteId, pathForRoute, pluginTabLocation } from "../app-route-paths.ts";
 import { selectApplicationSession } from "../app/agent-selection.ts";
 import type { ApplicationContext } from "../app/context.ts";
@@ -47,15 +47,12 @@ function declaredPluginHttpRoute(pluginId: string, request: ControlUiHttpRequest
 }
 
 async function relayDeclaredPluginHttpRequest(
-  context: ApplicationContext<RouteId>,
+  context: ApplicationContext,
   pluginId: string,
   request: ControlUiHttpRequest,
   signal?: AbortSignal,
 ): Promise<ControlUiHttpResponse> {
   const path = declaredPluginHttpRoute(pluginId, request);
-  // Browser bootstrap uses a short-lived device credential rather than a
-  // persistent bearer token. Both values remain host-only; the plugin sees
-  // only the closed request/response envelope.
   const credential = (
     context.gateway.connection.token || context.gateway.connection.bootstrapToken
   ).trim();
@@ -85,7 +82,7 @@ async function relayDeclaredPluginHttpRequest(
 }
 
 export function createControlUiPluginHost(
-  getContext: () => ApplicationContext<RouteId>,
+  getContext: () => ApplicationContext,
   runtime: ControlUiPluginRuntime,
   owner: Omit<ControlUiPluginOwner, "host">,
 ): ControlUiHost {
@@ -106,7 +103,7 @@ export function createControlUiPluginHost(
       dispose();
     };
   };
-  const call = async <T>(operation: (context: ApplicationContext<RouteId>) => Promise<T>) => {
+  const call = async <T>(operation: (context: ApplicationContext) => Promise<T>) => {
     const result = await operation(current());
     current();
     return result;

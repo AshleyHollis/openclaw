@@ -10,9 +10,9 @@ import YAML from "yaml";
 import { pnpmLockfileDocuments } from "./lib/pnpm-lockfile-documents.mjs";
 
 const ALLOWED_PATCHED_DEPENDENCIES = new Map([
+  ["chrome-devtools-mcp@1.8.0", "patches/chrome-devtools-mcp@1.8.0.patch"],
   ["@awesome.me/webawesome@3.12.0", "patches/@awesome.me__webawesome@3.12.0.patch"],
   ["@novnc/novnc@1.7.0", "patches/@novnc__novnc@1.7.0.patch"],
-  ["@openclaw/fs-safe@0.8.5", "patches/@openclaw__fs-safe@0.8.5.patch"],
   ["vitest@5.0.0", "patches/vitest@5.0.0.patch"],
   ["baileys@7.0.0-rc12", "patches/baileys@7.0.0-rc12.patch"],
   ["baileys@7.0.0-rc13", "patches/baileys@7.0.0-rc13.patch"],
@@ -103,7 +103,7 @@ function collectPackageJsonPatchViolations(cwd: string, violations: PackagePatch
 }
 
 function collectPatchFileViolations(cwd: string, violations: PackagePatchViolation[]) {
-  for (const relativePath of listTrackedFiles(cwd, ["patches/*.patch"])) {
+  for (const relativePath of listTrackedFiles(cwd, ["*.patch"])) {
     if (!fs.existsSync(path.join(cwd, relativePath))) {
       continue;
     }

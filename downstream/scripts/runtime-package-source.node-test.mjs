@@ -111,6 +111,7 @@ for (const scenario of [
           "scripts/lib/managed-windows-job-entrypoint.mts",
           "scripts/lib/managed-windows-job.mts",
           "scripts/lib/npm-json-output.mts",
+          "scripts/lib/packed-openclaw-tarballs.mts",
           "scripts/lib/repo-root.mjs",
           "scripts/lib/release-changelog.mjs",
           "scripts/lib/release-notes-compaction.mjs",

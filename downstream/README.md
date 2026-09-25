@@ -2,10 +2,10 @@
 
 This directory contains the public, reproducible overlay used to build the OpenClaw image for the TerraMaster NAS. It deliberately contains no NAS credentials, deployment credentials, Discord tokens, model credentials, or private infrastructure state.
 
-The current source integration is based on upstream tag `v2026.9.5` at commit
-`ec9c1a13db8938e5a3eaa51fca2e981cde2395a9`. The retained downstream delta was
+The current source integration is based on upstream tag `v2026.9.6` at commit
+`eb377ac59e6c9fd6c7705028034812becf00271b`. The retained downstream delta was
 replayed from the verified private patch with SHA-256
-`84F7472093C5F08F91A661D0B3DC1D1DFB4A9EB6E3280137E5279A449446ABC3`.
+`7B9951041B9B02C610D105BF2F3A5216294E80D221E5DB95454A8AD57F6DAE17`.
 
 The workflow is intentionally split into three trust boundaries:
 
