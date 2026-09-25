@@ -31,7 +31,11 @@ describe("durable filesystem identity", () => {
 
   it("rejects an unsupported filesystem at the first Btrfs ioctl", () => {
     expect(() =>
-      readBtrfsFilesystemIdentityWithIoctl(8, () => -1, () => 25),
+      readBtrfsFilesystemIdentityWithIoctl(
+        8,
+        () => -1,
+        () => 25,
+      ),
     ).toThrow(expect.objectContaining({ message: "BTRFS_IOC_FS_INFO failed", errno: 25 }));
   });
 

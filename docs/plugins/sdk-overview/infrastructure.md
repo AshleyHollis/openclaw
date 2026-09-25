@@ -40,6 +40,8 @@ background services, plus the SDK helpers those surfaces depend on. Part of the
 
 Gateway methods default to `profileAccess: "required"`, so authenticated-profile verification fails closed before plugin dispatch. Set `profileAccess: "independent"` only for an audited method that neither reads nor mutates durable user or session state. Operator scope remains a separate authorization requirement.
 
+An authenticated plugin HTTP route with `contracts.gatewayMethodDispatch: ["authenticated-request"]` may use `dispatchGatewayMethod` during its request. A registered plugin Gateway method with that contract may dispatch only its own declared method while its handler is running. The grant does not carry into another plugin's scope.
+
 ### File-watch capacity errors
 
 `getFileWatchCapacityCode(error)` from `openclaw/plugin-sdk/file-access-runtime`
@@ -52,14 +54,27 @@ refresh path.
 ### Durable filesystem identity
 
 `readDurableFilesystemIdentity(descriptor)` from
-`openclaw/plugin-sdk/file-access-runtime` reads the Btrfs
-filesystem UUID and the containing subvolume ID for a held Linux file
-descriptor. The call does not require elevated privileges. It rejects other
-platforms and filesystems with `code: "capability-unavailable"`.
+`openclaw/plugin-sdk/file-access-runtime` reads the Btrfs filesystem UUID and
+containing subvolume ID for a held Linux file descriptor without elevated
+privileges. Other platforms and filesystems return `capability-unavailable`.
+Keep the descriptor open and retain device and inode checks for changes during
+the current operation.
 
-Use this witness when durable plugin metadata must distinguish a Btrfs
-subvolume or snapshot across remounts. Keep the descriptor open, and retain
-ordinary device and inode checks for changes during the current operation.
+`stageDurableFileInDirectory` stages a file through the native fs-safe helper
+for atomic replacement in its destination directory. It requires the host's
+native fs-safe binding; callers must still verify the file identity and their
+own write admission before publishing it.
+
+### Streaming file verification
+
+`sha256File(pathOrHandle, { maxBytes, signal })` from
+`openclaw/plugin-sdk/file-access-runtime` returns `{ bytes, digest }` without
+loading the whole file into memory. It reads through EOF and rejects files
+that grow beyond the byte limit. A borrowed handle stays open at its original
+offset; the caller owns admission and close. Path inputs reject final symlinks
+and close their owned handle. Cancellation settles pending work before rejecting.
+The optional native helper hashes off the JavaScript event loop; the fallback
+uses bounded buffers. Neither route provides a snapshot of concurrent writes.
 
 ### SQLite write admission
 
@@ -90,8 +105,16 @@ the connection; transaction callbacks must remain synchronous.
 
 ### Worker task admission
 
-`WorkerTaskPool` and `serveWorkerTasks` from
-`openclaw/plugin-sdk/process-runtime` support reusable computation workers.
+`WorkerTaskPool` from `openclaw/plugin-sdk/process-runtime` supports reusable
+computation workers for bundled and separately published official plugins.
+Inside those workers, import `serveWorkerTasks` and the
+`WorkerTaskControl` type from `openclaw/plugin-sdk/worker-task-server` to avoid
+loading the host process and pool runtime. Both paths use the same task protocol.
+
+The older serving exports in `process-runtime` remain for released official
+plugins. Bundled workers use `worker-task-server`; remove the older exports only
+after supported official plugin versions have migrated to hosts with this subpath.
+
 Each pool defaults to 128 outstanding tasks and 256 MiB of reported input bytes,
 including queued, preparing, and running tasks. Set `maxPendingTasks` and
 `maxPendingBytes` when constructing a pool to choose different positive limits.
@@ -125,6 +148,13 @@ cancellation, and reports deletion failures without replacing the task outcome.
 Worker exit releases execution capacity; `close()` also waits for pending file
 cleanup. Keep persistent data and files borrowed outside the Worker out of this
 directory.
+
+When native termination fails, the pool retains that worker's input custody and
+capacity. `retryFailedRetirements()` retries only those failed retirements and
+joins native exit and pending file cleanup without interrupting healthy tasks or
+waiting for them to finish. It does not replay failed work or close the pool.
+An owner that is shutting down must stop new admissions, drain healthy tasks,
+and finish with `close()`.
 
 `serveWorkerTasks` supplies a third handler argument, `WorkerTaskControl`. Await
 `control.runNativeSection(() => nativeOperation())` around each bounded native

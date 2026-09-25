@@ -9,7 +9,6 @@ import type {
 import { createDeferred } from "../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { GatewaySessionRow } from "../api/types.ts";
-import type { RouteId } from "../app-route-paths.ts";
 import { createAgentSelectionCapability } from "../app/agent-selection.ts";
 import type { ApplicationContext } from "../app/context.ts";
 import { t } from "../i18n/index.ts";
@@ -268,7 +267,7 @@ async function mountActions(
     sessions,
     plugins,
     navigate,
-  } as unknown as ApplicationContext<RouteId>;
+  } as unknown as ApplicationContext;
   const owner = {
     abort,
     client,

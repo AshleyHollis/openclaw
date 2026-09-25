@@ -22,7 +22,10 @@ import type {
   PluginHttpRouteRegistration,
   PluginRecord,
 } from "./registry-types.js";
-import { withPluginRuntimePluginScope } from "./runtime/gateway-request-scope.js";
+import {
+  getPluginRuntimeGatewayRequestScope,
+  withPluginRuntimeGatewayRequestScope,
+} from "./runtime/gateway-request-scope.js";
 import type { SessionCatalogProvider } from "./session-catalog.js";
 import type {
   OpenClawPluginChannelRegistration,
@@ -35,31 +38,39 @@ import type {
 const GATEWAY_METHOD_DISPATCH_CONTRACT = "authenticated-request";
 
 function adaptPluginGatewayMethodHandler(
-  record: PluginRecord,
+  pluginId: string,
   handler: GatewayRequestHandler,
+  mayDispatch: boolean,
   gatewayMethodDispatchMethods?: readonly string[],
 ): GatewayRequestHandler {
   return async (opts) => {
-    return await withPluginRuntimePluginScope(
-      {
-        pluginId: record.id,
-        pluginSource: record.source,
-        pluginOrigin: record.origin,
-        pluginTrustedOfficialInstall: record.trustedOfficialInstall,
-        ...(gatewayMethodDispatchMethods ? { gatewayMethodDispatchMethods } : {}),
-      },
-      async () => {
-        let responded = false;
-        const respond: RespondFn = (ok, payload, error, meta) => {
-          responded = true;
-          opts.respond(ok, payload, error, meta);
-        };
-        const result = (await handler({ ...opts, respond })) as unknown;
-        if (!responded && result !== undefined) {
-          respond(true, result);
-        }
-      },
-    );
+    let responded = false;
+    const respond: RespondFn = (ok, payload, error, meta) => {
+      responded = true;
+      opts.respond(ok, payload, error, meta);
+    };
+    const scope = getPluginRuntimeGatewayRequestScope();
+    const invoke = () => handler({ ...opts, respond });
+    // A declared authenticated-request contract composes RPCs with the exact
+    // admitted client, never a synthetic identity or inherited unrelated grant.
+    const result = (
+      scope
+        ? await withPluginRuntimeGatewayRequestScope(
+            {
+              ...scope,
+              pluginId,
+              gatewayMethodDispatchAllowed:
+                mayDispatch && scope.client != null && gatewayMethodDispatchMethods === undefined,
+              gatewayMethodDispatchMethods:
+                mayDispatch && scope.client != null ? gatewayMethodDispatchMethods : undefined,
+            },
+            invoke,
+          )
+        : await invoke()
+    ) as unknown;
+    if (!responded && result !== undefined) {
+      respond(true, result);
+    }
   };
 }
 
@@ -96,33 +107,20 @@ export function createNetworkRegistrars(state: PluginRegistryState) {
     const requestedDispatchMethods = opts?.gatewayMethodDispatchMethods;
     if (
       requestedDispatchMethods !== undefined &&
-      (!Array.isArray(requestedDispatchMethods) || requestedDispatchMethods.length === 0)
+      (!Array.isArray(requestedDispatchMethods) ||
+        requestedDispatchMethods.length === 0 ||
+        requestedDispatchMethods.some(
+          (value) => typeof value !== "string" || !value.trim() || value !== value.trim(),
+        ) ||
+        new Set(requestedDispatchMethods).size !== requestedDispatchMethods.length)
     ) {
       reportRegistrationError(
         record,
-        `gateway method dispatch allowlist must contain unique non-empty method names: ${trimmed}`,
+        `gateway method dispatch allowlist must contain unique non-empty exact method names: ${trimmed}`,
       );
       return;
     }
-    const gatewayMethodDispatchMethods =
-      requestedDispatchMethods === undefined
-        ? undefined
-        : requestedDispatchMethods.map((value) => value.trim());
-    if (
-      gatewayMethodDispatchMethods?.some((value) => !value) ||
-      (gatewayMethodDispatchMethods &&
-        new Set(gatewayMethodDispatchMethods).size !== gatewayMethodDispatchMethods.length)
-    ) {
-      reportRegistrationError(
-        record,
-        `gateway method dispatch allowlist must contain unique non-empty method names: ${trimmed}`,
-      );
-      return;
-    }
-    if (
-      gatewayMethodDispatchMethods &&
-      !(record.contracts?.gatewayMethodDispatch ?? []).includes(GATEWAY_METHOD_DISPATCH_CONTRACT)
-    ) {
+    if (requestedDispatchMethods && !canDispatchGatewayMethods(record)) {
       reportRegistrationError(
         record,
         `gateway method dispatch allowlist requires contracts.gatewayMethodDispatch: ["${GATEWAY_METHOD_DISPATCH_CONTRACT}"]: ${trimmed}`,
@@ -130,9 +128,10 @@ export function createNetworkRegistrars(state: PluginRegistryState) {
       return;
     }
     const wrappedHandler = adaptPluginGatewayMethodHandler(
-      record,
+      record.id,
       handler,
-      gatewayMethodDispatchMethods,
+      canDispatchGatewayMethods(record),
+      requestedDispatchMethods,
     );
     registry.gatewayHandlers[trimmed] = wrappedHandler;
     const normalizedScope = normalizePluginGatewayMethodScope(trimmed, opts?.scope);
@@ -193,7 +192,7 @@ export function createNetworkRegistrars(state: PluginRegistryState) {
     return `${plugin} (${source})`;
   };
 
-  const canDispatchGatewayMethodsFromHttpRoute = (record: PluginRecord): boolean =>
+  const canDispatchGatewayMethods = (record: PluginRecord): boolean =>
     (record.contracts?.gatewayMethodDispatch ?? []).includes(GATEWAY_METHOD_DISPATCH_CONTRACT);
 
   const registerHttpRoute = (record: PluginRecord, params: OpenClawPluginHttpRouteParams) => {
@@ -237,9 +236,7 @@ export function createNetworkRegistrars(state: PluginRegistryState) {
       ...(params.gatewayRuntimeScopeSurface
         ? { gatewayRuntimeScopeSurface: params.gatewayRuntimeScopeSurface }
         : {}),
-      ...(canDispatchGatewayMethodsFromHttpRoute(record)
-        ? { gatewayMethodDispatchAllowed: true }
-        : {}),
+      ...(canDispatchGatewayMethods(record) ? { gatewayMethodDispatchAllowed: true } : {}),
       ...(params.nodeCapability ? { nodeCapability: { ...params.nodeCapability } } : {}),
       source: record.source,
     } satisfies PluginHttpRouteRegistration;

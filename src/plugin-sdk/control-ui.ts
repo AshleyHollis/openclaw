@@ -25,13 +25,13 @@ export type ControlUiConnection = {
 };
 
 /** A host-relayed, declared same-origin HTTP route. Credentials stay host-owned. */
-export type ControlUiHttpRequest = Readonly<{
+type ControlUiHttpRequest = Readonly<{
   method: "POST";
   path: string;
   body: string;
 }>;
 
-export type ControlUiHttpResponse = Readonly<{
+type ControlUiHttpResponse = Readonly<{
   status: number;
   body: string;
 }>;

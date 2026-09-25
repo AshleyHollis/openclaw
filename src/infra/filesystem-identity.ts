@@ -40,10 +40,7 @@ export function readBtrfsFilesystemIdentityWithIoctl(
 
   const filesystemId = uuidFromBytes(filesystem.subarray(16, 32));
   const subvolumeId = subvolume.readBigUInt64LE(0).toString(10);
-  if (
-    !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(filesystemId) ||
-    subvolumeId === "0"
-  ) {
+  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(filesystemId) || subvolumeId === "0") {
     throw new Error("Btrfs returned an invalid durable filesystem identity");
   }
   return Object.freeze({ version: 1, filesystem: "btrfs", filesystemId, subvolumeId });
