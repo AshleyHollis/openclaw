@@ -1,31 +1,30 @@
-# Proposal: bounded background Cron capability for external plugins
+# Proposal: attenuate plugin-service Cron authority to one job
 
-Status: design for SDK and security owner review. This page does not grant a capability or change runtime behavior.
+Status: design for SDK and security owner review. OpenClaw already supplies restart-safe Cron access to a long-lived plugin service; this proposal does not request another background scheduler or Gateway RPC path.
 
-## Problem
+## Existing service authority
 
-An external plugin can update a Cron job during an authenticated Gateway request, but a durable background worker cannot resume the same operation after process restart. `api.runtime.gateway.request` admits only bundled or trusted official plugins. `dispatchGatewayMethod` retains the authority of a current authenticated plugin request and cannot be borrowed by a later timer. Treating an external plugin as trusted official, retaining the request context, or writing Cron storage directly would bypass those boundaries.
+A plugin registered with `api.registerService(...)` can acquire the Gateway scheduler through its service context's `getCron?.()`. The facade offers `list`, `add`, `update`, `remove`, `removeStaleJobFamily`, and `isEnabled`. `src/plugins/service-cron.ts` binds a returned handle to `PluginRuntimeCapabilityLease`, the active service lifetime, and one scheduler instance. Its `commitGuard()` rechecks those facts at the mutation commit boundary. A replacement service obtains its own current handle; retaining an old handle does not preserve authority. A non-Gateway host may provide no Cron facade.
 
-The desired flow is narrower than arbitrary Gateway access: after a user has accepted a plugin-owned Reminder decision, the plugin must read the exact bound Cron job and conditionally disable it, then finish its own dependent work. The plugin records a durable logical operation before the effect and reconciles an uncertain outcome after restart. Cron remains authoritative for job state and configuration revision.
+The correct repair for a plugin worker that continues after a caller closes is to move the operation into the registered service and use this facade. The plugin must keep its own durable target identity, intent, and recovery journal. It must not retain `api.runtime.gateway.request` or `dispatchGatewayMethod` from an authenticated request, mark itself trusted official, write Cron storage, or create a second scheduler.
 
-## Proposed authority
+## Remaining authority gap
 
-The host should provide a separate closure-bound Scheduler capability, rather than relaxing either existing Gateway API. An activated external plugin may use it only if a host-side admission policy explicitly grants that plugin background Cron authority. The capability is bound to the current plugin instance/generation and aborts or fails when that generation stops, reloads, or loses the grant. It exposes only exact-job `get` and conditional `update`; it cannot select operator scopes or dispatch other Gateway methods. `update` must require the expected configuration revision and a patch limited to disabling the bound Reminder. The host rechecks grant and generation immediately before the native effect, including after any await.
+The service facade grants access to the scheduler, not to one user-approved job. A plugin can pass a different job ID to `update` or `remove`, and `list` can reveal other jobs. Plugin metadata such as a Source Reference, job name, description, `declarationKey`, or plugin-supplied ID helps detect mistakes but is not host-owned authorization proof.
 
-The job binding needs a host-verifiable origin. A plugin-supplied job ID, declaration key, Source Reference, or name prefix alone is not proof of ownership: another plugin could claim it. The preferred design is an authenticated admission step that records the plugin and exact Cron job identity in a host-owned grant when the user accepts the Reminder operation. Recovery must revalidate that binding from host-owned state; the plugin's metadata is a lookup hint, not authorization. The grant's persistence, retention, and revocation semantics require owner review before implementation. If a suitable existing host-owned binding exists, reuse it instead of adding another store.
+The public service facade also lacks a revision-bearing conditional update. A read followed by `update(id, patch)` can race another writer. An already-disabled job after a crash is not, by itself, proof that this plugin's operation disabled it. Plugins must fail closed when the target or metadata conflicts or the outcome cannot be attributed; they must report this limitation rather than infer success from final shape.
 
-## Required review decisions
+## Possible attenuation
 
-1. Identify the existing owner, if any, for a durable plugin-to-Cron-job binding; otherwise approve the smallest host-owned grant record and its lifecycle.
-2. Decide how the authenticated user action admits the exact job and how an external plugin requests that grant without inheriting broad operator authority.
-3. Define revocation on plugin disable, uninstall, reload, job deletion, and user withdrawal; a retained capability must fail after revocation.
-4. Confirm the public SDK surface and manifest/config declaration. No plugin-controlled manifest field alone may authorize itself.
+Consider deriving an exact-job handle from the existing service Cron authority, backed by a host-owned binding established at an authenticated admission point. The API shape is intentionally open for review; conceptually it would permit reading only the bound job and disabling it against the revision accepted by the user. It should reuse `PluginRuntimeCapabilityLease`, scheduler-instance fencing, `commitGuard()`, and the current Cron persistence owner. It must not create a parallel lifecycle or independent authorization store when a suitable host-owned binding already exists.
 
-## Acceptance proof
+The binding needs authoritative provenance. A plugin-supplied job ID, `declarationKey`, Source Reference, job name, prefix, or local metadata alone cannot grant it. SDK and security owners should decide the smallest host-owned grant, how the authenticated user action admits it, whether it survives process restart, and how disable, uninstall, job removal, or user withdrawal revoke it. Revision/CAS semantics should prevent a recovered operation from disabling a changed or repurposed job.
 
-- An external plugin with an admitted exact job can read it and conditionally disable it after a real host process termination and restart. Its dependent action runs only after the Cron outcome is witnessed.
-- A different external plugin, a detached callback, a stale plugin generation, an unrelated job ID, a changed configuration revision, a revoked grant, and an unlisted Gateway method are denied without a native mutation.
-- Timeout after a Cron write reconciles against the same job and operation identity; it cannot redirect to another job or report success from a matching final shape alone.
-- Existing authenticated plugin requests and bundled/trusted-official Gateway requests keep their current behavior. No live job or personal data is needed for qualification.
+## Acceptance proof for a future host change
 
-This proposal is separate from conditional `cron.add` ID validation. SDK and security owner acceptance is required before implementation because it widens the host's plugin authority boundary.
+- The exact admitted job can be read and conditionally disabled after process restart through the current plugin service.
+- Unrelated jobs, a different plugin, revoked grants, stale service generations, retained handles, replaced schedulers, and stale revisions are rejected at the effect boundary.
+- A lost response is reconciled against the exact job and causal operation witness; matching final shape alone cannot certify success.
+- Existing service Cron and authenticated Gateway request behavior stay intact; no live user data is required for tests.
+
+This proposal concerns authority attenuation only. The existing service Cron facade is sufficient to remove a plugin worker's misuse of expired request authority, subject to its broader scope and missing public CAS. The plugin repair should proceed independently and report those limits precisely.
