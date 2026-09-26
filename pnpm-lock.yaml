@@ -210,6 +210,7 @@ packageExtensionsChecksum: sha256-zZ8fyodhMTumshonC7kktCqTPsiHL3UAyS9vltFAlMo=
 patchedDependencies:
   '@awesome.me/webawesome@3.12.0': a366a1422e3d8f0b9699205e969a73294877cbff761550bb360380e3ab9428f1
   '@novnc/novnc@1.7.0': bfde0e1bda172da3525f9f5014d85ad28073325b74f09609084598a65d2f412d
+  '@openclaw/fs-safe@0.13.1': 96c735ef9b0010a2cf35d77364aca617a298cee6ca888c402942280685996c88
   matrix-js-sdk@42.3.0: 79bea7a0ca1c3c98635b2da6957539ab04386a2fe0ffec5498b5e9abc18b8b97
   vitest@5.0.0: 5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf
 
@@ -261,7 +262,7 @@ importers:
         version: link:packages/ai
       '@openclaw/fs-safe':
         specifier: 0.13.1
-        version: 0.13.1
+        version: 0.13.1(patch_hash=96c735ef9b0010a2cf35d77364aca617a298cee6ca888c402942280685996c88)
       '@openclaw/proxyline':
         specifier: 0.3.12
         version: 0.3.12(undici@8.10.2)
@@ -1170,7 +1171,7 @@ importers:
     dependencies:
       '@openclaw/fs-safe':
         specifier: 0.13.1
-        version: 0.13.1
+        version: 0.13.1(patch_hash=96c735ef9b0010a2cf35d77364aca617a298cee6ca888c402942280685996c88)
       minimatch:
         specifier: 10.2.6
         version: 10.2.6
@@ -1769,7 +1770,7 @@ importers:
     dependencies:
       '@openclaw/fs-safe':
         specifier: 0.13.1
-        version: 0.13.1
+        version: 0.13.1(patch_hash=96c735ef9b0010a2cf35d77364aca617a298cee6ca888c402942280685996c88)
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1816,7 +1817,7 @@ importers:
     dependencies:
       '@openclaw/fs-safe':
         specifier: 0.13.1
-        version: 0.13.1
+        version: 0.13.1(patch_hash=96c735ef9b0010a2cf35d77364aca617a298cee6ca888c402942280685996c88)
       p-limit:
         specifier: 7.3.2
         version: 7.3.2
@@ -11790,7 +11791,7 @@ snapshots:
       '@openclaw/fs-safe-win32-x64-msvc': 0.10.0
       jszip: 3.10.2
 
-  '@openclaw/fs-safe@0.13.1':
+  '@openclaw/fs-safe@0.13.1(patch_hash=96c735ef9b0010a2cf35d77364aca617a298cee6ca888c402942280685996c88)':
     optionalDependencies:
       '@openclaw/fs-safe-darwin-arm64': 0.13.1
       '@openclaw/fs-safe-darwin-x64': 0.13.1

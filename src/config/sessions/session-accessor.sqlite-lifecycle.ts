@@ -55,6 +55,7 @@ import {
   createHistoricalGenerationReclamationPlan,
   createLifecycleArtifactReclamationPlan,
   createSessionEntryReclamationPlan,
+  hasOnlyEmptyCurrentGeneration,
   prepareHistoricalGenerationDeletions,
   readValidatedSessionDeletionTarget,
   runExclusiveSqliteSessionReclamation,
@@ -81,6 +82,28 @@ import {
 import type { InternalSessionEntry as SessionEntry } from "./types.js";
 
 // Single-target lifecycle owner: cleanup, reset, guarded delete, and trusted rollback.
+
+/** Read-only refusal check before Gateway runtime drain can interrupt work. */
+export function inspectSessionEntryEmptyHistory(params: {
+  agentId?: string;
+  expectedLifecycleRevision: string;
+  expectedSessionId: string;
+  expectedUpdatedAt: number;
+  storePath: string;
+  target: DeleteSessionEntryLifecycleParams["target"];
+}): boolean {
+  const resolved = resolveSqliteStoreScope(params.storePath, { agentId: params.agentId });
+  const inspected = withOpenClawAgentDatabaseReadOnly((database) => {
+    const entry = readLifecycleTargetSnapshot(database, params.target)[0]?.entry;
+    return (
+      entry?.sessionId === params.expectedSessionId &&
+      entry.lifecycleRevision === params.expectedLifecycleRevision &&
+      entry.updatedAt === params.expectedUpdatedAt &&
+      hasOnlyEmptyCurrentGeneration(database, entry, params.target)
+    );
+  }, toDatabaseOptions(resolved));
+  return inspected.found && inspected.value === true;
+}
 
 function captureLifecycleDatabaseScope<T extends ResolvedSqliteReadScope>(scope: T): T {
   const env = { ...(scope.env ?? process.env) };

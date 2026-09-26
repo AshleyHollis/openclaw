@@ -27,6 +27,7 @@ export {
   readFileHandleBounded,
   resolvePathPrefixSync,
   stageDurableFileInDirectory,
+  publishDurableDirectoryNoReplace,
 } from "../infra/fs-safe-advanced.js";
 export { readFileWindowFully } from "../infra/file-read.js";
 export {

@@ -57,6 +57,7 @@ type SessionDeleteRequest = {
   expectedSessionId?: string;
   expectedLifecycleRevision?: string;
   expectedSessionUpdatedAt?: number;
+  requireEmptyHistory?: boolean;
 };
 
 async function expectSessionDeleteSucceeds(request: SessionDeleteRequest) {
@@ -319,6 +320,72 @@ test("sessions.delete rejects a stale expected session id without interrupting i
   } finally {
     admission.release();
   }
+});
+
+test("sessions.delete removes an exact empty generation when empty history is required", async () => {
+  const { storePath } = await createSessionStoreDir();
+  const key = "agent:main:topic:empty-provisioning";
+  await replaceSessionEntry(
+    { sessionKey: key, storePath },
+    sessionStoreEntry("empty-provisioning", {
+      lifecycleRevision: "creation-revision",
+      updatedAt: 17,
+    }),
+  );
+
+  await expectSessionDeleteSucceeds({
+    key,
+    expectedSessionId: "empty-provisioning",
+    expectedLifecycleRevision: "creation-revision",
+    expectedSessionUpdatedAt: 17,
+    requireEmptyHistory: true,
+  });
+  expect(loadSessionEntry({ sessionKey: key, storePath })).toBeUndefined();
+});
+
+test("sessions.delete preserves a generation with transcript history", async () => {
+  const { storePath } = await createSessionStoreDir();
+  const key = "agent:main:topic:used-provisioning";
+  const sessionId = "used-provisioning";
+  await replaceSessionEntry(
+    { sessionKey: key, storePath },
+    sessionStoreEntry(sessionId, { lifecycleRevision: "creation-revision", updatedAt: 17 }),
+  );
+  await replaceTranscriptEvents({ sessionKey: key, sessionId, storePath }, [
+    { type: "message", message: { role: "user", content: "hello" } },
+  ]);
+
+  await expectSessionDeleteChanged({
+    key,
+    expectedSessionId: sessionId,
+    expectedLifecycleRevision: "creation-revision",
+    expectedSessionUpdatedAt: 17,
+    requireEmptyHistory: true,
+  });
+  expect(loadSessionEntry({ sessionKey: key, storePath })?.sessionId).toBe(sessionId);
+  expect(bundleMcpRuntimeMocks.disposeSessionMcpRuntime).not.toHaveBeenCalled();
+});
+
+test("sessions.delete preserves an empty current generation with prior history identity", async () => {
+  const { storePath } = await createSessionStoreDir();
+  const key = "agent:main:topic:rotated-provisioning";
+  await replaceSessionEntry(
+    { sessionKey: key, storePath },
+    sessionStoreEntry("current-generation", {
+      lifecycleRevision: "creation-revision",
+      previousSessionId: "earlier-generation",
+      updatedAt: 17,
+    }),
+  );
+
+  await expectSessionDeleteChanged({
+    key,
+    expectedSessionId: "current-generation",
+    expectedLifecycleRevision: "creation-revision",
+    expectedSessionUpdatedAt: 17,
+    requireEmptyHistory: true,
+  });
+  expect(loadSessionEntry({ sessionKey: key, storePath })?.sessionId).toBe("current-generation");
 });
 
 test.each(["session id", "updated at"] as const)(

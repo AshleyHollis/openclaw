@@ -17,6 +17,7 @@ import { applySessionEntryBatchProjection } from "./session-accessor.sqlite-batc
 import {
   cleanupSessionLifecycleArtifactsCore,
   deleteSessionEntryLifecycle,
+  inspectSessionEntryEmptyHistory,
   rollbackAgentHarnessSessionEntryLifecycle,
   rollbackPluginOwnedSessionEntryLifecycle,
   resetSessionEntryLifecycle,
@@ -54,6 +55,7 @@ export {
   applySessionStoreProjection,
   cleanupSessionLifecycleArtifactsCore,
   deleteSessionEntryLifecycle,
+  inspectSessionEntryEmptyHistory,
   purgeDeletedAgentSessionEntries,
   resetSessionEntryLifecycle,
   rollbackAgentHarnessSessionEntryLifecycle,

@@ -1,0 +1,144 @@
+diff --git a/dist/atomic.d.ts b/dist/atomic.d.ts
+index a2f2653e66f457d0b58942e86e030028b9e2e71e..de975a1b2eb213a259ec1971a9decf382be428f6 100644
+--- a/dist/atomic.d.ts
++++ b/dist/atomic.d.ts
+@@ -1,5 +1,6 @@
+ export { replaceFileAtomic, replaceFileAtomicSync, type RenameIdentityPolicy, type ReplaceFileAtomicFileSystem, type ReplaceFileAtomicOptions, type ReplaceFileAtomicRestoreCleanup, type ReplaceFileAtomicRestoreFailureDetails, type ReplaceFileAtomicResult, type ReplaceFileCopyFallbackRestorePolicy, type ReplaceFileDestinationHardlinkPolicy, type ReplaceFileAtomicSyncFileSystem, type ReplaceFileAtomicSyncOptions, } from "./replace-file.js";
+ export { writeTextAtomic, type WriteTextAtomicOptions } from "./text-atomic.js";
+ export { replaceDirectoryAtomic, type ReplaceDirectoryAtomicOptions } from "./replace-directory.js";
++export { publishDirectoryNoReplace, type PublishDirectoryNoReplaceOptions, type PublishDirectoryNoReplaceReceipt, } from "./publish-directory.js";
+ export { movePathWithCopyFallback, type MovePathPublicationReceipt, type MovePathWithCopyFallbackOptions, } from "./move-path.js";
+ //# sourceMappingURL=atomic.d.ts.map
+\ No newline at end of file
+diff --git a/dist/atomic.d.ts.map b/dist/atomic.d.ts.map
+index 04f0adef77ed989718daebace696855cadf70694..38727c4537ccf5d760320f3554956193839ec512 100644
+--- a/dist/atomic.d.ts.map
++++ b/dist/atomic.d.ts.map
+@@ -1 +1 @@
+-{"version":3,"file":"atomic.d.ts","sourceRoot":"","sources":["../src/atomic.ts"],"names":[],"mappings":"AAAA,OAAO,EACL,iBAAiB,EACjB,qBAAqB,EACrB,KAAK,oBAAoB,EACzB,KAAK,2BAA2B,EAChC,KAAK,wBAAwB,EAC7B,KAAK,+BAA+B,EACpC,KAAK,sCAAsC,EAC3C,KAAK,uBAAuB,EAC5B,KAAK,oCAAoC,EACzC,KAAK,oCAAoC,EACzC,KAAK,+BAA+B,EACpC,KAAK,4BAA4B,GAClC,MAAM,mBAAmB,CAAC;AAC3B,OAAO,EAAE,eAAe,EAAE,KAAK,sBAAsB,EAAE,MAAM,kBAAkB,CAAC;AAChF,OAAO,EAAE,sBAAsB,EAAE,KAAK,6BAA6B,EAAE,MAAM,wBAAwB,CAAC;AACpG,OAAO,EACL,wBAAwB,EACxB,KAAK,0BAA0B,EAC/B,KAAK,+BAA+B,GACrC,MAAM,gBAAgB,CAAC"}
+\ No newline at end of file
++{"version":3,"file":"atomic.d.ts","sourceRoot":"","sources":["../src/atomic.ts"],"names":[],"mappings":"AAAA,OAAO,EACL,iBAAiB,EACjB,qBAAqB,EACrB,KAAK,oBAAoB,EACzB,KAAK,2BAA2B,EAChC,KAAK,wBAAwB,EAC7B,KAAK,+BAA+B,EACpC,KAAK,sCAAsC,EAC3C,KAAK,uBAAuB,EAC5B,KAAK,oCAAoC,EACzC,KAAK,oCAAoC,EACzC,KAAK,+BAA+B,EACpC,KAAK,4BAA4B,GAClC,MAAM,mBAAmB,CAAC;AAC3B,OAAO,EAAE,eAAe,EAAE,KAAK,sBAAsB,EAAE,MAAM,kBAAkB,CAAC;AAChF,OAAO,EAAE,sBAAsB,EAAE,KAAK,6BAA6B,EAAE,MAAM,wBAAwB,CAAC;AACpG,OAAO,EACL,yBAAyB,EACzB,KAAK,gCAAgC,EACrC,KAAK,gCAAgC,GACtC,MAAM,wBAAwB,CAAC;AAChC,OAAO,EACL,wBAAwB,EACxB,KAAK,0BAA0B,EAC/B,KAAK,+BAA+B,GACrC,MAAM,gBAAgB,CAAC"}
+\ No newline at end of file
+diff --git a/dist/atomic.js b/dist/atomic.js
+index c04426f56277d484339b3ce4898b1ef25d96b575..f3649bff2b15356f72c69b5a44b9b1da63a92b12 100644
+--- a/dist/atomic.js
++++ b/dist/atomic.js
+@@ -1,4 +1,5 @@
+ export { replaceFileAtomic, replaceFileAtomicSync, } from "./replace-file.js";
+ export { writeTextAtomic } from "./text-atomic.js";
+ export { replaceDirectoryAtomic } from "./replace-directory.js";
++export { publishDirectoryNoReplace, } from "./publish-directory.js";
+ export { movePathWithCopyFallback, } from "./move-path.js";
+diff --git a/dist/publish-directory.d.ts b/dist/publish-directory.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..890551c139e0a7bbf1887e87cbbb5dfced19e2c2
+--- /dev/null
++++ b/dist/publish-directory.d.ts
+@@ -0,0 +1,21 @@
++export type PublishDirectoryNoReplaceOptions = Readonly<{
++    stagedDir: string;
++    targetDir: string;
++    /** The durable identity captured before publication, not a fresh observation. */
++    expectedIdentity: Readonly<{
++        dev: bigint;
++        ino: bigint;
++    }>;
++    assertBeforeMutation?: () => void;
++}>;
++export type PublishDirectoryNoReplaceReceipt = Readonly<{
++    status: "published";
++    targetDir: string;
++    identity: Readonly<{
++        dev: bigint;
++        ino: bigint;
++    }>;
++}>;
++/** Publish a previously prepared sibling directory without replacing any target. */
++export declare function publishDirectoryNoReplace(options: PublishDirectoryNoReplaceOptions): PublishDirectoryNoReplaceReceipt;
++//# sourceMappingURL=publish-directory.d.ts.map
+\ No newline at end of file
+diff --git a/dist/publish-directory.d.ts.map b/dist/publish-directory.d.ts.map
+new file mode 100644
+index 0000000000000000000000000000000000000000..e330841dd0ebbfd885ff53abe151cf8a242a2bd4
+--- /dev/null
++++ b/dist/publish-directory.d.ts.map
+@@ -0,0 +1 @@
++{"version":3,"file":"publish-directory.d.ts","sourceRoot":"","sources":["../src/publish-directory.ts"],"names":[],"mappings":"AAOA,MAAM,MAAM,gCAAgC,GAAG,QAAQ,CAAC;IACtD,SAAS,EAAE,MAAM,CAAC;IAClB,SAAS,EAAE,MAAM,CAAC;IAClB,iFAAiF;IACjF,gBAAgB,EAAE,QAAQ,CAAC;QAAE,GAAG,EAAE,MAAM,CAAC;QAAC,GAAG,EAAE,MAAM,CAAA;KAAE,CAAC,CAAC;IACzD,oBAAoB,CAAC,EAAE,MAAM,IAAI,CAAC;CACnC,CAAC,CAAC;AAEH,MAAM,MAAM,gCAAgC,GAAG,QAAQ,CAAC;IACtD,MAAM,EAAE,WAAW,CAAC;IACpB,SAAS,EAAE,MAAM,CAAC;IAClB,QAAQ,EAAE,QAAQ,CAAC;QAAE,GAAG,EAAE,MAAM,CAAC;QAAC,GAAG,EAAE,MAAM,CAAA;KAAE,CAAC,CAAC;CAClD,CAAC,CAAC;AAUH,oFAAoF;AACpF,wBAAgB,yBAAyB,CACvC,OAAO,EAAE,gCAAgC,GACxC,gCAAgC,CAqDlC"}
+\ No newline at end of file
+diff --git a/dist/publish-directory.js b/dist/publish-directory.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..8661589015744e5e73a00517eba9b89e3c105391
+--- /dev/null
++++ b/dist/publish-directory.js
+@@ -0,0 +1,71 @@
++import fs from "node:fs";
++import path from "node:path";
++import { inspectDirectoryIdentitySync } from "./directory-guard.js";
++import { FsSafeError } from "./errors.js";
++import { requireNativeBinding } from "./native.js";
++import { admitStandalonePublicationPath } from "./standalone-publication-path.js";
++function basename(value) {
++    const name = path.basename(value);
++    if (!name || name === "." || name === ".." || name.includes("\0")) {
++        throw new FsSafeError("invalid-path", "directory publication requires one basename");
++    }
++    return name;
++}
++/** Publish a previously prepared sibling directory without replacing any target. */
++export function publishDirectoryNoReplace(options) {
++    if (process.platform !== "linux" && process.platform !== "darwin") {
++        throw new FsSafeError("unsupported-platform", "native directory publication requires Linux or macOS");
++    }
++    const stagedDir = path.resolve(admitStandalonePublicationPath(options.stagedDir));
++    const targetDir = path.resolve(admitStandalonePublicationPath(options.targetDir));
++    const parent = path.dirname(stagedDir);
++    if (parent !== path.dirname(targetDir) || stagedDir === targetDir) {
++        throw new FsSafeError("invalid-path", "directory publication requires distinct sibling paths");
++    }
++    const stagedName = basename(stagedDir);
++    const targetName = basename(targetDir);
++    const expected = options.expectedIdentity;
++    if (typeof expected?.dev !== "bigint" || typeof expected.ino !== "bigint" ||
++        expected.dev < 0n || expected.ino < 0n ||
++        (options.assertBeforeMutation !== undefined && typeof options.assertBeforeMutation !== "function")) {
++        throw new FsSafeError("invalid-path", "directory publication requires an exact identity and synchronous guard");
++    }
++    const binding = requireNativeBinding();
++    const parentFd = fs.openSync(parent, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
++    let published = false;
++    try {
++        const held = fs.fstatSync(parentFd, { bigint: true });
++        inspectDirectoryIdentitySync(parent, held);
++        inspectDirectoryIdentitySync(stagedDir, expected);
++        options.assertBeforeMutation?.();
++        // No await occurs between the last identity check and native publication.
++        inspectDirectoryIdentitySync(parent, held);
++        inspectDirectoryIdentitySync(stagedDir, expected);
++        try {
++            binding.renameNoReplace(parentFd, stagedName, parentFd, targetName);
++        }
++        catch (error) {
++            const code = error?.code;
++            if (code === "EEXIST" || code === "ENOTEMPTY") {
++                throw new FsSafeError("already-exists", "directory publication target exists", { cause: error });
++            }
++            throw error;
++        }
++        published = true;
++        inspectDirectoryIdentitySync(targetDir, expected);
++        inspectDirectoryIdentitySync(parent, held);
++        fs.fsyncSync(parentFd);
++        return Object.freeze({ status: "published", targetDir, identity: Object.freeze({ ...expected }) });
++    }
++    catch (error) {
++        if (published) {
++            throw new FsSafeError("helper-failed", "directory was published but final verification or sync failed", {
++                cause: error, details: { publication: "published" },
++            });
++        }
++        throw error;
++    }
++    finally {
++        fs.closeSync(parentFd);
++    }
++}

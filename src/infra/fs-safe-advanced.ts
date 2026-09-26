@@ -1,6 +1,7 @@
 // Provides stricter filesystem helpers for canonical path and symlink-sensitive operations.
 import "./fs-safe-defaults.js";
 import { stageFileInDirectory } from "@openclaw/fs-safe/advanced";
+import { publishDirectoryNoReplace } from "@openclaw/fs-safe/atomic";
 
 /**
  * Restricted plugin-facing durable publication. The fs-safe staging primitive
@@ -10,6 +11,13 @@ export function stageDurableFileInDirectory(
   options: Pick<Parameters<typeof stageFileInDirectory>[0], "directory" | "content" | "mode">,
 ) {
   return stageFileInDirectory(options);
+}
+
+/** Publish an already identified sibling directory without replacing a target. */
+export function publishDurableDirectoryNoReplace(
+  options: Parameters<typeof publishDirectoryNoReplace>[0],
+) {
+  return publishDirectoryNoReplace(options);
 }
 
 // Advanced fs-safe helpers for symlink, hardlink, and sibling-temp protections.

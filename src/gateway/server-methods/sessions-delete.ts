@@ -11,6 +11,7 @@ import {
 import { tryResolveAgentOperationAgentId } from "../../agents/agent-scope-config.js";
 import {
   deleteSessionEntryLifecycle,
+  inspectSessionEntryEmptyHistory,
   SESSION_LIFECYCLE_CHANGED_ERROR_REASON,
   type SessionEntry,
 } from "../../config/sessions.js";
@@ -146,6 +147,26 @@ export const sessionDeleteHandlers: GatewayRequestHandlers = {
       respond(false, undefined, initialError);
       return;
     }
+    const emptyHistoryExpectation =
+      p.requireEmptyHistory === true &&
+      expectedSessionId &&
+      expectedLifecycleRevision &&
+      p.expectedSessionUpdatedAt !== undefined
+        ? {
+            agentId: requestedAgentId,
+            expectedLifecycleRevision,
+            expectedSessionId,
+            expectedUpdatedAt: p.expectedSessionUpdatedAt,
+            storePath,
+            target,
+          }
+        : undefined;
+    if (p.requireEmptyHistory === true) {
+      if (!emptyHistoryExpectation || !inspectSessionEntryEmptyHistory(emptyHistoryExpectation)) {
+        respond(false, undefined, sessionChangedError());
+        return;
+      }
+    }
     // Capture the target before lazy loading can yield to a same-key successor.
     const {
       cleanupSessionBeforeMutation,
@@ -192,6 +213,12 @@ export const sessionDeleteHandlers: GatewayRequestHandlers = {
               if (
                 p.expectedSessionUpdatedAt !== undefined &&
                 assertCurrent().entry?.updatedAt !== p.expectedSessionUpdatedAt
+              ) {
+                throw new SessionDeletionError(sessionChangedError());
+              }
+              if (
+                emptyHistoryExpectation &&
+                !inspectSessionEntryEmptyHistory(emptyHistoryExpectation)
               ) {
                 throw new SessionDeletionError(sessionChangedError());
               }
@@ -281,6 +308,7 @@ export const sessionDeleteHandlers: GatewayRequestHandlers = {
               expectedLifecycleRevision,
               expectedSessionId: initialDeleteEntry?.sessionId ?? null,
               expectedUpdatedAt: postCleanupEntry?.updatedAt,
+              requireEmptyHistory: p.requireEmptyHistory === true,
               storePath,
               target: { canonicalKey: target.canonicalKey, storeKeys: target.storeKeys },
             };
