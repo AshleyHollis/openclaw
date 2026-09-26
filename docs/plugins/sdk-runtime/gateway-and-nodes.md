@@ -290,6 +290,18 @@ Gateway-hosted services also receive `ctx.getCron?.()` for the scheduler operati
 already available to Gateway hooks: `list`, `add`, `update`, `remove`, and
 `removeStaleJobFamily`. Non-Gateway service hosts omit this getter.
 
+On hosts that support conditional Cron access, the handle also offers optional
+`getWithRevision(id)` and `updateWithRevision(id, patch, expectedConfigRevision)`.
+The read returns the exact job and an opaque `configRevision`; the update checks
+that revision under the scheduler's store lock and rejects a changed definition
+with `code: "CRON_JOB_CHANGED"` and `actualConfigRevision`. Scheduling state does
+not change the configuration revision. A service may reserve an `id` when adding
+a non-declarative job so its durable intent can be reconciled after process
+termination; a duplicate reserved ID is rejected. Treat
+missing methods as unsupported rather than falling back to a request-scoped
+Gateway caller. The returned handle remains bound to its service lifetime and
+scheduler instance.
+
 Current Gateway service handles also provide `await cron.isEnabled()` to observe
 whether automatic scheduling is enabled, including the `OPENCLAW_SKIP_CRON`
 override. It returns only a boolean, not storage metadata or permission to mutate
