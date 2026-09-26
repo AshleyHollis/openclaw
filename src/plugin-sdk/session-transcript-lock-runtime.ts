@@ -1,7 +1,7 @@
 import {
   publishTranscriptUpdate,
   resolveSessionTranscriptRuntimeTarget,
-  withTranscriptWriteLock,
+  withTranscriptAppendOnlyLock,
   type SessionTranscriptWriteLockAccessorContext,
   type TranscriptMessageAppendOptions,
   type TranscriptMessageAppendResult,
@@ -44,7 +44,7 @@ export async function withProjectedSessionTranscriptWriteLock<
   run: (context: TContext) => Promise<T> | T,
   projectContext: (
     context: InternalSessionTranscriptWriteLockContext,
-    locked: SessionTranscriptWriteLockAccessorContext,
+    locked: Omit<SessionTranscriptWriteLockAccessorContext, "replaceEvents">,
   ) => TContext,
 ): Promise<T> {
   const storageTarget = await resolveSessionTranscriptRuntimeTarget(params, params.config);
@@ -66,7 +66,7 @@ export async function withProjectedSessionTranscriptWriteLock<
   // Keep the selected store and owner through awaits and publication. Individual appends
   // commit independently, but a failed callback must not publish its queued updates.
   const queuedUpdates: Array<TranscriptUpdatePayload | undefined> = [];
-  const result = await withTranscriptWriteLock(
+  const result = await withTranscriptAppendOnlyLock(
     boundScope,
     async (locked) =>
       await run(

@@ -17,7 +17,7 @@ import {
   readLatestTranscriptAssistantText,
   readLatestSessionTranscriptMessageEvent,
   resolveSessionTranscriptRuntimeTarget,
-  withTranscriptWriteLock,
+  withTranscriptAppendOnlyLock,
   type TranscriptMessageAppendOptions,
   type TranscriptMessageAppendResult,
   type TranscriptUpdatePayload,
@@ -381,7 +381,7 @@ export async function appendAssistantMirrorMessageByIdentity(
     text,
   });
   const scope = bindSessionTranscriptStoreScope(params, params.config);
-  return await withTranscriptWriteLock(scope, async (locked) => {
+  return await withTranscriptAppendOnlyLock(scope, async (locked) => {
     params.signal?.throwIfAborted();
     const currentEntry = loadSessionEntry(scope);
     if (!currentEntry?.sessionId) {
