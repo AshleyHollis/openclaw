@@ -11,6 +11,7 @@ export * from "./sessions/paths.js";
 export * from "./sessions/reset.js";
 export {
   deleteSessionEntryLifecycle,
+  inspectSessionEntryEmptyHistory,
   patchSessionEntryWithKey,
   resetSessionEntryLifecycle,
   resolveSessionEntryCandidateTarget,

@@ -218,6 +218,7 @@ export {
   cleanupPluginHostSessionStore,
   cleanupSessionLifecycleArtifactsCore,
   deleteSessionEntryLifecycle,
+  inspectSessionEntryEmptyHistory,
   purgeDeletedAgentSessionEntries,
   resetSessionEntryLifecycle,
   rollbackAgentHarnessSessionEntryLifecycle,

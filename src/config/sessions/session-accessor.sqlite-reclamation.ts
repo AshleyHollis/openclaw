@@ -25,6 +25,7 @@ import type {
   DeleteSessionEntryLifecycleResult,
   SqliteSessionReclamationDiagnostics,
 } from "./session-accessor.sqlite-contract.js";
+import { readSessionStateDeleteSnapshot } from "./session-accessor.sqlite-delete-snapshot.js";
 import { runSqliteSessionDeletionTransaction } from "./session-accessor.sqlite-deletion.js";
 import {
   sqliteLifecycleTargetSnapshotsEqual,
@@ -43,6 +44,7 @@ import {
   assertPlannedLifecycleArtifactEntriesUnchanged,
   deleteMaterializedSessionStatePlans,
   deletePlannedLifecycleArtifactEntries,
+  readSessionGenerationIdsForKeys,
 } from "./session-accessor.sqlite-lifecycle-state.js";
 import type {
   ReclamationDatabaseOptions,
@@ -73,6 +75,7 @@ import {
   withSqliteSessionDatabase,
 } from "./session-accessor.sqlite-scope.js";
 import { withSqliteMutationWorkerLifetime } from "./session-accessor.sqlite-worker-request.js";
+import { readSessionColdTranscript } from "./session-cold-storage-state.js";
 import type { InternalSessionEntry as SessionEntry } from "./types.js";
 
 type SessionBoardCleanupDatabase = Pick<
@@ -133,6 +136,44 @@ function deleteSessionBoardRows(
   executeSqliteQuerySync(database.db, db.deleteFrom("board_tabs").where("session_key", "in", keys));
 }
 
+export function hasOnlyEmptyCurrentGeneration(
+  database: Pick<OpenClawAgentDatabase, "db">,
+  entry: SessionEntry,
+  target: DeleteSessionEntryLifecycleParams["target"],
+): boolean {
+  const sessionId = entry.sessionId;
+  if (!sessionId || collectSessionStateIdsForEntry(entry).some((id) => id !== sessionId)) {
+    return false;
+  }
+  const keys = [target.canonicalKey, ...target.storeKeys];
+  // A rotated generation or retained archive is evidence of prior use even if
+  // the current generation has no visible messages.
+  if (readSessionGenerationIdsForKeys(database, keys).some((id) => id !== sessionId)) {
+    return false;
+  }
+  const db = getSessionKysely(database.db);
+  const archived = executeSqliteQuerySync(
+    database.db,
+    db
+      .selectFrom("session_transcript_archives")
+      .select("session_id")
+      .where("session_key", "in", keys)
+      .limit(1),
+  ).rows;
+  if (archived.length > 0 || readSessionColdTranscript(database.db, sessionId)) {
+    return false;
+  }
+  const snapshot = readSessionStateDeleteSnapshot(database.db, sessionId);
+  return (
+    (snapshot.sessionKey === null || keys.includes(snapshot.sessionKey)) &&
+    snapshot.generation === null &&
+    snapshot.lastSeq === null &&
+    snapshot.transcriptUpdatedAt === null &&
+    snapshot.trajectoryLastSeq === null &&
+    snapshot.acpParentStreamEventCount === 0
+  );
+}
+
 export function shouldDeleteSqliteSessionEntryLifecycle(
   database: OpenClawAgentDatabase,
   entry: SessionEntry | undefined,
@@ -160,6 +201,12 @@ export function shouldDeleteSqliteSessionEntryLifecycle(
     (params.expectedLifecycleRevision !== undefined &&
       entry.lifecycleRevision !== params.expectedLifecycleRevision) ||
     (params.expectedUpdatedAt !== undefined && entry.updatedAt !== params.expectedUpdatedAt)
+  ) {
+    return false;
+  }
+  if (
+    params.requireEmptyHistory === true &&
+    !hasOnlyEmptyCurrentGeneration(database, entry, params.target)
   ) {
     return false;
   }

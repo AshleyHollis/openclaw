@@ -743,6 +743,20 @@ describe("method scope resolution", () => {
       authorizeOperatorScopesForMethod("sessions.delete", ["operator.write"], {
         key: "agent:main:old",
         archivedOnly: true,
+        requireEmptyHistory: true,
+      }),
+    ).toEqual({ allowed: false, missingScope: "operator.admin" });
+    expect(
+      authorizeOperatorScopesForMethod("sessions.delete", ["operator.write"], {
+        key: "agent:main:old",
+        archivedOnly: true,
+        expectedStorePath: "/tmp/agent-store.db",
+      }),
+    ).toEqual({ allowed: false, missingScope: "operator.admin" });
+    expect(
+      authorizeOperatorScopesForMethod("sessions.delete", ["operator.write"], {
+        key: "agent:main:old",
+        archivedOnly: true,
         expectedSessionId: "sess-1",
       }),
     ).toEqual({ allowed: true });

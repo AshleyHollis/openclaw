@@ -110,6 +110,8 @@ export type DeleteSessionEntryLifecycleParams = {
   expectedLifecycleRevision?: string;
   /** Optional persisted revision guard checked under the storage writer lock. */
   expectedUpdatedAt?: number;
+  /** Refuse deletion if this logical session has any retained transcript generation or activity. */
+  requireEmptyHistory?: boolean;
   /** Fail when the underlying store cannot confirm a durable write. */
   requireWriteSuccess?: boolean;
   /** Explicit store target for SQLite session ownership. */

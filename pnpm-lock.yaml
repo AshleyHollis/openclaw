@@ -209,6 +209,7 @@ packageExtensionsChecksum: sha256-zZ8fyodhMTumshonC7kktCqTPsiHL3UAyS9vltFAlMo=
 patchedDependencies:
   '@awesome.me/webawesome@3.12.0': e30830e3b67d6b834f2257eb85dd252dcf225ed935fb69646e6c90433c85d99c
   '@novnc/novnc@1.7.0': bfde0e1bda172da3525f9f5014d85ad28073325b74f09609084598a65d2f412d
+  '@openclaw/fs-safe@0.18.1': aa99918f69e9691f005061b26a4d086155d01a3b5ba5c9441d29c65143c5b5aa
   chrome-devtools-mcp@1.8.0: c9e9590160eb099415e7ff6e705b0e0f725e364419f91153a0207e31a71f8547
   matrix-js-sdk@42.3.0: 79bea7a0ca1c3c98635b2da6957539ab04386a2fe0ffec5498b5e9abc18b8b97
   vitest@5.0.0: 5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf
@@ -261,7 +262,7 @@ importers:
         version: link:packages/ai
       '@openclaw/fs-safe':
         specifier: 0.18.1
-        version: 0.18.1
+        version: 0.18.1(patch_hash=aa99918f69e9691f005061b26a4d086155d01a3b5ba5c9441d29c65143c5b5aa)
       '@openclaw/proxyline':
         specifier: 0.3.12
         version: 0.3.12(undici@8.10.2)
@@ -1196,7 +1197,7 @@ importers:
     dependencies:
       '@openclaw/fs-safe':
         specifier: 0.18.1
-        version: 0.18.1
+        version: 0.18.1(patch_hash=aa99918f69e9691f005061b26a4d086155d01a3b5ba5c9441d29c65143c5b5aa)
       minimatch:
         specifier: 10.2.6
         version: 10.2.6
@@ -1435,7 +1436,7 @@ importers:
     dependencies:
       '@openclaw/fs-safe':
         specifier: 0.18.1
-        version: 0.18.1
+        version: 0.18.1(patch_hash=aa99918f69e9691f005061b26a4d086155d01a3b5ba5c9441d29c65143c5b5aa)
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1642,7 +1643,7 @@ importers:
     dependencies:
       '@openclaw/fs-safe':
         specifier: 0.18.1
-        version: 0.18.1
+        version: 0.18.1(patch_hash=aa99918f69e9691f005061b26a4d086155d01a3b5ba5c9441d29c65143c5b5aa)
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1809,7 +1810,7 @@ importers:
     dependencies:
       '@openclaw/fs-safe':
         specifier: 0.18.1
-        version: 0.18.1
+        version: 0.18.1(patch_hash=aa99918f69e9691f005061b26a4d086155d01a3b5ba5c9441d29c65143c5b5aa)
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1873,7 +1874,7 @@ importers:
     dependencies:
       '@openclaw/fs-safe':
         specifier: 0.18.1
-        version: 0.18.1
+        version: 0.18.1(patch_hash=aa99918f69e9691f005061b26a4d086155d01a3b5ba5c9441d29c65143c5b5aa)
       p-limit:
         specifier: 7.3.2
         version: 7.3.2
@@ -2074,7 +2075,7 @@ importers:
     dependencies:
       '@openclaw/fs-safe':
         specifier: 0.18.1
-        version: 0.18.1
+        version: 0.18.1(patch_hash=aa99918f69e9691f005061b26a4d086155d01a3b5ba5c9441d29c65143c5b5aa)
       ws:
         specifier: 8.21.3
         version: 8.21.3
@@ -11927,7 +11928,7 @@ snapshots:
       '@openclaw/fs-safe-win32-x64-msvc': 0.12.0
       jszip: 3.10.2
 
-  '@openclaw/fs-safe@0.18.1':
+  '@openclaw/fs-safe@0.18.1(patch_hash=aa99918f69e9691f005061b26a4d086155d01a3b5ba5c9441d29c65143c5b5aa)':
     optionalDependencies:
       '@openclaw/fs-safe-darwin-arm64': 0.18.1
       '@openclaw/fs-safe-darwin-x64': 0.18.1
