@@ -604,6 +604,7 @@ export const CronScratchSetResultSchema = Type.Union([
 
 /** Creates a scheduled job with schedule, target, payload, and delivery policy. */
 export const CronAddParamsSchema = closedObject({
+  id: Type.Optional(NonEmptyString),
   name: NonEmptyString,
   declarationKey: Type.Optional(CronDeclarationKeySchema),
   displayName: Type.Optional(CronDisplayNameSchema),
