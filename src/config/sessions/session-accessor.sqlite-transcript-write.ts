@@ -26,6 +26,7 @@ import {
 } from "./session-accessor.sqlite-entry-store.js";
 import { prepareSessionIdentityPublication } from "./session-accessor.sqlite-identity.js";
 import {
+  loadTranscriptEventsFromDatabase,
   readTranscriptEventRows,
   readTranscriptSnapshot,
   type SqliteTranscriptSnapshotRow,
@@ -503,6 +504,29 @@ export async function withTranscriptWriteLock<T>(
   scope: SessionTranscriptWriteScope,
   run: (context: SessionTranscriptWriteLockAccessorContext) => Promise<T> | T,
 ): Promise<T> {
+  return await withTranscriptLock(scope, run, true);
+}
+
+/** Append-only callers retain writer fencing without acquiring rewrite authority. */
+export async function withTranscriptAppendOnlyLock<T>(
+  scope: SessionTranscriptWriteScope,
+  run: (
+    context: Omit<SessionTranscriptWriteLockAccessorContext, "replaceEvents">,
+  ) => Promise<T> | T,
+): Promise<T> {
+  return await withTranscriptLock(
+    scope,
+    ({ appendMessage, appendMessageWithMessageSequence, readMessageFacts, readEvents }) =>
+      run({ appendMessage, appendMessageWithMessageSequence, readMessageFacts, readEvents }),
+    false,
+  );
+}
+
+async function withTranscriptLock<T>(
+  scope: SessionTranscriptWriteScope,
+  run: (context: SessionTranscriptWriteLockAccessorContext) => Promise<T> | T,
+  trackRewriteSnapshot: boolean,
+): Promise<T> {
   const fencedScope = withOwnedSessionTranscriptWriterFence(scope);
   const resolved = resolveSqliteTranscriptScope(fencedScope);
   const { restoreSessionColdTranscript } = await import("./session-cold-storage.js");
@@ -516,6 +540,9 @@ export async function withTranscriptWriteLock<T>(
         readEvents: async () => {
           // openclaw-agent-db.ts cache rule: LRU eviction closes idle handles across caller awaits.
           const database = openOpenClawAgentDatabase(databaseOptions);
+          if (!trackRewriteSnapshot) {
+            return loadTranscriptEventsFromDatabase(database, resolved.sessionId);
+          }
           const snapshot = readTranscriptSnapshot(database, resolved.sessionId);
           transcriptSnapshot = { kind: "current", rows: snapshot.rows };
           return snapshot.events;
@@ -524,6 +551,9 @@ export async function withTranscriptWriteLock<T>(
         readMessageFacts: async (params) =>
           readTranscriptMirrorFacts(openOpenClawAgentDatabase(databaseOptions), resolved, params),
         replaceEvents: async (events) => {
+          if (!trackRewriteSnapshot) {
+            throw new Error("Append-only transcript locks cannot replace events");
+          }
           if (transcriptSnapshot?.kind === "stale") {
             throw new SqliteTranscriptMutationConflictError(resolved.sessionId);
           }

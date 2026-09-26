@@ -61,6 +61,7 @@ export {
   replaceSessionWithBranchedTranscript,
   replaceTranscriptSuffixEventsSync,
   rewriteTranscriptEventRowsExact,
+  withTranscriptAppendOnlyLock,
   withTranscriptWriteLock,
   withTranscriptWriteTransaction,
 } from "./session-accessor.sqlite-transcript-write.js";
