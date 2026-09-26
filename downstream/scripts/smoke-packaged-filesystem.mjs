@@ -16,7 +16,7 @@ const { getFsSafeNativeConfig } = await import(
 const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "packaged-fs-smoke-")));
 const stages = [];
 try {
-  // OpenClaw 2026.9.5 preserves fs-safe 0.13.1's native auto mode.
+  // OpenClaw 2026.9.6 must retain fs-safe 0.18.1's native auto mode.
   assert.equal(getFsSafeNativeConfig().mode, "auto");
   const stage = await stageDurableFileInDirectory({ directory, content: "original", mode: 0o600 });
   stages.push(stage);
@@ -28,9 +28,7 @@ try {
   assert.equal(await readFile(path.join(directory, "identity"), "utf8"), "original");
 
   assert.equal(getFsSafeNativeConfig().mode, "auto");
-  console.log(
-    "PASS packaged SDK: native durable staging, no-overwrite, unchanged global policy",
-  );
+  console.log("PASS packaged SDK: native durable staging, no-overwrite, unchanged global policy");
 } finally {
   for (const stage of stages) await stage.cleanup();
   await rm(directory, { recursive: true, force: true });

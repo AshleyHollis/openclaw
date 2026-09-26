@@ -48,9 +48,11 @@ including local development plugins. The equivalent config is:
 }
 ```
 
-Restart the Gateway and reload connected browser tabs after changing this
-setting. Disabling it prevents custom native UI from loading; it does not
-uninstall plugins or disable their backend operations, tools, or services.
+Changes apply without restarting the Gateway, and connected Control UI pages
+refresh their plugin views automatically. Disabling it prevents custom native UI
+from loading and removes its views. Reload browser tabs to clear plugin
+JavaScript that already ran. This does not uninstall plugins or disable their
+backend operations, tools, or services.
 Ordinary plugin APIs, sandboxed dashboard widgets, and MCP Apps are unaffected.
 
 Native UI shipped with OpenClaw remains available for enabled bundled plugins,
@@ -153,6 +155,13 @@ matching backend descriptor is advertised.
 Use `host.ui.invalidate()` when plugin-owned state changes the presentation of
 an action or another contribution. Namespace custom elements and CSS with the
 plugin id so independently bundled plugins can coexist.
+
+Navigation items can opt into a collapsible sidebar group with
+`group: { id: "workspace", label: "My workspace" }`. Group identity is scoped to
+the registering plugin. Visible members keep their existing sidebar order and
+routes; hidden optional destinations stay hidden. Grouped links cannot be dragged
+out of their group. Ungrouped destinations retain their existing placement.
+This presentation metadata does not move session-list replacements or sessions.
 
 A view mounts into an `HTMLElement` and receives `context.host`, `props`,
 `signal`, `presented`, and `mountDefault`. Return an object with `update`,

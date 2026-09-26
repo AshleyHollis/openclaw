@@ -78,6 +78,13 @@ function createJob(name = family.name) {
   };
 }
 
+function createdJobId(value: unknown): string {
+  if (value && typeof value === "object" && "id" in value && typeof value.id === "string") {
+    return value.id;
+  }
+  throw new Error("Service Cron did not return a job identity");
+}
+
 describe("plugin service scheduler ownership", () => {
   it("leaves scheduler access absent outside the Gateway owner", async () => {
     const { context } = await startService();
@@ -92,10 +99,13 @@ describe("plugin service scheduler ownership", () => {
       throw new Error("Gateway service has no scheduler");
     }
     expect(first.context.getCron?.()).toBe(service);
+    const isEnabled = expectDefined(service.isEnabled, "scheduler enabled observation");
+    expect(await isEnabled()).toBe(false);
     await service.add(createJob());
     await first.handle.stop();
     expect(() => first.context.getCron?.()).toThrow("no longer active");
     await expect(service.list()).rejects.toThrow("no longer active");
+    await expect(isEnabled()).rejects.toThrow("no longer active");
 
     const next = await startService(() => cron);
     const successor = next.context.getCron?.();
@@ -111,6 +121,46 @@ describe("plugin service scheduler ownership", () => {
     expect(await successor.list({ includeDisabled: true })).toMatchObject([
       { id: job.id, schedule: { expr: "0 3 * * *" } },
     ]);
+  });
+
+  it("exposes an exact read revision and rejects a stale conditional update", async () => {
+    const { cron } = await createScheduler();
+    const { context } = await startService(() => cron);
+    const service = expectDefined(context.getCron?.(), "service scheduler");
+    const id = createdJobId(await service.add(createJob()));
+    const read = expectDefined(service.getWithRevision, "revision-bearing read");
+    const update = expectDefined(service.updateWithRevision, "conditional update");
+    const before = expectDefined(await read(id), "created job");
+    expect(before.configRevision).toMatch(/^sha256:/u);
+    const changed = await update(id, { enabled: true }, before.configRevision);
+    expect(changed).toMatchObject({ id, enabled: true });
+    expect(changed.configRevision).not.toBe(before.configRevision);
+    await expect(update(id, { enabled: false }, before.configRevision)).rejects.toMatchObject({
+      code: "CRON_JOB_CHANGED",
+      actualConfigRevision: changed.configRevision,
+    });
+    expect(await read(id)).toMatchObject({
+      enabled: true,
+      configRevision: changed.configRevision,
+    });
+  });
+
+  it("reserves one durable service-owned job ID without replacing an existing job", async () => {
+    const { cron } = await createScheduler();
+    const { context } = await startService(() => cron);
+    const service = expectDefined(context.getCron?.(), "service scheduler");
+    const id = "1a111111-2222-4333-8444-555555555555";
+    const { declarationKey: _declarationKey, ...definition } = createJob();
+    const created = await service.add({ ...definition, id });
+    expect(createdJobId(created)).toBe(id);
+    expect(await expectDefined(service.getWithRevision, "revision-bearing read")(id)).toMatchObject(
+      { id },
+    );
+    await expect(service.add({ ...definition, id })).rejects.toThrow();
+    await expect(
+      service.add({ ...definition, id, declarationKey: family.declarationKey }),
+    ).rejects.toThrow("reserved ID cannot use a declarative upsert key");
+    expect((await service.list({ includeDisabled: true })).map((job) => job.id)).toEqual([id]);
   });
 
   it("keeps a transferred service scheduler active until its successor handle stops", async () => {
@@ -172,6 +222,10 @@ describe("plugin service scheduler ownership", () => {
       if (!service) {
         throw new Error("Gateway service has no scheduler");
       }
+      const revision = expectDefined(
+        await expectDefined(service.getWithRevision, "revision-bearing read")(job.id),
+        "existing job",
+      ).configRevision;
       const entered = createDeferredCore();
       const release = createDeferredCore();
       const blocker = original.cron.updateWithPrecondition(job.id, {}, async () => {
@@ -180,9 +234,15 @@ describe("plugin service scheduler ownership", () => {
       });
       await entered.promise;
       const queued = [
+        expectDefined(service.isEnabled, "scheduler enabled observation")(),
         service.list({ includeDisabled: true }),
         service.add({ ...createJob("late addition"), declarationKey: "test-plugin:late" }),
         service.update(job.id, { name: "late update" }),
+        expectDefined(service.updateWithRevision, "conditional update")(
+          job.id,
+          { enabled: true },
+          revision,
+        ),
         service.remove(job.id),
         service.removeStaleJobFamily(family),
       ];
@@ -214,6 +274,8 @@ describe("plugin service scheduler ownership", () => {
       }
       await blocker;
       expect((await results).map((result) => result.status)).toEqual([
+        "rejected",
+        "rejected",
         "rejected",
         "rejected",
         "rejected",

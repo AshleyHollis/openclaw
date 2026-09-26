@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { isCronInvalidRequestError } from "./cron-error-classification.js";
 
 describe("isCronInvalidRequestError", () => {
+  it("classifies invalid caller-supplied cron job ids", () => {
+    expect(isCronInvalidRequestError(new Error("invalid cron task run job id"))).toBe(true);
+    expect(isCronInvalidRequestError(new Error("cron job already exists: reserved-id"))).toBe(true);
+  });
+
   it.each([
     "cron script payload has a syntax error: Unexpected token (line 1, column 10)",
     "cron trigger script has a syntax error: Unexpected token (line 1, column 10)",

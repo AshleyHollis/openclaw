@@ -1,0 +1,206 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 760dd6d..675acff 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,6 +2,10 @@
+ 
+ ## Unreleased
+ 
++### Features
++
++- Add native no-replace publication for an exactly identified staged sibling directory. Existing targets remain untouched, and post-publication verification or sync failures report that publication occurred.
++
+ ## 0.18.1 - 2026-09-22
+ 
+ ### Fixes
+diff --git a/README.md b/README.md
+index 6b7b2d5..c4f011a 100644
+--- a/README.md
++++ b/README.md
+@@ -268,7 +268,7 @@ contract. Low-level helpers that OpenClaw needs to compose higher-level APIs are
+ | `@openclaw/fs-safe/output` | `writeExternalFileWithinRoot` for external libraries that need a temp output path |
+ | `@openclaw/fs-safe/store` | `fileStore`, `fileStoreSync`, and `jsonStore` |
+ | `@openclaw/fs-safe/secret` | sync/async strict and try-style secret reads, atomic replace, and create-only secret writes |
+-| `@openclaw/fs-safe/atomic` | `replaceFileAtomic`, `replaceFileAtomicSync`, `replaceDirectoryAtomic`, `movePathWithCopyFallback` |
++| `@openclaw/fs-safe/atomic` | `replaceFileAtomic`, `replaceFileAtomicSync`, `replaceDirectoryAtomic`, `publishDirectoryNoReplace`, `movePathWithCopyFallback` |
+ | `@openclaw/fs-safe/durability` | pinned directory identities, strict directory sync, durable nested-directory creation, exclusive publication, streaming and synchronous SHA-256, provenance receipts, and sync-failure policy |
+ | `@openclaw/fs-safe/temp` | `tempWorkspace`, `tempWorkspaceSync`, `withTempWorkspace`, `resolveSecureTempRoot` |
+ | `@openclaw/fs-safe/secure-file` | fd-pinned absolute file reads with owner, mode, ACL, trusted-dir, size, and timeout checks |
+diff --git a/dist/atomic.d.ts b/dist/atomic.d.ts
+index 7f6b18b..664ca2f 100644
+--- a/dist/atomic.d.ts
++++ b/dist/atomic.d.ts
+@@ -3,4 +3,5 @@ export type { RenameIdentityPolicy } from "./pinned-write-types.js";
+ export type { ReplaceFileAtomicRestoreCleanup, ReplaceFileAtomicRestoreFailureDetails, ReplaceFileCopyFallbackRestorePolicy, ReplaceFileDestinationHardlinkPolicy, } from "./replace-file-copy-fallback.js";
+ export { writeTextAtomic, type WriteTextAtomicOptions } from "./text-atomic.js";
+ export { replaceDirectoryAtomic, type ReplaceDirectoryAtomicOptions } from "./replace-directory.js";
++export { publishDirectoryNoReplace, type PublishDirectoryNoReplaceOptions, type PublishDirectoryNoReplaceReceipt, } from "./publish-directory.js";
+ export { movePathWithCopyFallback, type MovePathPublicationReceipt, type MovePathWithCopyFallbackOptions, } from "./move-path.js";
+diff --git a/dist/atomic.js b/dist/atomic.js
+index c04426f..f3649bf 100644
+--- a/dist/atomic.js
++++ b/dist/atomic.js
+@@ -1,4 +1,5 @@
+ export { replaceFileAtomic, replaceFileAtomicSync, } from "./replace-file.js";
+ export { writeTextAtomic } from "./text-atomic.js";
+ export { replaceDirectoryAtomic } from "./replace-directory.js";
++export { publishDirectoryNoReplace, } from "./publish-directory.js";
+ export { movePathWithCopyFallback, } from "./move-path.js";
+diff --git a/dist/publish-directory.d.ts b/dist/publish-directory.d.ts
+new file mode 100644
+index 0000000..91119c6
+--- /dev/null
++++ b/dist/publish-directory.d.ts
+@@ -0,0 +1,20 @@
++export type PublishDirectoryNoReplaceOptions = Readonly<{
++    stagedDir: string;
++    targetDir: string;
++    /** The durable identity captured before publication, not a fresh observation. */
++    expectedIdentity: Readonly<{
++        dev: bigint;
++        ino: bigint;
++    }>;
++    assertBeforeMutation?: () => void;
++}>;
++export type PublishDirectoryNoReplaceReceipt = Readonly<{
++    status: "published";
++    targetDir: string;
++    identity: Readonly<{
++        dev: bigint;
++        ino: bigint;
++    }>;
++}>;
++/** Publish a previously prepared sibling directory without replacing any target. */
++export declare function publishDirectoryNoReplace(options: PublishDirectoryNoReplaceOptions): PublishDirectoryNoReplaceReceipt;
+diff --git a/dist/publish-directory.js b/dist/publish-directory.js
+new file mode 100644
+index 0000000..3d3408f
+--- /dev/null
++++ b/dist/publish-directory.js
+@@ -0,0 +1,89 @@
++import fs from "node:fs";
++import path from "node:path";
++import { inspectDirectoryIdentitySync } from "./directory-guard.js";
++import { FsSafeError } from "./errors.js";
++import { requireNativeBinding } from "./native.js";
++import { admitStandalonePublicationPath } from "./windows-path-alias.js";
++function basename(value) {
++    const name = path.basename(value);
++    if (!name || name === "." || name === ".." || name.includes("\0")) {
++        throw new FsSafeError("invalid-path", "directory publication requires one basename");
++    }
++    return name;
++}
++/** Publish a previously prepared sibling directory without replacing any target. */
++export function publishDirectoryNoReplace(options) {
++    if (process.platform !== "linux" && process.platform !== "darwin") {
++        throw new FsSafeError("unsupported-platform", "native directory publication requires Linux or macOS");
++    }
++    const stagedDir = path.resolve(admitStandalonePublicationPath(options.stagedDir));
++    const targetDir = path.resolve(admitStandalonePublicationPath(options.targetDir));
++    const parent = path.dirname(stagedDir);
++    if (parent !== path.dirname(targetDir) || stagedDir === targetDir) {
++        throw new FsSafeError("invalid-path", "directory publication requires distinct sibling paths");
++    }
++    const stagedName = basename(stagedDir);
++    const targetName = basename(targetDir);
++    const expected = options.expectedIdentity;
++    if (typeof expected?.dev !== "bigint" || typeof expected.ino !== "bigint" ||
++        expected.dev < 0n || expected.ino < 0n ||
++        (options.assertBeforeMutation !== undefined && typeof options.assertBeforeMutation !== "function")) {
++        throw new FsSafeError("invalid-path", "directory publication requires an exact identity and synchronous guard");
++    }
++    const binding = requireNativeBinding();
++    if (typeof binding.renameNoReplaceWithIdentity !== "function") {
++        throw new FsSafeError("helper-unavailable", "directory publication requires native identity-aware rename");
++    }
++    const parentFd = fs.openSync(parent, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
++    let published = false;
++    let operationError;
++    try {
++        const held = fs.fstatSync(parentFd, { bigint: true });
++        inspectDirectoryIdentitySync(parent, held);
++        inspectDirectoryIdentitySync(stagedDir, expected);
++        options.assertBeforeMutation?.();
++        // No await occurs between the last identity check and native publication.
++        inspectDirectoryIdentitySync(parent, held);
++        inspectDirectoryIdentitySync(stagedDir, expected);
++        try {
++            binding.renameNoReplaceWithIdentity(parentFd, stagedName, parentFd, targetName, expected.dev, expected.ino);
++        }
++        catch (error) {
++            const code = error?.code;
++            if (code === "EEXIST" || code === "ENOTEMPTY") {
++                throw new FsSafeError("already-exists", "directory publication target exists", { cause: error });
++            }
++            throw error;
++        }
++        published = true;
++        inspectDirectoryIdentitySync(targetDir, expected);
++        inspectDirectoryIdentitySync(parent, held);
++        fs.fsyncSync(parentFd);
++        return Object.freeze({ status: "published", targetDir, identity: Object.freeze({ ...expected }) });
++    }
++    catch (error) {
++        operationError = error;
++        if (published) {
++            throw new FsSafeError("helper-failed", "directory was published but final verification or sync failed", {
++                cause: error, details: { publication: "published" },
++            });
++        }
++        throw error;
++    }
++    finally {
++        try {
++            fs.closeSync(parentFd);
++        }
++        catch (error) {
++            if (published) {
++                throw new FsSafeError("helper-failed", "directory was published but parent close failed", {
++                    cause: operationError ? new AggregateError([operationError, error]) : error,
++                    details: { publication: "published" },
++                });
++            }
++            if (operationError)
++                throw new AggregateError([operationError, error], "directory publication and parent close failed");
++            throw error;
++        }
++    }
++}
+diff --git a/docs/atomic.md b/docs/atomic.md
+index 58038ab..c0a6d65 100644
+--- a/docs/atomic.md
++++ b/docs/atomic.md
+@@ -8,6 +8,7 @@ import {
+   replaceFileAtomicSync,
+   writeTextAtomic,
+   replaceDirectoryAtomic,
++  publishDirectoryNoReplace,
+   movePathWithCopyFallback,
+ } from "@openclaw/fs-safe/atomic";
+ ```
+@@ -291,6 +292,24 @@ path separators or NUL bytes; the generated backup tail is randomized.
+ Use it when callers must publish a whole staged tree with these recovery
+ semantics. For single-file replacement, `replaceFileAtomic` is the right tool.
+ 
++## `publishDirectoryNoReplace`
++
++Publish a complete, already prepared sibling directory under a new name on Linux or macOS. The caller must persist its exact `dev`/`ino` identity before calling. This operation never replaces an existing target, including an empty directory. It requires the native helper and a real, unchanged parent directory. The caller owns preparation and any later cleanup.
++
++```ts
++import { publishDirectoryNoReplace } from "@openclaw/fs-safe/atomic";
++
++const staged = await fs.lstat(stagedDir, { bigint: true });
++const receipt = publishDirectoryNoReplace({
++  stagedDir,
++  targetDir,
++  expectedIdentity: { dev: staged.dev, ino: staged.ino },
++  assertBeforeMutation: () => assertCurrentAuthority(),
++});
++```
++
++The native no-replace rename uses a retained parent descriptor. The helper checks the staged directory's identity before dispatch, checks the final name afterward, and syncs the parent. If verification or sync fails after rename, the error includes `details.publication: "published"`; reconcile the exact target before retrying. A concurrent same-privilege actor can replace the staged basename between the identity check and POSIX rename, so protect the private staging parent from unrelated writers. This API does not create, mark, remove, or infer ownership of directories.
++
+ ## `writeTextAtomic`
+ 
+ Atomic UTF-8 text write with the same secure defaults as `writeJson`: sibling

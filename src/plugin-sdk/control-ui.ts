@@ -25,13 +25,13 @@ export type ControlUiConnection = {
 };
 
 /** A host-relayed, declared same-origin HTTP route. Credentials stay host-owned. */
-export type ControlUiHttpRequest = Readonly<{
+type ControlUiHttpRequest = Readonly<{
   method: "POST";
   path: string;
   body: string;
 }>;
 
-export type ControlUiHttpResponse = Readonly<{
+type ControlUiHttpResponse = Readonly<{
   status: number;
   body: string;
 }>;
@@ -167,6 +167,8 @@ export type ControlUiNavigationItem = {
   id: string;
   label: string;
   page: ControlUiPageTarget;
+  /** Optional sidebar disclosure group, scoped to the registering plugin. */
+  group?: { id: string; label: string };
   icon?: string;
   order?: number;
   /** False offers the destination in the pin editor without adding it to the sidebar. */

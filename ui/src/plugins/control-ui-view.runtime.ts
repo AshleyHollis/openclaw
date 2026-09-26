@@ -361,6 +361,7 @@ class ControlUiPluginContributions extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) sessionKey = "";
   @property({ attribute: false }) agentId?: string;
   @property({ attribute: false }) navigationKey = "";
+  @property({ attribute: false }) currentNavigationHref = "";
   @property({ type: Boolean }) presented = true;
   @state() private actionError = "";
   private readonly subscriptions = new SubscriptionsController(this)
@@ -452,7 +453,9 @@ class ControlUiPluginContributions extends OpenClawLightDomContentsElement {
         .filter((entry) => entry.key === this.navigationKey)
         .map((entry) => {
           const href = entry.host.navigation.pageHref(entry.value.page);
-          const active = href === `${window.location.pathname}${window.location.search}`;
+          const active =
+            href ===
+            (this.currentNavigationHref || `${window.location.pathname}${window.location.search}`);
           let icon: IconName = "plug";
           if (entry.value.icon && Object.hasOwn(icons, entry.value.icon)) {
             // SAFETY: the own-key check narrows this plugin-provided name to the icon registry.
