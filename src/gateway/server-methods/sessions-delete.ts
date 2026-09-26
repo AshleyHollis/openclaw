@@ -74,6 +74,16 @@ export const sessionDeleteHandlers: GatewayRequestHandlers = {
     const { target, storePath } = resolveGatewaySessionTargetFromKey(key, cfg, {
       agentId: requestedAgentId,
     });
+    if (p.expectedStorePath !== undefined && p.expectedStorePath !== storePath) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, `Session ${key} changed before deletion. Retry.`, {
+          details: { reason: SESSION_LIFECYCLE_CHANGED_ERROR_REASON },
+        }),
+      );
+      return;
+    }
     const compatibilityDefaultAgentId = tryResolveAgentOperationAgentId(cfg);
     const persistedStoreOwner = resolvePersistedSessionStoreOwnerForKey(cfg, key);
     const protectedGlobalAgentId =
@@ -181,7 +191,9 @@ export const sessionDeleteHandlers: GatewayRequestHandlers = {
         current.storePath !== storePath ||
         current.canonicalKey !== target.canonicalKey ||
         current.entry?.sessionId !== initialDeleteEntry?.sessionId ||
-        current.entry?.lifecycleRevision !== initialDeleteEntry?.lifecycleRevision
+        current.entry?.lifecycleRevision !== initialDeleteEntry?.lifecycleRevision ||
+        (emptyHistoryExpectation !== undefined &&
+          current.entry?.updatedAt !== emptyHistoryExpectation.expectedUpdatedAt)
       ) {
         throw new SessionDeletionError(sessionChangedError());
       }

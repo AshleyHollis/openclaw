@@ -163,7 +163,9 @@ export function hasOnlyEmptyCurrentGeneration(
   const snapshot = readSessionStateDeleteSnapshot(database.db, sessionId);
   return (
     (snapshot.sessionKey === null || keys.includes(snapshot.sessionKey)) &&
+    snapshot.generation === null &&
     snapshot.lastSeq === null &&
+    snapshot.transcriptUpdatedAt === null &&
     snapshot.trajectoryLastSeq === null &&
     snapshot.acpParentStreamEventCount === 0
   );
