@@ -121,6 +121,21 @@ describe("favicon presentation ownership", () => {
     );
   }
 
+  it("keeps a site-provided icon when an environment is configured", async () => {
+    const customSvg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path id="site-compass" d="M32 8 40 32 32 56 24 32Z"/></svg>';
+    svgIcon.href = `data:image/svg+xml,${encodeURIComponent(customSvg)}`;
+
+    applyControlUiPresentation({ environment: { label: "Life", color: "blue" } });
+
+    await vi.waitFor(() => {
+      const svg = svgDocument();
+      expect(svg.querySelector("#site-compass")).not.toBeNull();
+      expect(svg.querySelector('path[d^="M60 10C30"]')).toBeNull();
+      expect(svg.querySelector('circle[cx="6.5"]')?.getAttribute("fill")).toBe("rgb(40, 100, 180)");
+    });
+  });
+
   it("reuses palette reads through session publications while retaining retries and presentation changes", async () => {
     let row: GatewaySessionRow = {
       key: "agent:main:favicon-palette",
@@ -216,9 +231,12 @@ describe("favicon presentation ownership", () => {
       document.documentElement.dataset.themeMode = "light";
       await expectDot("rgb(20, 100, 180)");
       applyControlUiPresentation({ environment: { label: "Preview", color: "blue" } });
-      await vi.waitFor(() =>
-        expect(svgDocument().querySelector('path[fill="rgb(40, 100, 180)"]')).not.toBeNull(),
-      );
+      await vi.waitFor(() => {
+        expect(svgDocument().querySelector("#lobster-gradient")).not.toBeNull();
+        expect(svgDocument().querySelector('circle[cx="6.5"]')?.getAttribute("fill")).toBe(
+          "rgb(40, 100, 180)",
+        );
+      });
       await expectDot("rgb(20, 100, 180)");
       await changePresentation(() => {
         setCurrentThemeBranding({ mascot: "none", critters: [] });
@@ -228,7 +246,7 @@ describe("favicon presentation ownership", () => {
       expect(svgDocument().querySelector("path")?.getAttribute("stroke")).toBe(
         "rgb(250, 250, 250)",
       );
-      expect(svgDocument().querySelector('path[fill="rgb(40, 100, 180)"]')).toBeNull();
+      expect(svgDocument().querySelector("#lobster-gradient")).toBeNull();
       expect(svgDocument().documentElement.lastElementChild?.getAttribute("fill")).toBe(
         "rgb(20, 100, 180)",
       );
@@ -247,7 +265,7 @@ describe("favicon presentation ownership", () => {
         setCurrentThemeBranding({ mascot: "claw", critters: [] });
         document.documentElement.dataset.themeMascot = "claw";
       });
-      expect(svgDocument().querySelector('path[fill="rgb(40, 100, 180)"]')).not.toBeNull();
+      expect(svgDocument().querySelector("#lobster-gradient")).not.toBeNull();
       applyControlUiPresentation({ environment: null });
       await vi.waitFor(() =>
         expect(svgDocument().querySelectorAll("animate, animateTransform").length).toBeGreaterThan(
@@ -322,18 +340,39 @@ describe("favicon presentation ownership", () => {
   it("preserves each active presentation when the environment or status is independently removed", async () => {
     const environment = { label: "Preview", color: "blue" } as const;
     applyControlUiPresentation({ environment });
+    await vi.waitFor(() =>
+      expect(svgDocument().querySelector('circle[cx="6.5"]')?.getAttribute("fill")).toBe(
+        "rgb(40, 100, 180)",
+      ),
+    );
+    await vi.waitFor(() => expect(pngIcon.href).not.toBe(originals[1][0]));
     const environmentHref = svgIcon.href;
+    const environmentPngHref = pngIcon.href;
     applyControlUiFaviconStatus("attention");
     await vi.waitFor(() => {
       expect(svgIcon.href).not.toBe(environmentHref);
       expect(svgDocument().documentElement.lastElementChild?.getAttribute("fill")).toBe(
         "rgb(210, 150, 60)",
       );
+      expect(svgDocument().querySelector('circle[cx="6.5"]')?.getAttribute("fill")).toBe(
+        "rgb(40, 100, 180)",
+      );
     });
+    await vi.waitFor(() => expect(pngIcon.href).not.toBe(environmentPngHref));
+    const png = new Image();
+    png.src = pngIcon.href;
+    await png.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 32;
+    const context = canvas.getContext("2d")!;
+    context.drawImage(png, 0, 0);
+    expect(Array.from(context.getImageData(6, 6, 1, 1).data)).toEqual([40, 100, 180, 255]);
+    expect(Array.from(context.getImageData(25, 25, 1, 1).data)).toEqual([210, 150, 60, 255]);
     const environmentWithStatus = svgIcon.href;
     applyControlUiPresentation({ environment: null });
     await vi.waitFor(() => {
       expect(svgIcon.href).not.toBe(environmentWithStatus);
+      expect(svgDocument().querySelector('circle[cx="6.5"]')).toBeNull();
       expect(svgDocument().querySelectorAll("animate, animateTransform").length).toBeGreaterThan(0);
       expect(svgDocument().documentElement.lastElementChild?.getAttribute("fill")).toBe(
         "rgb(210, 150, 60)",
@@ -342,8 +381,9 @@ describe("favicon presentation ownership", () => {
     });
     applyControlUiPresentation({ environment });
     applyControlUiFaviconStatus("idle");
-    expect(svgIcon.href).toBe(environmentHref);
-    expect(pngIcon.href).toBe(environmentHref);
+    await vi.waitFor(() => expect(svgIcon.href).toBe(environmentHref));
+    expect(pngIcon.type).toBe("image/png");
+    expect(pngIcon.href).not.toBe(originals[1][0]);
     expect(svgIcon.hasAttribute("data-openclaw-original-favicon")).toBe(true);
     applyControlUiPresentation({ environment: null });
     expectOriginals();
