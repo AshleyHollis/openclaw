@@ -99,9 +99,7 @@ function resolveFaviconPalette() {
           fill: style.getPropertyValue("--primary").trim(),
           glyph: style.getPropertyValue("--primary-foreground").trim(),
         })
-      : environmentColor
-        ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><path fill="${environmentColor}" d="M60 10C30 10 15 35 15 55c0 20 15 40 30 45v10h10v-10h10v10h10v-10c15-5 30-25 30-45 0-20-15-45-45-45Z"/></svg>`
-        : null;
+      : null;
   const baseSvg = artwork ? `data:image/svg+xml,${encodeURIComponent(artwork)}` : null;
   const light = root.dataset.themeMode === "light";
   const token = {
@@ -111,18 +109,19 @@ function resolveFaviconPalette() {
     disconnected: "--muted",
     idle: "",
   }[faviconStatus];
-  const color = token ? style.getPropertyValue(token).trim() : "";
+  const statusColor = token ? style.getPropertyValue(token).trim() : "";
   const ring = style.getPropertyValue("--bg").trim();
-  return { baseSvg, color, ring };
+  return { baseSvg, environmentColor, statusColor, ring };
 }
 
 export function syncControlUiFavicon(): void {
-  const { baseSvg, color, ring } = (faviconPalette ??= resolveFaviconPalette());
-  if (!color) {
+  const { baseSvg, environmentColor, statusColor, ring } = (faviconPalette ??=
+    resolveFaviconPalette());
+  if (!environmentColor && !statusColor) {
     faviconSources.clear();
   }
   for (const icon of document.querySelectorAll<HTMLLinkElement>('link[rel="icon"]')) {
-    if (!baseSvg && !color) {
+    if (!baseSvg && !environmentColor && !statusColor) {
       faviconRequests.delete(icon);
       if (icon.dataset.openclawOriginalFavicon) {
         restoreFavicon(icon, JSON.parse(icon.dataset.openclawOriginalFavicon));
@@ -130,7 +129,7 @@ export function syncControlUiFavicon(): void {
       }
       continue;
     }
-    // Snapshot only the static asset; theme and environment bases are rebuilt from the palette.
+    // Snapshot only the static asset; theme branding is rebuilt from the palette.
     icon.dataset.openclawOriginalFavicon ??= JSON.stringify([
       icon.getAttribute("href"),
       icon.getAttribute("type"),
@@ -140,17 +139,17 @@ export function syncControlUiFavicon(): void {
     );
     const href = baseSvg ?? original[0];
     const type = baseSvg ? "image/svg+xml" : original[1];
-    const signature = JSON.stringify([href, type, color, ring]);
+    const signature = JSON.stringify([href, type, environmentColor, statusColor, ring]);
     if (faviconRequests.get(icon)?.signature === signature) {
       continue;
     }
     const request = { signature };
     faviconRequests.set(icon, request);
-    if (!color || !href) {
+    if ((!environmentColor && !statusColor) || !href) {
       restoreFavicon(icon, [href, type]);
       continue;
     }
-    void composeFavicon(href, type, color, ring).then(
+    void composeFavicon(href, type, environmentColor, statusColor, ring).then(
       (result) => {
         // Asset decoding may finish after idle, a palette change, or a context teardown.
         if (icon.isConnected && faviconRequests.get(icon) === request) {
@@ -196,7 +195,13 @@ async function loadSource(href: string, type: string | null): Promise<FaviconSou
   return { image };
 }
 
-async function composeFavicon(href: string, type: string | null, color: string, ring: string) {
+async function composeFavicon(
+  href: string,
+  type: string | null,
+  environmentColor: string,
+  statusColor: string,
+  ring: string,
+) {
   const key = JSON.stringify([href, type]);
   let pending = faviconSources.get(key);
   if (!pending) {
@@ -211,12 +216,9 @@ async function composeFavicon(href: string, type: string | null, color: string, 
   const source = await pending;
   if ("svg" in source) {
     const svg = new DOMParser().parseFromString(
-      `<svg xmlns="${SVG_NAMESPACE}" viewBox="0 0 32 32" width="32" height="32"><circle cx="25.5" cy="25.5" r="5" stroke-width="2"/></svg>`,
+      `<svg xmlns="${SVG_NAMESPACE}" viewBox="0 0 32 32" width="32" height="32"/>`,
       "image/svg+xml",
     ).documentElement;
-    const dot = svg.firstElementChild!;
-    dot.setAttribute("fill", color);
-    dot.setAttribute("stroke", ring);
     // Keep SMIL in the favicon document; SVG images cannot load external images.
     const artwork = document.importNode(source.svg, true);
     artwork.setAttribute("x", "0");
@@ -224,6 +226,22 @@ async function composeFavicon(href: string, type: string | null, color: string, 
     artwork.setAttribute("width", "32");
     artwork.setAttribute("height", "32");
     svg.prepend(artwork);
+    for (const [cx, cy, radius, color, strokeWidth] of [
+      [6.5, 6.5, 4, environmentColor, 1.5],
+      [25.5, 25.5, 5, statusColor, 2],
+    ] as const) {
+      if (!color) {
+        continue;
+      }
+      const dot = svg.ownerDocument.createElementNS(SVG_NAMESPACE, "circle");
+      dot.setAttribute("cx", String(cx));
+      dot.setAttribute("cy", String(cy));
+      dot.setAttribute("r", String(radius));
+      dot.setAttribute("fill", color);
+      dot.setAttribute("stroke", ring);
+      dot.setAttribute("stroke-width", String(strokeWidth));
+      svg.append(dot);
+    }
     return {
       href: `data:image/svg+xml,${encodeURIComponent(new XMLSerializer().serializeToString(svg))}`,
       type: "image/svg+xml",
@@ -237,12 +255,20 @@ async function composeFavicon(href: string, type: string | null, color: string, 
     throw new Error("Favicon canvas unavailable");
   }
   context.drawImage(source.image, 0, 0, 32, 32);
-  context.beginPath();
-  context.arc(25.5, 25.5, 5, 0, Math.PI * 2);
-  context.fillStyle = color;
-  context.fill();
-  context.strokeStyle = ring;
-  context.lineWidth = 2;
-  context.stroke();
+  for (const [cx, cy, radius, color, strokeWidth] of [
+    [6.5, 6.5, 4, environmentColor, 1.5],
+    [25.5, 25.5, 5, statusColor, 2],
+  ] as const) {
+    if (!color) {
+      continue;
+    }
+    context.beginPath();
+    context.arc(cx, cy, radius, 0, Math.PI * 2);
+    context.fillStyle = color;
+    context.fill();
+    context.strokeStyle = ring;
+    context.lineWidth = strokeWidth;
+    context.stroke();
+  }
   return { href: canvas.toDataURL("image/png"), type: "image/png" };
 }

@@ -9,6 +9,15 @@ import "../components/app-topbar.ts";
 import "../components/sidebar-agent-card.ts";
 import { setupSidebarTest } from "../test-helpers/app-sidebar-setup.ts";
 import { createApplicationConfigCapability } from "./config.ts";
+import { applyControlUiPresentation } from "./control-ui-environment-presentation.runtime.ts";
+
+const servedFavicon =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path id="site-compass" d="M32 8 40 32 32 56 24 32Z"/></svg>';
+
+function isFaviconRequest(input: RequestInfo | URL): boolean {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  return url.endsWith("/favicon.svg");
+}
 
 type EnvironmentElement = HTMLElement & {
   environment?: ControlUiEnvironment | null;
@@ -32,6 +41,27 @@ afterEach(() => {
 
 describe("Control UI environment presentation", () => {
   setupSidebarTest();
+
+  it("keeps the served favicon artwork when an environment is configured", async () => {
+    const favicon = document.createElement("link");
+    favicon.rel = "icon";
+    favicon.type = "image/svg+xml";
+    favicon.href = "/favicon.svg";
+    document.head.append(favicon);
+    document.documentElement.style.setProperty("--control-ui-environment-amber", "#f59e0b");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(servedFavicon)),
+    );
+
+    applyControlUiPresentation({ environment: { label: "Life", color: "amber" } });
+
+    await vi.waitFor(() => {
+      expect(decodeURIComponent(favicon.href)).toContain('id="site-compass"');
+      expect(decodeURIComponent(favicon.href)).not.toContain('d="M60 10C30');
+    });
+    applyControlUiPresentation({ environment: null });
+  });
 
   it("renders a matching stripe, favicon, avatar ring, and sidebar/topbar pills only when configured", async () => {
     const favicon = document.createElement("link");
@@ -63,7 +93,10 @@ describe("Control UI environment presentation", () => {
     };
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response(JSON.stringify(payload))),
+      vi.fn(
+        async (input: RequestInfo | URL) =>
+          new Response(isFaviconRequest(input) ? servedFavicon : JSON.stringify(payload)),
+      ),
     );
     const config = createApplicationConfigCapability({ resourceBasePath: "" });
     await config.refresh();
@@ -80,7 +113,8 @@ describe("Control UI environment presentation", () => {
     expect(sidebar.querySelector(".control-ui-environment-pill")?.textContent).toBe("edge");
     expect(sidebar.querySelector(".sidebar-agent-card__avatar--environment")).not.toBeNull();
     expect(topbar.querySelector(".control-ui-environment-pill")?.textContent).toBe("edge");
-    expect(favicon.href).toContain("data:image/svg+xml,");
+    await vi.waitFor(() => expect(favicon.href).toContain("data:image/svg+xml,"));
+    expect(decodeURIComponent(favicon.href)).toContain('id="site-compass"');
     expect(decodeURIComponent(favicon.href)).toContain("#f59e0b");
   });
 
@@ -92,27 +126,28 @@ describe("Control UI environment presentation", () => {
     svgFavicon.rel = "icon";
     svgFavicon.setAttribute("href", "/favicon.svg");
     svgFavicon.setAttribute("type", "image/svg+xml");
-    const pngFavicon = document.createElement("link");
-    pngFavicon.rel = "icon";
-    pngFavicon.setAttribute("href", "/favicon-32.png");
-    pngFavicon.setAttribute("type", "image/png");
-    document.head.append(svgFavicon, pngFavicon);
+    document.head.append(svgFavicon);
 
     const bootstrap: ControlUiBootstrapConfig = {
       basePath: "",
       assistantName: "OpenClaw",
       assistantAvatar: "O",
     };
+    let bootstrapReads = 0;
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValueOnce(
-          new Response(
-            JSON.stringify({ ...bootstrap, environment: { label: "edge", color: "amber" } }),
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (isFaviconRequest(input)) {
+          return new Response(servedFavicon);
+        }
+        return new Response(
+          JSON.stringify(
+            bootstrapReads++ === 0
+              ? { ...bootstrap, environment: { label: "edge", color: "amber" } }
+              : bootstrap,
           ),
-        )
-        .mockResolvedValueOnce(new Response(JSON.stringify(bootstrap))),
+        );
+      }),
     );
     const config = createApplicationConfigCapability({ resourceBasePath: "" });
 
@@ -120,8 +155,10 @@ describe("Control UI environment presentation", () => {
     await vi.dynamicImportSettled();
 
     expect(document.querySelector(".control-ui-environment-stripe")).not.toBeNull();
-    expect(svgFavicon.getAttribute("href")).toContain("data:image/svg+xml,");
-    expect(pngFavicon.getAttribute("type")).toBe("image/svg+xml");
+    await vi.waitFor(() =>
+      expect(svgFavicon.getAttribute("href")).toContain("data:image/svg+xml,"),
+    );
+    expect(decodeURIComponent(svgFavicon.href)).toContain('id="site-compass"');
     expect(document.title).toBe("OpenClaw Control · edge");
     expect(document.documentElement.hasAttribute("data-openclaw-environment")).toBe(true);
 
@@ -132,8 +169,6 @@ describe("Control UI environment presentation", () => {
     expect(document.querySelector(".control-ui-environment-stripe")).toBeNull();
     expect(svgFavicon.getAttribute("href")).toBe("/favicon.svg");
     expect(svgFavicon.getAttribute("type")).toBe("image/svg+xml");
-    expect(pngFavicon.getAttribute("href")).toBe("/favicon-32.png");
-    expect(pngFavicon.getAttribute("type")).toBe("image/png");
     expect(document.documentElement.style.getPropertyValue("--control-ui-environment-color")).toBe(
       "",
     );
