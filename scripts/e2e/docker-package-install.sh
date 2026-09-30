@@ -51,6 +51,7 @@ DOCKER_COMMAND_TIMEOUT="$DOCKER_RUN_TIMEOUT" docker_e2e_docker_run_cmd run -d \
   --name "$NPM_PROOF_CONTAINER" \
   --user root \
   -e OPENCLAW_FS_SAFE_NATIVE_CONTRACT \
+  -e OPENCLAW_FS_SAFE_PUBLICATION_CONTRACT \
   "${DOCKER_E2E_PACKAGE_ARGS[@]}" \
   -v "$PACKAGE_HARNESS_DIR:/repo:ro" \
   -v "$ROOT_DIR/scripts/docker/verify-fs-safe-native.mjs:/tmp/verify-fs-safe-native.mjs:ro" \
@@ -75,6 +76,7 @@ echo "Installing the real OpenClaw package artifact with pnpm..."
 DOCKER_COMMAND_TIMEOUT="$DOCKER_RUN_TIMEOUT" docker_e2e_docker_run_cmd run -d \
   --name "$PNPM_PROOF_CONTAINER" \
   -e OPENCLAW_FS_SAFE_NATIVE_CONTRACT \
+  -e OPENCLAW_FS_SAFE_PUBLICATION_CONTRACT \
   "${DOCKER_E2E_PACKAGE_ARGS[@]}" \
   -v "$PACKAGE_HARNESS_DIR:/repo:ro" \
   -v "$ROOT_DIR/scripts/docker/verify-fs-safe-native.mjs:/tmp/verify-fs-safe-native.mjs:ro" \
@@ -134,6 +136,7 @@ echo "Installing the real OpenClaw package artifact with Bun..."
 DOCKER_COMMAND_TIMEOUT="$DOCKER_RUN_TIMEOUT" docker_e2e_docker_run_cmd run -d \
   --name "$BUN_PROOF_CONTAINER" \
   -e OPENCLAW_FS_SAFE_NATIVE_CONTRACT \
+  -e OPENCLAW_FS_SAFE_PUBLICATION_CONTRACT \
   "${DOCKER_E2E_PACKAGE_ARGS[@]}" \
   -v "$PACKAGE_HARNESS_DIR:/repo:ro" \
   "$IMAGE_NAME" \
@@ -154,6 +157,7 @@ echo "Installing the real OpenClaw package artifact with npm on musl..."
 DOCKER_COMMAND_TIMEOUT="$DOCKER_RUN_TIMEOUT" docker_e2e_docker_run_cmd run -d \
   --name "$MUSL_PROOF_CONTAINER" \
   -e OPENCLAW_FS_SAFE_NATIVE_CONTRACT \
+  -e OPENCLAW_FS_SAFE_PUBLICATION_CONTRACT \
   "${DOCKER_E2E_PACKAGE_ARGS[@]}" \
   "$MUSL_IMAGE_NAME" \
   sh -lc '

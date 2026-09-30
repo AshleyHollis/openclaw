@@ -2249,6 +2249,7 @@
     "verify": "node --import ./scripts/tsx.mjs scripts/verify.mts"
   },
   "bundleDependencies": [
+    "@openclaw/fs-safe",
     "@openclaw/proxyline",
     "chrome-devtools-mcp",
     "undici"
