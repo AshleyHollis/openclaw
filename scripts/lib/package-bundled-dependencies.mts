@@ -4,16 +4,16 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { coerceErrorMessage } from "./error-format.mts";
 import {
+  collectPatchedFsSafeArtifactErrors,
+  PATCHED_FS_SAFE_NAME,
+  PATCHED_FS_SAFE_VERSION,
+} from "./package-bundled-fs-safe.mts";
+import {
   collectPatchedMcpArtifactErrors,
   isSupportedPatchedMcpVersion,
   PATCHED_MCP_CLI,
   PATCHED_MCP_NAME,
 } from "./package-bundled-mcp.mts";
-import {
-  collectPatchedFsSafeArtifactErrors,
-  PATCHED_FS_SAFE_NAME,
-  PATCHED_FS_SAFE_VERSION,
-} from "./package-bundled-fs-safe.mts";
 import { collectPackageDistImportErrors } from "./package-dist-imports.mjs";
 import { isRecord } from "./record-shared.mjs";
 
@@ -275,7 +275,9 @@ export function collectBundledDependencyErrors({
               .map((entry) => entry.slice(prefix.length)),
           ),
           sha256: (file) =>
-            createHash("sha256").update(runtime.readText(`${prefix}${file}`)).digest("hex"),
+            createHash("sha256")
+              .update(runtime.readText(`${prefix}${file}`))
+              .digest("hex"),
         }),
       );
       errors.push(

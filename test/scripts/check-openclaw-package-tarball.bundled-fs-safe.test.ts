@@ -52,7 +52,11 @@ describe("bundled patched fs-safe package", () => {
   it("accepts the real frozen patched dependency", () => fixture(manifest), 60_000);
 
   it("rejects an unbundled dependency", () => {
-    fixture({ dependencies: manifest.dependencies }, undefined, "must be listed in bundleDependencies");
+    fixture(
+      { dependencies: manifest.dependencies },
+      undefined,
+      "must be listed in bundleDependencies",
+    );
   }, 60_000);
 
   it("rejects a missing bundle", () => {
@@ -71,12 +75,20 @@ describe("bundled patched fs-safe package", () => {
     "dist/sibling-staged-file.js",
     "dist/staged-file-settlement.js",
     "dist/pinned-write-input.js",
-  ])("rejects changed runtime bytes: %s", (file) => {
-    fixture(manifest, (root) => {
-      const target = join(root, PREFIX, file);
-      writeFileSync(target, readFileSync(target, "utf8") + "\n");
-    }, `unpatched or changed runtime entry ${file}`);
-  }, 60_000);
+  ])(
+    "rejects changed runtime bytes: %s",
+    (file) => {
+      fixture(
+        manifest,
+        (root) => {
+          const target = join(root, PREFIX, file);
+          writeFileSync(target, readFileSync(target, "utf8") + "\n");
+        },
+        `unpatched or changed runtime entry ${file}`,
+      );
+    },
+    60_000,
+  );
 
   it("rejects missing publication implementation", () => {
     fixture(
@@ -87,12 +99,16 @@ describe("bundled patched fs-safe package", () => {
   }, 60_000);
 
   it("rejects changed native platform pins", () => {
-    fixture(manifest, (root) => {
-      const target = join(root, PREFIX, "package.json");
-      const payload = JSON.parse(readFileSync(target, "utf8"));
-      payload.optionalDependencies[`${NAME}-linux-x64-gnu`] = "0.18.1";
-      writeFileSync(target, JSON.stringify(payload));
-    }, "must retain exact native dependency linux-x64-gnu");
+    fixture(
+      manifest,
+      (root) => {
+        const target = join(root, PREFIX, "package.json");
+        const payload = JSON.parse(readFileSync(target, "utf8"));
+        payload.optionalDependencies[`${NAME}-linux-x64-gnu`] = "0.18.1";
+        writeFileSync(target, JSON.stringify(payload));
+      },
+      "must retain exact native dependency linux-x64-gnu",
+    );
   }, 60_000);
 });
 
@@ -178,7 +194,9 @@ describe("canonical isolated fs-safe bundle transport", () => {
       const fromInstalledStream = createRequire(
         fromInstalledJsZip.resolve("readable-stream/package.json"),
       );
-      const originalDecoderRoot = dirname(fromInstalledStream.resolve("string_decoder/package.json"));
+      const originalDecoderRoot = dirname(
+        fromInstalledStream.resolve("string_decoder/package.json"),
+      );
       const options = {
         prepareDocsMap: async () => {},
         restoreDocsMap: async () => {},

@@ -113,12 +113,13 @@ try {
     const identity = fs.statSync(stagedDir, { bigint: true });
     // Promise-returning authority cannot authorize the native mutation.
     assert.throws(
-      () => publishDurableDirectoryNoReplace({
-        stagedDir,
-        targetDir,
-        expectedIdentity: identity,
-        assertBeforeMutation: () => Promise.resolve(),
-      }),
+      () =>
+        publishDurableDirectoryNoReplace({
+          stagedDir,
+          targetDir,
+          expectedIdentity: identity,
+          assertBeforeMutation: () => Promise.resolve(),
+        }),
       /must be synchronous/u,
     );
     assert.equal(fs.existsSync(targetDir), false);
@@ -133,11 +134,13 @@ try {
     const collisionStage = path.join(temporaryRoot, "collision-stage");
     await fsPromises.mkdir(collisionStage);
     const collisionIdentity = fs.statSync(collisionStage, { bigint: true });
-    assert.throws(() => publishDurableDirectoryNoReplace({
-      stagedDir: collisionStage,
-      targetDir,
-      expectedIdentity: collisionIdentity,
-    }));
+    assert.throws(() =>
+      publishDurableDirectoryNoReplace({
+        stagedDir: collisionStage,
+        targetDir,
+        expectedIdentity: collisionIdentity,
+      }),
+    );
     assert.equal(
       await fsPromises.readFile(path.join(targetDir, "payload.txt"), "utf8"),
       "installed SDK publication",
