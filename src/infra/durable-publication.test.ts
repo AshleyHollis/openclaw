@@ -39,20 +39,41 @@ describe("retained SDK native publication", () => {
     await expect(staged.assertCurrent()).rejects.toThrow();
   });
 
-  it("never clobbers an existing file and removes only its own unpublished stage", async () => {
+  it("never clobbers an existing file and preserves the stage after indeterminate publication", async () => {
     const directory = tempDirs.make("openclaw-durable-file-collision-");
     fs.writeFileSync(path.join(directory, "final"), "existing");
     const staged = await stageDurableFileInDirectory({ directory, content: "new" });
+    const temporary = path.join(directory, staged.receipt.temporaryBasename);
     try {
       await expect(staged.publish("final", { overwrite: false })).rejects.toMatchObject({
         code: "already-exists",
-        details: { phase: "publish", publication: { status: "not-published" } },
+        details: { phase: "publish", publication: { status: "indeterminate", basename: "final", overwrite: false } },
       });
     } finally {
-      await expect(staged.cleanup()).resolves.toMatchObject({ status: "removed", resources: "closed" });
+      // Ordinary native errno cannot prove a remote rename did not commit.
+      await expect(staged.cleanup()).resolves.toMatchObject({
+        status: "preserved", resources: "closed",
+        publication: { status: "indeterminate", basename: "final", overwrite: false },
+      });
     }
-    expect(fs.readdirSync(directory)).toEqual(["final"]);
+    expect(fs.readdirSync(directory).sort()).toEqual([staged.receipt.temporaryBasename, "final"].sort());
+    const { dev, ino } = fs.lstatSync(temporary, { bigint: true });
+    expect({ dev, ino }).toEqual({ dev: staged.receipt.identity.dev, ino: staged.receipt.identity.ino });
+    expect(fs.readFileSync(temporary, "utf8")).toBe("new");
     expect(fs.readFileSync(path.join(directory, "final"), "utf8")).toBe("existing");
+    await expect(staged.assertCurrent()).rejects.toThrow();
+  });
+
+  it("removes only its own unattempted stage and closes cleanup", async () => {
+    const directory = tempDirs.make("openclaw-durable-file-abort-");
+    fs.writeFileSync(path.join(directory, "sentinel"), "unrelated");
+    const staged = await stageDurableFileInDirectory({ directory, content: "owned" });
+    await expect(staged.cleanup()).resolves.toMatchObject({
+      status: "removed", resources: "closed", publication: { status: "not-published" },
+    });
+    expect(fs.readdirSync(directory)).toEqual(["sentinel"]);
+    expect(fs.readFileSync(path.join(directory, "sentinel"), "utf8")).toBe("unrelated");
+    await expect(staged.assertCurrent()).rejects.toThrow();
   });
 
   it("rejects a replaced stage and preserves the unrelated replacement during cleanup", async () => {
