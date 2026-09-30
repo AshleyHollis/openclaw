@@ -38,6 +38,7 @@ import {
 } from "../../../../src/commands/doctor-plugin-registry.test-support.js";
 import { resolveInstalledPluginIndexStorePath } from "../../../../src/plugins/installed-plugin-index-store-path.js";
 import { writePersistedInstalledPluginIndex } from "../../../../src/plugins/installed-plugin-index-store-write.js";
+import { isPidDefinitelyDead } from "../../../../src/shared/pid-alive.js";
 import { closeOpenClawStateDatabaseByPathAsync } from "../../../../src/state/openclaw-state-db.js";
 import { withEnvAsync } from "../../../../src/test-utils/env.js";
 import { createDeferred } from "../../../helpers/promise.js";
@@ -56,6 +57,12 @@ const tsxImport = import.meta.resolve("tsx");
 
 function createPackageSourceFixture(prefix: string) {
   const sourceDir = tempDirs.make(prefix);
+  // Every package preparation owner reads the source manifest, even when this
+  // fixture has no bundled dependencies. Individual cases replace it as needed.
+  fs.writeFileSync(
+    path.join(sourceDir, "package.json"),
+    JSON.stringify({ name: "openclaw", version: "2026.5.28", type: "module" }),
+  );
   fs.mkdirSync(path.join(sourceDir, "scripts"));
   fs.mkdirSync(path.join(sourceDir, "node_modules"));
   // The inventory child runs from this fixture; inherit its source owner's workspace aliases.
@@ -127,18 +134,6 @@ function createSelectedPluginPackageFixture() {
     fs.writeFileSync(target, contents);
   }
   return { sourceDir, outputDir, files, pluginPackage };
-}
-
-function isProcessAlive(pid: number): boolean {
-  if (!Number.isSafeInteger(pid) || pid <= 0) {
-    return false;
-  }
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -223,14 +218,19 @@ async function expectCommandTimeoutAfterReady(
 }
 
 async function waitForDead(pid: number, timeoutMs: number): Promise<void> {
+  // The shared owner distinguishes Linux zombies from executing processes and
+  // requires a single-thread zombie, so a dead leader cannot hide live workers.
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (!isProcessAlive(pid)) {
+    if (isPidDefinitelyDead(pid)) {
       return;
     }
     await sleep(5);
   }
-  throw new Error(`process still alive: ${pid}`);
+  // A delayed wake can outlive both the deadline and the process.
+  if (!isPidDefinitelyDead(pid)) {
+    throw new Error(`process still executing or death unverified: ${pid}`);
+  }
 }
 
 async function waitForExit(
@@ -515,7 +515,7 @@ describe("package-openclaw-for-docker", () => {
         await waitForDead(childPid, 2_000);
       } finally {
         readiness.close();
-        if (childPid && isProcessAlive(childPid)) {
+        if (childPid && !isPidDefinitelyDead(childPid)) {
           process.kill(childPid, "SIGKILL");
         }
       }
@@ -2161,7 +2161,7 @@ describe("package-openclaw-for-docker", () => {
       );
       await waitForDead(childPid, 2000);
     } finally {
-      if (childPid && isProcessAlive(childPid)) {
+      if (childPid && !isPidDefinitelyDead(childPid)) {
         process.kill(childPid, "SIGKILL");
       }
       fs.rmSync(tempDir, { force: true, recursive: true });
@@ -2199,7 +2199,7 @@ describe("package-openclaw-for-docker", () => {
       );
       expect(fs.readFileSync(donePath, "utf8")).toBe("done");
     } finally {
-      if (childPid && isProcessAlive(childPid)) {
+      if (childPid && !isPidDefinitelyDead(childPid)) {
         process.kill(childPid, "SIGKILL");
       }
       fs.rmSync(tempDir, { force: true, recursive: true });
@@ -2240,7 +2240,7 @@ describe("package-openclaw-for-docker", () => {
       );
       await waitForDead(childPid, 2000);
     } finally {
-      if (childPid && isProcessAlive(childPid)) {
+      if (childPid && !isPidDefinitelyDead(childPid)) {
         process.kill(childPid, "SIGKILL");
       }
       fs.rmSync(tempDir, { force: true, recursive: true });
@@ -2285,7 +2285,7 @@ describe("package-openclaw-for-docker", () => {
       );
     } finally {
       killSpy.mockRestore();
-      if (childPid && isProcessAlive(childPid)) {
+      if (childPid && !isPidDefinitelyDead(childPid)) {
         process.kill(childPid, "SIGKILL");
       }
     }
@@ -2346,10 +2346,14 @@ fs.promises.readFile = async (...args) => { if (String(args[0]).endsWith("/pack.
 const { packOpenClawPackageForDocker } = await import(${JSON.stringify(scriptUrl)});
 try {
   await packOpenClawPackageForDocker(${JSON.stringify(sourceDir)}, ${JSON.stringify(tempDir)}, { packJsonPath: "result.json", normalizeTarballModes: async () => {}, prepareBundledAiRuntime: async () => async () => {}, prepareChangelog: async () => {}, prepareDocsMap: async () => {}, prepareManifest: async () => {}, restoreChangelog: async () => {}, restoreDocsMap: async () => { fs.writeFileSync(${JSON.stringify(markerPath)}, "done"); }, restoreManifest: async () => {}, runCaptureImpl: async (_command, _args, _cwd, options) => { if (options.stdoutFilePath) fs.writeFileSync(options.stdoutFilePath, '[{"filename":"openclaw-2026.5.28.tgz"}]'); fs.writeFileSync(${JSON.stringify(path.join(tempDir, "openclaw-2026.5.28.tgz"))}, "package"); return "openclaw-2026.5.28.tgz\\n"; } });
-} catch (error) { process.exit(error.exitCode ?? 1); }
+} catch (error) { console.error(error); process.exit(error.exitCode ?? 1); }
 `;
     const runner = spawn(process.execPath, ["--input-type=module", "-e", runnerScript]);
-    expect(await waitForExit(runner, 5000)).toEqual({ signal: null, status: 143 });
+    let runnerStderr = "";
+    runner.stderr.on("data", (chunk) => {
+      runnerStderr += String(chunk);
+    });
+    expect(await waitForExit(runner, 5000), runnerStderr).toEqual({ signal: null, status: 143 });
     expect(fs.readFileSync(markerPath, "utf8")).toBe("done");
   });
 
@@ -2390,10 +2394,10 @@ try {
       expect(result).toEqual({ signal: null, status: 143 });
       await waitForDead(childPid, 2000);
     } finally {
-      if (runnerPid && isProcessAlive(runnerPid)) {
+      if (runnerPid && !isPidDefinitelyDead(runnerPid)) {
         process.kill(runnerPid, "SIGKILL");
       }
-      if (childPid && isProcessAlive(childPid)) {
+      if (childPid && !isPidDefinitelyDead(childPid)) {
         process.kill(childPid, "SIGKILL");
       }
       fs.rmSync(tempDir, { force: true, recursive: true });
