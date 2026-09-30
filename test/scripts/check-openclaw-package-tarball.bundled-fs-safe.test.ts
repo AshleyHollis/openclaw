@@ -120,11 +120,14 @@ function copyIsolatedFsSafeFixture(root: string) {
       ...packageJson.dependencies,
       ...packageJson.optionalDependencies,
     })) {
-      const sourceDependency = (fromPackage.resolve.paths(name) ?? [])
+      const sourceDependency = (fromPackage.resolve.paths(`${name}/package.json`) ?? [])
         .map((directory) => join(directory, name))
         .find((candidate) => fs.existsSync(join(candidate, "package.json")));
       if (!sourceDependency) {
-        expect(packageJson.optionalDependencies).toHaveProperty(name);
+        expect(
+          Object.hasOwn(packageJson.optionalDependencies ?? {}, name),
+          `required fixture dependency ${name} is missing from ${real}`,
+        ).toBe(true);
         continue;
       }
       const target = copy(sourceDependency);
@@ -163,7 +166,19 @@ describe("canonical isolated fs-safe bundle transport", () => {
       const packageJson = JSON.stringify({ name: "openclaw", version: "2026.9.7", ...manifest });
       writeFileSync(join(source, "package.json"), packageJson);
       const installed = copyIsolatedFsSafeFixture(source);
+      // The inventory wrapper resolves its loader before invoking runImpl.
+      fs.symlinkSync(
+        dirname(require.resolve("tsx/package.json")),
+        join(source, "node_modules/tsx"),
+        "junction",
+      );
       const originalAtomic = readFileSync(join(installed.source, "dist/atomic.js"));
+      const fromInstalledFsSafe = createRequire(join(installed.source, "package.json"));
+      const fromInstalledJsZip = createRequire(fromInstalledFsSafe.resolve("jszip/package.json"));
+      const fromInstalledStream = createRequire(
+        fromInstalledJsZip.resolve("readable-stream/package.json"),
+      );
+      const originalDecoderRoot = dirname(fromInstalledStream.resolve("string_decoder/package.json"));
       const options = {
         prepareDocsMap: async () => {},
         restoreDocsMap: async () => {},
@@ -189,11 +204,22 @@ describe("canonical isolated fs-safe bundle transport", () => {
       const bundled = join(extracted, "package", PREFIX);
       const bundledManifest = JSON.parse(readFileSync(join(bundled, "package.json"), "utf8"));
       const fromBundle = createRequire(join(bundled, "package.json"));
+      // Resolving bare string_decoder would return Node's builtin and falsely
+      // validate an absent declared package in this transitive dependency graph.
+      const bundledDecoderRoot = join(
+        bundled,
+        "node_modules/jszip/node_modules/readable-stream/node_modules/string_decoder",
+      );
+      for (const file of ["package.json", "lib/string_decoder.js"]) {
+        expect(readFileSync(join(bundledDecoderRoot, file))).toEqual(
+          readFileSync(join(originalDecoderRoot, file)),
+        );
+      }
       for (const name of Object.keys(bundledManifest.dependencies ?? {})) {
         expect(fromBundle.resolve(name)).toContain(join(bundled, "node_modules"));
       }
       for (const name of Object.keys(bundledManifest.optionalDependencies ?? {})) {
-        const originalModules = createRequire(join(installed.source, "package.json")).resolve.paths(name);
+        const originalModules = fromInstalledFsSafe.resolve.paths(`${name}/package.json`);
         const originallyInstalled = (originalModules ?? []).some((directory) =>
           fs.existsSync(join(directory, name, "package.json")),
         );

@@ -605,8 +605,9 @@ async function copyBundledRuntimePackage(
   for (const name of Object.keys({ ...manifest.dependencies, ...optional })) {
     let dependencyRoot: string | undefined;
     // Resolve installed package directories, not exports: runtime packages need
-    // not export package.json or expose a CommonJS entrypoint.
-    for (const modulesPath of requireFromPackage.resolve.paths(name) ?? []) {
+    // not export package.json or expose a CommonJS entrypoint. A package.json
+    // subpath also avoids Node's builtin-name shortcut (e.g. string_decoder).
+    for (const modulesPath of requireFromPackage.resolve.paths(`${name}/package.json`) ?? []) {
       try {
         dependencyRoot = await fs.realpath(path.join(modulesPath, name));
         break;
