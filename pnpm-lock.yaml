@@ -215,6 +215,7 @@ packageExtensionsChecksum: sha256-Y7vhONQzlz51oZN7TTGWCJABkDu/F4SuqtCdf5qYwZ0=
 patchedDependencies:
   '@awesome.me/webawesome@3.13.0': b8ce280c2f477ef59002e971c5c6cb29a7103e607926e22453091946b719d588
   '@novnc/novnc@1.7.0': bfde0e1bda172da3525f9f5014d85ad28073325b74f09609084598a65d2f412d
+  '@openclaw/fs-safe@0.21.1': c399b3eeebbcb7a5a99e958ad70ac6bb25d395365d91af3519bc75cca37e1dcd
   '@openclaw/proxyline@0.3.12': 9e0969d2dc0abb32610053fba342756afb56f4996c90adfdc34f21ad090fbb0f
   baileys@7.0.0-rc14: 03ae85550381d1bda7d014c9aa9f544ad421d35d745d1167fd5d33f7f715dafb
   chrome-devtools-mcp@1.9.0: 832ce1d2ff002b44edb93bae88858d6edd8bc833acc87dd0fe82454d8834e340
@@ -276,7 +277,7 @@ importers:
         version: link:packages/ai
       '@openclaw/fs-safe':
         specifier: 0.21.1
-        version: 0.21.1
+        version: 0.21.1(patch_hash=c399b3eeebbcb7a5a99e958ad70ac6bb25d395365d91af3519bc75cca37e1dcd)
       '@openclaw/proxyline':
         specifier: 0.3.12
         version: 0.3.12(patch_hash=9e0969d2dc0abb32610053fba342756afb56f4996c90adfdc34f21ad090fbb0f)(undici@8.10.2)
@@ -645,7 +646,7 @@ importers:
         version: 1.12.0
       '@openclaw/fs-safe':
         specifier: 0.21.1
-        version: 0.21.1
+        version: 0.21.1(patch_hash=c399b3eeebbcb7a5a99e958ad70ac6bb25d395365d91af3519bc75cca37e1dcd)
       acpx:
         specifier: 0.19.1
         version: 0.19.1
@@ -930,7 +931,7 @@ importers:
         version: 0.158.0
       '@openclaw/fs-safe':
         specifier: 0.21.1
-        version: 0.21.1
+        version: 0.21.1(patch_hash=c399b3eeebbcb7a5a99e958ad70ac6bb25d395365d91af3519bc75cca37e1dcd)
       semver:
         specifier: 7.8.5
         version: 7.8.5
@@ -989,7 +990,7 @@ importers:
     dependencies:
       '@openclaw/fs-safe':
         specifier: 0.21.1
-        version: 0.21.1
+        version: 0.21.1(patch_hash=c399b3eeebbcb7a5a99e958ad70ac6bb25d395365d91af3519bc75cca37e1dcd)
       '@trycua/cua-driver':
         specifier: 0.28.2
         version: 0.28.2
@@ -1202,7 +1203,7 @@ importers:
         version: 1.74.0(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)
       '@openclaw/fs-safe':
         specifier: 0.21.1
-        version: 0.21.1
+        version: 0.21.1(patch_hash=c399b3eeebbcb7a5a99e958ad70ac6bb25d395365d91af3519bc75cca37e1dcd)
       mdast-util-from-markdown:
         specifier: 2.0.3
         version: 2.0.3(supports-color@10.2.2)
@@ -1230,7 +1231,7 @@ importers:
     dependencies:
       '@openclaw/fs-safe':
         specifier: 0.21.1
-        version: 0.21.1
+        version: 0.21.1(patch_hash=c399b3eeebbcb7a5a99e958ad70ac6bb25d395365d91af3519bc75cca37e1dcd)
       minimatch:
         specifier: 10.2.6
         version: 10.2.6
@@ -1475,7 +1476,7 @@ importers:
     dependencies:
       '@openclaw/fs-safe':
         specifier: 0.21.1
-        version: 0.21.1
+        version: 0.21.1(patch_hash=c399b3eeebbcb7a5a99e958ad70ac6bb25d395365d91af3519bc75cca37e1dcd)
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1531,7 +1532,7 @@ importers:
         version: 18.8.0
       '@openclaw/fs-safe':
         specifier: 0.21.1
-        version: 0.21.1
+        version: 0.21.1(patch_hash=c399b3eeebbcb7a5a99e958ad70ac6bb25d395365d91af3519bc75cca37e1dcd)
       fake-indexeddb:
         specifier: 6.2.5
         version: 6.2.5
@@ -1575,7 +1576,7 @@ importers:
     dependencies:
       '@openclaw/fs-safe':
         specifier: 0.21.1
-        version: 0.21.1
+        version: 0.21.1(patch_hash=c399b3eeebbcb7a5a99e958ad70ac6bb25d395365d91af3519bc75cca37e1dcd)
       chokidar:
         specifier: 5.0.0
         version: 5.0.0
@@ -1688,7 +1689,7 @@ importers:
     dependencies:
       '@openclaw/fs-safe':
         specifier: 0.21.1
-        version: 0.21.1
+        version: 0.21.1(patch_hash=c399b3eeebbcb7a5a99e958ad70ac6bb25d395365d91af3519bc75cca37e1dcd)
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1918,7 +1919,7 @@ importers:
     dependencies:
       '@openclaw/fs-safe':
         specifier: 0.21.1
-        version: 0.21.1
+        version: 0.21.1(patch_hash=c399b3eeebbcb7a5a99e958ad70ac6bb25d395365d91af3519bc75cca37e1dcd)
       p-limit:
         specifier: 7.3.3
         version: 7.3.3
@@ -1993,7 +1994,7 @@ importers:
         version: 0.1.27
       '@openclaw/fs-safe':
         specifier: 0.21.1
-        version: 0.21.1
+        version: 0.21.1(patch_hash=c399b3eeebbcb7a5a99e958ad70ac6bb25d395365d91af3519bc75cca37e1dcd)
       json5:
         specifier: 2.2.3
         version: 2.2.3
@@ -2125,7 +2126,7 @@ importers:
     dependencies:
       '@openclaw/fs-safe':
         specifier: 0.21.1
-        version: 0.21.1
+        version: 0.21.1(patch_hash=c399b3eeebbcb7a5a99e958ad70ac6bb25d395365d91af3519bc75cca37e1dcd)
       ws:
         specifier: 8.21.3
         version: 8.21.3
@@ -12356,7 +12357,7 @@ snapshots:
       '@openclaw/fs-safe-win32-x64-msvc': 0.12.0
       jszip: 3.10.2
 
-  '@openclaw/fs-safe@0.21.1':
+  '@openclaw/fs-safe@0.21.1(patch_hash=c399b3eeebbcb7a5a99e958ad70ac6bb25d395365d91af3519bc75cca37e1dcd)':
     optionalDependencies:
       '@openclaw/fs-safe-darwin-arm64': 0.21.1
       '@openclaw/fs-safe-darwin-x64': 0.21.1
