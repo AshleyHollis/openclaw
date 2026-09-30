@@ -28,6 +28,7 @@ import type {
 } from "../agents/auth-profiles/types.js";
 import { cloneConfigWithResolutionFacts } from "../config/resolution-facts.js";
 import {
+  assertRuntimeConfigSessionStoreSelectionCanClear,
   clearRuntimeConfigSnapshot,
   getRuntimeConfigSnapshot,
   getRuntimeConfigSnapshotMetadata,
@@ -1246,6 +1247,8 @@ export async function activateProviderAuthRuntimeSnapshot(
  * Clears active secrets runtime state and all linked config/auth/web-tool snapshots.
  */
 export function clearSecretsRuntimeSnapshotState(): void {
+  // Refuse before clearing linked secrets, auth, and web-tool state.
+  assertRuntimeConfigSessionStoreSelectionCanClear();
   activeSnapshotRevision += 1;
   activeSnapshotLineageStartRevision = 0;
   activeSnapshotLineageAuthStores = [];

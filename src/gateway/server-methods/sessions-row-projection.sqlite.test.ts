@@ -1,9 +1,15 @@
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ErrorCodes } from "../../../packages/gateway-protocol/src/index.js";
 import { observeHostDataSql } from "../../../test/helpers/sqlite-statement-execution-counter.js";
-import { replaceSessionEntrySync } from "../../config/sessions/session-accessor.js";
+import { resolveSessionStorePathCore } from "../../config/sessions.js";
+import {
+  deleteSessionEntryLifecycle,
+  replaceSessionEntrySync,
+} from "../../config/sessions/session-accessor.js";
 import * as historyWorker from "../../config/sessions/session-transcript-worker-runtime.js";
 import * as sqlite from "../../infra/kysely-sync.js";
+import { createDeferredCore } from "../../shared/deferred.js";
 import { observeMainThreadReads } from "../../test-utils/main-thread-sql-spies.test-support.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { getSessionRowProjection } from "../session-row-projection-access.js";
@@ -20,6 +26,132 @@ import {
 afterEach(() => vi.restoreAllMocks());
 
 describe("resident session rows", () => {
+  it("reads the current exact row after replacement or deletion during preparation", async () => {
+    await withOpenClawTestState({ scenario: "minimal" }, async () => {
+      const context = requestContext(await seedSessions());
+      const client = identifiedClient("owner@example.com");
+      const key = "agent:main:active";
+      const scope = { agentId: "main", sessionKey: key };
+      await listSessions({ context, client, request: {} });
+      const projection = getSessionRowProjection(context)!;
+      for (const change of ["replace", "delete"] as const) {
+        replaceSessionEntrySync(scope, {
+          sessionId: "old-session",
+          lifecycleRevision: "old-incarnation",
+          updatedAt: 400,
+        });
+        const entered = createDeferredCore();
+        const release = createDeferredCore();
+        const prepare = projection.withPreparedExactRows.bind(projection);
+        const readiness = vi
+          .spyOn(projection, "withPreparedExactRows")
+          .mockImplementationOnce(async (queries, consume, options) => {
+            entered.resolve();
+            await release.promise;
+            return prepare(queries, consume, options);
+          });
+        const respond = vi.fn();
+        const pending = sessionByKeyReadHandlers["sessions.describe"]!({
+          req: { type: "req", id: change, method: "sessions.describe" },
+          params: { key, agentId: "main" },
+          context,
+          client,
+          isWebchatConnect: () => false,
+          respond,
+        });
+        try {
+          await entered.promise;
+          expect(respond).not.toHaveBeenCalled();
+          if (change === "replace") {
+            replaceSessionEntrySync(scope, {
+              sessionId: "new-session",
+              lifecycleRevision: "new-incarnation",
+              updatedAt: 400,
+            });
+          } else {
+            await deleteSessionEntryLifecycle({
+              agentId: "main",
+              storePath: resolveSessionStorePathCore(undefined, { agentId: "main" }),
+              target: { canonicalKey: key, storeKeys: [key] },
+              archiveTranscript: false,
+            });
+          }
+        } finally {
+          release.resolve();
+          await pending;
+          readiness.mockRestore();
+        }
+        expect(respond).toHaveBeenCalledOnce();
+        expect(respond.mock.calls[0]).toMatchObject([
+          true,
+          change === "replace"
+            ? { session: { key, sessionId: "new-session" }, lifecycleRevision: "new-incarnation" }
+            : { session: null, lifecycleRevision: null },
+        ]);
+      }
+    });
+  });
+
+  it("describes the authorized exact lifecycle without changing list rows", async () => {
+    await withOpenClawTestState({ scenario: "minimal" }, async () => {
+      const context = requestContext(await seedSessions());
+      const client = identifiedClient("owner@example.com");
+      const key = "agent:main:active";
+      const scope = { agentId: "main", sessionKey: key };
+      const original = {
+        sessionId: "same-session",
+        lifecycleRevision: "first-incarnation",
+        updatedAt: 400,
+      };
+      replaceSessionEntrySync(scope, original);
+      const describe = async (requestedKey = key, agentId = "main") => {
+        const respond = vi.fn();
+        await sessionByKeyReadHandlers["sessions.describe"]!({
+          req: { type: "req", id: "lifecycle-read", method: "sessions.describe" },
+          params: { key: requestedKey, agentId },
+          context,
+          client,
+          isWebchatConnect: () => false,
+          respond,
+        });
+        expect(respond).toHaveBeenCalledOnce();
+        return respond.mock.calls[0];
+      };
+      await listSessions({ context, client, request: {} });
+      expect(await describe()).toMatchObject([
+        true,
+        { session: { key, sessionId: original.sessionId }, lifecycleRevision: original.lifecycleRevision },
+      ]);
+      expect(
+        (await listSessions({ context, client, request: {} })).sessions.find(
+          (row) => row.key === key,
+        ),
+      ).not.toHaveProperty("lifecycleRevision");
+      replaceSessionEntrySync(scope, { ...original, lifecycleRevision: "reset-in-place" });
+      expect(await describe()).toMatchObject([
+        true,
+        { session: { key, sessionId: original.sessionId }, lifecycleRevision: "reset-in-place" },
+      ]);
+      replaceSessionEntrySync(scope, { ...original, lifecycleRevision: undefined });
+      expect(await describe()).toMatchObject([
+        true,
+        { session: { key, sessionId: original.sessionId }, lifecycleRevision: null },
+      ]);
+      expect(await describe("agent:main:missing")).toMatchObject([
+        true,
+        { session: null, lifecycleRevision: null },
+      ]);
+      expect(await describe(key, "work")).toEqual([
+        false,
+        undefined,
+        expect.objectContaining({
+          code: ErrorCodes.INVALID_REQUEST,
+          message: 'agent "work" does not match session key agent "main"',
+        }),
+      ]);
+    });
+  });
+
   it.each([
     { method: "list", transition: "a commit arrives as readiness resolves" },
     { method: "describe", transition: "its row is dirtied before the request" },

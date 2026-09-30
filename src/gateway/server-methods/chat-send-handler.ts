@@ -102,7 +102,7 @@ async function handleChatSendWithOptions(
   if (!setup) {
     return;
   }
-  const { normalizedRequest, preparedSession, admitted } = setup;
+  const { normalizedRequest, preparedSession, admitted, assertSessionIncarnationCurrent } = setup;
   const { chatSendReceivedAtMs, clientInfo, p, systemInputProvenance, reconnectResumeRequested } =
     normalizedRequest.value;
   const {
@@ -227,6 +227,7 @@ async function handleChatSendWithOptions(
       admitted.value.assertWorkAdmissionCurrent();
       admitted.value.assertSessionTargetCurrent();
       sessionMutationCommitGuard?.();
+      assertSessionIncarnationCurrent?.();
     };
     assertInputAdmissionCurrent();
     const userTurn = createGatewayChatUserTurnController({
@@ -246,6 +247,7 @@ async function handleChatSendWithOptions(
         context,
         sessionMutationAuthorization,
         sessionMutationCommitGuard,
+        assertSessionIncarnationCurrent,
       }),
     });
     const {
@@ -312,6 +314,7 @@ async function handleChatSendWithOptions(
       const assertCustodyCurrent = () => {
         admitted.value.assertWorkAdmissionCurrent();
         admitted.value.assertSessionTargetCurrent();
+        assertSessionIncarnationCurrent?.();
         if (sessionMutationAuthorization?.assertAdmittedInputCurrent) {
           sessionMutationAuthorization.assertAdmittedInputCurrent();
         } else {
@@ -488,7 +491,8 @@ async function handleChatSendWithOptions(
       assertCurrent:
         req.expectedProfileId === undefined &&
         !admitted.value.assertClientUploadAllowed &&
-        !isProgressCardRefreshInputProvenance(systemInputProvenance)
+        !isProgressCardRefreshInputProvenance(systemInputProvenance) &&
+        !assertSessionIncarnationCurrent
           ? undefined
           : assertInputAdmissionCurrent,
     });
@@ -516,6 +520,7 @@ async function handleChatSendWithOptions(
       onSessionRoutingChanged: admitted.value.rejectSessionRoutingChanged,
     });
     if (preAckInjection.status === "handled") {
+      assertSessionIncarnationCurrent?.();
       return;
     }
     messageInjectionAttempt = preAckInjection.attempt;
@@ -600,6 +605,7 @@ async function handleChatSendWithOptions(
       skillLibraryAuthoring,
       cronCreatorAuthority,
       assertDashboardReadCurrent,
+      assertSessionIncarnationCurrent,
       externalAuthorityAdmission,
       injection: {
         beginCapturedMessageInjection,

@@ -64,21 +64,27 @@ it("reuses placement after runtime events and entry writes and refreshes actual 
           touchSessionEntry: true,
         });
         await describe();
-        expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
-          session: expect.objectContaining({
-            sessionId: target.sessionId,
-            placement: expect.objectContaining({ state: "requested" }),
+        expect(respond).toHaveBeenCalledExactlyOnceWith(
+          true,
+          expect.objectContaining({
+            session: expect.objectContaining({
+              sessionId: target.sessionId,
+              placement: expect.objectContaining({ state: "requested" }),
+            }),
           }),
-        });
+        );
       }
       await updateSessionEntry(target, () => ({ label: "Updated by the entry worker" }));
       await describe();
-      expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
-        session: expect.objectContaining({
-          label: "Updated by the entry worker",
-          placement: expect.objectContaining({ state: "requested" }),
+      expect(respond).toHaveBeenCalledExactlyOnceWith(
+        true,
+        expect.objectContaining({
+          session: expect.objectContaining({
+            label: "Updated by the entry worker",
+            placement: expect.objectContaining({ state: "requested" }),
+          }),
         }),
-      });
+      );
       expect(reads).not.toHaveBeenCalled();
 
       for (const [index, record] of [recordNativeParticipant, recordSessionParticipant].entries()) {
@@ -88,13 +94,16 @@ it("reuses placement after runtime events and entry writes and refreshes actual 
             promptedAt === 10 ? "inserted" : "updated",
           );
           await describe();
-          expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
-            session: expect.objectContaining({
-              participantCount: index + 1,
-              participants: expect.arrayContaining([expect.objectContaining({ identity })]),
-              placement: expect.objectContaining({ state: "requested" }),
+          expect(respond).toHaveBeenCalledExactlyOnceWith(
+            true,
+            expect.objectContaining({
+              session: expect.objectContaining({
+                participantCount: index + 1,
+                participants: expect.arrayContaining([expect.objectContaining({ identity })]),
+                placement: expect.objectContaining({ state: "requested" }),
+              }),
             }),
-          });
+          );
         }
       }
       expect(reads).not.toHaveBeenCalled();
@@ -106,12 +115,15 @@ it("reuses placement after runtime events and entry writes and refreshes actual 
         scope: "runtime",
       });
       await describe();
-      expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
-        session: expect.objectContaining({
-          label: "Updated by the entry worker",
-          placement: expect.objectContaining({ state: "requested" }),
+      expect(respond).toHaveBeenCalledExactlyOnceWith(
+        true,
+        expect.objectContaining({
+          session: expect.objectContaining({
+            label: "Updated by the entry worker",
+            placement: expect.objectContaining({ state: "requested" }),
+          }),
         }),
-      });
+      );
       expect(reads).not.toHaveBeenCalled();
 
       sessionChanges.emit({
@@ -128,20 +140,26 @@ it("reuses placement after runtime events and entry writes and refreshes actual 
         placements.fail({ sessionId: target.sessionId, recoveryError: "Worker stopped" }),
       );
       await describe();
-      expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
-        session: expect.objectContaining({
-          placement: expect.objectContaining({ state: "failed", recoveryError: "Worker stopped" }),
+      expect(respond).toHaveBeenCalledExactlyOnceWith(
+        true,
+        expect.objectContaining({
+          session: expect.objectContaining({
+            placement: expect.objectContaining({ state: "failed", recoveryError: "Worker stopped" }),
+          }),
         }),
-      });
+      );
       expect(reads).toHaveBeenCalled();
 
       replaceSessionEntrySync(target, { sessionId: "replacement-session", updatedAt: 2 });
       await describe();
-      expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
-        session: expect.objectContaining({
-          sessionId: "replacement-session",
+      expect(respond).toHaveBeenCalledExactlyOnceWith(
+        true,
+        expect.objectContaining({
+          session: expect.objectContaining({
+            sessionId: "replacement-session",
+          }),
         }),
-      });
+      );
       expect(respond.mock.calls[0]?.[1]).not.toHaveProperty("session.placement");
     } finally {
       projection.dispose();

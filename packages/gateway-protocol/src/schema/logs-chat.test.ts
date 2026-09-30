@@ -227,6 +227,26 @@ describe("ChatSendParamsSchema", () => {
     idempotencyKey: "run-1",
   };
 
+  it("requires both session incarnation fields or neither", () => {
+    expect(Value.Check(ChatSendParamsSchema, send)).toBe(true);
+    expect(Value.Check(ChatSendParamsSchema, { ...send, expectedSessionId: "session-a" })).toBe(false);
+    expect(Value.Check(ChatSendParamsSchema, { ...send, expectedLifecycleRevision: "revision-a" })).toBe(false);
+    expect(
+      Value.Check(ChatSendParamsSchema, {
+        ...send,
+        expectedSessionId: "session-a",
+        expectedLifecycleRevision: "revision-a",
+      }),
+    ).toBe(true);
+    expect(
+      Value.Check(ChatSendParamsSchema, {
+        ...send,
+        expectedSessionId: "",
+        expectedLifecycleRevision: "revision-a",
+      }),
+    ).toBe(false);
+  });
+
   it("accepts an expected active leaf while remaining closed", () => {
     expect(Value.Check(ChatSendParamsSchema, { ...send, expectedLeafEntryId: "leaf-1" })).toBe(
       true,

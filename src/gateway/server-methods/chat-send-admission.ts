@@ -550,6 +550,8 @@ export async function admitChatSend(
       return { ok: false as const };
     }
     let interruptionSettled = true;
+    // A queued writer may have waited behind a reset; never interrupt its successor.
+    params.assertCurrent?.();
     if (runInterruptTarget) {
       interruptedActiveRun = true;
       interruptionSettled = (

@@ -19,7 +19,13 @@ import {
 import type { ConfigWriteNotification } from "../config/io.js";
 import { hashConfigRaw } from "../config/io.read-helpers.js";
 import { formatConfigIssueLines } from "../config/issue-format.js";
-import { hashRuntimeConfigValue, resolveConfigWriteFollowUp } from "../config/runtime-snapshot.js";
+import {
+  hashRuntimeConfigValue,
+  isRuntimeConfigSessionStoreSelectionHeld,
+  onRuntimeConfigSessionStoreSelectionReleased,
+  resolveConfigWriteFollowUp,
+  RuntimeConfigSessionStoreSelectionHeldError,
+} from "../config/runtime-snapshot.js";
 import type { RuntimeConfigSnapshotRefreshOptions } from "../config/runtime-snapshot.js";
 import {
   getRuntimeConfigWriteApplication,
@@ -351,6 +357,10 @@ export function startGatewayConfigReloader(opts: {
   };
   const scheduleAfter = (wait: number) => {
     if (stopped || !initialized || opts.scheduler.signal.aborted) {
+      return;
+    }
+    if (isRuntimeConfigSessionStoreSelectionHeld()) {
+      pending = true;
       return;
     }
     // Coalesce filesystem/write-listener bursts into one reload pass. Config
@@ -972,6 +982,10 @@ export function startGatewayConfigReloader(opts: {
     let attemptedCandidate: InProcessConfigCandidate | null = null;
     try {
       assertLeaseOwned();
+      if (isRuntimeConfigSessionStoreSelectionHeld()) {
+        pending = true;
+        return;
+      }
       if (pendingInProcessConfig) {
         const pendingWrite = pendingInProcessConfig;
         attemptedCandidate = pendingWrite;
@@ -1137,8 +1151,22 @@ export function startGatewayConfigReloader(opts: {
       });
       await source.acceptPaths(snapshot.includedPaths ?? []);
     } catch (err) {
+      // An admission can start after preparation. Retain the original write receipt
+      // and reread the latest disk candidate once its owner releases the selection.
+      const selectionHeld =
+        err instanceof RuntimeConfigSessionStoreSelectionHeldError ||
+        (err instanceof PluginRuntimeApplicationError &&
+          !err.details.committed &&
+          err.cause instanceof RuntimeConfigSessionStoreSelectionHeldError);
+      if (selectionHeld) {
+        pending = true;
+        // An observation caches its first snapshot. Refusal after a yield must
+        // invalidate those bytes so replay checks the latest disk candidate,
+        // even if no new filesystem event arrives while the selection is held.
+        source.observe(undefined, false);
+      }
       const superseded = isConfigReloadSuperseded(err);
-      if (!superseded || retryWriteCandidate !== attemptedCandidate) {
+      if (!selectionHeld && (!superseded || retryWriteCandidate !== attemptedCandidate)) {
         settleApplication(attemptedCandidate, superseded ? "superseded" : "failed");
       }
       if (superseded) {
@@ -1384,6 +1412,11 @@ export function startGatewayConfigReloader(opts: {
       scheduleAfter(0);
     },
   });
+  const unsubscribeFromSessionSelection = onRuntimeConfigSessionStoreSelectionReleased(() => {
+    if (pending) {
+      scheduleAfter(0);
+    }
+  });
 
   const reconcileInitialSource = async (isCurrent: () => boolean) => {
     const observed = source.observation;
@@ -1512,6 +1545,7 @@ export function startGatewayConfigReloader(opts: {
       settleApplication(activeInProcessConfig, "stopped");
       settleApplication(retryWriteCandidate, "stopped");
       clearReloadTimer();
+      unsubscribeFromSessionSelection();
       await source.stop();
       await ready.catch(() => {});
       // Initial reads and explicit plugin operations share the same transaction unwind.

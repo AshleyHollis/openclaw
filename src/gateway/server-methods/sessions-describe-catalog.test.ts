@@ -170,7 +170,7 @@ describe("sessions.describe catalog projection", () => {
       const response = await describeSession(context, key, identifiedClient(viewerId));
 
       expect(response?.[0]).toBe(true);
-      expect(response?.[1]).toEqual({ session: null });
+      expect(response?.[1]).toEqual({ session: null, lifecycleRevision: null });
     });
   });
 

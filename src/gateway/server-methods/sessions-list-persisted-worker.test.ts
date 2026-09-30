@@ -127,7 +127,7 @@ it.each(["replaced", "made private"])(
           expect(respond.mock.calls[0]?.[0]).toBe(true);
           const result = respond.mock.calls[0]?.[1];
           if (change === "made private") {
-            expect(result).toEqual({ session: null });
+            expect(result).toEqual({ session: null, lifecycleRevision: null });
           } else {
             expect(result).toMatchObject({
               session: {

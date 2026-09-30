@@ -34,7 +34,9 @@ import {
   hashRuntimeConfigValue,
   resetConfigRuntimeState,
   setRuntimeConfigSnapshot,
+  withRuntimeConfigSessionStoreSelectionAsync,
 } from "../config/runtime-snapshot.js";
+import { createDeferredCore } from "../shared/deferred.js";
 import {
   attachRuntimeConfigWriteApplication,
   createRuntimeConfigWriteApplication,
@@ -3992,6 +3994,176 @@ describe("startGatewayConfigReloader", () => {
       "plugins.installs.lossless-claw",
     ]);
     expect(reloadedConfig).toBe(nextConfig);
+  });
+});
+
+describe("session store selection reload deferral", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(async () => {
+    await closeTestConfigReloaders();
+    resetConfigRuntimeState();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it.each([false, true])(
+    "replays %s successor from disk after admission settles without another watcher event",
+    async (superseded) => {
+      const initial: OpenClawConfig = {
+        gateway: { reload: {} },
+        session: { store: "/fixture/one" },
+      };
+      const candidateB: OpenClawConfig = {
+        ...initial,
+        session: { store: "/fixture/two" },
+      };
+      const candidateC: OpenClawConfig = {
+        ...initial,
+        session: { store: "/fixture/three" },
+      };
+      let current = makeSnapshot({ config: candidateB, hash: "candidate-b" });
+      const harness = createReloaderHarness(async () => current, {
+        initialConfig: initial,
+        initialCompareConfig: initial,
+      });
+      setRuntimeConfigSnapshot(initial);
+      await harness.reloader.ready;
+      const release = createDeferredCore();
+      const held = withRuntimeConfigSessionStoreSelectionAsync(() => release.promise);
+      harness.watcher.emit("change");
+      await flushReload(harness.reloader);
+      expect(harness.onHotReload).not.toHaveBeenCalled();
+      if (superseded) {
+        current = makeSnapshot({ config: candidateC, hash: "candidate-c" });
+        harness.watcher.emit("change");
+        await flushReload(harness.reloader);
+      }
+      release.resolve();
+      await held;
+      await flushReload(harness.reloader);
+      expect(harness.onHotReload).toHaveBeenCalledOnce();
+      expect(harness.onHotReload.mock.calls[0]?.[1]).toEqual(superseded ? candidateC : candidateB);
+      expect(harness.onRestart).not.toHaveBeenCalled();
+      expect(harness.onConfigAccepted).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("retries an in-flight watcher refused at real runtime publication", async () => {
+    const initial: OpenClawConfig = {
+      gateway: { reload: {} },
+      session: { store: "/fixture/one" },
+    };
+    const candidate: OpenClawConfig = { ...initial, session: { store: "/fixture/two" } };
+    const successor: OpenClawConfig = { ...initial, session: { store: "/fixture/three" } };
+    let disk = makeSnapshot({ config: candidate, hash: "candidate-b" });
+    const reading = createDeferredCore();
+    const finishRead = createDeferredCore();
+    let reads = 0;
+    const harness = createReloaderHarness(
+      async () => {
+        if (++reads === 1) {
+          reading.resolve();
+          await finishRead.promise;
+        }
+        return disk;
+      },
+      {
+        initialConfig: initial,
+        initialCompareConfig: initial,
+        onHotReload: async (plan, nextConfig, ownership) => {
+          setRuntimeConfigSnapshot(nextConfig);
+          ownership.markRuntimeCommitted(nextConfig, plan);
+          return "applied" as const;
+        },
+      },
+    );
+    setRuntimeConfigSnapshot(initial);
+    await harness.reloader.ready;
+    harness.watcher.emit("change");
+    await vi.advanceTimersByTimeAsync(0);
+    await reading.promise;
+    const release = createDeferredCore();
+    const held = withRuntimeConfigSessionStoreSelectionAsync(() => release.promise);
+    finishRead.resolve();
+    await waitForReloadState(() => !harness.reloader.isReloading());
+    expect(harness.onHotReload).toHaveBeenCalledOnce();
+    expect(harness.onConfigAccepted).not.toHaveBeenCalled();
+    expect(harness.log.error).toHaveBeenCalledWith(
+      expect.stringContaining("session.store selection cannot change"),
+    );
+    // No new watcher event: release must invalidate the refused observation.
+    disk = makeSnapshot({ config: successor, hash: "candidate-c" });
+    release.resolve();
+    await held;
+    await flushReload(harness.reloader);
+    expect(harness.onHotReload).toHaveBeenCalledTimes(2);
+    expect(harness.onHotReload.mock.calls[1]?.[1]).toEqual(successor);
+    expect(harness.onConfigAccepted).toHaveBeenCalledOnce();
+    expect(reads).toBe(2);
+  });
+
+  it("defers a no-op candidate without converting it into a restart", async () => {
+    const initial: OpenClawConfig = { gateway: { reload: {} } };
+    const candidate: OpenClawConfig = { ...initial, logging: { level: "debug" } };
+    const harness = createReloaderHarness(
+      async () => makeSnapshot({ config: candidate, hash: "no-op-candidate" }),
+      { initialConfig: initial, initialCompareConfig: initial },
+    );
+    setRuntimeConfigSnapshot(initial);
+    await harness.reloader.ready;
+    const release = createDeferredCore();
+    const held = withRuntimeConfigSessionStoreSelectionAsync(() => release.promise);
+    harness.watcher.emit("change");
+    await flushReload(harness.reloader);
+    expect(harness.onNoopConfigCommit).not.toHaveBeenCalled();
+    release.resolve();
+    await held;
+    await flushReload(harness.reloader);
+    expect(harness.onNoopConfigCommit).toHaveBeenCalledOnce();
+    expect(harness.onRestart).not.toHaveBeenCalled();
+  });
+
+  it("retains an in-process restart receipt while held and applies it on release", async () => {
+    const initial: OpenClawConfig = {
+      gateway: { reload: {} },
+      session: { store: "/fixture/one" },
+    };
+    const candidate: OpenClawConfig = { ...initial, session: { store: "/fixture/two" } };
+    const application = createRuntimeConfigWriteApplication();
+    const writtenSnapshot = makeSnapshot({ config: candidate, hash: "written-candidate" });
+    let settled = false;
+    void application.result.then(() => {
+      settled = true;
+    });
+    const harness = createReloaderHarness(
+      async () => writtenSnapshot,
+      { initialConfig: initial, initialCompareConfig: initial },
+    );
+    setRuntimeConfigSnapshot(initial);
+    await harness.reloader.ready;
+    const release = createDeferredCore();
+    const held = withRuntimeConfigSessionStoreSelectionAsync(() => release.promise);
+    harness.emitWrite(
+      attachRuntimeConfigWriteApplication(
+        {
+          ...makeZeroDebounceHookWrite("written-candidate"),
+          snapshot: writtenSnapshot,
+          sourceConfig: candidate,
+          runtimeConfig: candidate,
+          afterWrite: { mode: "restart" as const, reason: "retained writer intent" },
+        },
+        application,
+      ),
+    );
+    await flushReload(harness.reloader);
+    expect(harness.onRestart).not.toHaveBeenCalled();
+    expect(settled).toBe(false);
+    release.resolve();
+    await held;
+    await flushReload(harness.reloader);
+    expect(harness.onRestart).toHaveBeenCalledOnce();
+    expect(harness.onRestart.mock.calls[0]?.[1]).toEqual(candidate);
+    await expect(application.result).resolves.toBe("restart-pending");
   });
 });
 

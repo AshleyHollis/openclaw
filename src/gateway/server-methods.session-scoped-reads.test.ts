@@ -107,9 +107,12 @@ describe("narrow session read owners", () => {
               extraHandlers: { ...sessionReadHandlers, ...sessionSubscriptionHandlers },
             });
             if (method === "sessions.describe") {
-              expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
-                session: row.visible ? expect.objectContaining({ key: sessionKey }) : null,
-              });
+              expect(respond).toHaveBeenCalledExactlyOnceWith(
+                true,
+                expect.objectContaining({
+                  session: row.visible ? expect.objectContaining({ key: sessionKey }) : null,
+                }),
+              );
             } else if (row.visible) {
               expect(respond).toHaveBeenCalledExactlyOnceWith(
                 true,
@@ -146,9 +149,12 @@ describe("narrow session read owners", () => {
           isWebchatConnect: () => false,
           extraHandlers: sessionReadHandlers,
         });
-        expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
-          session: roles ? null : expect.objectContaining({ key: "agent:main:read-foreign-draft" }),
-        });
+        expect(respond).toHaveBeenCalledExactlyOnceWith(
+          true,
+          expect.objectContaining({
+            session: roles ? null : expect.objectContaining({ key: "agent:main:read-foreign-draft" }),
+          }),
+        );
       });
     },
   );

@@ -72,10 +72,14 @@ export const sessionByKeyReadHandlers: GatewayRequestHandlers = {
           (hasOperatorBoundary(client, read.state.policyConfig) &&
             presentation.sharing.entryFilter?.(record.key, record.entry) === false)
         ) {
-          respond(true, { session: null });
+          respond(true, { session: null, lifecycleRevision: null });
           return;
         }
-        respond(true, { session: presentation.present(record, params) });
+        const session = presentation.present(record, params);
+        respond(true, {
+          session,
+          lifecycleRevision: session ? (record.entry.lifecycleRevision ?? null) : null,
+        });
       },
     );
   },

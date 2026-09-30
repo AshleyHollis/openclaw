@@ -1,6 +1,7 @@
 import { ErrorCodes, errorShape } from "../../../packages/gateway-protocol/src/index.js";
 import type { SessionGoalOperation } from "../../config/sessions/goals-operations.js";
 import type { ProviderReviewAcknowledgment } from "../../sessions/provider-review.js";
+import { loadGatewaySessionEntryReadOnly } from "../session-utils.js";
 import { admitChatSend } from "./chat-send-admission.js";
 import {
   respondChatSendAdmissionError,
@@ -85,6 +86,34 @@ export async function prepareAndAdmitChatSend(
     );
     return undefined;
   }
+  const assertSessionIncarnationCurrent = normalizedRequest.value.p.expectedSessionId
+    ? () => {
+        const current = loadGatewaySessionEntryReadOnly(loadedSession.value.sessionLoadKey, {
+          ...loadedSession.value.sessionLoadOptions,
+          clone: false,
+        });
+        if (
+          current.agentId !== loadedSession.value.agentId ||
+          current.storePath !== loadedSession.value.storePath ||
+          current.canonicalKey !== loadedSession.value.sessionKey ||
+          !current.entry ||
+          current.entry.sessionId !== normalizedRequest.value.p.expectedSessionId ||
+          current.entry.lifecycleRevision !== normalizedRequest.value.p.expectedLifecycleRevision
+        ) {
+          throw new Error("Session incarnation changed before send; refresh and retry.");
+        }
+      }
+    : undefined;
+  const assertAdmissionCurrent = () => {
+    assertCurrent?.();
+    assertSessionIncarnationCurrent?.();
+  };
+  try {
+    assertAdmissionCurrent();
+  } catch (error) {
+    respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, String(error)));
+    return undefined;
+  }
   if (normalizedRequest.value.mentions) {
     const mentions = context.mentionInbox?.validateRecipients(
       client,
@@ -112,7 +141,7 @@ export async function prepareAndAdmitChatSend(
     respond,
     context,
     client,
-    assertCurrent,
+    assertCurrent: assertAdmissionCurrent,
   });
   if (!shouldAdmit) {
     return undefined;
@@ -131,7 +160,7 @@ export async function prepareAndAdmitChatSend(
       session,
       client,
       context,
-      assertCurrent,
+      assertCurrent: assertAdmissionCurrent,
     });
     if (nativeRestriction) {
       respond(false, undefined, nativeRestriction);
@@ -145,7 +174,7 @@ export async function prepareAndAdmitChatSend(
       client,
       onAdmissionOwned,
       hasCurrentClientAuthority,
-      assertCurrent,
+      assertCurrent: assertAdmissionCurrent,
     });
     if (!admitted.ok) {
       return undefined;
@@ -154,6 +183,7 @@ export async function prepareAndAdmitChatSend(
       normalizedRequest,
       preparedSession: { ok: true as const, value: session },
       admitted,
+      assertSessionIncarnationCurrent,
     };
   } finally {
     if (!admitted?.ok) {

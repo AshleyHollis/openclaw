@@ -654,6 +654,7 @@ it("returns no row for missing or hidden targets without provisioning missing st
         await describeSession(context, sharingPolicyClient({ user: "viewer@example.com" })),
       ).toEqual({
         session: null,
+        lifecycleRevision: null,
       });
       expect(fs.existsSync(state.admission.databasePath)).toBe(false);
     } finally {
@@ -662,6 +663,6 @@ it("returns no row for missing or hidden targets without provisioning missing st
   });
   await withFixture(async ({ context, viewer }) => {
     await upsertSessionEntryCore(targetScope, { visibility: "draft" });
-    expect(await describeSession(context, viewer)).toEqual({ session: null });
+    expect(await describeSession(context, viewer)).toEqual({ session: null, lifecycleRevision: null });
   });
 });

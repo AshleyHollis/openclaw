@@ -295,43 +295,54 @@ const ChatWorkContextSchema = closedObject({
 });
 
 /** User-to-agent send request; idempotency key lets clients safely retry transport failures. */
-export const ChatSendParamsSchema = closedObject({
-  sessionKey: ChatSendSessionKeyString,
-  agentId: Type.Optional(NonEmptyString),
-  sessionId: Type.Optional(NonEmptyString),
-  message: Type.String(),
-  mentions: Type.Optional(HumanMentionsSchema),
-  workContext: Type.Optional(ChatWorkContextSchema),
-  intent: Type.Optional(ChatSendIntentSchema),
-  thinking: Type.Optional(Type.String()),
-  fastMode: Type.Optional(Type.Union([Type.Boolean(), Type.Literal("auto")])),
-  // One-turn override for auto fast-mode cutoff seconds.
-  fastAutoOnSeconds: Type.Optional(Type.Integer({ minimum: 1 })),
-  // One-turn override for active-run queue admission.
-  queueMode: Type.Optional(Type.String({ enum: [...QUEUE_MODES] })),
-  deliver: Type.Optional(Type.Boolean()),
-  originatingChannel: Type.Optional(Type.String()),
-  originatingTo: Type.Optional(Type.String()),
-  originatingAccountId: Type.Optional(Type.String()),
-  originatingThreadId: Type.Optional(Type.String()),
-  // Transcript id of the message this send replies to; the Gateway hydrates
-  // channel-agnostic reply context metadata from session history.
-  replyToId: Type.Optional(NonEmptyString),
-  attachments: Type.Optional(ChatAttachmentsSchema),
-  toolBindings: Type.Optional(RunToolBindingsSchema),
-  timeoutMs: Type.Optional(Type.Integer({ minimum: 0 })),
-  systemInputProvenance: Type.Optional(InputProvenanceSchema),
-  systemProvenanceReceipt: Type.Optional(Type.String()),
-  suppressCommandInterpretation: Type.Optional(Type.Boolean()),
-  // Transcript-branch CAS for non-steer interactive sends: the client's displayed
-  // branch leaf (null = authoritative empty transcript). Steer sends ignore it;
-  // the Gateway steers the session's direct run or starts a turn when idle.
-  expectedLeafEntryId: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
-  expectedSessionRoutingContract: Type.Optional(NonEmptyString),
-  expectedPermissionMode: Type.Optional(Type.Union([SessionPermissionModeSchema, Type.Null()])),
-  expectedToolOverrides: Type.Optional(Type.Union([SessionToolOverridesSchema, Type.Null()])),
-  idempotencyKey: NonEmptyString,
-});
+export const ChatSendParamsSchema = Type.Intersect([
+  closedObject({
+    sessionKey: ChatSendSessionKeyString,
+    agentId: Type.Optional(NonEmptyString),
+    sessionId: Type.Optional(NonEmptyString),
+    expectedSessionId: Type.Optional(NonEmptyString),
+    expectedLifecycleRevision: Type.Optional(NonEmptyString),
+    message: Type.String(),
+    mentions: Type.Optional(HumanMentionsSchema),
+    workContext: Type.Optional(ChatWorkContextSchema),
+    intent: Type.Optional(ChatSendIntentSchema),
+    thinking: Type.Optional(Type.String()),
+    fastMode: Type.Optional(Type.Union([Type.Boolean(), Type.Literal("auto")])),
+    // One-turn override for auto fast-mode cutoff seconds.
+    fastAutoOnSeconds: Type.Optional(Type.Integer({ minimum: 1 })),
+    // One-turn override for active-run queue admission.
+    queueMode: Type.Optional(Type.String({ enum: [...QUEUE_MODES] })),
+    deliver: Type.Optional(Type.Boolean()),
+    originatingChannel: Type.Optional(Type.String()),
+    originatingTo: Type.Optional(Type.String()),
+    originatingAccountId: Type.Optional(Type.String()),
+    originatingThreadId: Type.Optional(Type.String()),
+    // Transcript id of the message this send replies to; the Gateway hydrates
+    // channel-agnostic reply context metadata from session history.
+    replyToId: Type.Optional(NonEmptyString),
+    attachments: Type.Optional(ChatAttachmentsSchema),
+    toolBindings: Type.Optional(RunToolBindingsSchema),
+    timeoutMs: Type.Optional(Type.Integer({ minimum: 0 })),
+    systemInputProvenance: Type.Optional(InputProvenanceSchema),
+    systemProvenanceReceipt: Type.Optional(Type.String()),
+    suppressCommandInterpretation: Type.Optional(Type.Boolean()),
+    // Transcript-branch CAS for non-steer interactive sends: the client's displayed
+    // branch leaf (null = authoritative empty transcript). Steer sends ignore it;
+    // the Gateway steers the session's direct run or starts a turn when idle.
+    expectedLeafEntryId: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
+    expectedSessionRoutingContract: Type.Optional(NonEmptyString),
+    expectedPermissionMode: Type.Optional(Type.Union([SessionPermissionModeSchema, Type.Null()])),
+    expectedToolOverrides: Type.Optional(Type.Union([SessionToolOverridesSchema, Type.Null()])),
+    idempotencyKey: NonEmptyString,
+  }),
+  Type.Union([
+    Type.Object({ expectedSessionId: NonEmptyString, expectedLifecycleRevision: NonEmptyString }),
+    Type.Object({
+      expectedSessionId: Type.Optional(Type.Never()),
+      expectedLifecycleRevision: Type.Optional(Type.Never()),
+    }),
+  ]),
+]);
 
 /** Cancels the active or named run for a chat session. */
 export const ChatAbortParamsSchema = closedObject({

@@ -66,6 +66,7 @@ export function startChatDispatch(params: StartChatDispatchParams): void {
     skillLibraryAuthoring,
     cronCreatorAuthority,
     assertDashboardReadCurrent,
+    assertSessionIncarnationCurrent,
     externalAuthorityAdmission,
     injection,
     request,
@@ -246,11 +247,12 @@ export function startChatDispatch(params: StartChatDispatchParams): void {
   };
   const dispatchAdmission = {
     run: <T>(operation: () => Promise<T>) =>
-      gatewayWorkAdmission.run(() =>
-        userTurnRecorder.withPendingInput
+      gatewayWorkAdmission.run(() => {
+        assertSessionIncarnationCurrent?.();
+        return userTurnRecorder.withPendingInput
           ? userTurnRecorder.withPendingInput(operation)
-          : operation(),
-      ),
+          : operation();
+      }),
   };
   const dashboardReadAdmission = assertDashboardReadCurrent
     ? {
@@ -288,6 +290,7 @@ export function startChatDispatch(params: StartChatDispatchParams): void {
             messageInjectionAttempt = beginCapturedMessageInjection();
           }
           if (messageInjectionAttempt) {
+            assertSessionIncarnationCurrent?.();
             const injected = await finalizeAcceptedChatSendMessageInjection({
               attempt: messageInjectionAttempt,
               sessionBinding: jobSessionBinding,
@@ -314,6 +317,7 @@ export function startChatDispatch(params: StartChatDispatchParams): void {
           applyChatSendManagedMedia(ctx, pluginBoundMedia, managedMediaApplyMode);
           const dispatchInbound = () => {
             assertWorkspaceRunOwnership?.();
+            assertSessionIncarnationCurrent?.();
             return dispatchInboundMessageWithProjectedDispatcher({
               ctx,
               cfg,

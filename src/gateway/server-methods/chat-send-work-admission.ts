@@ -146,6 +146,7 @@ export function createChatSendGoalCommitGuard(
     GatewayRequestHandlerOptions,
     "client" | "context" | "sessionMutationAuthorization" | "sessionMutationCommitGuard"
   > & {
+    assertSessionIncarnationCurrent?: () => void;
     admission: {
       initialSessionEntry?: SessionEntry;
       assertInitialSkillSelection?: () => void;
@@ -170,10 +171,12 @@ export function createChatSendGoalCommitGuard(
     context,
     sessionMutationAuthorization,
     sessionMutationCommitGuard,
+    assertSessionIncarnationCurrent,
   } = params;
   return () => {
     sessionMutationCommitGuard?.();
     sessionMutationAuthorization?.assertCurrent();
+    assertSessionIncarnationCurrent?.();
     const currentConfig = context.getRuntimeConfig();
     const initialEntry = admission.initialSessionEntry;
     if (initialEntry) {

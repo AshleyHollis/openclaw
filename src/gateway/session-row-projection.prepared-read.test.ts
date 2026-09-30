@@ -155,13 +155,16 @@ it("serves overlapping cold descriptions within bounded placement-read admission
         requests.map(() => ({ status: "fulfilled", value: undefined })),
       );
       for (const { row, respond } of requests) {
-        expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
-          session: expect.objectContaining({
-            key: row.key,
-            sessionId: row.sessionId,
-            placement: projectWorkerSessionPlacement(row.placement),
+        expect(respond).toHaveBeenCalledExactlyOnceWith(
+          true,
+          expect.objectContaining({
+            session: expect.objectContaining({
+              key: row.key,
+              sessionId: row.sessionId,
+              placement: projectWorkerSessionPlacement(row.placement),
+            }),
           }),
-        });
+        );
       }
     } finally {
       fixture.release.resolve();
@@ -241,13 +244,16 @@ it.each([
         ]),
       );
       for (const { row, respond } of requests.slice(0, accepted)) {
-        expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
-          session: expect.objectContaining({
-            key: row.key,
-            sessionId: row.sessionId,
-            placement: projectWorkerSessionPlacement(row.placement),
+        expect(respond).toHaveBeenCalledExactlyOnceWith(
+          true,
+          expect.objectContaining({
+            session: expect.objectContaining({
+              key: row.key,
+              sessionId: row.sessionId,
+              placement: projectWorkerSessionPlacement(row.placement),
+            }),
           }),
-        });
+        );
       }
       for (const { respond } of requests.slice(accepted)) {
         expect(respond).not.toHaveBeenCalled();
@@ -259,9 +265,12 @@ it.each([
       const afterDrain = fixture.describe(fixture.rows.at(-1)!);
       pending.push(Promise.allSettled([afterDrain.completion]));
       await afterDrain.completion;
-      expect(afterDrain.respond).toHaveBeenCalledExactlyOnceWith(true, {
-        session: expect.objectContaining({ sessionId: afterDrain.row.sessionId }),
-      });
+      expect(afterDrain.respond).toHaveBeenCalledExactlyOnceWith(
+        true,
+        expect.objectContaining({
+          session: expect.objectContaining({ sessionId: afterDrain.row.sessionId }),
+        }),
+      );
     } finally {
       fixture.dispose();
       fixture.release.resolve();
@@ -297,13 +306,16 @@ it("reuses settled exact placement facts while archived row preparation is compl
       expect(fixture.readProjection.mock.calls).toEqual([[[row.sessionId]]]);
       releasePreparation.resolve();
       expect(await completed).toEqual([{ status: "fulfilled", value: undefined }]);
-      expect(request.respond).toHaveBeenCalledExactlyOnceWith(true, {
-        session: expect.objectContaining({
-          key: row.key,
-          sessionId: row.sessionId,
-          placement: projectWorkerSessionPlacement(row.placement),
+      expect(request.respond).toHaveBeenCalledExactlyOnceWith(
+        true,
+        expect.objectContaining({
+          session: expect.objectContaining({
+            key: row.key,
+            sessionId: row.sessionId,
+            placement: projectWorkerSessionPlacement(row.placement),
+          }),
         }),
-      });
+      );
     } finally {
       fixture.release.resolve();
       releasePreparation.resolve();
@@ -343,13 +355,16 @@ it.each([
         }
         fixture.release.resolve();
         expect(await completed).toEqual([{ status: "fulfilled", value: undefined }]);
-        expect(request.respond).toHaveBeenCalledExactlyOnceWith(true, {
-          session: expect.objectContaining({
-            key: row.key,
-            sessionId: row.sessionId,
-            placement: projectWorkerSessionPlacement(row.placement),
+        expect(request.respond).toHaveBeenCalledExactlyOnceWith(
+          true,
+          expect.objectContaining({
+            session: expect.objectContaining({
+              key: row.key,
+              sessionId: row.sessionId,
+              placement: projectWorkerSessionPlacement(row.placement),
+            }),
           }),
-        });
+        );
         expect(
           fixture.projection.capture({ agentId: "main", key: unrelated.key })?.entry?.label,
         ).toBe("Unrelated update");
@@ -463,14 +478,17 @@ it("serves an exact description while an unrelated bulk placement refresh is hel
         2_000,
         "Exact description waited for an unrelated bulk placement refresh",
       );
-      expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
-        session: expect.objectContaining({
-          key: exactRow.key,
-          sessionId: exactRow.sessionId,
-          label: "Fresh exact description",
-          placement: projectWorkerSessionPlacement(exactRow.placement),
+      expect(respond).toHaveBeenCalledExactlyOnceWith(
+        true,
+        expect.objectContaining({
+          session: expect.objectContaining({
+            key: exactRow.key,
+            sessionId: exactRow.sessionId,
+            label: "Fresh exact description",
+            placement: projectWorkerSessionPlacement(exactRow.placement),
+          }),
         }),
-      });
+      );
       releaseBulk.resolve();
       await bulk;
       expect(projection.snapshot({ agentId: "main", key: bulkRow.key }).row?.placement).toEqual(
@@ -517,13 +535,16 @@ it.each([false, true])(
           isWebchatConnect: () => false,
           respond,
         });
-        expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
-          session: expect.objectContaining({
-            key: target.sessionKey,
-            sessionId,
-            placement: expect.objectContaining({ state: "requested" }),
+        expect(respond).toHaveBeenCalledExactlyOnceWith(
+          true,
+          expect.objectContaining({
+            session: expect.objectContaining({
+              key: target.sessionKey,
+              sessionId,
+              placement: expect.objectContaining({ state: "requested" }),
+            }),
           }),
-        });
+        );
         expect(loadSessionEntryReadOnly(target)?.sessionId).toBe(sessionId);
       } finally {
         projection.dispose();
@@ -601,13 +622,16 @@ it("consumes an incognito describe response without SQLite or resident private r
         respond,
       });
       expect(prepared).toHaveBeenCalledOnce();
-      expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
-        session: expect.objectContaining({
-          key: query.key,
-          sessionId: "private-description",
-          placement: expect.objectContaining({ state: "requested" }),
+      expect(respond).toHaveBeenCalledExactlyOnceWith(
+        true,
+        expect.objectContaining({
+          session: expect.objectContaining({
+            key: query.key,
+            sessionId: "private-description",
+            placement: expect.objectContaining({ state: "requested" }),
+          }),
         }),
-      });
+      );
       expect(await escapedPlacement.promise).toBeUndefined();
       expect(projection.selectEntries()).toEqual([]);
       expect(() => retained?.describe(query)).toThrow("no longer active");
