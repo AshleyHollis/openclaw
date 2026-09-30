@@ -53,3 +53,11 @@ export { getFileWatchCapacityCode } from "../infra/fs-watch-errors.js";
 export { resolvePreferredOpenClawTmpDir } from "../infra/tmp-openclaw-dir.js";
 export { readFileRangeAsync } from "../config/sessions/file-range.js";
 export { createStagedInputPathMatcher } from "../media/staged-inputs.js";
+export {
+  stageDurableFileInDirectory,
+  publishDurableDirectoryNoReplace,
+} from "../infra/durable-publication.js";
+export {
+  readDurableFilesystemIdentity,
+  type DurableFilesystemIdentity,
+} from "../infra/filesystem-identity.js";

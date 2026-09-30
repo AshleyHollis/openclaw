@@ -50,3 +50,7 @@ export {
   runSqliteImmediateTransactionSync,
 } from "../infra/sqlite-transaction.js";
 export { tableExists } from "../state/openclaw-state-db-schema-helpers.js";
+export {
+  tryAcquireExclusiveSqliteCoordinator,
+  type SqliteCoordinatorLease,
+} from "../infra/sqlite-coordinator.js";

@@ -60,6 +60,50 @@ and close their owned handle. Cancellation settles pending work before rejecting
 The optional native helper hashes off the JavaScript event loop; the fallback
 uses bounded buffers. Neither route provides a snapshot of concurrent writes.
 
+### Retained durable filesystem contracts
+
+The Life compatibility build retains three helpers on
+`openclaw/plugin-sdk/file-access-runtime`. Stock hosts without these exports
+must fail capability admission; plugins must not import private host or
+filesystem-package modules as a fallback.
+
+- `stageDurableFileInDirectory({ directory, content, mode? })` delegates to the
+  public fs-safe native staging owner. Retain its receipt, revalidate the caller's
+  authority immediately before `publish(basename, { overwrite: false })`, and
+  always call `cleanup()`. Publication performs its effects before yielding;
+  cleanup preserves unrelated or uncertain entries rather than inferring ownership.
+- `readDurableFilesystemIdentity(fd)` returns the Btrfs filesystem UUID and
+  containing subvolume identity from a caller-held descriptor. The caller owns
+  descriptor admission and close. Unsupported platforms, filesystems or native
+  capability fail with `code: "capability-unavailable"`; path or inode-only
+  observations are not a substitute.
+- `publishDurableDirectoryNoReplace({ stagedDir, targetDir, expectedIdentity,
+  assertBeforeMutation? })` synchronously publishes distinct sibling directories
+  without replacing any target. Persist the stage's exact bigint `dev`/`ino`
+  before publication and protect the private parent from unrelated writers.
+  The authority callback must be synchronous. The host's fs-safe dependency
+  patch owns identity-aware native rename and parent sync. Errors carrying
+  `details.publication: "published"` require reconciliation of that same target,
+  not an unconditional retry or pathname cleanup. The caller owns preparation
+  and subsequent cleanup.
+
+`tryAcquireExclusiveSqliteCoordinator(path, { busyTimeoutMs? })` on
+`openclaw/plugin-sdk/sqlite-runtime` holds a contentless, file-backed exclusive
+lease until `release()` or process death. Use a dedicated coordinator file in a
+private caller-owned directory, never a state database. Contention returns
+`null`; other native errors propagate. Release rolls back and closes, is
+idempotent after physical close, and permits retry of an unfinished native
+close. No rows or journal sidecars are written. This lock primitive does not
+replace ordinary worker-owned SQLite access or grant write authority. Keep
+filesystem effects and metadata completion within the lease and revalidate
+operation authority separately. Existing transaction-owner admission services
+remain serviceable during bounded contention.
+
+These retained exports exist for the released plugin compatibility contract;
+remove the dependency patch when a public upstream API supplies the same
+synchronous identity-fenced, no-replace semantics and the plugin's exact
+integration tests qualify that replacement.
+
 ### SQLite write admission
 
 `runSqliteImmediateTransaction(db, prepare, options?)` from
