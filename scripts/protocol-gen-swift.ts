@@ -9,7 +9,11 @@ import {
   PROTOCOL_VERSION,
 } from "../packages/gateway-protocol/src/version.js";
 import { writeGeneratedOutput } from "./lib/generated-output-utils.mts";
-import { type JsonSchema, schemaSignature } from "./lib/protocol-codegen-schema.js";
+import {
+  type JsonSchema,
+  schemaSignature,
+  swiftObjectSchema,
+} from "./lib/protocol-codegen-schema.js";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
@@ -884,8 +888,9 @@ async function generate() {
       parts.push(emitBoardEventParamsModels(schema));
       continue;
     }
-    if (schema.type === "object") {
-      parts.push(emitStruct(name, schema));
+    const objectSchema = swiftObjectSchema(name, schema);
+    if (objectSchema.type === "object") {
+      parts.push(emitStruct(name, objectSchema));
     }
   }
 

@@ -4276,6 +4276,8 @@ public struct ChatSendParams: Codable, Sendable {
     public let sessionkey: String
     public let agentid: String?
     public let sessionid: String?
+    public let expectedsessionid: String?
+    public let expectedlifecyclerevision: String?
     public let message: String
     public let mentions: [HumanMention]?
     public let workcontext: [String: AnyCodable]?
@@ -4307,6 +4309,8 @@ public struct ChatSendParams: Codable, Sendable {
         sessionkey: String,
         agentid: String? = nil,
         sessionid: String? = nil,
+        expectedsessionid: String? = nil,
+        expectedlifecyclerevision: String? = nil,
         message: String,
         mentions: [HumanMention]? = nil,
         workcontext: [String: AnyCodable]? = nil,
@@ -4336,6 +4340,8 @@ public struct ChatSendParams: Codable, Sendable {
         self.sessionkey = sessionkey
         self.agentid = agentid
         self.sessionid = sessionid
+        self.expectedsessionid = expectedsessionid
+        self.expectedlifecyclerevision = expectedlifecyclerevision
         self.message = message
         self.mentions = mentions
         self.workcontext = workcontext
@@ -4367,6 +4373,8 @@ public struct ChatSendParams: Codable, Sendable {
         sessionkey: String,
         agentid: String? = nil,
         sessionid: String? = nil,
+        expectedsessionid: String? = nil,
+        expectedlifecyclerevision: String? = nil,
         message: String,
         mentions: [HumanMention]? = nil,
         workcontext: [String: AnyCodable]? = nil,
@@ -4396,6 +4404,8 @@ public struct ChatSendParams: Codable, Sendable {
             sessionkey: sessionkey,
             agentid: agentid,
             sessionid: sessionid,
+            expectedsessionid: expectedsessionid,
+            expectedlifecyclerevision: expectedlifecyclerevision,
             message: message,
             mentions: mentions,
             workcontext: workcontext,
@@ -4427,6 +4437,8 @@ public struct ChatSendParams: Codable, Sendable {
         case sessionkey = "sessionKey"
         case agentid = "agentId"
         case sessionid = "sessionId"
+        case expectedsessionid = "expectedSessionId"
+        case expectedlifecyclerevision = "expectedLifecycleRevision"
         case message
         case mentions
         case workcontext = "workContext"
