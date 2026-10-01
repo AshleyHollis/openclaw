@@ -64,7 +64,8 @@ async function invokeAdd(
   const respond = vi.fn();
   await expectDefined(cronHandlers["cron.add"], "cron.add handler")({
     req: {} as never,
-    params: input as never,
+    // Match the decoded JSON RPC boundary: undefined optional fields are absent.
+    params: JSON.parse(JSON.stringify(input)) as never,
     respond: respond as never,
     context: context as never,
     client: null,
