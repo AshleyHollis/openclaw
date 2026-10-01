@@ -567,7 +567,7 @@ describe("CronService declarative jobs", () => {
   it("rejects explicit IDs combined with declaration keys without converging", async () => {
     const { cron, storePath } = await setup();
     const created = await add(cron);
-    await cron.update(created.id, { payload: { message: "operator edit" }, enabled: false });
+    await cron.update(created.id, { payload: { kind: "agentTurn", message: "operator edit" }, enabled: false });
     const before = await loadCronStore(storePath);
     for (const id of [created.id, "different-exact-id"]) {
       await expect(
@@ -587,7 +587,7 @@ describe("CronService declarative jobs", () => {
       expect.objectContaining({ reason: new Error(`cron job already exists: ${input.id}`) }),
     ]);
     const winner = await first.readJob(input.id!);
-    await first.update(input.id!, { enabled: false, payload: { message: "operator edit" } });
+    await first.update(input.id!, { enabled: false, payload: { kind: "agentTurn", message: "operator edit" } });
     const beforeRetry = await loadCronStore(storePath);
     await expect(second.add(input)).rejects.toThrow("cron job already exists:");
     expect(await loadCronStore(storePath)).toEqual(beforeRetry);

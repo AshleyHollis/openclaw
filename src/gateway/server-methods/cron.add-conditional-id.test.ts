@@ -90,7 +90,7 @@ describe("conditional cron.add id", () => {
       expect.objectContaining({ id }),
       undefined,
     );
-    await cron.update(id, { enabled: false, payload: { message: "operator edit" } });
+    await cron.update(id, { enabled: false, payload: { kind: "agentTurn", message: "operator edit" } });
     const before = await cron.readJob(id);
     expectInvalidRequest(await invokeAdd(context));
     expect(await cron.readJob(id)).toEqual(before);
@@ -111,7 +111,7 @@ describe("conditional cron.add id", () => {
     await invokeAdd(context, { ...params, id: undefined, declarationKey });
     const [created] = await cron.list();
     const existingId = expectDefined(created, "created declaration").id;
-    await cron.update(existingId, { payload: { message: "operator edit" } });
+    await cron.update(existingId, { payload: { kind: "agentTurn", message: "operator edit" } });
     const before = await cron.readJob(existingId);
     for (const requestedId of [existingId, id]) {
       expectInvalidRequest(await invokeAdd(context, { ...params, id: requestedId, declarationKey }));
