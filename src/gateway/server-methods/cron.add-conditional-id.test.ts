@@ -53,7 +53,9 @@ async function setup() {
   services.add(cron);
   const context = createCronTestContext(undefined, () => ({}) as OpenClawConfig);
   // Keep the registered handler and real durable add owner; only delivery preview is mocked.
-  context.cron.add.mockImplementation((input, options) => cron.add(input as CronJobCreate, options));
+  context.cron.add.mockImplementation((input, options) =>
+    cron.add(input as CronJobCreate, options),
+  );
   return { context, cron };
 }
 
@@ -62,7 +64,10 @@ async function invokeAdd(
   input: CronJobCreate = params,
 ) {
   const respond = vi.fn();
-  await expectDefined(cronHandlers["cron.add"], "cron.add handler")({
+  await expectDefined(
+    cronHandlers["cron.add"],
+    "cron.add handler",
+  )({
     req: {} as never,
     // Match the decoded JSON RPC boundary: undefined optional fields are absent.
     params: JSON.parse(JSON.stringify(input)) as never,
@@ -90,11 +95,14 @@ describe("conditional cron.add id", () => {
       expect.objectContaining({ id }),
       undefined,
     );
-    await cron.update(id, { enabled: false, payload: { kind: "agentTurn", message: "operator edit" } });
+    await cron.update(id, {
+      enabled: false,
+      payload: { kind: "agentTurn", message: "operator edit" },
+    });
     const before = await cron.readJob(id);
     expectInvalidRequest(await invokeAdd(context));
     expect(await cron.readJob(id)).toEqual(before);
-    expect(await cron.list()).toHaveLength(1);
+    expect(await cron.list({ includeDisabled: true })).toHaveLength(1);
   });
 
   it("returns one winner for concurrent public exact-ID adds", async () => {
@@ -102,21 +110,23 @@ describe("conditional cron.add id", () => {
     const responses = await Promise.all([invokeAdd(context), invokeAdd(context)]);
     expect(responses.filter((response) => response.mock.calls[0]?.[0] === true)).toHaveLength(1);
     expect(responses.filter((response) => response.mock.calls[0]?.[0] === false)).toHaveLength(1);
-    expect(await cron.list()).toEqual([expect.objectContaining({ id })]);
+    expect(await cron.list({ includeDisabled: true })).toEqual([expect.objectContaining({ id })]);
   });
 
   it("rejects ID plus declarationKey for both matching and differing identities", async () => {
     const { context, cron } = await setup();
     const declarationKey = "follow-up-declaration";
     await invokeAdd(context, { ...params, id: undefined, declarationKey });
-    const [created] = await cron.list();
+    const [created] = await cron.list({ includeDisabled: true });
     const existingId = expectDefined(created, "created declaration").id;
     await cron.update(existingId, { payload: { kind: "agentTurn", message: "operator edit" } });
     const before = await cron.readJob(existingId);
     for (const requestedId of [existingId, id]) {
-      expectInvalidRequest(await invokeAdd(context, { ...params, id: requestedId, declarationKey }));
+      expectInvalidRequest(
+        await invokeAdd(context, { ...params, id: requestedId, declarationKey }),
+      );
       expect(await cron.readJob(existingId)).toEqual(before);
-      expect(await cron.list()).toHaveLength(1);
+      expect(await cron.list({ includeDisabled: true })).toHaveLength(1);
     }
   });
 
@@ -125,7 +135,7 @@ describe("conditional cron.add id", () => {
     for (const requestedId of ["", "  ", "nested/job", "..\\job", "nul\0job"]) {
       expectInvalidRequest(await invokeAdd(context, { ...params, id: requestedId }));
     }
-    expect(await cron.list()).toEqual([]);
+    expect(await cron.list({ includeDisabled: true })).toEqual([]);
   });
 
   it("keeps authority fencing at the durable add boundary", async () => {
@@ -134,7 +144,10 @@ describe("conditional cron.add id", () => {
     const sessionMutationCommitGuard = vi.fn(() => {
       throw new TypeError("creator authority is no longer active");
     });
-    await expectDefined(cronHandlers["cron.add"], "cron.add handler")({
+    await expectDefined(
+      cronHandlers["cron.add"],
+      "cron.add handler",
+    )({
       req: {} as never,
       params: params as never,
       respond: respond as never,
@@ -145,6 +158,6 @@ describe("conditional cron.add id", () => {
     });
     expect(sessionMutationCommitGuard).toHaveBeenCalled();
     expectInvalidRequest(respond);
-    expect(await cron.list()).toEqual([]);
+    expect(await cron.list({ includeDisabled: true })).toEqual([]);
   });
 });
