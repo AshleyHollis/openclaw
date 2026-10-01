@@ -397,12 +397,14 @@ describe("native UI page navigation", () => {
   ])(
     "opens exact %s in Chat without changing its Dashboard preference",
     async (sessionKey, pathname) => {
-      const request = vi.fn().mockResolvedValue(
-        sessionsResult(
-          [{ key: sessionKey, kind: "direct", agentId: "writer", boardFace: "dashboard" }],
-          1,
-        ),
-      );
+      const request = vi
+        .fn()
+        .mockResolvedValue(
+          sessionsResult(
+            [{ key: sessionKey, kind: "direct", agentId: "writer", boardFace: "dashboard" }],
+            1,
+          ),
+        );
       const fixture = createRosterHost(request);
       onTestFinished(fixture.dispose);
       const selection = createAgentSelectionCapability(
@@ -444,7 +446,9 @@ describe("native UI page navigation", () => {
       view.abort();
       expect(() => retainedViewOpen({ sessionKey, agentId: "writer" })).toThrow("view has ended");
       fixture.runtime.dispose();
-      expect(() => retainedOwnerOpen({ sessionKey, agentId: "writer" })).toThrow("activation has ended");
+      expect(() => retainedOwnerOpen({ sessionKey, agentId: "writer" })).toThrow(
+        "activation has ended",
+      );
       expect(navigate).not.toHaveBeenCalled();
       expect(setSessionKey).not.toHaveBeenCalled();
     },
