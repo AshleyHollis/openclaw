@@ -49,6 +49,11 @@ describe("cron protocol validators", () => {
     expectCases(validateCronAddParams, true, [minimalAddParams]);
   });
 
+  it("accepts a caller-supplied add id and rejects an empty id", () => {
+    expectCases(validateCronAddParams, true, [add({ id: "command-center:follow-up:123" })]);
+    expectCases(validateCronAddParams, false, [add({ id: "" })]);
+  });
+
   it("accepts create results with a dry-run delivery preview", () => {
     const job = {
       ...minimalAddParams,

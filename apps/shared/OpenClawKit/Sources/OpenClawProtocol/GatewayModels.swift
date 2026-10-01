@@ -5433,6 +5433,7 @@ public struct CronAddJobResult: Codable, Sendable {
 }
 
 public struct CronAddParams: Codable, Sendable {
+    public let id: String?
     public let name: String
     public let declarationkey: String?
     public let displayname: String?
@@ -5452,6 +5453,7 @@ public struct CronAddParams: Codable, Sendable {
     public let failurealert: AnyCodable?
 
     public init(
+        id: String? = nil,
         name: String,
         declarationkey: String? = nil,
         displayname: String? = nil,
@@ -5470,6 +5472,7 @@ public struct CronAddParams: Codable, Sendable {
         delivery: AnyCodable? = nil,
         failurealert: AnyCodable? = nil)
     {
+        self.id = id
         self.name = name
         self.declarationkey = declarationkey
         self.displayname = displayname
@@ -5490,6 +5493,7 @@ public struct CronAddParams: Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case id
         case name
         case declarationkey = "declarationKey"
         case displayname = "displayName"

@@ -228,6 +228,9 @@ export async function add(
         throw RETRY_ADD_AFTER_SESSION_CLEANUP;
       }
     }
+    if (normalizedId && declarationKey) {
+      throw new Error("cron declarationKey cannot be combined with an explicit job id");
+    }
     const normalizedInput = normalizedId ? { ...input, id: normalizedId } : input;
     const matches = declarationKey
       ? (state.store?.jobs.filter(

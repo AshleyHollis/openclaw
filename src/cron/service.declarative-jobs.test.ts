@@ -564,9 +564,40 @@ describe("CronService declarative jobs", () => {
     });
   });
 
-  it("persists declaration metadata and rejects blank or duplicate reserved ids", async () => {
+  it("rejects explicit IDs combined with declaration keys without converging", async () => {
+    const { cron, storePath } = await setup();
+    const created = await add(cron);
+    await cron.update(created.id, { payload: { message: "operator edit" }, enabled: false });
+    const before = await loadCronStore(storePath);
+    for (const id of [created.id, "different-exact-id"]) {
+      await expect(
+        cron.add(declaration({ id, payload: { kind: "agentTurn", message: "overwrite" } })),
+      ).rejects.toThrow("cron declarationKey cannot be combined with an explicit job id");
+      expect(await loadCronStore(storePath)).toEqual(before);
+    }
+  });
+
+  it("allows only one concurrent exact-ID creation across shared-store services", async () => {
+    const { cron: first, storePath } = await setup();
+    const second = createCronService(storePath, false);
+    const input = declaration({ declarationKey: undefined, id: "command-center:follow-up:123" });
+    const results = await Promise.allSettled([first.add(input), second.add(input)]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toEqual([
+      expect.objectContaining({ reason: new Error(`cron job already exists: ${input.id}`) }),
+    ]);
+    const winner = await first.readJob(input.id!);
+    await first.update(input.id!, { enabled: false, payload: { message: "operator edit" } });
+    const beforeRetry = await loadCronStore(storePath);
+    await expect(second.add(input)).rejects.toThrow("cron job already exists:");
+    expect(await loadCronStore(storePath)).toEqual(beforeRetry);
+    expect(winner).toMatchObject({ id: input.id });
+    expect(beforeRetry.jobs).toHaveLength(1);
+  });
+
+  it("persists metadata and rejects blank or duplicate reserved ids", async () => {
     const { cron: writer, storePath } = await setup();
-    const created = await add(writer, declaration({ id: "reserved-id" }), {
+    const created = await writer.add(declaration({ declarationKey: undefined, id: "reserved-id" }), {
       enabledExplicit: true,
     });
     await expect(writer.add(declaration({ declarationKey: undefined, id: "  " }))).rejects.toThrow(
@@ -591,7 +622,7 @@ describe("CronService declarative jobs", () => {
     const reader = createCronService(storePath, false);
     const persisted = await reader.readJob(created.id);
     expect(persisted).toMatchObject({
-      declarationKey: "agent:ops:daily-report",
+      id: "reserved-id",
       displayName: "Daily report",
       owner: { agentId: "ops", sessionKey: "agent:ops:main" },
     } satisfies Partial<CronJob>);
