@@ -29,8 +29,10 @@ describe("Swift ChatSend field projection", () => {
       "Unexpected ChatSendParams",
     );
     const fields = (ChatSendParamsSchema as JsonSchema).allOf?.[0] as JsonSchema;
-    expect(() => swiftObjectSchema("ChatSendParams", {
-      allOf: [{ ...fields, required: [...(fields.required ?? []), "expectedSessionId"] }],
-    })).toThrow("Unexpected ChatSendParams");
+    expect(() =>
+      swiftObjectSchema("ChatSendParams", {
+        allOf: [{ ...fields, required: [...(fields.required ?? []), "expectedSessionId"] }],
+      }),
+    ).toThrow("Unexpected ChatSendParams");
   });
 });
