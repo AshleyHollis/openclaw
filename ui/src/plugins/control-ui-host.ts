@@ -5,11 +5,15 @@ import type {
   ControlUiPageTarget,
 } from "../../../src/plugin-sdk/control-ui.js";
 import { isRouteId, pathForRoute, pluginTabLocation } from "../app-route-paths.ts";
+import { selectApplicationSession } from "../app/agent-selection.ts";
 import type { ApplicationContext } from "../app/context.ts";
 import { hasOperatorReadAccess, readGatewayOperatorAccess } from "../app/operator-access.ts";
 import { i18n } from "../i18n/index.ts";
 import { redactToolPayloadText } from "../lib/browser-redact.ts";
-import { openPreferredApplicationSession } from "../lib/sessions/route-navigation.ts";
+import {
+  openPreferredApplicationSession,
+  sessionNavigationTarget,
+} from "../lib/sessions/route-navigation.ts";
 import { normalizeSessionKeyForUiComparison } from "../lib/sessions/session-key.ts";
 import { createControlUiComponents } from "./control-ui-components.ts";
 import type { ControlUiPluginOwner, ControlUiPluginRuntime } from "./control-ui-runtime.ts";
@@ -189,6 +193,23 @@ export function createControlUiPluginHost(
       },
       open({ sessionKey, agentId }) {
         openPreferredApplicationSession(current(), sessionKey, agentId);
+      },
+      openChat({ sessionKey, agentId }) {
+        const context = current();
+        const target = sessionNavigationTarget({
+          context,
+          face: "chat",
+          sessionKey,
+          agentId,
+          exactKey: true,
+        });
+        selectApplicationSession({
+          selection: context.agentSelection,
+          gateway: context.gateway,
+          sessionKey,
+          agentId,
+        });
+        context.navigate("chat", target.options);
       },
       create: (params) => call((context) => context.sessions.create(params)),
       patch: ({ sessionKey, agentId }, patch) =>

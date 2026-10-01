@@ -222,6 +222,9 @@ export type ControlUiHost = {
       query: ControlUiSessionListQuery,
       listener: (snapshot: ControlUiSessionListSnapshot) => void,
     ) => ControlUiSessionListSubscription;
+    /** Opens this exact Session in native Chat, irrespective of its saved board face. */
+    openChat: (session: BoardGetParams) => void;
+    /** Opens this exact Session using its saved board face. */
     open: (session: BoardGetParams) => void;
     create: (params?: { agentId?: string; label?: string }) => Promise<string | null>;
     patch: (

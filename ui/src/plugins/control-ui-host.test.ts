@@ -388,6 +388,68 @@ describe("native UI locale subscription", () => {
 });
 
 describe("native UI page navigation", () => {
+  it.each([
+    ["global", "/chat/writer"],
+    [
+      "agent:writer:reminder:7f56867a-dfb8-4a7d-9951-537c6e6a0c61",
+      "/chat/writer/reminder/7f56867a-dfb8-4a7d-9951-537c6e6a0c61",
+    ],
+  ])(
+    "opens exact %s in Chat without changing its Dashboard preference",
+    async (sessionKey, pathname) => {
+      const request = vi.fn().mockResolvedValue(
+        sessionsResult(
+          [{ key: sessionKey, kind: "direct", agentId: "writer", boardFace: "dashboard" }],
+          1,
+        ),
+      );
+      const fixture = createRosterHost(request);
+      onTestFinished(fixture.dispose);
+      const selection = createAgentSelectionCapability(
+        {
+          ...fixture.context.gateway,
+          connection: { gatewayUrl: "ws://localhost:18789" },
+        },
+        fixture.agents,
+      );
+      onTestFinished(selection.dispose);
+      const navigate = vi.fn();
+      const setSessionKey = vi.fn(() => expect(selection.state.selectedId).toBe("writer"));
+      Object.assign(fixture.context, { basePath: "", agentSelection: selection, navigate });
+      Object.assign(fixture.context.gateway, { setSessionKey });
+      await fixture.sessions.refresh({ agentId: "writer" });
+
+      fixture.host.sessions.open({ sessionKey, agentId: "writer" });
+      expect(navigate).toHaveBeenLastCalledWith(
+        "dashboard",
+        expect.objectContaining({ pathname: pathname.replace("/chat/", "/dashboard/") }),
+      );
+      fixture.host.sessions.openChat({ sessionKey, agentId: "writer" });
+      expect(navigate).toHaveBeenLastCalledWith("chat", expect.objectContaining({ pathname }));
+      expect(setSessionKey).toHaveBeenLastCalledWith(sessionKey);
+      expect(fixture.host.sessions.rows[0]?.boardFace).toBe("dashboard");
+      fixture.host.sessions.open({ sessionKey, agentId: "writer" });
+      expect(navigate).toHaveBeenLastCalledWith(
+        "dashboard",
+        expect.objectContaining({ pathname: pathname.replace("/chat/", "/dashboard/") }),
+      );
+      expect(request).toHaveBeenCalledOnce();
+
+      const view = new AbortController();
+      const scoped = scopeControlUiHost(fixture.host, view.signal);
+      const retainedViewOpen = scoped.sessions.openChat;
+      const retainedOwnerOpen = fixture.host.sessions.openChat;
+      navigate.mockClear();
+      setSessionKey.mockClear();
+      view.abort();
+      expect(() => retainedViewOpen({ sessionKey, agentId: "writer" })).toThrow("view has ended");
+      fixture.runtime.dispose();
+      expect(() => retainedOwnerOpen({ sessionKey, agentId: "writer" })).toThrow("activation has ended");
+      expect(navigate).not.toHaveBeenCalled();
+      expect(setSessionKey).not.toHaveBeenCalled();
+    },
+  );
+
   it("opens a queried global session with its owner before changing the selected key", async () => {
     const primary = sessionsResult(
       [{ key: "global", kind: "global", agentId: "main", boardFace: "dashboard" }],
