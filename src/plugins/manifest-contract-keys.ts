@@ -24,6 +24,7 @@ const MANIFEST_CONTRACT_KEYS = [
   "usageProviders",
   "migrationProviders",
   "gatewayMethodDispatch",
+  "workspaceSessionTurnScheduling",
   "tools",
 ] as const satisfies readonly (keyof PluginManifestContracts)[];
 

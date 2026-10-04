@@ -34,6 +34,7 @@ afterEach(() => {
 describe("check-package-patches", () => {
   it("allows approved pnpm patches together", () => {
     const approvedPatches = [
+      ["@openclaw/fs-safe@0.21.1", "patches/@openclaw__fs-safe@0.21.1.patch"],
       ["@awesome.me/webawesome@3.13.0", "patches/@awesome.me__webawesome@3.13.0.patch"],
       ["baileys@7.0.0-rc12", "patches/baileys@7.0.0-rc12.patch"],
       ["baileys@7.0.0-rc13", "patches/baileys@7.0.0-rc13.patch"],
@@ -106,6 +107,32 @@ patchedDependencies:
         detail: "new package patch file",
       },
     ]);
+  });
+
+  it("ignores tracked patch artifacts outside the package-patch directory", () => {
+    const dir = makeRepo();
+    mkdirSync(path.join(dir, "downstream", "patches"), { recursive: true });
+    writeFileSync(
+      path.join(dir, "downstream", "patches", "source-history.patch"),
+      "diff\n",
+      "utf8",
+    );
+    git(dir, ["add", "downstream"]);
+
+    expect(collectPackagePatchViolations(dir)).toEqual([]);
+  });
+
+  it("rejects activating archived patches as package dependencies", () => {
+    const dir = makeRepo();
+    mkdirSync(path.join(dir, "downstream", "patches"), { recursive: true });
+    writeFileSync(path.join(dir, "downstream", "patches", "source-history.patch"), "diff\n");
+    writeFileSync(path.join(dir, "pnpm-workspace.yaml"),
+      'packages:\n  - .\npatchedDependencies:\n  "@openclaw/fs-safe@0.21.1": downstream/patches/source-history.patch\n');
+    git(dir, ["add", "downstream", "pnpm-workspace.yaml"]);
+    expect(collectPackagePatchViolations(dir)).toEqual([{
+      file: "pnpm-workspace.yaml", kind: "patchedDependency",
+      detail: "@openclaw/fs-safe@0.21.1 -> downstream/patches/source-history.patch",
+    }]);
   });
 
   it("allows deleted legacy patch files during the commit that removes them", () => {

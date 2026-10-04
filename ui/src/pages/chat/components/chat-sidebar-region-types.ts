@@ -1,8 +1,11 @@
 import { nothing, type TemplateResult } from "lit";
 import type { KeyboardShortcutCombo } from "../../../lib/keyboard-shortcut-contract.ts";
+import type { DirectiveResult } from "lit/directive.js";
 import type { SidebarSlotId } from "../sidebar-layout.ts";
 
-export type SidebarPanelTemplates = Partial<Record<SidebarSlotId, TemplateResult | typeof nothing>>;
+export type SidebarPanelTemplates = Partial<
+  Record<SidebarSlotId, TemplateResult | DirectiveResult | typeof nothing>
+>;
 
 export type SidebarPanelDefinition = {
   slot: SidebarSlotId;
@@ -10,7 +13,7 @@ export type SidebarPanelDefinition = {
   icon: TemplateResult;
   shortcut?: KeyboardShortcutCombo;
   available: boolean;
-  content: TemplateResult | typeof nothing | null;
+  content: TemplateResult | DirectiveResult | typeof nothing | null;
   loading: TemplateResult;
   headerAction?: TemplateResult;
   empty: {

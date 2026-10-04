@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "npmVersion": "2026.7.1-2",
+  "sourceRef": "refs/heads/release/2026.7.1",
+  "sourceCommit": "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c",
+  "superseded": [
+    {
+      "id": "browser-shared-auth",
+      "reason": "Required behavior is already present upstream and must not be reapplied."
+    }
+  ],
+  "patches": [
+    "0001-fix-memory-disable-QMD-GPU-acceleration-by-default.patch",
+    "0002-fix-package-include-Discord-runtime-in-distribution.patch",
+    "0003-fix-discord-pin-required-voice-runtime-dependencies.patch",
+    "0004-fix-agents-suppress-raw-JSONL-fallback-output.patch",
+    "0005-fix-agents-expire-invalid-thinking-signature-session.patch",
+    "0006-fix-channels-use-CLI-identity-for-status-RPC.patch",
+    "0007-fix-codex-defer-plugin-state-until-runtime-use.patch",
+    "0008-fix-deps-restore-shrinkwrap-dependency-forks.patch",
+    "0009-fix-codex-accept-stable-correction-cohort-runtime.patch",
+    "0010-fix-deps-normalize-scoped-shrinkwrap-overrides.patch",
+    "0011-fix-deps-prefer-authoritative-shrinkwrap-policy.patch"
+  ]
+}

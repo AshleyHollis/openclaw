@@ -24,6 +24,8 @@ const repositoryScriptEntries = [
   "apps/linux/scripts/test-native-control-auth.mjs!",
   "scripts/render-proof-video.mts!",
   "scripts/ci-shard-timings-refresh.mts!",
+  // CI security-fast runs this from its trusted harness checkout.
+  "scripts/ci-production-audit.mjs!",
   // tsdown builds this private macOS app worker protocol entry by path.
   "src/node-host/mac-worker-entry.ts!",
   // CI imports this selector from its trusted harness inside an inline Node script.
@@ -373,6 +375,8 @@ const rootEntries = [
   "node-runtime-recovery.mjs!",
   "src/index.ts!",
   "src/entry.ts!",
+  // Packaged postinstall imports this private compiled entry before stage activation.
+  "src/commands/doctor-update-schema-guard.ts!",
   // Built as the official image's Docker HEALTHCHECK entrypoint.
   "src/docker-healthcheck.ts!",
   // Deployed in the worker archive and launched by path, without a static host import.
@@ -695,6 +699,11 @@ const config = {
     // production uses them through their owning module/controller.
     "ui/src/pages/chat/chat-state-refresh.ts": ["exports"],
     "ui/src/pages/chat/composer-persistence.ts": ["exports"],
+    // Focused tests consume these explicit lifecycle and presentation seams;
+    // their owning production modules use the same helpers internally.
+    "src/infra/sqlite-readonly-worker.ts": ["exports"],
+    "ui/src/app/approval-presentation.ts": ["exports"],
+    "ui/src/pages/chat/chat-pane-embedded-panels.ts": ["exports"],
     // Focused media tests consume these explicit seams; production uses the helpers in-module.
     "src/agents/embedded-agent-subscribe.handlers.lifecycle.ts": ["exports"],
     "src/gateway/server-methods/chat-webchat-media.ts": ["exports"],

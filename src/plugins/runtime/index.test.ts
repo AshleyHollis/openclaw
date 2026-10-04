@@ -8,6 +8,8 @@ import {
   setRuntimeConfigSnapshot,
   type OpenClawConfig,
 } from "../../config/config.js";
+import { onAgentEvent } from "../../infra/agent-events.js";
+import { stageDurableFileInDirectory } from "../../infra/durable-publication.js";
 import { requestHeartbeat, setHeartbeatWakeHandler } from "../../infra/heartbeat-wake.js";
 import { VERSION } from "../../version.js";
 
@@ -95,8 +97,43 @@ describe("plugin runtime command execution", () => {
     heartbeatRunnerMocks.runHeartbeatOnce.mockReset();
   });
 
-  it("exposes runtime.version from the shared VERSION constant", () => {
-    expect(createPluginRuntime().version).toBe(VERSION);
+  it.each([
+    {
+      name: "exposes runtime.events.onAgentEvent",
+      readValue: (runtime: ReturnType<typeof createPluginRuntime>) => runtime.events.onAgentEvent,
+      expected: onAgentEvent,
+    },
+    {
+      name: "exposes runtime.events.onSessionTranscriptUpdate",
+      readValue: (runtime: ReturnType<typeof createPluginRuntime>) =>
+        runtime.events.onSessionTranscriptUpdate,
+      expected: onSessionTranscriptUpdate,
+    },
+    {
+      name: "exposes runtime.system.requestHeartbeat",
+      readValue: (runtime: ReturnType<typeof createPluginRuntime>) =>
+        runtime.system.requestHeartbeat,
+      expected: requestHeartbeat,
+    },
+    {
+      name: "exposes descriptor-safe durable staging through runtime.fileAccess",
+      readValue: (runtime: ReturnType<typeof createPluginRuntime>) =>
+        runtime.fileAccess.stageDurableFileInDirectory,
+      expected: stageDurableFileInDirectory,
+    },
+    {
+      name: "exposes deprecated runtime.system.requestHeartbeatNow",
+      readValue: (runtime: ReturnType<typeof createPluginRuntime>) =>
+        typeof runtime.system.requestHeartbeatNow,
+      expected: "function",
+    },
+    {
+      name: "exposes runtime.version from the shared VERSION constant",
+      readValue: (runtime: ReturnType<typeof createPluginRuntime>) => runtime.version,
+      expected: VERSION,
+    },
+  ] as const)("$name", ({ readValue, expected }) => {
+    expectRuntimeValue(readValue, expected);
   });
 
   it("exposes reset freshness resolver on the host channel runtime", () => {

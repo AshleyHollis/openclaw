@@ -48,12 +48,15 @@ export async function dispatchGatewayMethod(
   options?: GatewayMethodDispatchOptions,
 ): Promise<GatewayMethodDispatchResponse> {
   const scope = getPluginRuntimeGatewayRequestScope();
-  if (scope?.gatewayMethodDispatchAllowed !== true) {
+  if (
+    scope?.gatewayMethodDispatchAllowed !== true &&
+    (scope?.client == null || !scope.gatewayMethodDispatchMethods?.includes(method))
+  ) {
     // Gateway methods can mutate/control local runtime state; require the
     // authenticated request scope recorded by the plugin loader contract.
     const pluginLabel = scope?.pluginId ? ` for plugin "${scope.pluginId}"` : "";
     throw new Error(
-      `Gateway method dispatch is reserved for authenticated plugin HTTP routes or RPC handlers that declare contracts.gatewayMethodDispatch: ["authenticated-request"]${pluginLabel}.`,
+      `Gateway method dispatch is reserved for entitled plugin HTTP routes or the exact allowlist of a current plugin Gateway method with contracts.gatewayMethodDispatch: ["authenticated-request"]${pluginLabel}.`,
     );
   }
   return await dispatchGatewayMethodInProcessRaw(method, params, {

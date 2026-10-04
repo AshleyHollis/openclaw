@@ -18,6 +18,7 @@ export type ChatRouteData =
       draft?: string;
       focusComposer?: boolean;
       dashboardExpanded?: boolean;
+      filesOpenRequest?: string;
       face: BoardFace;
       shortId?: string;
       routeLoadingSkeleton?: true;

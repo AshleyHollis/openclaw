@@ -1,9 +1,10 @@
+import { resolveCronJobConfigRevision } from "../cron/config-revision.js";
+import { cronJobReadView } from "../cron/job-read-view.js";
 import { normalizeCronJobCreate, normalizeCronJobPatch } from "../cron/normalize.js";
 import { createScheduledGatewayRunner } from "../gateway/scheduled-run-gateway-context.js";
 import type { GatewayCronServiceContract } from "../gateway/server-cron-contract.js";
 import type { GatewayContextResolver } from "../gateway/server-methods/types.js";
 import type { PluginRuntimeCapabilityLease } from "./capability-lease.js";
-import type { PluginHookGatewayCronService } from "./hook-gateway.types.js";
 import type { OpenClawPluginServiceContext } from "./plugin-registration.types.js";
 
 type PluginServiceCron = NonNullable<
@@ -12,7 +13,7 @@ type PluginServiceCron = NonNullable<
 
 export type PluginServiceCronHost = Pick<
   GatewayCronServiceContract,
-  Exclude<keyof PluginHookGatewayCronService, "isEnabled"> | "status" | "enqueueRun"
+  "list" | "add" | "update" | "remove" | "removeStaleJobFamily" | "status" | "enqueueRun" | "readJob" | "updateWithPrecondition"
 >;
 
 export function createPluginServiceCronGetter(params: {
@@ -63,8 +64,17 @@ export function createPluginServiceCronGetter(params: {
         commitGuard();
         return jobs;
       },
+      getWithRevision: async (id) => {
+        commitGuard();
+        const job = await cron.readJob(id);
+        commitGuard();
+        return job ? cronJobReadView(job) : undefined;
+      },
       add: async (input) => {
         commitGuard();
+        if (input.id !== undefined && input.declarationKey !== undefined) {
+          throw new Error("Plugin service cron reserved ID cannot use a declarative upsert key");
+        }
         const normalized = normalizeCronJobCreate(input);
         if (!normalized) {
           throw new Error("Plugin service cron create input is invalid");
@@ -78,6 +88,32 @@ export function createPluginServiceCronGetter(params: {
           throw new Error("Plugin service cron update input is invalid");
         }
         return await cron.update(id, normalized, { commitGuard });
+      },
+      updateWithRevision: async (id, patch, expectedConfigRevision) => {
+        commitGuard();
+        if (!expectedConfigRevision) {
+          throw new Error("Plugin service cron update requires a configuration revision");
+        }
+        const normalized = normalizeCronJobPatch(patch);
+        if (!normalized) {
+          throw new Error("Plugin service cron update input is invalid");
+        }
+        const updated = await cron.updateWithPrecondition(
+          id,
+          normalized,
+          (job) => {
+            const actualConfigRevision = resolveCronJobConfigRevision(job);
+            if (actualConfigRevision !== expectedConfigRevision) {
+              throw Object.assign(new Error("Cron job configuration changed"), {
+                code: "CRON_JOB_CHANGED",
+                actualConfigRevision,
+              });
+            }
+          },
+          { commitGuard },
+        );
+        commitGuard();
+        return cronJobReadView(updated);
       },
       remove: async (id) => {
         commitGuard();

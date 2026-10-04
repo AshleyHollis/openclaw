@@ -629,3 +629,33 @@ it.each(["durable", "incognito"] as const)(
     });
   },
 );
+
+it("checks Topic empty-history expectations in the exact-row reader snapshot", async () => {
+  await withOpenClawTestState({ scenario: "minimal" }, async ({ env }) => {
+    const database = openOpenClawAgentDatabase({ agentId: "main", env });
+    const sessionKey = "agent:main:topic:empty-history";
+    const sessionId = "fictional-empty-topic";
+    writeSessionEntry(database, sessionKey, {
+      sessionId, updatedAt: 1, lifecycleRevision: "fixture-revision",
+    });
+    const target = { canonicalKey: sessionKey, storeKeys: [sessionKey] };
+    const options = { agentId: database.agentId, path: database.path };
+    await closeOpenClawAgentDatabaseByPathAsync(database.path, database.agentId);
+    const retained = new OpenClawAgentDatabaseReadOnlyScope();
+    try {
+      retained.run(options, () => {
+        const read = (expectedUpdatedAt = 1, expectedSessionId = sessionId) =>
+          readExactSessionEntriesWithLifecycle({
+            kind: "session-exact-entries", database: options, env,
+            sessionKeys: [sessionKey], projection: "full", lifecycleSessionKey: sessionKey,
+            emptyHistoryExpectation: {
+              target, expectedSessionId, expectedLifecycleRevision: "fixture-revision", expectedUpdatedAt,
+            },
+          });
+        expect(read().emptyHistoryMatches).toBe(true);
+        expect(read(2).emptyHistoryMatches).toBe(false);
+        expect(read(1, "successor-topic").emptyHistoryMatches).toBe(false);
+      });
+    } finally { retained.close(); }
+  });
+});

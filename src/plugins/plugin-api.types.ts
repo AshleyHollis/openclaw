@@ -244,6 +244,8 @@ export type OpenClawPluginApi = {
       profileAccess?: "independent" | "required";
       /** Require a top-level sessionKey (and optional agentId) naming an existing session. */
       sessionAccess?: import("../gateway/methods/descriptor.js").GatewayMethodSessionAccess;
+      /** Exact core methods this authenticated handler may dispatch. Requires the manifest entitlement. */
+      gatewayMethodDispatchMethods?: readonly string[];
     },
   ) => void;
   /** Add a plugin-owned lifetime requirement to authenticated person admission. */

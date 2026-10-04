@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "releaseId": "2026.7.1-2+nas.2",
+  "status": "blocked",
+  "blockingIssues": [
+    "The broad workspace shrinkwrap audit reports pre-existing stale metadata in extensions/llama-cpp and extensions/twitch, but the pinned generator produces invalid replacement trees: npm ci reports missing parse-ms@4 and isexe@4 before it can validate twitch.",
+    "The nas.2 artifacts were packed through npm 10.9.8, which invoked prepare even with --ignore-scripts. A replacement candidate must use the tested lifecycle-free deterministic repacker."
+  ],
+  "npm": {
+    "version": "2026.7.1-2",
+    "distTag": "latest",
+    "integrity": "sha512-ycF3yPcbjN6bUPeaUx6Mh6vze1hQWoD3CT/wWcmD7a8xaHHHRUaAlaq+lFxMHf1ssEgODVAwjlzYqp2twkYZ7g==",
+    "tarball": "https://registry.npmjs.org/openclaw/-/openclaw-2026.7.1-2.tgz"
+  },
+  "source": {
+    "ref": "refs/heads/release/2026.7.1",
+    "baseCommit": "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c",
+    "commit": "774c25437f1208a76b57baca485df12140f43284",
+    "stableDivergence": { "ahead": 2, "behind": 0 },
+    "mainDivergence": { "ahead": 3, "behind": 206 }
+  },
+  "node": {
+    "buildVersion": "22.23.1",
+    "engine": ">=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0"
+  },
+  "externalPlugins": [
+    {
+      "id": "codex",
+      "package": "@openclaw/codex",
+      "version": "2026.7.1-1",
+      "integrity": "sha512-fRQITjqjC4Q/M6WmkR9XPWPuL+7vcvyVUWIDztB08X2G/mhzSwCYwQp4hugxAtuKmO3yx/7ULMK3nyeKsg5zGw==",
+      "tarball": "https://registry.npmjs.org/@openclaw/codex/-/codex-2026.7.1-1.tgz",
+      "artifact": {
+        "filename": "openclaw-codex-2026.7.1-1-nas.2.tgz",
+        "url": "https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.2/openclaw-codex-2026.7.1-1-nas.2.tgz",
+        "sha256": "50012c9b4e53a13f06b3092632aff1285a9f015118f18a5d2fb1fe7da89edb7f"
+      }
+    }
+  ],
+  "patches": [
+    {
+      "id": "qmd-gpu-off",
+      "file": "downstream/patches/2026.7.1-2/0001-fix-memory-disable-QMD-GPU-acceleration-by-default.patch",
+      "sha256": "22d17b6d1585d5241d38560e6b4f455468ae5b21fe20a007e05cd7b94c8029f9",
+      "status": "required",
+      "tests": ["extensions/memory-core/src/memory/qmd-manager.test.ts"]
+    },
+    {
+      "id": "discord-package-runtime",
+      "file": "downstream/patches/2026.7.1-2/0002-fix-package-include-Discord-runtime-in-distribution.patch",
+      "sha256": "202beb8cb9d71660d7f570d702bbede5a470953bdc0928d3114fe0387d1fd5d3",
+      "status": "required",
+      "tests": ["node scripts/check-openclaw-package-tarball.mjs"]
+    },
+    {
+      "id": "discord-runtime-dependencies",
+      "file": "downstream/patches/2026.7.1-2/0003-fix-discord-pin-required-voice-runtime-dependencies.patch",
+      "sha256": "6115babd78206c44ecd30b3d42e1c1714e5643891913bf10d98dee60e1eeb364",
+      "status": "required",
+      "tests": ["pnpm deps:shrinkwrap:check", "node scripts/check-openclaw-package-tarball.mjs"]
+    },
+    {
+      "id": "suppress-jsonl-fallback",
+      "file": "downstream/patches/2026.7.1-2/0004-fix-agents-suppress-raw-JSONL-fallback-output.patch",
+      "sha256": "4ab935c69104a2362edabc2eff17f04613bfd4560c5081ea7af7dc68c9df587b",
+      "status": "required",
+      "tests": ["src/agents/cli-output.test.ts"]
+    },
+    {
+      "id": "invalid-thinking-session-expired",
+      "file": "downstream/patches/2026.7.1-2/0005-fix-agents-expire-invalid-thinking-signature-session.patch",
+      "sha256": "47a9f96c84e5713df600ac39f23a1a169453278b0fd805bb8e2b7826e71bfe36",
+      "status": "required",
+      "tests": ["src/agents/embedded-agent-helpers.isbillingerrormessage.test.ts"]
+    },
+    {
+      "id": "channels-status-cli-identity",
+      "file": "downstream/patches/2026.7.1-2/0006-fix-channels-use-CLI-identity-for-status-RPC.patch",
+      "sha256": "abe6078c4ab0825fa9f2b616954e6bf0ec3e4f5bea3ea980074b0aad93114ca2",
+      "status": "required",
+      "tests": ["src/commands/channels/status.test.ts"]
+    },
+    {
+      "id": "codex-lazy-plugin-state",
+      "file": "downstream/patches/2026.7.1-2/0007-fix-codex-defer-plugin-state-until-runtime-use.patch",
+      "sha256": "11d5df26868aab81356919cff284cbd177d2d7508fea12711ec8706a1b3ca706",
+      "status": "required",
+      "tests": ["extensions/codex/index.test.ts", "downstream/scripts/smoke-external-plugin.sh"]
+    }
+  ],
+  "artifact": {
+    "filename": "openclaw-2026.7.1-2-nas.2.tgz",
+    "url": "https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.2/openclaw-2026.7.1-2-nas.2.tgz",
+    "sha256": "870ec3b68ae7dd7acbe31afb467bfe865d09d6c99f265016eee61654b339e8c2",
+    "validation": {
+      "fullBuild": true,
+      "focusedAssertions": 376,
+      "packageSmoke": true,
+      "externalPluginRegistration": true,
+      "scopedLoopbackRpc": true,
+      "dependencyMetadataCheck": false,
+      "discordRuntimeFiles": 61,
+      "patchTests": true,
+      "imageSmoke": false,
+      "imageScan": false
+    }
+  },
+  "image": {
+    "repository": "ghcr.io/ashleyhollis/openclaw",
+    "tag": "nas-2026.7.1-2-nas.2",
+    "digest": null,
+    "attestationDigest": null,
+    "sbomDigest": null,
+    "provenanceDigest": null
+  },
+  "testResults": {
+    "downstreamGuard": null,
+    "dryRun": null,
+    "publish": null
+  }
+}

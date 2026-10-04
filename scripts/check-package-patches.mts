@@ -10,6 +10,7 @@ import YAML from "yaml";
 import { pnpmLockfileDocuments } from "./lib/pnpm-lockfile-documents.mjs";
 
 const ALLOWED_PATCHED_DEPENDENCIES = new Map([
+  ["@openclaw/fs-safe@0.21.1", "patches/@openclaw__fs-safe@0.21.1.patch"],
   ["@openclaw/proxyline@0.3.12", "patches/@openclaw__proxyline@0.3.12.patch"],
   ["chrome-devtools-mcp@1.9.0", "patches/chrome-devtools-mcp@1.9.0.patch"],
   ["@awesome.me/webawesome@3.13.0", "patches/@awesome.me__webawesome@3.13.0.patch"],
@@ -110,7 +111,9 @@ function collectPatchFileViolations(cwd: string, violations: PackagePatchViolati
     if (!fs.existsSync(path.join(cwd, relativePath))) {
       continue;
     }
-    if (ALLOWED_PATCH_FILES.has(relativePath)) {
+    // Reviewed source-history patches are archives, never active pnpm patches.
+    // Declaration checks above still reject wiring an archive into pnpm.
+    if (relativePath.startsWith("downstream/patches/") || ALLOWED_PATCH_FILES.has(relativePath)) {
       continue;
     }
     violations.push({

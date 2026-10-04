@@ -12,6 +12,7 @@ import {
 import { tryResolveAgentOperationAgentId } from "../../agents/agent-scope-config.js";
 import {
   deleteSessionEntryLifecycle,
+  inspectSessionEntryEmptyHistory,
   SESSION_LIFECYCLE_CHANGED_ERROR_REASON,
   type SessionEntry,
 } from "../../config/sessions.js";
@@ -109,6 +110,9 @@ export async function deleteGatewaySession({
     errorShape(ErrorCodes.INVALID_REQUEST, `Session ${key} changed before deletion. Retry.`, {
       details: { reason: SESSION_LIFECYCLE_CHANGED_ERROR_REASON },
     });
+  if (p.expectedStorePath !== undefined && p.expectedStorePath !== storePath) {
+    return { ok: false, error: sessionChangedError() };
+  }
   const resolveEntryError = (entry: SessionEntry | undefined) => {
     const deletablePluginOwnedSession =
       normalizeOptionalString(entry?.pluginOwnerId) !== undefined &&
@@ -145,6 +149,26 @@ export async function deleteGatewaySession({
   if (initialError) {
     return { ok: false, error: initialError };
   }
+  const emptyHistoryExpectation =
+    p.requireEmptyHistory === true &&
+    expectedSessionId &&
+    expectedLifecycleRevision &&
+    p.expectedSessionUpdatedAt !== undefined
+      ? {
+          agentId: requestedAgentId,
+          expectedLifecycleRevision,
+          expectedSessionId,
+          expectedUpdatedAt: p.expectedSessionUpdatedAt,
+          storePath,
+          target,
+        }
+      : undefined;
+  if (
+    p.requireEmptyHistory === true &&
+    (!emptyHistoryExpectation || !(await inspectSessionEntryEmptyHistory(emptyHistoryExpectation)))
+  ) {
+    return { ok: false, error: sessionChangedError() };
+  }
   // Capture the target before lazy loading can yield to a same-key successor.
   const {
     cleanupSessionBeforeMutation,
@@ -160,7 +184,9 @@ export async function deleteGatewaySession({
       current.storePath !== storePath ||
       current.canonicalKey !== target.canonicalKey ||
       current.entry?.sessionId !== initialDeleteEntry?.sessionId ||
-      current.entry?.lifecycleRevision !== initialDeleteEntry?.lifecycleRevision
+      current.entry?.lifecycleRevision !== initialDeleteEntry?.lifecycleRevision ||
+      (emptyHistoryExpectation !== undefined &&
+        current.entry?.updatedAt !== emptyHistoryExpectation.expectedUpdatedAt)
     ) {
       throw new SessionDeletionError(sessionChangedError());
     }
@@ -187,7 +213,7 @@ export async function deleteGatewaySession({
         drain = await prepareSessionLifecycleDrain({
           action: "delete",
           authorize: assertCurrent,
-          beforeCancel: () => {
+          beforeCancel: async () => {
             // Compare before cancellation writes its own terminal metadata.
             if (
               p.expectedSessionUpdatedAt !== undefined &&
@@ -195,6 +221,10 @@ export async function deleteGatewaySession({
             ) {
               throw new SessionDeletionError(sessionChangedError());
             }
+            if (emptyHistoryExpectation && !(await inspectSessionEntryEmptyHistory(emptyHistoryExpectation))) {
+              throw new SessionDeletionError(sessionChangedError());
+            }
+            assertCurrent();
           },
           context,
           storePath,
@@ -281,6 +311,7 @@ export async function deleteGatewaySession({
             expectedLifecycleRevision,
             expectedSessionId: initialDeleteEntry?.sessionId ?? null,
             expectedUpdatedAt: postCleanupEntry?.updatedAt,
+            requireEmptyHistory: p.requireEmptyHistory === true,
             storePath,
             target: { canonicalKey: target.canonicalKey, storeKeys: target.storeKeys },
           };

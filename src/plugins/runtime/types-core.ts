@@ -444,6 +444,14 @@ export type PluginRuntimeCore = {
     runCommandWithTimeout: typeof import("../../process/exec.js").runCommandWithTimeout;
     formatNativeDependencyHint: typeof import("./native-deps.js").formatNativeDependencyHint;
   };
+  /**
+   * Durable, descriptor-safe file publication for an already-authorized
+   * directory. Native plugins retain ownership of their path and identity
+   * checks; the host supplies the per-operation native staging capability.
+   */
+  fileAccess: {
+    stageDurableFileInDirectory: typeof import("../../infra/durable-publication.js").stageDurableFileInDirectory;
+  };
   media: {
     loadWebMedia: typeof import("../../media/web-media.js").loadWebMedia;
     detectMime: typeof import("@openclaw/media-core/mime").detectMime;

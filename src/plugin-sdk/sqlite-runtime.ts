@@ -49,6 +49,8 @@ export {
   runSqliteImmediateTransaction,
   runSqliteImmediateTransactionSync,
 } from "../infra/sqlite-transaction.js";
+// A contentless, process-scoped coordinator for plugin-owned durable
+// operations. It exposes no host database handles or data paths.
 export { tableExists } from "../state/openclaw-state-db-schema-helpers.js";
 export {
   tryAcquireExclusiveSqliteCoordinator,

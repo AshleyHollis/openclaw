@@ -142,6 +142,12 @@ applicable policy also requires fresh publication admission.
     `details`, retry metadata, and the Gateway error code for recovery flows. Use `isAvailable()`
     before choosing this path from tools that can also run in standalone agent processes.
 
+    A plugin Gateway method may instead declare `gatewayMethodDispatchMethods` when it registers.
+    This is limited to the listed core methods, only while that authenticated Gateway request is
+    active, and still requires `contracts.gatewayMethodDispatch: ["authenticated-request"]`.
+    Use this for a small native composition seam; do not use a loopback connection or a broad
+    catch-all allowlist.
+
   </Accordion>
   <Accordion title="api.runtime.nodes">
     List connected nodes and invoke a node-host command from Gateway-loaded plugin code or from plugin CLI commands. Use this when a plugin owns local work on a paired device, for example a browser or audio bridge on another Mac.
@@ -336,6 +342,17 @@ immediate run without overriding a disabled job. Retained handles still reject
 when the service stops or the scheduler is replaced, including while waiting for
 admission. This optional method is absent on older hosts; it has no caller-scoped
 fallback.
+On hosts that support conditional Cron access, the handle also offers optional
+`getWithRevision(id)` and `updateWithRevision(id, patch, expectedConfigRevision)`.
+The read returns the exact job and an opaque `configRevision`; the update checks
+that revision under the scheduler's store lock and rejects a changed definition
+with `code: "CRON_JOB_CHANGED"` and `actualConfigRevision`. Scheduling state does
+not change the configuration revision. A service may reserve an `id` when adding
+a non-declarative job so its durable intent can be reconciled after process
+termination; a duplicate reserved ID is rejected. Treat
+missing methods as unsupported rather than falling back to a request-scoped
+Gateway caller. The returned handle remains bound to its service lifetime and
+scheduler instance.
 
 Current Gateway service handles also provide `await cron.isEnabled()` to observe
 whether automatic scheduling is enabled, including the `OPENCLAW_SKIP_CRON`

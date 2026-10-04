@@ -1,6 +1,7 @@
 import { resolveSandboxWorkspaceAuthority } from "../../agents/sandbox/workspace-authority.js";
 import { getRuntimeConfig } from "../../config/config.js";
 import { onAgentEvent } from "../../infra/agent-events.js";
+import { stageDurableFileInDirectory } from "../../infra/durable-publication.js";
 import {
   listImageGenerationProviders,
   listMusicGenerationProviders,
@@ -218,6 +219,9 @@ export const createPluginRuntime: PluginRuntimeFactory = (
     nodes: _options.nodes ?? createUnavailableNodesRuntime(),
     sandbox: createRuntimeSandbox(agent),
     worktrees: createRuntimeWorktrees(),
+    fileAccess: {
+      stageDurableFileInDirectory,
+    },
     system: base.system,
     media: createRuntimeMedia(),
     webSearch: {

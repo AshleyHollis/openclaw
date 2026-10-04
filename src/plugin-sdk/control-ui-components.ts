@@ -83,6 +83,33 @@ export type ControlUiAppearancePickerProps = {
   onChange: (appearance: { icon: string | null; color: string | null }) => void;
 };
 
+/** Presentation-only entries for the host's native Files browser. */
+export type ControlUiFileExplorerProps = {
+  rootLabel: string;
+  currentPath: string;
+  query: string;
+  entries: readonly {
+    path: string;
+    name: string;
+    kind: "directory" | "file";
+    size?: number;
+  }[];
+  selectedPath: string | null;
+  /**
+   * When supplied, entries are rendered as a persistent folder tree. The
+   * ordinary Session Files caller omits this and retains directory mode.
+   */
+  expandedPaths?: readonly string[];
+  loading: boolean;
+  error: string | null;
+  onBrowsePath: (path: string) => void;
+  onSelect: (path: string) => void;
+  onQueryChange: (query: string) => void;
+  onRefresh: () => void;
+  /** Reports the user's persistent tree expansion preference, if tree mode is enabled. */
+  onExpandedPathsChange?: (paths: readonly string[]) => void;
+};
+
 export type ControlUiComponents = {
   /** Resolve a shared palette or custom hex color; invalid or cleared values return an empty string. */
   resolveAppearanceColor: (value: string | null | undefined) => string;
@@ -98,6 +125,10 @@ export type ControlUiComponents = {
     container: HTMLElement,
     props: ControlUiAppearanceGlyphProps,
   ) => ControlUiComponentHandle<ControlUiAppearanceGlyphProps>;
+  mountFileExplorer: (
+    container: HTMLElement,
+    props: ControlUiFileExplorerProps,
+  ) => ControlUiComponentHandle<ControlUiFileExplorerProps>;
   mountDialog: (
     container: HTMLElement,
     props: ControlUiDialogProps,

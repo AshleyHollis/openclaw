@@ -53,6 +53,8 @@ export type PluginRuntimeGatewayRequestScope = {
   pluginOrigin?: PluginOrigin;
   pluginTrustedOfficialInstall?: boolean;
   gatewayMethodDispatchAllowed?: boolean;
+  /** Exact methods admitted for a current plugin Gateway handler. */
+  gatewayMethodDispatchMethods?: readonly string[];
   pluginRegistry?: PluginRegistry;
   declaredProviderOwners?: DeclaredProviderOwnerIndex;
 };

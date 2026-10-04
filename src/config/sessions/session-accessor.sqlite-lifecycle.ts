@@ -79,9 +79,39 @@ import {
   collectAdmissionProtectedSessionIds,
   kickSessionHistoryDiskBudgetMaintenance,
 } from "./session-history-eviction.js";
+import { withSessionHistoryWorkerDatabase } from "./session-transcript-worker-runtime.js";
 import type { InternalSessionEntry as SessionEntry } from "./types.js";
 
 // Single-target lifecycle owner: cleanup, reset, guarded delete, and trusted rollback.
+
+/** Read-only refusal check before Gateway runtime drain can interrupt work. */
+export async function inspectSessionEntryEmptyHistory(params: {
+  agentId?: string;
+  expectedLifecycleRevision: string;
+  expectedSessionId: string;
+  expectedUpdatedAt: number;
+  storePath: string;
+  target: DeleteSessionEntryLifecycleParams["target"];
+}): Promise<boolean> {
+  const resolved = resolveSqliteStoreScope(params.storePath, { agentId: params.agentId });
+  const options = toDatabaseOptions(resolved);
+  return await withSessionHistoryWorkerDatabase(options, async (owner) => {
+    const inspected = await owner.readExactEntries({
+      sessionKeys: [params.target.canonicalKey, ...params.target.storeKeys],
+      lifecycleSessionKey: params.target.canonicalKey,
+      projection: "full",
+      env: options.env ?? process.env,
+      emptyHistoryExpectation: {
+        target: { canonicalKey: params.target.canonicalKey, storeKeys: [...params.target.storeKeys] },
+        expectedSessionId: params.expectedSessionId,
+        expectedLifecycleRevision: params.expectedLifecycleRevision,
+        expectedUpdatedAt: params.expectedUpdatedAt,
+      },
+    });
+    owner.assertCurrent();
+    return inspected.emptyHistoryMatches === true;
+  });
+}
 
 async function withCommittedHistoryMaintenance<T>(
   { agentId, env, storePath }: { agentId?: string; env?: NodeJS.ProcessEnv; storePath: string },

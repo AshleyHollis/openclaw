@@ -22,7 +22,7 @@ function matchingFiles(pattern: RegExp): string[] {
   const matches: string[] = [];
   for (const filePath of productionTypeScriptFiles()) {
     if (pattern.test(readFileSync(filePath, "utf8"))) {
-      matches.push(path.relative(sourceRoot, filePath));
+      matches.push(path.relative(sourceRoot, filePath).split(path.sep).join("/"));
     }
   }
   return matches.toSorted();

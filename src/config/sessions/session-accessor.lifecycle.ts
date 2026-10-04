@@ -27,6 +27,7 @@ import type { InternalSessionEntry as SessionEntry } from "./types.js";
 export {
   cleanupSessionLifecycleArtifactsCore,
   deleteSessionEntryLifecycle,
+  inspectSessionEntryEmptyHistory,
   rollbackAgentHarnessSessionEntryLifecycle,
   rollbackPluginOwnedSessionEntryLifecycle,
   resetSessionEntryLifecycle,

@@ -136,15 +136,16 @@ export type PluginHookCronChangedEvent = {
 };
 
 type PluginHookGatewayCronCreateInput = {
+  /** Optional reserved identity for a non-declarative create; duplicate IDs are rejected. */
+  id?: string;
   declarationKey?: string;
   name: string;
   description: string;
   enabled: boolean;
-  schedule: {
-    kind: string;
-    expr: string;
-    tz?: string;
-  };
+  schedule:
+    | { kind: string; expr: string; tz?: string }
+    | { kind: "at"; at: string }
+    | { kind: "every"; everyMs: number; anchorMs?: number };
   sessionTarget: string;
   wakeMode: string;
   payload: {
@@ -163,8 +164,18 @@ export type PluginHookGatewayCronService = {
   /** Effective automatic scheduling state; older hosts may omit this observation. */
   isEnabled?: () => Promise<boolean>;
   list: (opts?: { includeDisabled?: boolean }) => Promise<PluginHookGatewayCronJob[]>;
+  /** Read one job with an opaque revision of its persisted configuration. */
+  getWithRevision?: (
+    id: string,
+  ) => Promise<(PluginHookGatewayCronJob & { configRevision: string }) | undefined>;
   add: (input: PluginHookGatewayCronCreateInput) => Promise<unknown>;
   update: (id: string, patch: PluginHookGatewayCronUpdateInput) => Promise<unknown>;
+  /** Apply a patch only when the exact job definition still matches the read revision. */
+  updateWithRevision?: (
+    id: string,
+    patch: PluginHookGatewayCronUpdateInput,
+    expectedConfigRevision: string,
+  ) => Promise<PluginHookGatewayCronJob & { configRevision: string }>;
   remove: (id: string) => Promise<PluginHookGatewayCronRemoveResult>;
   removeStaleJobFamily: (family: {
     declarationKey: string;

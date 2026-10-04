@@ -12,6 +12,10 @@ export const SessionsDeleteParamsSchema = closedObject({
   expectedSessionId: Type.Optional(NonEmptyString),
   expectedLifecycleRevision: Type.Optional(NonEmptyString),
   expectedSessionUpdatedAt: Type.Optional(Type.Number({ minimum: 0 })),
+  // Internal rollback guard binding deletion to the resolved store path used at creation.
+  expectedStorePath: Type.Optional(NonEmptyString),
+  // Internal rollback guard, checked again in the SQLite deletion transaction.
+  requireEmptyHistory: Type.Optional(Type.Boolean()),
   // Internal control: when false, still unbind thread bindings but skip hook emission.
   emitLifecycleHooks: Type.Optional(Type.Boolean()),
   /**

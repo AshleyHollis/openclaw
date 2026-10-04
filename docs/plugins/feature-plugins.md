@@ -156,6 +156,13 @@ Use `host.ui.invalidate()` when plugin-owned state changes the presentation of
 an action or another contribution. Namespace custom elements and CSS with the
 plugin id so independently bundled plugins can coexist.
 
+Navigation items can opt into a collapsible sidebar group with
+`group: { id: "workspace", label: "My workspace" }`. Group identity is scoped to
+the registering plugin. Visible members keep their existing sidebar order and
+routes; hidden optional destinations stay hidden. Grouped links cannot be dragged
+out of their group. Ungrouped destinations retain their existing placement.
+This presentation metadata does not move session-list replacements or sessions.
+
 A view mounts into an `HTMLElement` and receives `context.host`, `props`,
 `signal`, `presented`, and `mountDefault`. Return an object with `update`,
 `focus`, and `dispose` as needed. Surface props and presentation changes arrive

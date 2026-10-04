@@ -319,6 +319,7 @@ it.each(["cjs", "ts"])(
             "nodes",
             "sandbox",
             "worktrees",
+            "fileAccess",
             "webSearch",
           ] as const) {
             const replacement = { ...runtime[key] };

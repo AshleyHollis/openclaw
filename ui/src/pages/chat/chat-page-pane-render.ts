@@ -187,6 +187,7 @@ export function renderChatPagePaneCell(options: ChatPagePaneRenderOptions) {
                 options.data,
               )}
               .dashboardExpanded=${routeData ? routeData.dashboardExpanded === true : noChange}
+              .filesOpenRequest=${routeData ? (routeData.filesOpenRequest ?? "") : noChange}
               .routeFace=${routeData ? (routeData.face ?? "chat") : noChange}
               .presentationTitle=${presentationTitle}
               .narrow=${options.narrow}

@@ -1808,6 +1808,7 @@ export const en: TranslationMap & {
     more: "More",
     home: "Home",
     pages: "Pages",
+    toolsAndManagement: "Tools & management",
     customize: "Edit pinned items",
     customizeReset: "Reset pinned items",
     workboardGroup: "WorkBoard",

@@ -341,6 +341,12 @@ type SessionExactEntriesWorkerRequest = SessionExactEntriesWorkerSelection & {
   includeAuthorization?: boolean;
   replacementSelection?: SessionEntryReplacementSelection;
   creationLabel?: string;
+  emptyHistoryExpectation?: {
+    target: { canonicalKey: string; storeKeys: string[] };
+    expectedSessionId: string;
+    expectedLifecycleRevision: string;
+    expectedUpdatedAt: number;
+  };
   continuation?: CanonicalSessionReaderContinuation;
 };
 
@@ -349,6 +355,7 @@ export type SessionExactEntriesWorkerResult = {
   entries: SessionEntrySummary[];
   lifecycleTimestamps: SessionLifecycleTimestamps;
   pendingArchives?: boolean;
+  emptyHistoryMatches?: boolean;
   databaseIdentity?: {
     identity: string;
     incarnation: string;
