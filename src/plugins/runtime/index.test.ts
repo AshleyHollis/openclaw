@@ -11,6 +11,7 @@ import {
 import { onAgentEvent } from "../../infra/agent-events.js";
 import { stageDurableFileInDirectory } from "../../infra/durable-publication.js";
 import { requestHeartbeat, setHeartbeatWakeHandler } from "../../infra/heartbeat-wake.js";
+import { onSessionTranscriptUpdate } from "../../sessions/transcript-events.js";
 import { VERSION } from "../../version.js";
 
 const runtimeModelAuthMocks = vi.hoisted(() => ({
@@ -133,7 +134,7 @@ describe("plugin runtime command execution", () => {
       expected: VERSION,
     },
   ] as const)("$name", ({ readValue, expected }) => {
-    expectRuntimeValue(readValue, expected);
+    expect(readValue(createPluginRuntime())).toBe(expected);
   });
 
   it("exposes reset freshness resolver on the host channel runtime", () => {

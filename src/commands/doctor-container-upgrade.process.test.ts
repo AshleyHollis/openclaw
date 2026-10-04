@@ -66,7 +66,7 @@ it("stock activation repairs retained config and historical SQLite, reopens with
     };
     for (let pass = 0; pass < 2; pass++) {
       await instance.startGateway();
-      const response = await fetch(`${instance.url}/readyz`);
+      const response = await fetch(`http://127.0.0.1:${instance.port}/readyz`);
       expect(response.status, instance.logs()).toBe(200);
       await expect(response.json()).resolves.toMatchObject({ ready: true, failing: [] });
       expect(readRows()).toEqual({ value_json: '{"ok":false}', created_at: 9_700 });
@@ -110,7 +110,7 @@ it("failed SQLite admission prevents readiness and conserves unsupported databas
     } finally { db.close(); }
     const original = fs.readFileSync(agentPath);
     await expect(instance.startGateway()).rejects.toThrow();
-    expect(instance.logs()).toMatch(/uses newer schema version 999/);
+    expect(instance.logs()).toMatch(/uses schema 999; this build supports 24/);
     expect(fs.readFileSync(agentPath)).toEqual(original);
     expect(instance.readiness.some(item => item.outcome === "ready")).toBe(false);
   } finally { await instance.cleanup(); }
