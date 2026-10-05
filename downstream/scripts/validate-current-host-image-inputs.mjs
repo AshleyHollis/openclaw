@@ -10,7 +10,7 @@ const integrity = (bytes) => `sha512-${createHash("sha512").update(bytes).digest
 
 export function validateCurrentHostRecords(candidate, hostLock, pluginLock, actual) {
   assert.equal(candidate.hostVersion, "2026.9.8");
-  assert.equal(candidate.hostProducedFrom, "13c9575fa34c1d8166223473f7446b9c3889ac64");
+  assert.equal(candidate.hostProducedFrom, "554d8353171d4db283bc3df2248ad6addf769968");
   assert.equal(actual.build.version, candidate.hostVersion);
   assert.equal(actual.build.commit, candidate.hostProducedFrom);
   assert.equal(actual.hostSha256, candidate.hostArchiveSha256);
