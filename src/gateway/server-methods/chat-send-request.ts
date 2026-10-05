@@ -112,6 +112,12 @@ export function normalizeChatSendRequest(params: {
   }
 
   const p = controlUiReconnectResume.params as ChatSendRequestParams;
+  if ((p.expectedSessionId === undefined) !== (p.expectedLifecycleRevision === undefined)) {
+    return {
+      ok: false,
+      error: "expectedSessionId and expectedLifecycleRevision must be supplied together",
+    };
+  }
   const providerReview = params.providerReviewAcknowledgment
     ? readProviderReviewAcknowledgment(params.providerReviewAcknowledgment)
     : undefined;

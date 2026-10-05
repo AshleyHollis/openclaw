@@ -106,6 +106,7 @@ for (const scenario of [
           "scripts/lib/arg-utils.mts",
           "scripts/lib/arg-utils.runtime.mjs",
           "scripts/lib/bounded-output-tail.mjs",
+          "scripts/lib/check-limits.mts",
           "scripts/lib/error-format.mts",
           "scripts/lib/managed-child-process.mts",
           "scripts/lib/managed-windows-job-entrypoint.mts",

@@ -121,12 +121,13 @@ it.each(["replaced", "made private"])(
             isWebchatConnect: () => false,
             respond,
           });
-          expect(respond).toHaveBeenCalledTimes(1);
+          // Row workers may yield; the unrelated catalog renewal stays held until cleanup.
           await request;
+          expect(respond).toHaveBeenCalledTimes(1);
           expect(respond.mock.calls[0]?.[0]).toBe(true);
           const result = respond.mock.calls[0]?.[1];
           if (change === "made private") {
-            expect(result).toEqual({ session: null });
+            expect(result).toEqual({ session: null, lifecycleRevision: null });
           } else {
             expect(result).toMatchObject({
               session: {

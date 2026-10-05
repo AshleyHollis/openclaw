@@ -1,4 +1,5 @@
 import { nothing, type TemplateResult } from "lit";
+import type { KeyboardShortcutCombo } from "../../../lib/keyboard-shortcut-contract.ts";
 import type { DirectiveResult } from "lit/directive.js";
 import type { SidebarSlotId } from "../sidebar-layout.ts";
 
@@ -10,7 +11,7 @@ export type SidebarPanelDefinition = {
   slot: SidebarSlotId;
   label: string;
   icon: TemplateResult;
-  shortcut?: string;
+  shortcut?: KeyboardShortcutCombo;
   available: boolean;
   content: TemplateResult | DirectiveResult | typeof nothing | null;
   loading: TemplateResult;

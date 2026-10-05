@@ -100,7 +100,7 @@ export type ControlUiSurfaceProps = {
     nativeSessionsHaveMore?: boolean;
     loadMoreNativeSessions?: () => Promise<void>;
   };
-  /** The native Files slot for the selected Conversation. */
+  /** The native Files slot, with its own Conversation target. */
   "session-files": BoardGetParams;
   composer: BoardGetParams & {
     agentId: string;
@@ -260,7 +260,7 @@ export type ControlUiHost = {
     ) => ControlUiSessionListSubscription;
     /** Opens this exact Session in native Chat, irrespective of its saved board face. */
     openChat: (session: BoardGetParams) => void;
-    /** Opens this exact Session with the native Files slot selected. */
+    /** Opens this Session in native Files without changing Chat selection or draft. */
     openFiles?: (session: BoardGetParams) => void;
     /** Opens this exact Session using its saved board face. */
     open: (session: BoardGetParams) => void;

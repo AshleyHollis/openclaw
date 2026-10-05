@@ -29,8 +29,22 @@ function parseArgs(argv) {
   return { mode, packageRoot: fs.realpathSync(packageRoot) };
 }
 
+const publicationContract = process.env.OPENCLAW_FS_SAFE_PUBLICATION_CONTRACT ?? "not-applicable";
+assert.ok(
+  ["required", "not-applicable"].includes(publicationContract),
+  `unknown fs-safe publication contract: ${publicationContract}`,
+);
 const fsSafeNativeContract = process.env.OPENCLAW_FS_SAFE_NATIVE_CONTRACT ?? "required";
+assert.ok(
+  ["required", "bundled", "not-applicable"].includes(fsSafeNativeContract),
+  `unknown fs-safe native contract: ${fsSafeNativeContract}`,
+);
 if (fsSafeNativeContract === "not-applicable") {
+  assert.equal(
+    publicationContract,
+    "not-applicable",
+    "publication proof cannot use a pre-native contract",
+  );
   console.log(
     "Skipping fs-safe native proof: selected source has the published pre-native contract.",
   );
@@ -39,8 +53,8 @@ if (fsSafeNativeContract === "not-applicable") {
 
 const { mode, packageRoot } = parseArgs(process.argv.slice(2));
 const requireFromPackage = createRequire(path.join(packageRoot, "package.json"));
-// `package.json` is not a public fs-safe export. Its public root entry is,
-// and the manifest beside that resolved entry declares platform packages.
+// Resolve the manifest beside the public root entry so the native proof stays
+// bound to the same installed fs-safe package that supplies its runtime.
 const fsSafeEntryPath = requireFromPackage.resolve("@openclaw/fs-safe");
 const fsSafeManifestPath = path.resolve(fsSafeEntryPath, "..", "..", "package.json");
 const fsSafeManifest = JSON.parse(await fsPromises.readFile(fsSafeManifestPath, "utf8"));
@@ -70,24 +84,107 @@ try {
   const result = await sha256File(fixture);
   assert.match(result.digest, /^[a-f0-9]{64}$/u);
 
+  if (publicationContract === "required") {
+    assert.equal(mode, "require", "durable publication proof requires native mode");
+    // Resolve from the installed consumer, never the source checkout or host aliases.
+    const sdkPath = requireFromPackage.resolve("openclaw/plugin-sdk/file-access-runtime");
+    assert.ok(
+      fs.realpathSync(sdkPath).startsWith(`${packageRoot}${path.sep}`),
+      "SDK escaped installed package",
+    );
+    const { stageDurableFileInDirectory, publishDurableDirectoryNoReplace } = await import(
+      pathToFileURL(sdkPath).href
+    );
+    assert.equal(typeof stageDurableFileInDirectory, "function");
+    assert.equal(typeof publishDurableDirectoryNoReplace, "function");
+    const stagedDir = path.join(temporaryRoot, "staged");
+    const targetDir = path.join(temporaryRoot, "published");
+    await fsPromises.mkdir(stagedDir);
+    const staged = await stageDurableFileInDirectory({
+      directory: stagedDir,
+      content: "installed SDK publication",
+      mode: 0o600,
+    });
+    try {
+      assert.equal((await staged.publish("payload.txt", { overwrite: false })).status, "published");
+    } finally {
+      await staged.cleanup();
+    }
+    const identity = fs.statSync(stagedDir, { bigint: true });
+    // Promise-returning authority cannot authorize the native mutation.
+    assert.throws(
+      () =>
+        publishDurableDirectoryNoReplace({
+          stagedDir,
+          targetDir,
+          expectedIdentity: identity,
+          assertBeforeMutation: () => Promise.resolve(),
+        }),
+      /must be synchronous/u,
+    );
+    assert.equal(fs.existsSync(targetDir), false);
+    assert.equal(
+      publishDurableDirectoryNoReplace({ stagedDir, targetDir, expectedIdentity: identity }).status,
+      "published",
+    );
+    assert.equal(
+      await fsPromises.readFile(path.join(targetDir, "payload.txt"), "utf8"),
+      "installed SDK publication",
+    );
+    const collisionStage = path.join(temporaryRoot, "collision-stage");
+    await fsPromises.mkdir(collisionStage);
+    const collisionIdentity = fs.statSync(collisionStage, { bigint: true });
+    assert.throws(() =>
+      publishDurableDirectoryNoReplace({
+        stagedDir: collisionStage,
+        targetDir,
+        expectedIdentity: collisionIdentity,
+      }),
+    );
+    assert.equal(
+      await fsPromises.readFile(path.join(targetDir, "payload.txt"), "utf8"),
+      "installed SDK publication",
+    );
+    assert.equal(fs.existsSync(collisionStage), true);
+    console.log(
+      "Installed SDK durable staging/publication, asynchronous authority refusal, and collision preservation passed.",
+    );
+  }
+
   const loadedNativeModules = Object.keys(requireFromPackage.cache).filter((file) =>
     file.endsWith("fs-safe-native.node"),
   );
   if (mode === "require") {
-    assert.ok(
-      installedPlatformPackages.length > 0,
-      "expected at least one fs-safe platform package",
-    );
     assert.equal(
       loadedNativeModules.length,
       1,
       "expected exactly one loaded fs-safe native binding",
     );
     const loadedNativeRoot = fs.realpathSync(path.dirname(loadedNativeModules[0]));
-    assert.ok(
-      installedPlatformPackages.some(({ root }) => root === loadedNativeRoot),
-      "loaded fs-safe native binding did not come from an installed platform package",
-    );
+    if (fsSafeNativeContract === "bundled") {
+      assert.equal(
+        installedPlatformPackages.length,
+        0,
+        "bundled-native install unexpectedly contains a platform package",
+      );
+      const bundledNativeRoot = fs.realpathSync(
+        path.join(path.dirname(fsSafeManifestPath), "dist", "native"),
+      );
+      assert.ok(
+        loadedNativeRoot === bundledNativeRoot ||
+          loadedNativeRoot.startsWith(`${bundledNativeRoot}${path.sep}`),
+        "loaded fs-safe native binding did not come from the package's bundled native tree",
+      );
+    } else {
+      assert.ok(
+        installedPlatformPackages.length > 0,
+        "expected at least one fs-safe platform package",
+      );
+      assert.ok(
+        installedPlatformPackages.some(({ root }) => root === loadedNativeRoot),
+        "loaded fs-safe native binding did not come from an installed platform package",
+      );
+    }
   } else {
     assert.equal(
       installedPlatformPackages.length,

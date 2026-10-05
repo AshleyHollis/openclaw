@@ -59,7 +59,6 @@ const LAZY_RUNTIME_PROPERTIES = {
   worktrees: true,
   fileAccess: true,
   webSearch: true,
-  tasks: true,
   modelConfig: true,
 } satisfies Record<keyof PluginRuntime, true>;
 

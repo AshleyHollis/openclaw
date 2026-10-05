@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Standalone lock/recovery shells also use the wrapper's selected executable.
 pr_git() { "${OPENCLAW_PR_GIT:-${GIT_EXEC:-git}}" "$@"; }
 

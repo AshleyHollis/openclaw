@@ -24,7 +24,8 @@ export async function validateInstalledPluginRuntime(
     Object.entries(declared).some(([name, value]) => locked[name] !== value)
   )
     throw new Error("image plugin installation declarations differ from lock");
-  for (const id of ["codex", "discord"]) {
+  if (!declared["@openclaw/codex"]) throw new Error("image Codex runtime missing");
+  for (const id of ["codex", "discord"].filter((id) => declared[`@openclaw/${id}`])) {
     const name = `@openclaw/${id}`;
     const installed = await readJson(`node_modules/${name}/package.json`);
     const entry = lock.packages?.[`node_modules/${name}`];

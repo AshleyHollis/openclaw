@@ -1,5 +1,6 @@
 // Verifies runtime config snapshots preserve normalized public settings.
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { sessionChanges } from "../sessions/session-row-changes.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { freezeJsonSnapshot } from "../shared/immutable-data.js";
 import {
@@ -10,6 +11,7 @@ import {
   setConfigResolutionFacts,
 } from "./resolution-facts.js";
 import {
+  clearRuntimeConfigSnapshot,
   createRuntimeConfigReader,
   finalizeRuntimeSnapshotWrite,
   getRuntimeConfigAppliedHash,
@@ -20,16 +22,17 @@ import {
   getRuntimeConfigSnapshot,
   preflightManagedRuntimeConfigWrite,
   loadPinnedRuntimeConfig,
-  notifyRuntimeConfigWriteListeners,
-  registerRuntimeConfigWriteListener,
   registerManagedRuntimeConfigWriteOwner,
   resetConfigRuntimeState,
   resolveRuntimeConfigCacheKey,
   selectApplicableRuntimeConfig,
+  setAppliedRuntimeConfigSnapshot,
   setRuntimeConfigSnapshot,
   setRuntimeConfigAppliedHash,
   setRuntimeConfigSourceSnapshotIfCurrent,
   setRuntimeConfigSnapshotRefreshHandler,
+  withRuntimeConfigSessionStoreSelection,
+  withRuntimeConfigSessionStoreSelectionAsync,
 } from "./runtime-snapshot.js";
 import { createProviderConfigFixture } from "./runtime-snapshot.test-fixtures.js";
 import { captureRuntimeConfig } from "./runtime-source-projection.js";
@@ -43,6 +46,164 @@ function resetRuntimeConfigState(): void {
 describe("runtime snapshot state", () => {
   afterEach(() => {
     resetRuntimeConfigState();
+  });
+
+  it.each<[string, OpenClawConfig, string]>([
+    [
+      "sidebar preferences",
+      { ui: { prefs: { sidebarEntries: ["sessions"] } } },
+      "config-presentation",
+    ],
+    ["logging", { logging: { level: "debug" } }, "config-presentation"],
+    [
+      "identity scopes",
+      { gateway: { auth: { identityScopes: { "reader@example.test": ["operator.read"] } } } },
+      "config-presentation",
+    ],
+    [
+      "Talk realtime model",
+      { talk: { realtime: { model: "unit-test/talk-a" } } },
+      "config-presentation",
+    ],
+    ["Talk provider", { talk: { provider: "unit-test" } }, "config"],
+    ["Talk realtime provider", { talk: { realtime: { provider: "unit-test" } } }, "config"],
+    [
+      "Talk realtime instructions",
+      { talk: { realtime: { instructions: "Synthetic voice instructions" } } },
+      "config",
+    ],
+    [
+      "agent identity",
+      { agents: { entries: { main: { identity: { name: "Renamed" } } } } },
+      "config-profiles",
+    ],
+    ["agent addition", { agents: { entries: { main: {}, other: {} } } }, "config"],
+    ["agent removal", { agents: { entries: {} } }, "config"],
+    [
+      "model defaults",
+      { agents: { entries: { main: {} }, defaults: { model: "unit-test/changed" } } },
+      "config",
+    ],
+    ["catalog", { models: { mode: "replace", providers: {} } }, "config"],
+    ["session policy", { session: { scope: "global" } }, "config"],
+    ["store topology", { session: { store: "/tmp/synthetic-session-store.sqlite" } }, "config"],
+    ["visibility", { tools: { sessions: { visibility: "all" } } }, "config"],
+    ["avatar route", { gateway: { controlUi: { basePath: "/changed" } } }, "config"],
+  ])("publishes the projection impact of %s", (_label, change, scope) => {
+    const initial: OpenClawConfig = { agents: { entries: { main: {} } } };
+    setRuntimeConfigSnapshot(initial);
+    const published = vi.fn();
+    const stop = sessionChanges.subscribe(published);
+    try {
+      setRuntimeConfigSnapshot({ ...initial, ...change });
+      expect(published).toHaveBeenCalledExactlyOnceWith({ all: true, scope });
+    } finally {
+      stop();
+    }
+  });
+
+  it("requires an active snapshot and a synchronous callback", () => {
+    expect(() => withRuntimeConfigSessionStoreSelection(() => {})).toThrow(
+      "requires an active config snapshot",
+    );
+    setRuntimeConfigSnapshot({ session: { store: "/fixture/one" } });
+    expect(() => withRuntimeConfigSessionStoreSelection(() => Promise.resolve())).toThrow(
+      "must be synchronous",
+    );
+    setRuntimeConfigSnapshot({ session: { store: "/fixture/two" } });
+  });
+
+  it("rejects changed session.store before publication, but allows other hot config updates", () => {
+    const initial: OpenClawConfig = { session: { store: "/fixture/one" } };
+    setRuntimeConfigSnapshot(initial);
+    const revision = getRuntimeConfigSnapshotMetadata()?.revision;
+    withRuntimeConfigSessionStoreSelection(() => {
+      setRuntimeConfigSnapshot({ session: { store: "/fixture/one" }, gateway: { port: 19001 } });
+      const retained = getRuntimeConfigSnapshot();
+      const retainedRevision = getRuntimeConfigSnapshotMetadata()?.revision;
+      expect(() => setRuntimeConfigSnapshot({ session: { store: "/fixture/two" } })).toThrow(
+        "session.store selection cannot change",
+      );
+      expect(() =>
+        setAppliedRuntimeConfigSnapshot(
+          { session: { store: "/fixture/three" } },
+          { session: { store: "/fixture/three" } },
+        ),
+      ).toThrow("session.store selection cannot change");
+      expect(getRuntimeConfigSnapshot()).toBe(retained);
+      expect(getRuntimeConfigSnapshotMetadata()?.revision).toBe(retainedRevision);
+    });
+    expect(getRuntimeConfigSnapshotMetadata()?.revision).toBeGreaterThan(revision ?? 0);
+    setRuntimeConfigSnapshot({ session: { store: "/fixture/two" } });
+    expect(getRuntimeConfigSnapshot()?.session?.store).toBe("/fixture/two");
+  });
+
+  it.each(["clear", "reset"] as const)("rejects %s while the selection is admitted", (method) => {
+    const initial: OpenClawConfig = { session: { store: "/fixture/one" } };
+    setRuntimeConfigSnapshot(initial);
+    withRuntimeConfigSessionStoreSelection(() => {
+      expect(() =>
+        method === "clear" ? clearRuntimeConfigSnapshot() : resetConfigRuntimeState(),
+      ).toThrow("session.store selection cannot clear");
+      expect(getRuntimeConfigSnapshot()).toBe(initial);
+    });
+    if (method === "clear") {
+      clearRuntimeConfigSnapshot();
+    } else {
+      resetConfigRuntimeState();
+    }
+    expect(getRuntimeConfigSnapshot()).toBeNull();
+  });
+
+  it("keeps nested admission until the outer callback exits, including on throw", () => {
+    setRuntimeConfigSnapshot({ session: { store: "/fixture/one" } });
+    expect(() =>
+      withRuntimeConfigSessionStoreSelection(() => {
+        withRuntimeConfigSessionStoreSelection(() => {});
+        expect(() => setRuntimeConfigSnapshot({ session: { store: "/fixture/two" } })).toThrow(
+          "session.store selection cannot change",
+        );
+        throw new Error("host operation failed");
+      }),
+    ).toThrow("host operation failed");
+    setRuntimeConfigSnapshot({ session: { store: "/fixture/two" } });
+    expect(getRuntimeConfigSnapshot()?.session?.store).toBe("/fixture/two");
+  });
+
+  it("retains overlapping async and synchronous admissions by owner, not completion order", async () => {
+    const active: OpenClawConfig = { session: { store: "/fixture/one" } };
+    setRuntimeConfigSnapshot(active);
+    const first = createDeferredCore();
+    const second = createDeferredCore();
+    const firstOperation = withRuntimeConfigSessionStoreSelectionAsync(() => first.promise);
+    const secondOperation = withRuntimeConfigSessionStoreSelectionAsync(() => second.promise);
+    first.resolve();
+    await firstOperation;
+    expect(() => setRuntimeConfigSnapshot({ session: { store: "/fixture/two" } })).toThrow(
+      "session.store selection cannot change",
+    );
+    withRuntimeConfigSessionStoreSelection(() => {
+      expect(() => clearRuntimeConfigSnapshot()).toThrow("session.store selection cannot clear");
+    });
+    expect(getRuntimeConfigSnapshot()).toBe(active);
+    second.reject(new Error("worker outcome unknown"));
+    await expect(secondOperation).rejects.toThrow("worker outcome unknown");
+    setRuntimeConfigSnapshot({ session: { store: "/fixture/two" } });
+  });
+
+  it("rejects direct selection and clear while an async callback is unresolved", async () => {
+    const active: OpenClawConfig = { session: { store: "/fixture/one" } };
+    setRuntimeConfigSnapshot(active);
+    const gate = createDeferredCore();
+    const operation = withRuntimeConfigSessionStoreSelectionAsync(() => gate.promise);
+    expect(() => setRuntimeConfigSnapshot({ session: { store: "/fixture/two" } })).toThrow(
+      "session.store selection cannot change",
+    );
+    expect(() => clearRuntimeConfigSnapshot()).toThrow("session.store selection cannot clear");
+    expect(getRuntimeConfigSnapshot()).toBe(active);
+    gate.resolve();
+    await operation;
+    clearRuntimeConfigSnapshot();
   });
 
   it("pins the first successful load in memory until the snapshot is cleared", () => {
@@ -63,14 +224,6 @@ describe("runtime snapshot state", () => {
     resetRuntimeConfigState();
     expect(loadPinnedRuntimeConfig(loadFresh).gateway?.port).toBe(19001);
     expect(loadCount).toBe(2);
-  });
-
-  it("returns the source snapshot when runtime snapshot is active", () => {
-    const sourceConfig = createProviderConfigFixture();
-    const runtimeConfig = createProviderConfigFixture("sk-runtime-resolved");
-
-    setRuntimeConfigSnapshot(runtimeConfig, sourceConfig);
-    expect(getRuntimeConfigSourceSnapshot()).toEqual(sourceConfig);
   });
 
   it("publishes and replaces same-byte resolution facts with the source snapshot", () => {
@@ -452,38 +605,6 @@ describe("runtime snapshot state", () => {
       }
     },
   );
-
-  it("notifies registered write listeners with committed runtime snapshots", () => {
-    const seen: Array<{ configPath: string; runtimeConfig: OpenClawConfig }> = [];
-    const unsubscribe = registerRuntimeConfigWriteListener((event) => {
-      seen.push({
-        configPath: event.configPath,
-        runtimeConfig: event.runtimeConfig,
-      });
-    });
-
-    try {
-      notifyRuntimeConfigWriteListeners({
-        configPath: "/tmp/openclaw.json",
-        sourceConfig: { gateway: { port: 18789 } },
-        runtimeConfig: { gateway: { port: 19003 } },
-        persistedHash: "abc123",
-        revision: 1,
-        fingerprint: "runtime-fingerprint",
-        sourceFingerprint: "source-fingerprint",
-        writtenAtMs: 1,
-      });
-    } finally {
-      unsubscribe();
-    }
-
-    expect(seen).toEqual([
-      {
-        configPath: "/tmp/openclaw.json",
-        runtimeConfig: { gateway: { port: 19003 } },
-      },
-    ]);
-  });
 
   it("scopes managed write ownership by path and reference count", () => {
     const releaseA = registerManagedRuntimeConfigWriteOwner("/tmp/a.json");

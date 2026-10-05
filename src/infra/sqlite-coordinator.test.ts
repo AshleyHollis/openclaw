@@ -5,14 +5,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { openNodeSqliteDatabase } from "./node-sqlite.js";
 import {
-  ensurePrivateSqliteCoordinatorDirectory,
   tryAcquireExclusiveSqliteCoordinator,
-} from "./sqlite-coordinator.js";
+} from "../plugin-sdk/sqlite-runtime.js";
 import { captureCoordinatorDatabase } from "./sqlite-coordinator.test-support.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const loader = new URL("../../scripts/tsx.mjs", import.meta.url).href;
-const moduleUrl = new URL("./sqlite-coordinator.ts", import.meta.url).href;
+const moduleUrl = new URL("../plugin-sdk/sqlite-runtime.ts", import.meta.url).href;
 
 function observeDirectory(directory: string) {
   // Stat only: opening and closing the coordinator in this process could drop
@@ -47,6 +46,7 @@ const acquirePeer = `
 `;
 
 describe("data-free SQLite coordinator", () => {
+  afterEach(() => vi.restoreAllMocks());
   it.each([false, true])(
     "retries only unfinished native cleanup after a close error (physically closed: %s)",
     (physicallyClosed) => {
@@ -146,6 +146,27 @@ describe("data-free SQLite coordinator", () => {
     expect(fs.readFileSync(pathname)).toHaveLength(0);
   });
 
+  it("releases an exclusive lease when its process is killed without cleanup", () => {
+    const directory = tempDirs.make("openclaw-sqlite-coordinator-crash-");
+    const pathname = path.join(directory, "coordinator.sqlite");
+    try {
+      runPeer(
+        `import fs from "node:fs";
+        import { tryAcquireExclusiveSqliteCoordinator } from ${JSON.stringify(moduleUrl)};
+        if (!tryAcquireExclusiveSqliteCoordinator(process.argv[1])) process.exit(1);
+        fs.writeSync(1, "held");
+        process.kill(process.pid, "SIGKILL");`,
+        pathname,
+      );
+      throw new Error("Fixture peer unexpectedly survived SIGKILL");
+    } catch (error) {
+      expect(error).toMatchObject({ signal: "SIGKILL", stdout: "held" });
+    }
+    expect(runPeer(acquirePeer, pathname)).toBe("held");
+    expect(fs.readdirSync(directory)).toEqual(["coordinator.sqlite"]);
+    expect(fs.readFileSync(pathname)).toHaveLength(0);
+  });
+
   it("does not change ordinary state connection durability", () => {
     const directory = tempDirs.make("openclaw-sqlite-state-durability-");
     const pathname = path.join(directory, "state.sqlite");
@@ -171,50 +192,5 @@ describe("data-free SQLite coordinator", () => {
     } finally {
       reopened.close();
     }
-  });
-});
-
-describe.skipIf(process.platform === "win32")("private coordinator directory", () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  it("does not mutate an already-private directory", () => {
-    const directory = tempDirs.make("openclaw-private-coordinator-");
-    fs.chmodSync(directory, 0o700);
-    const before = observeDirectory(directory);
-    const chmod = vi.spyOn(fs, "chmodSync");
-    ensurePrivateSqliteCoordinatorDirectory(directory, "test");
-    expect(chmod).not.toHaveBeenCalled();
-    expect(observeDirectory(directory)).toEqual(before);
-  });
-
-  it.each([0o755, 0o500, 0o1700])("still hardens mode %s", (mode) => {
-    const directory = tempDirs.make("openclaw-private-coordinator-mode-");
-    fs.chmodSync(directory, mode);
-    ensurePrivateSqliteCoordinatorDirectory(directory, "test");
-    expect(fs.lstatSync(directory).mode & 0o7777).toBe(0o700);
-  });
-
-  it("rejects a symlink without changing its target", () => {
-    const directory = tempDirs.make("openclaw-private-coordinator-link-");
-    const target = path.join(directory, "target");
-    const alias = path.join(directory, "alias");
-    fs.mkdirSync(target, { mode: 0o755 });
-    fs.symlinkSync(target, alias);
-    const before = observeDirectory(directory);
-    expect(() => ensurePrivateSqliteCoordinatorDirectory(alias, "test")).toThrow("real directory");
-    expect(observeDirectory(directory)).toEqual(before);
-  });
-
-  it("refuses foreign ownership before chmod", () => {
-    const directory = tempDirs.make("openclaw-private-coordinator-owner-");
-    fs.chmodSync(directory, 0o755);
-    const before = observeDirectory(directory);
-    vi.spyOn(process, "getuid").mockReturnValue(fs.lstatSync(directory).uid + 1);
-    const chmod = vi.spyOn(fs, "chmodSync");
-    expect(() => ensurePrivateSqliteCoordinatorDirectory(directory, "test")).toThrow(
-      "belongs to another user",
-    );
-    expect(chmod).not.toHaveBeenCalled();
-    expect(observeDirectory(directory)).toEqual(before);
   });
 });

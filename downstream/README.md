@@ -2,10 +2,18 @@
 
 This directory contains the public, reproducible overlay used to build the OpenClaw image for the TerraMaster NAS. It deliberately contains no NAS credentials, deployment credentials, Discord tokens, model credentials, or private infrastructure state.
 
-The current source integration is based on upstream tag `v2026.9.6` at commit
-`eb377ac59e6c9fd6c7705028034812becf00271b`. The retained downstream delta was
-replayed from the verified private patch with SHA-256
-`7B9951041B9B02C610D105BF2F3A5216294E80D221E5DB95454A8AD57F6DAE17`.
+The current source candidate integrates pinned upstream tag `v2026.9.8` at
+commit `fc23bc864e4553c2d215e479eeec47b67a0bf943`, published fork main
+`4ee6774624c58fbde8c624c29f7081c9f58f0802`, and the retained Life fixes at
+`0d460e388a3b036d3914e18bb0f2cb47fcafb362`. Historical release manifests and
+runtime installation locks describe their frozen artifacts, not this candidate.
+They must not be used as proof that the 9.8 package or image is built or installed.
+
+The active filesystem package patch is `@openclaw/fs-safe@0.21.1`, with durable
+publication owned by `src/infra/durable-publication.ts`. Retired filesystem
+adapters and the unreferenced SQLite snapshot worker are not resurrected.
+Fork Topic rollback, revision-aware scheduling, transcript and Control UI public
+SDK behavior remain alongside the stable release's newer lifecycle owners.
 
 The workflow is intentionally split into three trust boundaries:
 

@@ -1,42 +1,52 @@
 import { spawnSync } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { createDeferredCore } from "../shared/deferred.js";
+import {
+  exitAfterSignalExitBarriers,
+  registerSignalExitBarrier,
+  registerSignalExitGate,
+  waitForCliSignalExit,
+} from "./signal-exit-barrier.js";
 
 const directories = useAutoCleanupTempDirTracker(afterEach);
 
-it.skipIf(process.platform === "win32")(
-  "drains registered snapshot cleanup before CLI signal exit",
-  () => {
-    const root = directories.make("cli-signal-cleanup-");
-    const staging = path.join(root, "snapshot");
-    const result = spawnSync(
-      process.execPath,
-      [
-        "--import",
-        import.meta.resolve("tsx"),
-        "--input-type=module",
-        "-e",
-        `import fs from 'node:fs';
-         import { installCliSignalExitHandlers } from ${JSON.stringify(new URL("./signal-exit-barrier.ts", import.meta.url).href)};
-         import { registerSnapshotTempDirectory } from ${JSON.stringify(new URL("../infra/sqlite-readonly-location-cleanup.ts", import.meta.url).href)};
-         fs.mkdirSync(${JSON.stringify(staging)}, { recursive: true });
-         fs.writeFileSync(${JSON.stringify(path.join(staging, "database.sqlite"))}, 'temporary');
-         registerSnapshotTempDirectory(${JSON.stringify(staging)});
-         installCliSignalExitHandlers();
-         process.kill(process.pid, 'SIGTERM');
-         setTimeout(() => process.exit(99), 5000);`,
-      ],
-      {
-        encoding: "utf8",
-        timeout: 30_000,
-        env: { ...process.env, HOME: root, OPENCLAW_STATE_DIR: root, XDG_CACHE_HOME: root },
-      },
-    );
-    expect(result.error, result.stderr).toBeUndefined();
-    expect(result.status, result.stderr).toBe(143);
-    expect(fs.existsSync(staging)).toBe(false);
+it.each([
+  { owner: "mutation", code: 0, failed: true, expected: 1 },
+  { owner: "recovery", code: "0", failed: true, expected: 1 },
+  { owner: "recovery", code: 7, failed: true, expected: 7 },
+  { owner: "mutation", code: 7, failed: false, expected: 7 },
+])(
+  "preserves exit $expected while $owner drains (failed: $failed)",
+  async ({ owner, code, failed, expected }) => {
+    const drain = createDeferredCore();
+    const unregister =
+      owner === "mutation"
+        ? registerSignalExitGate(drain.promise)
+        : registerSignalExitBarrier(() => drain.promise);
+    const exited = new Error("Process exited");
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw exited;
+    });
+    const previousExitCode = process.exitCode;
+    process.exitCode = 0;
+    try {
+      exitAfterSignalExitBarriers(code);
+      exitAfterSignalExitBarriers(0);
+      expect(exit).not.toHaveBeenCalled();
+      const finished = expect(waitForCliSignalExit()).rejects.toBe(exited);
+      if (failed) {
+        drain.reject(new Error("Maintenance failed"));
+      } else {
+        drain.resolve();
+      }
+      await finished;
+      expect(exit).toHaveBeenCalledExactlyOnceWith(expected);
+    } finally {
+      unregister();
+      exit.mockRestore();
+      process.exitCode = previousExitCode;
+    }
   },
 );
 
