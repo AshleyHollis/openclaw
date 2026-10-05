@@ -23,6 +23,14 @@ export type LinkReaderPanelToggleDetail = {
   agentId?: string;
 };
 
+/** Opens a Files target in the existing active pane, independently of Chat selection. */
+export const FILES_PANEL_OPEN_EVENT = "openclaw:files-panel-open";
+export type FilesPanelOpenDetail = {
+  client: import("../api/gateway.ts").GatewayBrowserClient | null;
+  sessionKey: string;
+  agentId?: string;
+};
+
 export const UI_COMMAND_EVENT = "openclaw:ui-command";
 
 export type UiCommandDetail = UiCommandParams;

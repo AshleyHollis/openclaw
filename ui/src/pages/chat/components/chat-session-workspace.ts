@@ -187,8 +187,12 @@ async function loadArtifactSidebarContent(
   return { kind: "markdown", content, rawText: content };
 }
 
-export function refreshSessionWorkspace(state: SessionWorkspaceHost, refreshFiles: boolean) {
-  if (refreshSessionWorkspaceState(state, refreshFiles)) {
+export function refreshSessionWorkspace(
+  state: SessionWorkspaceHost,
+  refreshFiles: boolean,
+  sessionKey = state.sessionKey,
+) {
+  if (refreshSessionWorkspaceState(state, refreshFiles, sessionKey)) {
     state.sidebarContent = resolveSessionDiffSidebarContent(state);
     state.requestUpdate?.();
   }
@@ -270,7 +274,7 @@ function openFile(
                 const hash = saved?.file.hash;
                 const updatedAtMs = saved?.file.updatedAtMs;
                 if (typeof hash === "string" && isCurrentSessionWorkspace(state, workspace)) {
-                  refreshSessionWorkspace(state, true);
+                  refreshSessionWorkspace(state, true, workspace.sessionKey);
                 }
                 return typeof hash === "string"
                   ? {
@@ -338,7 +342,10 @@ function openFile(
         ].join("\u0000"),
         draftContext: {
           sessionKey: result.sessionKey,
-          sessionTitle: draftContext?.sessionTitle ?? resolveSessionDisplayName(result.sessionKey),
+          sessionTitle:
+            result.sessionKey === state.sessionKey
+              ? (draftContext?.sessionTitle ?? resolveSessionDisplayName(result.sessionKey))
+              : resolveSessionDisplayName(result.sessionKey),
           paneLabel: draftContext?.paneLabel,
         },
         root: result.root ?? null,
@@ -365,15 +372,18 @@ function openFile(
 
 export function openSessionWorkspaceFile(
   state: SessionWorkspaceHost,
-  target: { path: string; line?: number | null },
+  target: { path: string; line?: number | null; sessionKey?: string },
 ) {
+  if (target.sessionKey) {
+    state.sessionWorkspaceTarget = { sessionKey: target.sessionKey };
+  }
   openFile(state, getSessionWorkspace(state), target.path, { line: target.line });
 }
 
 function toggleSessionWorkspace(state: SessionWorkspaceHost) {
   const workspace = getSessionWorkspace(state);
   workspace.collapsed = !workspace.collapsed;
-  if (!workspace.collapsed && workspace.list?.sessionKey !== state.sessionKey) {
+  if (!workspace.collapsed && workspace.list?.sessionKey !== workspace.sessionKey) {
     loadSessionWorkspace(state, workspace);
   }
   state.requestUpdate?.();
@@ -391,7 +401,14 @@ function setSessionWorkspaceDock(state: SessionWorkspaceHost, dock: ChatWorkspac
   state.requestUpdate?.();
 }
 
-export function revealSessionWorkspaceFile(state: SessionWorkspaceHost, path: string) {
+export function revealSessionWorkspaceFile(
+  state: SessionWorkspaceHost,
+  path: string,
+  sessionKey?: string,
+) {
+  if (sessionKey) {
+    state.sessionWorkspaceTarget = { sessionKey };
+  }
   const workspace = getSessionWorkspace(state);
   clearWorkspaceTimer(workspace);
   const normalizedPath = path.replaceAll("\\", "/");
@@ -499,15 +516,15 @@ export function createSessionWorkspaceProps(
     !workspace.loading &&
     !workspace.browserSearchTimer &&
     (!workspace.error || workspace.pendingReload) &&
-    (workspace.pendingReload || workspace.list?.sessionKey !== state.sessionKey)
+    (workspace.pendingReload || workspace.list?.sessionKey !== workspace.sessionKey)
   ) {
     loadSessionWorkspace(state, workspace);
   }
   const diffContent = resolveSessionDiffSidebarContent(state);
   return {
     collapsed: options?.expanded === true ? false : workspace.collapsed,
-    sessionKey: state.sessionKey,
-    list: workspace.list?.sessionKey === state.sessionKey ? workspace.list : null,
+    sessionKey: workspace.sessionKey,
+    list: workspace.list?.sessionKey === workspace.sessionKey ? workspace.list : null,
     loading: workspace.loading,
     error: workspace.error,
     activeId: workspace.activeId,
@@ -564,7 +581,7 @@ export function resolveSessionDiffSidebarContent(
   if (workspace.diffContent) {
     return workspace.diffContent;
   }
-  const sessionKey = state.sessionKey;
+  const sessionKey = workspace.sessionKey;
   const client = state.client;
   const agentId = workspace.agentId;
   const canLoadFileText =
@@ -602,7 +619,11 @@ export function resolveSessionDiffSidebarContent(
           }
         }
       : undefined,
-    openFile: (path) => openFile(state, getSessionWorkspace(state), path),
+    openFile: (path) => {
+      if (isCurrentSessionWorkspace(state, workspace)) {
+        openFile(state, workspace, path);
+      }
+    },
   };
   trackSessionCheckoutSidebar(content);
   workspace.diffContent = content;

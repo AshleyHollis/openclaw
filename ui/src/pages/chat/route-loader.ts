@@ -54,7 +54,15 @@ function sessionRouteHints(location: RouteLocation) {
     ...(new URLSearchParams(location.search).get(SESSION_DASHBOARD_EXPANDED_PARAM) === "expanded"
       ? { dashboardExpanded: true as const }
       : {}),
-    ...(filesOpenRequest ? { filesOpenRequest } : {}),
+    ...(filesOpenRequest
+      ? {
+          filesOpenRequest,
+          filesSessionKey:
+            new URLSearchParams(location.search).get("__openclawFilesSession") ?? undefined,
+          filesAgentId:
+            new URLSearchParams(location.search).get("__openclawFilesAgent") ?? undefined,
+        }
+      : {}),
   };
 }
 

@@ -583,8 +583,10 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionObservation {
     this.syncQueuedEditRetention();
     void chatAvatars.refreshSenderAgentAvatars(this.state);
     if (changedProperties.has("filesOpenRequest") && this.filesOpenRequest && this.state) {
-      // This one-shot route hint opens the existing native slot; it does not
-      // create a second files surface or mutate the selected Conversation.
+      this.state.sessionWorkspaceTarget = {
+        sessionKey: this.filesSessionKey ?? this.state.sessionKey,
+        agentId: this.filesAgentId,
+      };
       this.state.updateSidebarLayout(openFilesWithConversation(this.state.sidebarLayout));
     }
     if (!this.chatRouteReadyReported && this.querySelector(CHAT_COMPOSER_TEXTAREA_SELECTOR)) {

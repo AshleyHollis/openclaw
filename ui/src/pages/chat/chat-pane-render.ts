@@ -60,6 +60,7 @@ import type { ChatProps } from "./chat-view.ts";
 import { getChatComposerState } from "./components/chat-composer-state.ts";
 import {
   openSessionWorkspaceFile,
+  resolveSessionDiffSidebarContent,
   revealSessionWorkspaceFile,
 } from "./components/chat-session-workspace.ts";
 import { resolveChatLinkFaviconFetcher } from "./link-favicon-loader.ts";
@@ -557,12 +558,21 @@ export class ChatPane extends ChatPaneLayoutRender {
       pullRequestsGateway: this.context.gateway,
       pullRequestsBranch: this.sessionPullRequestsBranch,
       pullRequestsStatus: this.sessionPullRequestsStatus,
-      onOpenSessionDiff: sessionWorkspace.onOpenDiff,
+      onOpenSessionDiff: sessionWorkspace.onOpenDiff
+        ? () => {
+            state.sessionWorkspaceTarget = undefined;
+            const diff = resolveSessionDiffSidebarContent(state);
+            if (diff) {
+              state.handleOpenSidebar(diff);
+            }
+          }
+        : undefined,
       onDismissPullRequest: this.dismissSessionPullRequest,
       githubPublication: this.githubPublication?.view(),
-      onOpenWorkspaceFile: (target) => openSessionWorkspaceFile(state, target),
+      onOpenWorkspaceFile: (target) =>
+        openSessionWorkspaceFile(state, { ...target, sessionKey: state.sessionKey }),
       onOpenSessionLink: (target) => navigateMarkdownSession(this.context, target),
-      onRevealWorkspaceFile: (path) => revealSessionWorkspaceFile(state, path),
+      onRevealWorkspaceFile: (path) => revealSessionWorkspaceFile(state, path, state.sessionKey),
       onRefresh: this.refreshHistory,
       onChatScroll: (event) => this.handleTranscriptScroll(event),
       onHistoryIntent: (event) => this.handleTranscriptHistoryIntent(event),

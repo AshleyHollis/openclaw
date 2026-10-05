@@ -23,6 +23,7 @@ import {
   type RedactionField,
   type RedactionOrigins,
 } from "./redact-json.js";
+import { LINEAR_MATCHER_SOURCES } from "./redact-linear-matchers.js";
 import {
   getSecretCaptureStart,
   selectSecretCapture,
@@ -31,6 +32,7 @@ import {
   readRedactMatch,
   redactPemBlock,
   replaceRedactPattern,
+  rewriteOpenEndedRepeats,
   type RedactMatch,
   type RedactPattern,
   type ResolvedRedactPattern,
@@ -76,6 +78,13 @@ const DEFAULT_REDACT_MIN_LENGTH = 18;
 const DEFAULT_REDACT_KEEP_START = 6;
 const DEFAULT_REDACT_KEEP_END = 4;
 const shellReferencePreservingPatterns = new WeakSet<ResolvedRedactPattern>();
+// Only canonical built-ins scan whole text; operator regexes retain bounded execution.
+const builtInResolvedPatterns = new WeakSet<ResolvedRedactPattern>();
+const canonicalBuiltInSources = new Set<string>(
+  [...DEFAULT_REDACT_PATTERNS, ...TOOL_PAYLOAD_REDACT_PATTERNS].filter(
+    (entry): entry is string => typeof entry === "string",
+  ),
+);
 // Patterns whose left-context assertions or complete token can cross a chunk boundary must run
 // against the full string; chunking can invent a `^` boundary or split the secret itself.
 const chunkUnsafePatterns = new WeakSet<ResolvedRedactPattern>();
@@ -160,6 +169,28 @@ function parsePattern(raw: RedactPattern): ResolvedRedactPattern | null {
   if (raw === PEM_REDACT_PATTERN_SOURCE) {
     return PEM_REDACT_MATCHER;
   }
+  if (typeof raw === "string") {
+    const linear = LINEAR_MATCHER_SOURCES.get(raw);
+    if (linear) {
+      if (SHELL_REFERENCE_PRESERVING_PATTERN_SOURCES.has(raw)) {
+        shellReferencePreservingPatterns.add(linear);
+      }
+      if (TOOL_PAYLOAD_AMBIGUOUS_ASSIGNMENT_PATTERNS.has(raw)) {
+        sourceAssignmentPatterns.add(linear);
+      }
+      if (FORM_AWARE_EQUALS_ASSIGNMENT_PATTERN_SOURCES.has(raw)) {
+        formAwareEqualsAssignmentPatterns.add(linear);
+      }
+      if (
+        raw.startsWith(BASE64_SAFE_TOKEN_BOUNDARY) ||
+        raw.startsWith(IDENTIFIER_SAFE_TOKEN_BOUNDARY) ||
+        CHUNK_UNSAFE_PATTERN_SOURCES.has(raw)
+      ) {
+        chunkUnsafePatterns.add(linear);
+      }
+      return linear;
+    }
+  }
   if (typeof raw !== "string" && !(raw instanceof RegExp)) {
     return raw;
   }
@@ -171,7 +202,12 @@ function parsePattern(raw: RedactPattern): ResolvedRedactPattern | null {
       pattern = new RegExp(raw.source, `${raw.flags}g`);
     }
   } else if (raw.trim()) {
-    pattern = compileConfigRegex(...parseRedactPatternSource(raw))?.regex ?? null;
+    const [source, flags] = parseRedactPatternSource(raw);
+    // Do not rewrite operator expressions: preserve their exact configured language.
+    const optimized = canonicalBuiltInSources.has(raw)
+      ? rewriteOpenEndedRepeats(source, flags)
+      : source;
+    pattern = compileConfigRegex(optimized, flags)?.regex ?? null;
   }
   if (pattern && typeof raw === "string" && SHELL_REFERENCE_PRESERVING_PATTERN_SOURCES.has(raw)) {
     shellReferencePreservingPatterns.add(pattern);
@@ -199,20 +235,43 @@ function resolvePatterns(value?: readonly RedactPattern[]): ResolvedRedactPatter
     toolPayloadResolvedPatterns ??= TOOL_PAYLOAD_REDACT_PATTERNS.map(parsePattern).filter(
       (re): re is ResolvedRedactPattern => Boolean(re),
     );
+    for (const re of toolPayloadResolvedPatterns) {
+      builtInResolvedPatterns.add(re);
+    }
     return toolPayloadResolvedPatterns;
   }
   if (!value?.length || value === DEFAULT_REDACT_PATTERNS) {
     defaultResolvedPatterns ??= DEFAULT_REDACT_PATTERNS.map(parsePattern).filter(
       (re): re is ResolvedRedactPattern => Boolean(re),
     );
+    for (const re of defaultResolvedPatterns) {
+      builtInResolvedPatterns.add(re);
+    }
     return defaultResolvedPatterns;
   }
-  return [
-    ...new Set([
-      ...value.map(parsePattern).filter((re): re is ResolvedRedactPattern => Boolean(re)),
-      AWS_SECRET_ACCESS_KEY_MATCHER,
-    ]),
-  ];
+  const builtInRawSet = new Set<RedactPattern>([
+    ...DEFAULT_REDACT_PATTERNS,
+    ...TOOL_PAYLOAD_REDACT_PATTERNS,
+  ]);
+  const seen = new Set<ResolvedRedactPattern>();
+  const combined: ResolvedRedactPattern[] = [];
+  for (const raw of value) {
+    const resolved = parsePattern(raw);
+    if (resolved === null) {
+      continue;
+    }
+    if (builtInRawSet.has(raw)) {
+      builtInResolvedPatterns.add(resolved);
+    }
+    if (!seen.has(resolved)) {
+      seen.add(resolved);
+      combined.push(resolved);
+    }
+  }
+  if (!seen.has(AWS_SECRET_ACCESS_KEY_MATCHER)) {
+    combined.push(AWS_SECRET_ACCESS_KEY_MATCHER);
+  }
+  return combined;
 }
 
 function usesBuiltInRedactPatterns(value?: readonly RedactPattern[]): boolean {
@@ -681,7 +740,10 @@ export function redactText(
     // Each replacement finishes synchronously before this invocation advances its pattern.
     for (pattern of patterns) {
       next =
-        pattern instanceof RegExp && !options?.fullContext && !chunkUnsafePatterns.has(pattern)
+        pattern instanceof RegExp &&
+        !options?.fullContext &&
+        !builtInResolvedPatterns.has(pattern) &&
+        !chunkUnsafePatterns.has(pattern)
           ? replacePatternBounded(next, pattern, replaceRegex)
           : replaceRedactPattern(next, pattern, replace, replaceRegex);
     }
@@ -749,7 +811,7 @@ function looksLikeAppSpecificPassword(candidate: string): boolean {
 }
 
 function redactAppSpecificPasswords(text: string): string {
-  return replacePatternBounded(text, APP_SPECIFIC_PASSWORD_RE, (match: string, token: string) =>
+  return text.replace(APP_SPECIFIC_PASSWORD_RE, (match: string, token: string) =>
     looksLikeAppSpecificPassword(token) ? maskToken(token) : match,
   );
 }

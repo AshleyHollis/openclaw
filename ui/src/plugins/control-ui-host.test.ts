@@ -12,6 +12,11 @@ import {
   createTestSessionCapability,
   sessionsResult,
 } from "../lib/sessions/session-capability.test-support.ts";
+import { ChatPaneSessionPanelToggleController } from "../pages/chat/chat-pane-session-panel-toggle.ts";
+import { createInitializationContext } from "../pages/chat/chat-pane.test-support.ts";
+import { createPageState } from "../pages/chat/chat-state-page.ts";
+import { createSessionWorkspaceProps } from "../pages/chat/components/chat-session-workspace.ts";
+import { isSidebarSlotVisible, closeSlot } from "../pages/chat/sidebar-layout.ts";
 import { createControlUiPluginHost } from "./control-ui-host.ts";
 import { type ControlUiPluginOwner, ControlUiPluginRuntime } from "./control-ui-runtime.ts";
 import { scopeControlUiHost } from "./control-ui-scope.ts";
@@ -85,8 +90,9 @@ describe("native UI roster refresh", () => {
         firstSearch.delete("__openclawFilesPanel");
         secondSearch.delete("__openclawFilesPanel");
         expect(secondSearch.toString()).toBe(firstSearch.toString());
-        expect(setSessionKey).toHaveBeenNthCalledWith(1, target.sessionKey);
-        expect(setSessionKey).toHaveBeenNthCalledWith(2, target.sessionKey);
+        expect(firstSearch.get("__openclawFilesSession")).toBe(target.sessionKey);
+        expect(first.pathname).not.toContain("linked");
+        expect(setSessionKey).not.toHaveBeenCalled();
       } finally {
         fixture.dispose();
         if (fallback) {
@@ -95,6 +101,67 @@ describe("native UI roster refresh", () => {
       }
     },
   );
+
+  it("opens Files B through the real host and pane without replacing Chat A or its draft", async () => {
+    const request = vi.fn(async (method: string) =>
+      method === "sessions.files.list"
+        ? { sessionKey: "agent:writer:files", files: [] }
+        : { artifacts: [] },
+    );
+    const fixture = createRosterHost(request);
+    onTestFinished(fixture.dispose);
+    const navigate = vi.fn();
+    Object.assign(fixture.context, { navigate });
+    const state = createPageState(
+      createInitializationContext(),
+      { invalidate: vi.fn(), afterCommit: () => () => {} },
+      document.createElement("div"),
+    );
+    Object.assign(state, {
+      client: fixture.context.gateway.snapshot.client,
+      connected: true,
+      connectionEpoch: 1,
+      sessions: fixture.sessions,
+      sessionKey: "agent:main:main",
+      chatMessage: "Keep this draft",
+      agentsList: { defaultId: "main", agents: [] },
+      sidebarLayout: { columns: [] },
+    });
+    const controller = new ChatPaneSessionPanelToggleController({
+      current: () => ({
+        state,
+        renderRoot: document.createElement("div"),
+        linkReaders: [],
+        updateComplete: Promise.resolve(),
+      }),
+      pending: new Map(),
+      requestUpdate: vi.fn(),
+      updateSidebarLayout: (layout) => {
+        state.sidebarLayout = layout;
+      },
+    });
+    onTestFinished(controller.subscribe());
+    const route = window.location.href;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      fixture.host.sessions.openFiles!({ sessionKey: "agent:writer:files", agentId: "writer" });
+      expect(navigate).not.toHaveBeenCalled();
+      expect(window.location.href).toBe(route);
+      expect(fixture.host.sessions.selectedKey).toBe("agent:main:main");
+      expect(state.sessionKey).toBe("agent:main:main");
+      expect(state.chatMessage).toBe("Keep this draft");
+      expect(isSidebarSlotVisible(state.sidebarLayout, "workspace")).toBe(true);
+      expect(isSidebarSlotVisible(state.sidebarLayout, "conversation")).toBe(true);
+      const props = createSessionWorkspaceProps(state, { expanded: true });
+      expect(props.sessionKey).toBe("agent:writer:files");
+      await vi.waitFor(() =>
+        expect(request).toHaveBeenCalledWith(
+          "sessions.files.list",
+          expect.objectContaining({ sessionKey: "agent:writer:files", agentId: "writer" }),
+        ),
+      );
+      state.sidebarLayout = closeSlot(state.sidebarLayout, "workspace");
+    }
+  });
 
   it("observes independent session windows without replacing or exposing the application roster", async () => {
     const primary = sessionsResult(

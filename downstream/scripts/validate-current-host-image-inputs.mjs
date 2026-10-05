@@ -33,7 +33,7 @@ export function validateCurrentHostRecords(candidate, hostLock, pluginLock, actu
 export async function validateCurrentHostImageInputs(root) {
   const overlay = new URL("../runtime-install/current-host/", import.meta.url);
   const readJson = async (name) => JSON.parse(await readFile(new URL(name, overlay), "utf8"));
-  const candidate = await readJson("candidate.json");
+  const candidate = JSON.parse(await readFile(new URL("../runtime-install/candidate.json", import.meta.url), "utf8"));
   const hostBytes = await readFile(path.join(root, "openclaw-current.tgz"));
   const codexBytes = await readFile(path.join(root, "codex-current.tgz"));
   const build = JSON.parse(execFileSync("tar", ["-xOf", path.join(root, "openclaw-current.tgz"), "package/dist/build-info.json"], { maxBuffer: 65536 }));

@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 if [ -n "${OPENCLAW_PR_GITHUB_SNAPSHOT_ROOT:-}" ]; then
   pr_gh_snapshot_root=$(cd "$OPENCLAW_PR_GITHUB_SNAPSHOT_ROOT" && pwd -P) || return 1
   pr_gh_source_scripts=$(cd "${BASH_SOURCE[0]%/*}/.." && pwd -P) || return 1

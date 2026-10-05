@@ -309,8 +309,8 @@ export function sidebarPanelDefinitions(
     ? renderPluginSurface(
         "session-files",
         {
-          sessionKey: state.sessionKey,
-          agentId: params?.agentId ?? undefined,
+          sessionKey: workspace?.sessionKey ?? state.sessionKey,
+          agentId: workspace?.agentId ?? params?.agentId ?? undefined,
         } as ControlUiSurfaceProps["session-files"],
         nativeWorkspaceContent,
         params?.isPluginPanelPresented?.("workspace") ?? false,

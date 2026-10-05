@@ -283,6 +283,8 @@ export abstract class ChatPaneBase extends OpenClawLightDomElement {
   @property({ attribute: false }) focusComposer = false;
   @property({ attribute: false }) dashboardExpanded = false;
   @property({ attribute: false }) filesOpenRequest = "";
+  @property({ attribute: false }) filesSessionKey?: string;
+  @property({ attribute: false }) filesAgentId?: string;
   @property({ attribute: false }) routeFace?: BoardFace;
   @property({ attribute: false }) onFaceChange?: (
     paneId: string,

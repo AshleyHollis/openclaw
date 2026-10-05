@@ -4,7 +4,7 @@ import test from "node:test";
 import { validateCurrentHostRecords } from "./validate-current-host-image-inputs.mjs";
 
 const read = async (name) => JSON.parse(await readFile(new URL(`../runtime-install/current-host/${name}`, import.meta.url), "utf8"));
-const candidate = await read("candidate.json");
+const candidate = JSON.parse(await readFile(new URL("../runtime-install/candidate.json", import.meta.url), "utf8"));
 const host = await read("host.package-lock.json");
 const plugins = await read("plugins.package-lock.json");
 const actual = {

@@ -292,45 +292,26 @@ test("builds and smokes the exact Codex and QMD artifacts inside the runtime ima
   assert.match(imageSmoke, /qmd["], \["--version"\]/u);
 });
 
-test("packaged runtime binds the 2026.9.6 host and plugin archives", async () => {
-  const candidate = JSON.parse(
-    await readFile(path.join(repositoryRoot, "downstream/runtime-install/candidate.json"), "utf8"),
-  );
-  const dockerfile = await readFile(
-    path.join(repositoryRoot, "downstream/Dockerfile.packaged-runtime"),
-    "utf8",
-  );
-  const workflow = await readFile(
-    path.join(repositoryRoot, ".github/workflows/build-downstream-artifact.yml"),
-    "utf8",
-  );
-  const pluginsLock = JSON.parse(
-    await readFile(
-      path.join(repositoryRoot, "downstream/runtime-install/plugins.package-lock.json"),
-      "utf8",
-    ),
-  );
-
-  assert.equal(candidate.hostVersion, "2026.9.6");
-  assert.equal(candidate.components.codex.version, "2026.9.6");
-  assert.equal(candidate.components.discord.version, "2026.9.6");
-  assert.equal(
-    pluginsLock.packages["node_modules/@openclaw/codex"].version,
-    candidate.components.codex.version,
-  );
-  assert.equal(
-    pluginsLock.packages["node_modules/@openclaw/discord"].version,
-    candidate.components.discord.version,
-  );
-  assert.equal(
-    pluginsLock.packages["node_modules/@openclaw/codex/node_modules/@openai/codex"].version,
-    "0.155.1",
-  );
+test("packaged runtime binds the exact retained 9.8 host and Codex-only overlay", async () => {
+  const candidate = JSON.parse(await readFile(path.join(repositoryRoot, "downstream/runtime-install/candidate.json"), "utf8"));
+  const dockerfile = await readFile(path.join(repositoryRoot, "downstream/Dockerfile.packaged-runtime"), "utf8");
+  const workflow = await readFile(path.join(repositoryRoot, ".github/workflows/build-downstream-artifact.yml"), "utf8");
+  const pluginsLock = JSON.parse(await readFile(path.join(repositoryRoot, "downstream/runtime-install/current-host/plugins.package-lock.json"), "utf8"));
+  assert.equal(candidate.hostVersion, "2026.9.8");
+  assert.equal(candidate.hostProducedFrom, "13c9575fa34c1d8166223473f7446b9c3889ac64");
+  assert.equal(candidate.commandCenter.sourceCommit, "b3626e0e130e6adf1e17be5ceb6ed189ad41648b");
+  assert.equal(candidate.components.codex.version, "2026.9.8");
+  assert.equal(pluginsLock.packages["node_modules/@openclaw/codex"].version, candidate.components.codex.version);
+  assert.equal(pluginsLock.packages["node_modules/@openclaw/codex/node_modules/@openai/codex"].version, "0.158.0");
+  assert.equal(candidate.components.discord, undefined);
+  assert.equal(pluginsLock.packages["node_modules/@openclaw/discord"], undefined);
   assert.match(dockerfile, /COPY codex-current\.tgz \/tmp\/codex-current\.tgz/u);
-  assert.match(dockerfile, /COPY discord-current\.tgz \/tmp\/discord-current\.tgz/u);
+  assert.doesNotMatch(dockerfile, /DISCORD_TARBALL_SHA256|COPY discord-current/u);
   assert.match(dockerfile, /validate-plugin-runtime\.mjs/u);
-  assert.match(workflow, /EXPECTED_CODEX_VERSION=2026\.9\.6/u);
-  assert.match(workflow, /EXPECTED_DISCORD_VERSION=2026\.9\.6/u);
+  assert.match(workflow, /EXPECTED_CODEX_VERSION=2026\.9\.8/u);
+  assert.match(workflow, /EXPECTED_DISCORD_VERSION=absent/u);
+  assert.match(workflow, /actionsArtifactReady !== true/u);
+  assert.equal(candidate.qualification.releaseReady, false);
 });
 
 test("rejects a candidate before build without affected clean-install proofs", async () => {

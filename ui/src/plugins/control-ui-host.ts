@@ -11,6 +11,10 @@ import { isRouteId, pathForRoute, pluginTabLocation } from "../app-route-paths.t
 import { selectApplicationSession } from "../app/agent-selection.ts";
 import type { ApplicationContext } from "../app/context.ts";
 import { hasOperatorReadAccess, readGatewayOperatorAccess } from "../app/operator-access.ts";
+import {
+  FILES_PANEL_OPEN_EVENT,
+  type FilesPanelOpenDetail,
+} from "../components/panel-toggle-contract.ts";
 import { i18n } from "../i18n/index.ts";
 import { redactToolPayloadText } from "../lib/browser-redact.ts";
 import {
@@ -285,22 +289,28 @@ export function createControlUiPluginHost(
       },
       openFiles({ sessionKey, agentId }) {
         const context = current();
+        const event = new CustomEvent<FilesPanelOpenDetail>(FILES_PANEL_OPEN_EVENT, {
+          cancelable: true,
+          detail: { client: context.gateway.snapshot.client, sessionKey, agentId },
+        });
+        window.dispatchEvent(event);
+        if (event.defaultPrevented) {
+          return;
+        }
+        // A non-Chat page has no mounted rail. Return to the current Chat, not
+        // the Files target, and hand the independent target to its native slot.
         const target = sessionNavigationTarget({
           context,
           face: "chat",
-          sessionKey,
-          agentId,
+          sessionKey: context.gateway.snapshot.sessionKey,
           exactKey: true,
         });
-        selectApplicationSession({
-          selection: context.agentSelection,
-          gateway: context.gateway,
-          sessionKey,
-          agentId,
-        });
         const search = new URLSearchParams(target.options.search ?? "");
-        // A fresh request must reopen Files even when the selected Chat has not changed.
         search.set("__openclawFilesPanel", generateUUID());
+        search.set("__openclawFilesSession", sessionKey);
+        if (agentId) {
+          search.set("__openclawFilesAgent", agentId);
+        }
         context.navigate("chat", { ...target.options, search: `?${search.toString()}` });
       },
       create: (params) => call((context) => context.sessions.create(params)),

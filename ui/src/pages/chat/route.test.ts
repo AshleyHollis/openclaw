@@ -210,7 +210,7 @@ describe("loadChatRoute", () => {
           context,
           {
             pathname: "/chat/main/telegram/12345",
-            search: `?draft=unsent&__openclawFilesPanel=${request}`,
+            search: `?draft=unsent&__openclawFilesPanel=${request}&__openclawFilesSession=agent%3Awriter%3Afiles&__openclawFilesAgent=writer`,
             hash: "",
           },
           "chat",
@@ -221,6 +221,8 @@ describe("loadChatRoute", () => {
         sessionKey: "agent:main:telegram:12345",
         draft: "unsent",
         filesOpenRequest: request,
+        filesSessionKey: "agent:writer:files",
+        filesAgentId: "writer",
       });
     }
     expect(list).not.toHaveBeenCalled();

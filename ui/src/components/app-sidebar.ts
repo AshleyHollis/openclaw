@@ -1,13 +1,11 @@
 import { html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { state } from "lit/decorators.js";
-import { repeat } from "lit/directives/repeat.js";
 import type {
   FsListDirResult,
   WorktreeRepositoryStatus,
   WorktreesBranchesResult,
 } from "../../../packages/gateway-protocol/src/index.js";
 import type { SessionObserverDigest } from "../../../packages/gateway-protocol/src/schema/sessions.js";
-import { serializeSidebarEntry } from "../app-navigation.ts";
 import { isSessionRouteId, pathForRoute } from "../app-route-paths.ts";
 import { beginNativeWindowDragFromTopInset } from "../app/native-window-drag.ts";
 import { t } from "../i18n/index.ts";
@@ -503,7 +501,7 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
         sessions: this.context?.sessions.state.result?.sessions ?? [],
         mainSessionKey: this.sessionMainKey(),
         nativeSessionsHaveMore: this.sessionData.sessionsResult?.hasMore === true,
-        loadMoreNativeSessions: () => this.loadMoreSidebarSessions(),
+        loadMoreNativeSessions: () => this.sessionData.loadMoreSidebarSessions(),
       },
       this.renderSessionsBody(),
     );

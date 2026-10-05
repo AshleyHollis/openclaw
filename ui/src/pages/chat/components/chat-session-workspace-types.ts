@@ -73,6 +73,8 @@ export type SessionWorkspaceState = {
 // treats its loader as new and requests sessions.diff again.
 export type SessionWorkspaceHost = {
   sessionKey: string;
+  /** Files presentation may target another conversation without replacing Chat. */
+  sessionWorkspaceTarget?: { sessionKey: string; agentId?: string };
   sessions: SessionCapability;
   client: GatewayBrowserClient | null;
   connected: boolean;

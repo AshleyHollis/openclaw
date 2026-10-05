@@ -91,7 +91,9 @@ export abstract class ChatPaneLayoutRender extends ChatPaneBrowserAnnotationRend
         (entry) => entry.id === state.sessionWorkspaceState?.activePreviewId,
       )?.content;
       const file =
-        preview?.kind === "file" && isSidebarSlotVisible(sidebarLayout, "workspace")
+        preview?.kind === "file" &&
+        state.sessionWorkspaceState?.sessionKey === state.sessionKey &&
+        isSidebarSlotVisible(sidebarLayout, "workspace")
           ? preview
           : undefined;
       const workspace = resolveSessionWorkspace({
