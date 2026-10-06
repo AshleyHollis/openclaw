@@ -53,6 +53,12 @@ vi.mock("openclaw/plugin-sdk/sqlite-runtime", async (importOriginal) => {
       writeFence.after?.();
       return result;
     }) as typeof actual.runSqliteWorkerStoreOperation,
+    runSqliteWorkerStoreWrite: (async (...args) => {
+      await writeFence.before?.();
+      const result = await actual.runSqliteWorkerStoreWrite(...args);
+      writeFence.after?.();
+      return result;
+    }) as typeof actual.runSqliteWorkerStoreWrite,
   };
 });
 

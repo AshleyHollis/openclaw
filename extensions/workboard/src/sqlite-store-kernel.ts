@@ -64,7 +64,26 @@ export type WorkboardSqliteKernel = {
 };
 
 class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(
+    private readonly db: DatabaseSync,
+    private readonly admitWrite?: (stage: "transaction" | "commit") => void,
+  ) {}
+
+  private write<T>(run: () => T): T {
+    return runSqliteImmediateTransactionSync(
+      this.db,
+      () => {
+        this.admitWrite?.("transaction");
+        return run();
+      },
+      {
+        withCommit: (commit) => {
+          this.admitWrite?.("commit");
+          commit();
+        },
+      },
+    );
+  }
 
   private matchesUpdatedAt(key: string, expectedUpdatedAt: number): boolean {
     const { compiled, bind } = compileSqliteQueryBindings<string>((parameter) =>
@@ -89,17 +108,120 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
 
   register(key: string, value: PersistedWorkboardCard): void {
     this.validatePayload(key, value);
-    runSqliteImmediateTransactionSync(this.db, () => insertCard(this.db, value.card));
+    this.write(() => insertCard(this.db, value.card));
   }
 
   registerIfAbsent(key: string, value: PersistedWorkboardCard): boolean {
     this.validatePayload(key, value);
-    return runSqliteImmediateTransactionSync(this.db, () => {
+    return this.write(() => {
       if (this.db.prepare("SELECT 1 FROM workboard_cards WHERE id = ?").get(key)) {
         return false;
       }
       insertCard(this.db, value.card);
       return true;
+    });
+  }
+
+  registerIdempotent(
+    key: string,
+    value: PersistedWorkboardCard,
+    intent: string,
+    parentIds: readonly string[],
+    missingParentId?: string,
+  ): { card: WorkboardCard; inserted: boolean } {
+    this.validatePayload(key, value);
+    const automation = value.card.metadata?.automation;
+    const idempotencyKey = automation?.idempotencyKey;
+    if (!idempotencyKey || !intent) {
+      throw new Error("idempotent create requires a key and immutable intent.");
+    }
+    const tenant = automation.tenant ?? "";
+    const boardId = automation.boardId ?? "default";
+    return this.write(() => {
+      const query = getNodeSqliteKysely<WorkboardCardDatabase>(this.db);
+      const matches = Array.from(
+        iterateSqliteQuerySync(
+          this.db,
+          query
+            .selectFrom("workboard_cards")
+            .selectAll()
+            .where((eb) =>
+              eb.or([
+                eb.and([
+                  eb("creation_idempotency_key", "=", idempotencyKey),
+                  eb("creation_tenant", "=", tenant),
+                  eb("creation_board_id", "=", boardId),
+                ]),
+                eb.and([
+                  eb("creation_idempotency_key", "is", null),
+                  eb("board_id", "=", boardId),
+                  eb(
+                    eb.fn<string>("json_extract", [
+                      eb.ref("automation_json"),
+                      eb.val("$.idempotencyKey"),
+                    ]),
+                    "=",
+                    idempotencyKey,
+                  ),
+                  eb(
+                    eb.fn.coalesce(
+                      eb.fn<string>("json_extract", [
+                        eb.ref("automation_json"),
+                        eb.val("$.tenant"),
+                      ]),
+                      eb.val(""),
+                    ),
+                    "=",
+                    tenant,
+                  ),
+                ]),
+              ]),
+            ),
+        ),
+      );
+      if (matches.length > 1) {
+        throw new Error("idempotent create refused: legacy duplicate scope requires repair.");
+      }
+      const existing = matches[0];
+      if (existing) {
+        if (existing.creation_intent_json !== intent) {
+          throw new Error(
+            existing.creation_intent_json === null
+              ? "idempotent create refused: legacy original intent is unproven."
+              : "idempotent create refused: immutable intent changed.",
+          );
+        }
+        return { card: readCard(this.db, existing), inserted: false };
+      }
+      if (this.lookup(key)) {
+        throw new Error("idempotent create refused: card identity is already occupied.");
+      }
+      if (missingParentId) {
+        throw new Error(`card not found: ${missingParentId}`);
+      }
+      for (const parentId of parentIds) {
+        if (
+          !executeSqliteQueryTakeFirstSync(
+            this.db,
+            query.selectFrom("workboard_cards").select("id").where("id", "=", parentId),
+          )
+        ) {
+          throw new Error(`card not found: ${parentId}`);
+        }
+      }
+      insertCard(this.db, value.card);
+      const update = query
+        .updateTable("workboard_cards")
+        .set({
+          creation_idempotency_key: idempotencyKey,
+          creation_tenant: tenant,
+          creation_board_id: boardId,
+          creation_intent_json: intent,
+        })
+        .where("id", "=", key)
+        .compile();
+      this.db.prepare(update.sql).run(...update.parameters.map(bindNull));
+      return { card: value.card, inserted: true };
     });
   }
 
@@ -109,7 +231,7 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
     expectedUpdatedAt: number,
   ): boolean {
     this.validatePayload(key, value);
-    return runSqliteImmediateTransactionSync(this.db, () => {
+    return this.write(() => {
       if (!this.matchesUpdatedAt(key, expectedUpdatedAt)) {
         return false;
       }
@@ -126,7 +248,7 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
     now: number,
   ): WorkboardOwnerClaimResult {
     this.validatePayload(key, value);
-    return runSqliteImmediateTransactionSync(this.db, () => {
+    return this.write(() => {
       const query = getNodeSqliteKysely<WorkboardCardDatabase>(this.db);
       const current = executeSqliteQueryTakeFirstSync(
         this.db,
@@ -180,7 +302,7 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
   }
 
   deleteIfUpdatedAt(key: string, expectedUpdatedAt: number): boolean {
-    return runSqliteImmediateTransactionSync(this.db, () => {
+    return this.write(() => {
       if (!this.matchesUpdatedAt(key, expectedUpdatedAt)) {
         return false;
       }
@@ -195,7 +317,7 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
   }
 
   delete(key: string): boolean {
-    const result = runSqliteImmediateTransactionSync(this.db, () => this.deleteCard(key));
+    const result = this.write(() => this.deleteCard(key));
     return result.changes > 0;
   }
 
@@ -695,10 +817,11 @@ class WorkboardSqliteAttachmentStore implements SyncStore<
 export function createWorkboardSqliteKernel(
   dbPath: string,
   retainClose?: (close: () => void) => void,
+  admitWrite?: (stage: "transaction" | "commit") => void,
 ): WorkboardSqliteKernel {
   const { db, close } = createWorkboardDatabase(dbPath, retainClose);
   return {
-    cards: new WorkboardSqliteCardStore(db),
+    cards: new WorkboardSqliteCardStore(db, admitWrite),
     boards: new WorkboardSqliteBoardStore(db),
     subscriptions: new WorkboardSqliteSubscriptionStore(db),
     attachments: new WorkboardSqliteAttachmentStore(db),

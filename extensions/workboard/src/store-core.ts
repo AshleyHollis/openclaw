@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { stableStringify } from "@openclaw/normalization-core/stable-stringify";
 import type {
   WorkboardBoardMetadata,
   WorkboardCard,
@@ -483,25 +484,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       status = "todo";
       heldByDependencies = true;
     }
-    if (automation?.idempotencyKey) {
-      const existing = cards.find(
-        (card) =>
-          card.metadata?.automation?.idempotencyKey === automation.idempotencyKey &&
-          card.metadata?.automation?.tenant === automation.tenant &&
-          cardBoardId(card) === (automation.boardId ?? "default"),
-      );
-      if (existing) {
-        return existing;
-      }
-    }
     const cardsById = new Map(cards.map((card) => [card.id, card]));
-    const parentCards = parents.map((parentId) => {
-      const parent = cardsById.get(parentId);
-      if (!parent) {
-        throw new Error(`card not found: ${parentId}`);
-      }
-      return parent;
-    });
     const childAutomation = normalizeAutomation(
       {
         ...automation,
@@ -541,6 +524,12 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       },
       { allowDependencyLinks: false, allowArchivedAt: false },
     );
+    parents.forEach((parentId) => {
+      const parent = cardsById.get(parentId);
+      if (!parent && !metadata.automation?.idempotencyKey) {
+        throw new Error(`card not found: ${parentId}`);
+      }
+    });
     const syncedMetadata = trimMetadataToBudget(
       syncExecutionAttemptMetadata(metadata, execution, now),
     );
@@ -582,7 +571,45 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       ...(completedAt ? { completedAt } : {}),
       ...(!metadataIsEmpty(syncedMetadata) ? { metadata: syncedMetadata } : {}),
     };
-    if (options.insertIfAbsent) {
+    if (card.metadata?.automation?.idempotencyKey) {
+      // Capture supplied effects before generated IDs, timestamps, positions,
+      // dependency promotion, and mutable lifecycle state can change a retry.
+      // Rich metadata/execution keep their supplied shape conservatively: an
+      // altered payload must never silently reuse another operation's result.
+      const intent = stableStringify({
+        version: 1,
+        title: card.title,
+        notes,
+        status: requestedStatus,
+        priority: card.priority,
+        labels: card.labels,
+        parents,
+        position: Number.isFinite(normalizedPosition) ? normalizedPosition : undefined,
+        agentId,
+        sessionKey,
+        runId,
+        sourceUrl,
+        startedAt:
+          input.startedAt === undefined ? undefined : normalizeTimestamp(input.startedAt, 0),
+        completedAt:
+          input.completedAt === undefined ? undefined : normalizeTimestamp(input.completedAt, 0),
+        execution: input.execution,
+        metadata: input.metadata,
+        templateId: normalizeTemplateId(input.templateId),
+        automation: childAutomation,
+      });
+      const result = await this.store.registerIdempotent(
+        card.id,
+        { version: 1, card },
+        intent,
+        parents,
+        parents.find((parentId) => !cardsById.has(parentId)),
+      );
+      if (!result.inserted) {
+        return result.card;
+      }
+      this.recordCardMutation(undefined, card);
+    } else if (options.insertIfAbsent) {
       const inserted = await this.store.registerIfAbsent(card.id, { version: 1, card });
       if (!inserted) {
         const winner = await this.get(card.id);
@@ -596,8 +623,8 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       await this.store.register(card.id, { version: 1, card });
       this.recordCardMutation(undefined, card);
     }
-    for (const parent of parentCards) {
-      card = await this.linkCardsDirect(parent.id, card.id, now, {
+    for (const parentId of parents) {
+      card = await this.linkCardsDirect(parentId, card.id, now, {
         allowStatusOnlyActiveChild: true,
         scope,
       });

@@ -25,9 +25,13 @@ describe("Workboard dependency and scheduled promotion", () => {
     });
     await expect(
       store.create({
-        title: "Duplicate child",
+        title: "Child",
+        status: "todo",
+        parents: [parent.id],
         tenant: "release",
         idempotencyKey: "fanout:1",
+        skills: ["testing"],
+        workspace: { kind: "scratch" },
       }),
     ).resolves.toMatchObject({ id: child.id });
     await expect(

@@ -79,6 +79,20 @@ function createPausedCardStore(delegate: WorkboardCardStore) {
         }
         return inserted;
       },
+      async registerIdempotent(key, value, intent, parentIds, missingParentId) {
+        await beforeWrite();
+        const result = await delegate.registerIdempotent(
+          key,
+          value,
+          intent,
+          parentIds,
+          missingParentId,
+        );
+        if (result.inserted) {
+          await afterWrite(key, value);
+        }
+        return result;
+      },
       async registerIfUpdatedAt(key, value, expectedUpdatedAt) {
         await beforeWrite();
         const updated = await delegate.registerIfUpdatedAt(key, value, expectedUpdatedAt);
@@ -248,7 +262,7 @@ describe("WorkboardStore", () => {
     store.subscribeChanges(changes);
 
     const card = await store.create({ title: "Idempotent", idempotencyKey: "same" });
-    await store.create({ title: "Duplicate", idempotencyKey: "same" });
+    await store.create({ title: "Idempotent", idempotencyKey: "same" });
     await store.delete("missing");
 
     expect(card.title).toBe("Idempotent");
@@ -1041,7 +1055,7 @@ describe("WorkboardStore", () => {
           created_at, updated_at, archived_at
         FROM workboard_boards_strict;
         DROP TABLE workboard_boards_strict;
-        DELETE FROM workboard_schema_migrations WHERE id = 'schema-3';
+        DELETE FROM workboard_schema_migrations WHERE id IN ('schema-3', 'schema-4');
         INSERT OR IGNORE INTO workboard_schema_migrations (id, applied_at)
         VALUES ('schema-2', 1);
       `);
@@ -1067,7 +1081,7 @@ describe("WorkboardStore", () => {
         ).toEqual({ strict: 1 });
         expect(
           migrated
-            .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = 'schema-3'")
+            .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = 'schema-4'")
             .get(),
         ).toEqual({ found: 1 });
       } finally {
@@ -3648,7 +3662,7 @@ describe("WorkboardStore", () => {
       idempotencyKey: "same",
     });
     const repeatedOps = await store.create({
-      title: "Duplicate ops",
+      title: "Ops work",
       boardId: "ops",
       idempotencyKey: "same",
     });
