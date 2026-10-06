@@ -298,8 +298,8 @@ test("packaged runtime binds the exact retained 9.8 host and Codex-only overlay"
   const workflow = await readFile(path.join(repositoryRoot, ".github/workflows/build-downstream-artifact.yml"), "utf8");
   const pluginsLock = JSON.parse(await readFile(path.join(repositoryRoot, "downstream/runtime-install/current-host/plugins.package-lock.json"), "utf8"));
   assert.equal(candidate.hostVersion, "2026.9.8");
-  assert.equal(candidate.hostProducedFrom, "13c9575fa34c1d8166223473f7446b9c3889ac64");
-  assert.equal(candidate.commandCenter.sourceCommit, "b3626e0e130e6adf1e17be5ceb6ed189ad41648b");
+  assert.equal(candidate.hostProducedFrom, "26a9c0faa4124e53ae2eab34291d68a7245f630c");
+  assert.equal(candidate.commandCenter.sourceCommit, "94f1e178a1117abaf9f99b358310f986b99acb46");
   assert.equal(candidate.components.codex.version, "2026.9.8");
   assert.equal(pluginsLock.packages["node_modules/@openclaw/codex"].version, candidate.components.codex.version);
   assert.equal(pluginsLock.packages["node_modules/@openclaw/codex/node_modules/@openai/codex"].version, "0.158.0");

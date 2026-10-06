@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
   "hostVersion": "2026.9.8",
-  "hostProducedFrom": "13c9575fa34c1d8166223473f7446b9c3889ac64",
-  "sourceHead": "8916e2079fee0a64e0c67cc4f4a0d08e140b2396",
-  "hostArchiveSha256": "d66fb508a5c5714513f5268751779bcf3866210001547ccc4ea6a1c230a6ccc1",
-  "hostArchiveBytes": 116718179,
+  "hostProducedFrom": "26a9c0faa4124e53ae2eab34291d68a7245f630c",
+  "sourceHead": "26a9c0faa4124e53ae2eab34291d68a7245f630c",
+  "hostArchiveSha256": "e6203c9ba1d01d928f51cb71d7b4ecc77515fa6742f8168d9b5d8175610d6b36",
+  "hostArchiveBytes": 117898761,
   "commandCenter": {
-    "sourceCommit": "b3626e0e130e6adf1e17be5ceb6ed189ad41648b",
-    "archiveSha256": "b2d243a30e04dd6faa01fd03a3738403d9bd1a9ba24b91af1384436db4633c72",
-    "buildDigest": "b472e6869908444711ed164f856668b0b298b065ceacef3abbf5c0aeb5f0d625",
-    "receiptSha256": "4dd63ce2ba55586015ead339e148ce2d37d8f4d8d7c1609e06762497a86321f2"
+    "sourceCommit": "94f1e178a1117abaf9f99b358310f986b99acb46",
+    "archiveSha256": "89e172a6eb91b1aba98ac419bffde802bad41cd51ba3fd91acb6aebace903117",
+    "buildDigest": "52324b66d04861332be6cc1ae502055ea2bac558db179ca779bf35d8e5e10eb2",
+    "receiptSha256": "9ce8b80d993107b0cdf6b6c248899e857f82ddf98932937f555e7f51adbf516b"
   },
   "components": {
     "codex": {
@@ -25,7 +25,7 @@
     }
   },
   "locks": {
-    "host.package-lock.json": "fc11f4dfa07f4b1172405365d862c4c4055c3aed6e3fe7eac53eff55a9775900",
+    "host.package-lock.json": "d9989035c508b703229a9e06463256d8b1302fdf616b97831b8283dc47962e2f",
     "plugins.package-lock.json": "438791f17b59c678f9e6126c459f2cc181c832094de94296c07b19d563be282c"
   },
   "imageBuilt": false,
@@ -37,6 +37,7 @@
   "qualification": {
     "releaseReady": false,
     "pairedRehearsal": false,
-    "newSourcePackageRequired": true
+    "newSourcePackageRequired": false,
+    "sourcePackagesChecked": true
   }
 }

@@ -9,11 +9,14 @@ const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const integrity = (bytes) => `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
 
 export function validateCurrentHostRecords(candidate, hostLock, pluginLock, actual) {
+  const expectedHostProducer = "26a9c0faa4124e53ae2eab34291d68a7245f630c";
   assert.equal(candidate.hostVersion, "2026.9.8");
-  assert.equal(candidate.hostProducedFrom, "13c9575fa34c1d8166223473f7446b9c3889ac64");
+  assert.equal(candidate.hostProducedFrom, expectedHostProducer);
+  assert.equal(candidate.sourceHead, expectedHostProducer);
   assert.equal(actual.build.version, candidate.hostVersion);
   assert.equal(actual.build.commit, candidate.hostProducedFrom);
   assert.equal(actual.hostSha256, candidate.hostArchiveSha256);
+  assert.equal(actual.hostArchiveBytes, candidate.hostArchiveBytes);
   assert.equal(hostLock.packages["node_modules/openclaw"].version, candidate.hostVersion);
   assert.equal(hostLock.packages["node_modules/openclaw"].resolved, "file:../tmp/openclaw-current.tgz");
   assert.equal(hostLock.packages["node_modules/openclaw"].integrity, actual.hostIntegrity);
@@ -38,7 +41,7 @@ export async function validateCurrentHostImageInputs(root) {
   const codexBytes = await readFile(path.join(root, "codex-current.tgz"));
   const build = JSON.parse(execFileSync("tar", ["-xOf", path.join(root, "openclaw-current.tgz"), "package/dist/build-info.json"], { maxBuffer: 65536 }));
   const actual = {
-    build, hostSha256: sha(hostBytes), hostIntegrity: integrity(hostBytes),
+    build, hostSha256: sha(hostBytes), hostArchiveBytes: hostBytes.length, hostIntegrity: integrity(hostBytes),
     codexSha256: sha(codexBytes), codexIntegrity: integrity(codexBytes),
     qmdSha256: sha(await readFile(path.join(root, "qmd-current.tgz"))),
     ccSha256: sha(await readFile(path.join(root, "command-center.tgz"))),
