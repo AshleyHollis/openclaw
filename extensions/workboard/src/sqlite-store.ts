@@ -4,6 +4,7 @@ import { extractErrorCode } from "openclaw/plugin-sdk/error-runtime";
 import {
   openSqliteWorkerStore,
   runSqliteWorkerStoreOperation,
+  runSqliteWorkerStoreWrite,
 } from "openclaw/plugin-sdk/sqlite-runtime";
 import type {
   PersistedWorkboardAttachment,
@@ -115,18 +116,26 @@ export function createWorkboardSqliteStores(options: {
     if (!authority) {
       return unwrapWorkboardSqliteResult(await store.execute({ type, input }));
     }
+    const assertCurrent = () => {
+      if (!authority.active) {
+        throw new Error("Workboard mutation authority has settled.");
+      }
+      authority.assertCurrent?.();
+    };
     const result = unwrapWorkboardSqliteResult(
-      await runSqliteWorkerStoreOperation(
-        store,
-        (scope) => scope.execute({ type, input }),
-        undefined,
-        () => {
-          if (!authority.active) {
-            throw new Error("Workboard mutation authority has settled.");
-          }
-          authority.assertCurrent?.();
-        },
-      ),
+      type.startsWith("cards.")
+        ? await runSqliteWorkerStoreWrite(
+            store,
+            (scope) => scope.execute({ type, input: { ...input, guarded: true } }),
+            assertCurrent,
+            [databasePath],
+          )
+        : await runSqliteWorkerStoreOperation(
+            store,
+            (scope) => scope.execute({ type, input }),
+            undefined,
+            assertCurrent,
+          ),
     );
     // A rejected comparison has accepted no mutation; a retry still needs authority.
     if (result !== false && result !== "conflict" && result !== "owner_busy") {
@@ -178,6 +187,9 @@ export function createWorkboardSqliteStores(options: {
       ),
       registerIfAbsent: bindOperation((connection, args) =>
         execute("cards.registerIfAbsent", { connection, args }, true),
+      ),
+      registerIdempotent: bindOperation((connection, args) =>
+        execute("cards.registerIdempotent", { connection, args }, true),
       ),
       registerIfUpdatedAt: bindOperation((connection, args) =>
         execute("cards.registerIfUpdatedAt", { connection, args }, true),

@@ -11,6 +11,7 @@ import type {
 import { isFutureDateTimestampMs } from "openclaw/plugin-sdk/number-runtime";
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { normalizeCardAutomation } from "./store-automation.js";
 import {
   assertCanMutateClaimedCard,
   cardBoardId,
@@ -546,19 +547,34 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
               throw new Error("children must be objects.");
             }
             const child = rawChild as WorkboardDecomposeChildInput;
-            const created = await this.createDirect(
-              {
-                ...child,
-                parents: [parent.id],
-                boardId: child.boardId ?? parentAutomation?.boardId,
-                tenant: child.tenant ?? parentAutomation?.tenant,
-                createdByCardId: parent.id,
-                idempotencyKey:
-                  child.idempotencyKey ??
-                  deriveChildIdempotencyKey(parentAutomation?.idempotencyKey, children.length + 1),
-              },
-              scope === null ? undefined : scope,
-            );
+            const createInput = {
+              ...child,
+              parents: [parent.id],
+              boardId: child.boardId ?? parentAutomation?.boardId,
+              tenant: child.tenant ?? parentAutomation?.tenant,
+              createdByCardId: parent.id,
+              idempotencyKey:
+                child.idempotencyKey ??
+                deriveChildIdempotencyKey(parentAutomation?.idempotencyKey, children.length + 1),
+            };
+            // Decomposition also adopts existing children by reference. That
+            // retained operation adds links; it must not masquerade as a retry
+            // of a create with changed parents or creation provenance.
+            const reference = normalizeCardAutomation(createInput);
+            const candidates = reference?.idempotencyKey
+              ? (await this.list()).filter(
+                  (card) =>
+                    card.metadata?.automation?.idempotencyKey === reference.idempotencyKey &&
+                    card.metadata?.automation?.tenant === reference.tenant &&
+                    cardBoardId(card) === (reference.boardId ?? "default"),
+                )
+              : [];
+            if (candidates.length > 1) {
+              throw new Error("decompose refused: duplicate child reference requires repair.");
+            }
+            const created =
+              candidates[0] ??
+              (await this.createDirect(createInput, scope === null ? undefined : scope));
             children.push(
               cardParentIds(created).includes(parent.id)
                 ? created

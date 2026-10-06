@@ -87,6 +87,13 @@ export type WorkboardCardStore = Omit<WorkboardKeyedStore, "entries"> & {
     scope?: WorkboardCardReadScope,
   ): Promise<Array<{ key: string; value: PersistedWorkboardCard }>>;
   registerIfAbsent(key: string, value: PersistedWorkboardCard): Promise<boolean>;
+  registerIdempotent(
+    key: string,
+    value: PersistedWorkboardCard,
+    intent: string,
+    parentIds: readonly string[],
+    missingParentId?: string,
+  ): Promise<{ card: WorkboardCard; inserted: boolean }>;
   registerIfUpdatedAt(
     key: string,
     value: PersistedWorkboardCard,

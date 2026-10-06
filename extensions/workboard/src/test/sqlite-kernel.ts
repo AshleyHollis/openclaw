@@ -29,6 +29,7 @@ export function createKernelStores(
       ...asyncKeyedStore(kernel.cards),
       entries: async (scope) => kernel.cards.entries(scope),
       registerIfAbsent: async (...args) => kernel.cards.registerIfAbsent(...args),
+      registerIdempotent: async (...args) => kernel.cards.registerIdempotent(...args),
       registerIfUpdatedAt: async (...args) => kernel.cards.registerIfUpdatedAt(...args),
       claimIfOwnerAvailable: async (...args) => kernel.cards.claimIfOwnerAvailable(...args),
       deleteIfUpdatedAt: async (...args) => kernel.cards.deleteIfUpdatedAt(...args),

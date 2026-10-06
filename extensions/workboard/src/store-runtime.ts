@@ -100,6 +100,11 @@ export class WorkboardStoreRuntime {
       entries: (scope) => this.runOperation(() => store.entries(scope)),
       registerIfAbsent: (key, value) =>
         this.trackMutation(() => store.registerIfAbsent(key, value)),
+      registerIdempotent: (key, value, intent, parentIds, missingParentId) =>
+        this.trackMutation(
+          () => store.registerIdempotent(key, value, intent, parentIds, missingParentId),
+          (result) => result.inserted,
+        ),
       registerIfUpdatedAt: (key, value, expectedUpdatedAt) =>
         this.trackMutation(() => store.registerIfUpdatedAt(key, value, expectedUpdatedAt)),
       deleteIfUpdatedAt: (key, expectedUpdatedAt) =>
