@@ -6,10 +6,10 @@ version `2026.9.8`, produced from source `26a9c0faa4124e53ae2eab34291d68a7245f63
 The archive is 117,898,761 bytes with SHA-256
 `e6203c9ba1d01d928f51cb71d7b4ecc77515fa6742f8168d9b5d8175610d6b36`. The public
 npm package of the same version is not interchangeable. The matching Command
-Center is source `94f1e178a1117abaf9f99b358310f986b99acb46`, archive SHA-256
-`89e172a6eb91b1aba98ac419bffde802bad41cd51ba3fd91acb6aebace903117`, build
-digest `52324b66d04861332be6cc1ae502055ea2bac558db179ca779bf35d8e5e10eb2`, and
-receipt SHA-256 `9ce8b80d993107b0cdf6b6c248899e857f82ddf98932937f555e7f51adbf516b`.
+Center is source `2253d49b5b90c8c1c8c506a0a38efe300c389da4`, archive SHA-256
+`edebaa262afcc804da7b6fbf8f364a9564b61579d83761e0dc3196bc20991822`, build
+digest `c5e1336205263985c52f6275c81ae94a6e5684a619615fa7589c9bc634998af8`, and
+receipt SHA-256 `6b4d8f2b4e2126f581ac40a8e446c6a819ab6112728ad1f16d1c190bdbf06fca`.
 
 `candidate.json` binds exact host, Command Center, official Codex and retained QMD
 archives. The checked-in host lock is the reviewed lock for this exact archive;

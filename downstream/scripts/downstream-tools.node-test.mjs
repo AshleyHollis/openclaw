@@ -299,7 +299,7 @@ test("packaged runtime binds the exact retained 9.8 host and Codex-only overlay"
   const pluginsLock = JSON.parse(await readFile(path.join(repositoryRoot, "downstream/runtime-install/current-host/plugins.package-lock.json"), "utf8"));
   assert.equal(candidate.hostVersion, "2026.9.8");
   assert.equal(candidate.hostProducedFrom, "26a9c0faa4124e53ae2eab34291d68a7245f630c");
-  assert.equal(candidate.commandCenter.sourceCommit, "94f1e178a1117abaf9f99b358310f986b99acb46");
+  assert.equal(candidate.commandCenter.sourceCommit, "2253d49b5b90c8c1c8c506a0a38efe300c389da4");
   assert.equal(candidate.components.codex.version, "2026.9.8");
   assert.equal(pluginsLock.packages["node_modules/@openclaw/codex"].version, candidate.components.codex.version);
   assert.equal(pluginsLock.packages["node_modules/@openclaw/codex/node_modules/@openai/codex"].version, "0.158.0");
