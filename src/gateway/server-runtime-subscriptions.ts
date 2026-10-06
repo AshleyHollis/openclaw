@@ -44,6 +44,7 @@ import {
   bindChatAbortTerminalDispatch,
   isCurrentChatAbortTerminalDispatch,
   markChatAbortTerminalPersistenceError,
+  settleChatAbortTerminalPersistence,
   type ChatAbortTerminalDispatch,
 } from "./chat-abort-lifecycle-internal.js";
 import {
@@ -228,18 +229,7 @@ export function startGatewayEventSubscriptions(params: {
     error?: unknown,
     ownsPendingReservation = true,
   ) => {
-    if (ownsPendingReservation) {
-      entry.projectSessionTerminalPending = false;
-    }
-    entry.projectSessionTerminalPersistence = undefined;
-    if (persisted !== undefined) {
-      entry.projectSessionTerminalPersisted = persisted;
-      markChatAbortTerminalPersistenceError(entry, error);
-    }
-    if (
-      entry.registrationCleanupRequested === true &&
-      entry.projectSessionTerminalPending !== true
-    ) {
+    if (settleChatAbortTerminalPersistence(entry, persisted, error, ownsPendingReservation)) {
       removeChatAbortControllerEntry(params.chatAbortControllers, runId, entry);
     }
   };
