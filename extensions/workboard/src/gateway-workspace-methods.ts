@@ -52,7 +52,13 @@ export function registerWorkboardWorkspaceCardMethods(params: WorkspaceGatewayMe
         const input = withoutWorkboardWorkspaceAccess(request.params);
         const access = await resolveGatewayWorkspaceMutationAccess(request, input);
         return {
-          card: redactCard(await store.create(withWorkboardWorkspaceAccess(input, access))),
+          card: redactCard(
+            await store.create(
+              withWorkboardWorkspaceAccess(input, access),
+              undefined,
+              request.sessionMutationAuthorization?.assertCurrent,
+            ),
+          ),
         };
       },
     ],
@@ -82,7 +88,10 @@ export function registerWorkboardWorkspaceCardMethods(params: WorkspaceGatewayMe
               containsWorkboardWorkspaceMutation(patch)
                 ? withWorkboardWorkspaceAccess(patch, access)
                 : patch,
-              { expectedUpdatedAt },
+              {
+                expectedUpdatedAt,
+                assertOwnerCurrent: request.sessionMutationAuthorization?.assertCurrent,
+              },
             ),
           ),
         };

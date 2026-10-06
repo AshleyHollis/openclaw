@@ -656,7 +656,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
   async update(
     id: string,
     patch: WorkboardCardPatch,
-    options: { expectedUpdatedAt?: number } = {},
+    options: { expectedUpdatedAt?: number; assertOwnerCurrent?: () => void } = {},
   ): Promise<WorkboardCard> {
     return await this.enqueueMutation(
       async () =>
@@ -665,6 +665,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
           enforceStatusHolds: true,
           expectedUpdatedAt: options.expectedUpdatedAt,
         }),
+      options.assertOwnerCurrent,
     );
   }
 
