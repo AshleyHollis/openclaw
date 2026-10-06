@@ -256,6 +256,7 @@ export type AgentEventHandlerOptions = {
     runId: string;
     clientRunId: string;
     sessionKey: string;
+    ownerEvent: AgentEventRuntimePayload;
   }) => void;
   trackTrackedRunTerminalPersistence?: (params: {
     runId: string;
@@ -263,6 +264,7 @@ export type AgentEventHandlerOptions = {
     sessionKey: string;
     sessionId?: string;
     persistence: Promise<void>;
+    ownerEvent: AgentEventRuntimePayload;
   }) => void;
   resolveActiveLifecycleGenerationForRun?: (runId: string) => string | undefined;
   updateRunToolErrorSummary?: (params: {
@@ -671,6 +673,7 @@ export function createAgentEventHandler({
           sessionKey,
           sessionId: evt.sessionId,
           persistence,
+          ownerEvent: evt,
         });
         const broadcastSessionChange = (snapshotEvent?: AgentEventPayload) => {
           if (parseCronRunScopeSuffix(sessionKey).runId) {
@@ -733,6 +736,7 @@ export function createAgentEventHandler({
           runId: evt.runId,
           clientRunId,
           sessionKey,
+          ownerEvent: evt,
         });
       }
     }

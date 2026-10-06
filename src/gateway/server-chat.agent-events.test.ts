@@ -3229,6 +3229,10 @@ describe("agent event handler", () => {
       sessionKey: "session-recovery",
       sessionId: "session-recovery",
       persistence: expect.any(Promise),
+      ownerEvent: expect.objectContaining({
+        runId: "completed-during-marker-write",
+        stream: "lifecycle",
+      }),
     });
     await waitForFast(() => {
       expect(
@@ -3468,6 +3472,7 @@ describe("agent event handler", () => {
       sessionKey: "session-failed-write",
       sessionId: "session-failed-write",
       persistence: expect.any(Promise),
+      ownerEvent: expect.objectContaining({ runId: "run-failed-write", stream: "lifecycle" }),
     });
     expect(trackTrackedRunTerminalPersistence.mock.invocationCallOrder[0]).toBeLessThan(
       broadcastToConnIds.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
@@ -4966,6 +4971,7 @@ describe("agent event handler", () => {
         sessionKey: "session-reply-dispatch",
         sessionId: undefined,
         persistence: expect.any(Promise),
+        ownerEvent: expect.objectContaining({ runId, stream: "lifecycle" }),
       });
     },
   );
@@ -5464,6 +5470,7 @@ describe("agent event handler", () => {
       runId: "run-maintenance-child",
       clientRunId: "run-maintenance-child",
       sessionKey: "session-maintenance-parent",
+      ownerEvent: expect.objectContaining({ runId: "run-maintenance-child", stream: "lifecycle" }),
     });
   });
 

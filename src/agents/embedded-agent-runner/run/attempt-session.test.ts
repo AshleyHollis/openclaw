@@ -211,6 +211,36 @@ afterEach(() => {
 });
 
 describe("prepareEmbeddedAttemptAgentSession", () => {
+  it.each(["settled-tool-finalization", undefined] as const)(
+    "preserves operation %s compaction policy after reload restores enabled=true",
+    async (operation) => {
+      const { applyAgentAutoCompactionGuard } =
+        await vi.importActual<typeof import("../../agent-settings.js")>("../../agent-settings.js");
+      const fixture = createInput();
+      hoisted.resolveEffectiveCompactionMode.mockReturnValue("default");
+      fixture.input.attempt = { ...fixture.input.attempt, operation };
+      let enabled = true;
+      const setCompactionEnabled = vi.fn((value: boolean) => {
+        enabled = value;
+      });
+      Object.assign(fixture.settingsManager, { setCompactionEnabled });
+      hoisted.applyAgentAutoCompactionGuard
+        .mockImplementationOnce(applyAgentAutoCompactionGuard)
+        .mockImplementationOnce(applyAgentAutoCompactionGuard);
+      fixture.resourceLoader.reload.mockImplementation(async () => {
+        // Reload owns persisted settings and can restore its default-on value.
+        enabled = true;
+      });
+
+      await prepareEmbeddedAttemptAgentSession(fixture.input);
+
+      expect(enabled).toBe(operation !== "settled-tool-finalization");
+      expect(setCompactionEnabled.mock.calls).toEqual(
+        operation === "settled-tool-finalization" ? [[false], [false]] : [],
+      );
+    },
+  );
+
   it("cancels a hydrated directory tool's approval with its captured permission generation", async () => {
     const fixture = createInput();
     const generation = new AbortController();

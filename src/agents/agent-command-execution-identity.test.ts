@@ -9,6 +9,9 @@ import {
 } from "../audit/execution-identity-admission.js";
 import { loadSessionEntry, replaceSessionEntry } from "../config/sessions/session-accessor.js";
 import { getAgentEventLifecycleGeneration } from "../infra/agent-events.js";
+import { getActiveAgentRunContextCount } from "../infra/agent-run-registry.js";
+import { captureAgentRunTerminalWriteContext } from "../infra/agent-run-terminal-writes.js";
+import { createGatewayActiveWorkSnapshot } from "../infra/gateway-active-work.js";
 import { closeOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { attachAgentCommandAdmissionFacts } from "./agent-command-admission-facts.js";
@@ -31,6 +34,55 @@ afterEach(() => {
 });
 
 describe("sanitizePublicAgentCommandIngressOpts", () => {
+  it("retains the operational admission until both accepted terminal writes settle", async () => {
+    const initialAgentRuns = getActiveAgentRunContextCount();
+    const runId = "two-accepted-terminal-writes";
+    const prepared = prepareAgentCommandExecutionIdentity({
+      opts: { message: "finish the admitted turn" },
+      prepared: {
+        cfg: {},
+        runId,
+        sessionAgentId: "main",
+        sessionId: "two-writes-session",
+      },
+      ingress: { kind: "api", boundary: "agent-command.from-ingress", state: "unknown" },
+      lifecycleGeneration: getAgentEventLifecycleGeneration(),
+    });
+    const older = createDeferred();
+    const newer = createDeferred();
+    let finished = false;
+    let finish: Promise<void> | undefined;
+    try {
+      await prepared.admit("embedded");
+      const context = captureAgentRunTerminalWriteContext(runId);
+      if (!context) {
+        throw new Error("expected the admitted terminal write owner");
+      }
+      context.track(older.promise);
+      context.track(newer.promise);
+      finish = prepared.finish().then(() => {
+        finished = true;
+      });
+      newer.resolve();
+      await newer.promise;
+      const snapshot = createGatewayActiveWorkSnapshot({
+        getChatRuns: () => 0,
+        getTerminalPersistence: () => 0,
+      });
+      expect(finished).toBe(false);
+      expect(snapshot.counts.agentRuns).toBe(initialAgentRuns + 1);
+      expect(snapshot.idle).toBe(false);
+      older.resolve();
+      await finish;
+      expect(getActiveAgentRunContextCount()).toBe(initialAgentRuns);
+    } finally {
+      older.resolve();
+      newer.resolve();
+      prepared.close();
+      await finish;
+    }
+  });
+
   it("removes forged host-owned capabilities from plain-JavaScript ingress", () => {
     const forgedCapability = {
       active: true,
