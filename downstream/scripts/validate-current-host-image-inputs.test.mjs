@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { validateCurrentHostRecords } from "./validate-current-host-image-inputs.mjs";
+import { validateCurrentHostRecords, validateQmdRuntimeRecords } from "./validate-current-host-image-inputs.mjs";
 
 const read = async (name) => JSON.parse(await readFile(new URL(`../runtime-install/current-host/${name}`, import.meta.url), "utf8"));
 const candidate = JSON.parse(await readFile(new URL("../runtime-install/candidate.json", import.meta.url), "utf8"));
 const host = await read("host.package-lock.json");
 const plugins = await read("plugins.package-lock.json");
+const qmdLock = await read("qmd.package-lock.json");
+const qmdManifest = await read("qmd.package.json");
 const actual = {
   build: { version: candidate.hostVersion, commit: candidate.hostProducedFrom },
   hostSha256: candidate.hostArchiveSha256, hostArchiveBytes: candidate.hostArchiveBytes,
@@ -57,6 +59,8 @@ test("Life recipe uses current locks, exact producer, Codex and QMD; no Discord"
   assert(!/discord/iu.test(recipe));
   assert(recipe.includes("runtime-install/current-host/host.package-lock.json"));
   assert(recipe.includes("runtime-install/current-host/plugins.package-lock.json"));
+  assert(recipe.includes("runtime-install/current-host/qmd.package-lock.json"));
+  assert(recipe.includes("npm ci --prefix /opt/qmd-runtime"));
   assert(recipe.includes(candidate.hostProducedFrom));
   assert(recipe.includes(candidate.hostArchiveSha256));
   assert(recipe.includes(candidate.components.codex.sha256));
@@ -64,3 +68,15 @@ test("Life recipe uses current locks, exact producer, Codex and QMD; no Discord"
   assert(recipe.includes("codex-cli 0.158.0"));
   assert(recipe.includes("dist/build-info.json"));
 });
+
+for (const failure of [null, "archive", "missing-root", "vulnerable-copy"]) {
+  test(`QMD root installation admission: ${failure ?? "matching"}`, () => {
+    const lock = structuredClone(qmdLock);
+    let archiveIntegrity = lock.packages["node_modules/@tobilu/qmd"].integrity;
+    if (failure === "archive") archiveIntegrity = "sha512-wrong";
+    if (failure === "missing-root") delete lock.packages[""].dependencies;
+    if (failure === "vulnerable-copy") lock.packages["node_modules/@tobilu/qmd/node_modules/simple-git"] = { version: "3.36.0" };
+    const run = () => validateQmdRuntimeRecords(candidate, qmdManifest, lock, archiveIntegrity);
+    if (failure) assert.throws(run); else run();
+  });
+}

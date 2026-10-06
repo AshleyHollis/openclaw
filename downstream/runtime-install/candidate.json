@@ -20,13 +20,14 @@
     },
     "qmd": {
       "version": "2.1.0",
-      "url": "https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-qmd-2.1.0-nas.6.tgz",
-      "sha256": "4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a"
+      "url": "https://github.com/AshleyHollis/openclaw-upgrade-control/releases/download/sealed-attention-2253d49-26a9-qmdfix-20261006/qmd-current.tgz",
+      "sha256": "8ede318f7424ece8eefcb91ee4757d25c7ad2a6f6811c2e9ffbb6d8755228baf"
     }
   },
   "locks": {
     "host.package-lock.json": "d9989035c508b703229a9e06463256d8b1302fdf616b97831b8283dc47962e2f",
-    "plugins.package-lock.json": "438791f17b59c678f9e6126c459f2cc181c832094de94296c07b19d563be282c"
+    "plugins.package-lock.json": "438791f17b59c678f9e6126c459f2cc181c832094de94296c07b19d563be282c",
+    "qmd.package-lock.json": "835f6032442952ac53994ef9bae80fffcc99740447bfc5a160983832657c57a3"
   },
   "imageBuilt": false,
   "installed": false,

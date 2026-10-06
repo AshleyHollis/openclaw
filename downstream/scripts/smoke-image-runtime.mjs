@@ -153,6 +153,24 @@ try {
   ) {
     throw new Error("QMD image runtime metadata disagrees");
   }
+  if (!includeDiscord) {
+    const runtimeLock = JSON.parse(await readFile("/opt/qmd-runtime/package-lock.json", "utf8"));
+    for (const [name, version] of Object.entries({
+      "simple-git": "4.0.1", "@simple-git/argv-parser": "2.0.1",
+      "@simple-git/args-pathspec": "1.0.4", "proxy-addr": "2.0.8",
+    })) {
+      const copies = Object.entries(runtimeLock.packages).filter(([key]) =>
+        key.endsWith(`/node_modules/${name}`));
+      if (!copies.length) throw new Error(`Missing locked QMD ${name}`);
+      for (const [relative, entry] of copies) {
+        const installed = JSON.parse(await readFile(
+          path.join("/opt/qmd-runtime", relative, "package.json"), "utf8"));
+        if (entry.version !== version || installed.version !== version) {
+          throw new Error(`Installed QMD ${name} differs from the reviewed root lock`);
+        }
+      }
+    }
+  }
 
   const inspected = runOpenClaw(["plugins", "inspect", "codex", "--json"], environment);
   const inspection = JSON.parse(inspected.stdout);
