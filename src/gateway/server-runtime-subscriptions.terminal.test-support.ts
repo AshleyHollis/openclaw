@@ -1,6 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { type AgentEventPayload, emitAgentEvent } from "../infra/agent-events.js";
+import { claimAgentRunContext } from "../infra/agent-run-registry.js";
 import { waitForChatAbortTerminalPersistence } from "./chat-abort-lifecycle-internal.js";
 import { removeChatAbortControllerEntry } from "./chat-abort.js";
 import { createGatewayServerActiveWorkInspectors } from "./server-active-work.js";
@@ -77,15 +78,20 @@ export function registerTerminalOwnershipTests(fixtures: {
         );
       });
       start(params);
-      const emitTerminal = (endedAt: number, projectSessionLifecycle?: boolean) =>
+      const emitTerminal = (endedAt: number, projectSessionLifecycle?: boolean) => {
+        claimAgentRunContext(runId, {
+          sessionKey,
+          sessionId: entry.sessionId,
+          projectSessionLifecycle,
+        });
         emitAgentEvent({
           runId,
           sessionKey,
           sessionId: entry.sessionId,
-          projectSessionLifecycle,
           stream: "lifecycle",
           data: { phase: "end", endedAt },
         });
+      };
       let newerResult: Promise<unknown> | undefined;
       try {
         emitTerminal(2_000);
