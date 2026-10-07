@@ -54,6 +54,7 @@ type VisibleAssistantStreamPart = {
   timestamp: number;
   segmentIndex?: number;
   itemId?: string;
+  pendingCommentaryPrefixFor?: string;
   runId?: string;
   afterBoundaryRunId?: string;
   boundaryRunId?: string;
@@ -268,6 +269,9 @@ export function visibleAssistantStreamParts(
         timestamp:
           typeof segment.ts === "number" && Number.isFinite(segment.ts) ? segment.ts : Date.now(),
         ...(itemId ? { itemId } : {}),
+        ...(segment.pendingCommentaryPrefixFor
+          ? { pendingCommentaryPrefixFor: segment.pendingCommentaryPrefixFor }
+          : {}),
         ...(segmentRunId ? { runId: segmentRunId } : {}),
         ...(afterBoundaryRunId ? { afterBoundaryRunId } : {}),
         ...(boundaryRunId ? { boundaryRunId } : {}),
@@ -520,18 +524,35 @@ export function materializeVisibleStreamState(
     if (opts.requirePersistedTool && toolIndex < 0) {
       continue;
     }
+    // Producer identity carries this prefix's causal position even when the
+    // durable commentary has no timestamp or the browser clock differs.
+    const commentaryIndex = part.pendingCommentaryPrefixFor
+      ? nextMessages.findIndex((message, index) => {
+          if (index < interval.start || index >= interval.end) {
+            return false;
+          }
+          const identity = readAssistantStreamSegmentIdentity(message);
+          return (
+            identity !== undefined &&
+            identity.itemId === part.pendingCommentaryPrefixFor &&
+            (!identity.runId || !part.runId || identity.runId === part.runId)
+          );
+        })
+      : -1;
     const insertIndex =
-      toolIndex >= 0
-        ? toolIndex
-        : part.source === "segment"
-          ? streamCausalInsertIndex(
-              nextMessages,
-              part.timestamp,
-              interval.start,
-              interval.end,
-              messageTimestampMs,
-            )
-          : interval.end;
+      commentaryIndex >= 0
+        ? commentaryIndex
+        : toolIndex >= 0
+          ? toolIndex
+          : part.source === "segment"
+            ? streamCausalInsertIndex(
+                nextMessages,
+                part.timestamp,
+                interval.start,
+                interval.end,
+                messageTimestampMs,
+              )
+            : interval.end;
     const afterSequence = nextMessages
       .slice(0, insertIndex)
       .map((message) => readSessionMessageIdentity(message)?.sequence)
