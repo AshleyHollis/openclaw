@@ -1,3 +1,4 @@
+import { readAssistantStreamSegmentIdentity } from "@openclaw/gateway-client/browser";
 import { asNullableRecord as asRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { composeTranscriptDisplay } from "../../../../src/chat/transcript-display-position.js";
@@ -159,6 +160,16 @@ export function buildChatItems(
   const persistedCanvasIdentities = new Set<string>();
   const normalizedHistory = history.map(safeNormalizeMessage);
   const historyItems = buildMessageItems(history);
+  const persistedCommentaryKeys = new Map<string, string>();
+  for (const [index, message] of history.entries()) {
+    const identity = readAssistantStreamSegmentIdentity(message);
+    if (identity) {
+      persistedCommentaryKeys.set(
+        `${identity.runId ?? ""}\^@${identity.itemId}`,
+        historyItems[index]!.key,
+      );
+    }
+  }
   let canvasTurn: {
     previews: { preview: CanvasToolPreview; item: (typeof historyItems)[number] }[];
     lastMatchingAssistantIndex: number;
@@ -466,6 +477,17 @@ export function buildChatItems(
   }
   const appendStreamSegment = (segment: ChatStreamSegment, key: string, text: string) => {
     const afterBoundaryRunId = afterBoundaryBySegment.get(segment);
+    const pendingItemId = normalizeOptionalString(segment.pendingCommentaryPrefixFor);
+    const persistedCommentaryKey = pendingItemId
+      ? (persistedCommentaryKeys.get(
+          `${normalizeOptionalString(segment.runId) ?? ""}\^@${pendingItemId}`,
+        ) ?? persistedCommentaryKeys.get(`\^@${pendingItemId}`))
+      : undefined;
+    const bounds = resolveProjectionBounds(
+      segment.runId,
+      segment.boundaryRunId,
+      afterBoundaryRunId,
+    );
     projections.push({
       item: {
         kind: "stream",
@@ -476,7 +498,7 @@ export function buildChatItems(
         ...optionalRunIdentity(segment.runId),
         ...optionalBoundaryIdentity(afterBoundaryRunId ?? segment.runId),
       },
-      bounds: resolveProjectionBounds(segment.runId, segment.boundaryRunId, afterBoundaryRunId),
+      bounds: persistedCommentaryKey ? { ...bounds, beforeKey: persistedCommentaryKey } : bounds,
     });
   };
   let previousAccumulatedStreamText: string | null = null;
