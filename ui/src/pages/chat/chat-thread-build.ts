@@ -165,7 +165,7 @@ export function buildChatItems(
     const identity = readAssistantStreamSegmentIdentity(message);
     if (identity) {
       persistedCommentaryKeys.set(
-        `${identity.runId ?? ""}\^@${identity.itemId}`,
+        `${identity.runId ?? ""}^@${identity.itemId}`,
         historyItems[index]!.key,
       );
     }
@@ -480,8 +480,8 @@ export function buildChatItems(
     const pendingItemId = normalizeOptionalString(segment.pendingCommentaryPrefixFor);
     const persistedCommentaryKey = pendingItemId
       ? (persistedCommentaryKeys.get(
-          `${normalizeOptionalString(segment.runId) ?? ""}\^@${pendingItemId}`,
-        ) ?? persistedCommentaryKeys.get(`\^@${pendingItemId}`))
+          `${normalizeOptionalString(segment.runId) ?? ""}^@${pendingItemId}`,
+        ) ?? persistedCommentaryKeys.get(`^@${pendingItemId}`))
       : undefined;
     const bounds = resolveProjectionBounds(
       segment.runId,
