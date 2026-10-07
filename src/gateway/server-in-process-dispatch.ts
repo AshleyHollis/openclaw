@@ -28,6 +28,7 @@ type InProcessGatewayDispatchOptions = {
   onSignalAbort?: () => Promise<void> | void;
   requestIdPrefix?: string;
   sessionMutationCommitGuard?: () => void;
+  sessionTranscriptSource?: import("./session-transcript-source-handoff.js").SessionTranscriptGatewaySource;
   assertCreatedInputSourceCurrent?: () => void;
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -218,6 +219,7 @@ export async function dispatchGatewayRequestInProcessRaw(
               context: options.context,
               methodRegistry: options.methodRegistry,
               sessionMutationCommitGuard: options.sessionMutationCommitGuard,
+              sessionTranscriptSource: options.sessionTranscriptSource,
               ...(options.hasCurrentClientAuthority
                 ? { hasCurrentClientAuthority: options.hasCurrentClientAuthority }
                 : {}),

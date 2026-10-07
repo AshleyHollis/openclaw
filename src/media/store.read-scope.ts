@@ -15,6 +15,7 @@ import {
   settleChannelReadResource,
 } from "../shared/channel-read-authority.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
+import { withInboundOriginalMutation } from "./inbound-original-custody.js";
 import { MEDIA_FILE_MODE } from "./store.shared.js";
 
 type ReadScope = NonNullable<ReturnType<typeof captureChannelReadScope>>;
@@ -60,6 +61,8 @@ export async function writeReadScopeMedia<T extends { id: string }>(params: {
   scope?: ReadScope;
   assertCommitAllowed?: () => void;
   durable?: boolean;
+  /** Native store-owned root; inbound final cleanup participates in original custody. */
+  inboundMediaRoot?: string;
   write: (handle: FileHandle) => Promise<T>;
 }): Promise<T> {
   const assertCurrent = () => {
@@ -146,13 +149,19 @@ export async function writeReadScopeMedia<T extends { id: string }>(params: {
                 continue;
               }
               try {
-                await mediaRoot.remove(name, {
-                  assertBeforeMutation: () => {
-                    assertCustody?.();
-                    assertMediaDirectory();
-                    assertOwnedFile?.(path.join(mediaRoot.rootReal, name));
-                  },
-                });
+                const remove = () =>
+                  mediaRoot.remove(name, {
+                    assertBeforeMutation: () => {
+                      assertCustody?.();
+                      assertMediaDirectory();
+                      assertOwnedFile?.(path.join(mediaRoot.rootReal, name));
+                    },
+                  });
+                if (name === finalId && params.inboundMediaRoot) {
+                  await withInboundOriginalMutation(params.inboundMediaRoot, remove);
+                } else {
+                  await remove();
+                }
               } catch (error) {
                 // A missing or substituted output is not ours to remove. Operational
                 // failures still reach the read owner's cleanup diagnostics.
@@ -204,6 +213,11 @@ export async function writeReadScopeMedia<T extends { id: string }>(params: {
     cleanupAtExit = () => {
       for (const name of [finalId, temporaryName]) {
         if (!name) {
+          continue;
+        }
+        // Exit cannot join the asynchronous cross-process owner. Leave inbound
+        // finals to its lock-aware prune; staging and outbound cleanup stay local.
+        if (name === finalId && params.inboundMediaRoot) {
           continue;
         }
         try {

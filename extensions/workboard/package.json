@@ -39,7 +39,8 @@
     },
     "build": {
       "workerEntries": [
-        "./src/sqlite-store.worker.ts"
+        "./src/sqlite-store.worker.ts",
+        "./src/sqlite-store-source.worker.ts"
       ]
     }
   }

@@ -55,6 +55,7 @@ export type DispatchGatewayMethodInProcessOptions = {
   hasCurrentClientAuthority?: GatewayRequestOptions["hasCurrentClientAuthority"];
   resolveGatewayContext?: GatewayContextResolver;
   sessionMutationCommitGuard?: () => void;
+  sessionTranscriptSource?: import("./session-transcript-source-handoff.js").SessionTranscriptGatewaySource;
 };
 
 export type ResolvedInProcessGatewayDispatch = {

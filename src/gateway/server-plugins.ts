@@ -58,6 +58,10 @@ import {
   openGatewayNodeDuplex,
   projectGatewayRuntimeNodes,
 } from "./server-plugins-node-runtime.js";
+import {
+  assertSessionTranscriptGatewaySource,
+  SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION,
+} from "./session-transcript-source-handoff.js";
 
 export {
   dispatchGatewayMethodInProcess,
@@ -97,8 +101,56 @@ export async function dispatchTrustedPluginGatewayMethod<T>(
     );
   }
   const syntheticScopes = normalizeOperatorScopeList(options?.scopes);
+  let sessionTranscriptSource = options?.sessionTranscriptSource;
+  const hasSessionTranscriptSource = sessionTranscriptSource !== undefined;
+  if (sessionTranscriptSource !== undefined) {
+    // The in-process adapter copies client attribution while adding plugin metadata.
+    // Retain the live originating transport independently of that request projection.
+    const originalSource = sessionTranscriptSource;
+    const originalGuard = originalSource.assertCurrent;
+    const selection = Object.freeze({ ...originalSource.selection });
+    const client = scope?.client;
+    const userId = client?.authenticatedUserId;
+    const profileId = client?.authenticatedUserProfile?.profileId;
+    const connId = client?.connId;
+    const assertOriginCurrent = () => {
+      if (
+        !client ||
+        scope?.client !== client ||
+        scope?.hasCurrentClientAuthority?.() === false ||
+        client.authenticatedUserId !== userId ||
+        client.authenticatedUserProfile?.profileId !== profileId ||
+        client.connId !== connId
+      ) {
+        throw new Error("Transcript source handoff originating requester changed");
+      }
+    };
+    assertOriginCurrent();
+    assertSessionTranscriptGatewaySource(method, originalSource);
+    assertOriginCurrent();
+    if (originalSource.assertCurrent !== originalGuard) {
+      throw new Error("Transcript source handoff captured authority changed");
+    }
+    const capturedSource = { selection, assertCurrent: originalGuard.bind(originalSource) };
+    sessionTranscriptSource = {
+      selection,
+      assertCurrent() {
+        assertOriginCurrent();
+        assertSessionTranscriptGatewaySource(method, capturedSource);
+        assertOriginCurrent();
+      },
+    };
+    assertSessionTranscriptGatewaySource(method, sessionTranscriptSource);
+  }
   return await dispatchGatewayMethodInProcess<T>(method, params, {
-    forceSyntheticClient: true,
+    forceSyntheticClient: !hasSessionTranscriptSource,
+    ...(hasSessionTranscriptSource
+      ? {
+          disableSyntheticClient: true,
+          requireScopedClient: true,
+          sessionTranscriptSource,
+        }
+      : {}),
     pluginRuntimeOwnerId: pluginId,
     resolveGatewayContext,
     ...(!scope?.client ? { operatorRoleActor: { kind: "system" as const } } : {}),
@@ -229,6 +281,8 @@ function createGatewayPluginRuntimeBindings(
           : await run();
       },
       gateway: {
+        sessionTranscriptSourceAdmissionVersion:
+          SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION,
         isAvailable: async () => hasInProcessGatewayContext(resolveBoundGatewayContext),
         request: (method, params, options) =>
           dispatchTrustedPluginGatewayMethod(method, params, options, resolveBoundGatewayContext),

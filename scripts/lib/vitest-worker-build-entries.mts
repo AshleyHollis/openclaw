@@ -10,6 +10,7 @@ import { busServerShutdownEntrypoint } from "../../extensions/qa-lab/src/bus-ser
 import { qaGatewayCleanupRuntimeEntrypoint } from "../../extensions/qa-lab/src/gateway-child-artifacts-runtime.test-support.ts";
 import { teamReportsSqliteBackendEntrypoint } from "../../extensions/team-reports/src/sqlite-backend-entrypoint.test-support.ts";
 import { workboardSqliteBackendEntrypoint } from "../../extensions/workboard/src/sqlite-backend-entrypoint.test-support.ts";
+import { workboardSqliteSourceEntrypoint } from "../../extensions/workboard/src/sqlite-source-entrypoint.ts";
 import { agentCoreRetentionEntrypoints } from "../../packages/agent-core/src/retention-runtime.test-support.ts";
 import { cleanForGeminiEntrypoint } from "../../packages/ai/src/providers/clean-for-gemini-runtime.test-support.ts";
 import { eventStreamRetentionEntrypoint } from "../../packages/llm-core/src/retention-runtime.test-support.ts";
@@ -347,6 +348,7 @@ export const vitestWorkerBuildEntries = {
     logbookSqliteBackendEntrypoint,
     teamReportsSqliteBackendEntrypoint,
     workboardSqliteBackendEntrypoint,
+    workboardSqliteSourceEntrypoint,
     ...Object.values(agentDatabaseModuleIdentityEntrypoints),
     stateLeaseProcessExitRuntimeEntrypoint,
     stateLeaseRetentionRuntimeEntrypoint,

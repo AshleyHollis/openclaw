@@ -313,7 +313,9 @@ export async function prepareGatewaySessionAccessAuthority(request: {
               expectedProfileId: profileId,
               isCreator: sharing.isCreator,
             })) ||
-          sharing.authorizeTarget(current)
+          (params.policy.mode === "read"
+            ? sharing.entryFilter?.(current.canonicalKey, current.entry) === false
+            : sharing.authorizeTarget(current))
         ) {
           denied();
         }

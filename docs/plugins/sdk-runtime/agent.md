@@ -373,3 +373,51 @@ Catalog list publishers use `createSessionCatalogSourceActorProjector({ pluginId
 
   </Accordion>
 </AccordionGroup>
+
+## Accepted attachment admission v1
+
+`openclaw/plugin-sdk/session-transcript-runtime` exports
+`prepareAcceptedSessionAttachmentAdmission(selection, capturedNativeAuthority)`,
+`ACCEPTED_SESSION_ATTACHMENT_ADMISSION_VERSION` (`1`) and
+`ACCEPTED_SESSION_ATTACHMENT_MAX_BYTES` (`5 * 1024 * 1024`). A consumer must verify
+the supported contract before enabling an attachment publication feature.
+
+The selection contains exact `agentId`, `sessionKey`, `sessionId`, `entryId`,
+projection `generation`, zero-based `mediaIndex` and canonical inbound `mediaRef`.
+It contains no path, digest or serialized authority. The native worker reads only
+that selected USER entry and its canonical `message.__openclaw.media` slot;
+sparse slots preserve their indices. Preparation rejects hidden USER messages,
+non-user entries, stale projections, incognito sessions, mismatched references
+and originals above 5 MiB. It never scans or restores transcript history.
+
+`capturedNativeAuthority.assertCurrent(selection)` is a synchronous host closure
+checking current principal, cancellation, revocation and native owner identity.
+The optional `config` and `env` belong to that captured host owner, not tool or HTTP
+JSON. This guard must not read transcripts, dispatch native workers, return a
+Promise or wait for asynchronous work: publication invokes it while the source
+worker holds its SQLite writer lock.
+
+Preparation returns an `AcceptedSessionAttachmentAdmission` with native-derived
+`originalDigest` (`sha256:<hex>`), `sizeBytes`, `getOriginalBytes()`,
+`publish(effect: () => void): Promise<void>` and `close(): Promise<void>`.
+`getOriginalBytes()` returns a detached bounded copy for staging before
+publication; that copy grants no admission. `publish` is single-use and settles
+only after the source worker and original-media custody have joined. The source
+lock revalidates the whole selected message and spans the exact synchronous host
+effect; original custody also rechecks its retained inode and bytes.
+
+The effect may perform synchronous destination publication and its synchronous
+rollback. It must finish rollback before throwing, must not start asynchronous
+work or read the paused source worker, and must not delete or mutate the inbound
+original. Outer staging cleanup owns only detached staging and destination
+artifacts; it cannot touch the original after custody releases. Retained consumer
+effect closures need their own once/active guard, revoked when the awaited
+publication settles.
+
+`AcceptedSessionAttachmentPublicationError.effectState` records `not-entered`,
+`entered` or `completed`, including cleanup and response-loss failures. An
+`entered` or `completed` failure requires reconciliation with the existing
+destination owner before retrying; it does not attest rollback. `close()` revokes
+the capability immediately and joins in-flight native work before releasing
+custody. Consumers must await it in their existing recovery lifecycle. This API
+does not itself activate a consumer feature or qualify an installed pair.
