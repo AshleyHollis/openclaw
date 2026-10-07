@@ -80,7 +80,10 @@ export type ControlUiSessionListSubscription = {
 export type ControlUiAgent = Readonly<AgentSummary>;
 export type ControlUiPageTarget = {
   id: string;
-  params?: Readonly<Record<string, string>>;
+  /** Explicit owner of an advertised native page; omitted targets belong to this plugin. */
+  pluginId?: string;
+  /** A null value removes that parameter when preserving the current query. */
+  params?: Readonly<Record<string, string | null>>;
   /** Unescaped path segments for a page with an advertised native route placement. */
   path?: readonly string[];
 };

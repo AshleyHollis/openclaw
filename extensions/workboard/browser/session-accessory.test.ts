@@ -112,6 +112,8 @@ it("renders shared card updates and retires navigation while hidden or disposed"
     expect(link.textContent).toContain("Review");
     link.click();
     expect(fixture.host.navigation.openPage).toHaveBeenCalledWith({
+      pluginId: "workboard",
+      params: { cardId: null, tenant: null },
       id: "workboard",
       path: ["platform"],
     });

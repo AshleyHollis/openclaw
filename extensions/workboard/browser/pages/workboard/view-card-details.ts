@@ -67,6 +67,13 @@ const workboardCardDetailDescriptionId = "workboard-card-detail-description";
 const detailDrawerRefs = new WeakMap<WorkboardUiState, Ref<HTMLElement>>();
 const inlineDiscardOpen = new WeakMap<WorkboardUiState, () => void>();
 
+export function hasCardDetailEdits(state: WorkboardUiState): boolean {
+  const editors = detailDrawerRefs
+    .get(state)
+    ?.value?.querySelectorAll<WorkboardInlineText>("workboard-inline-text");
+  return [...(editors ?? [])].some((editor) => editor.hasUnsavedChanges || editor.pendingSave);
+}
+
 export function openCardDetails(state: WorkboardUiState, card: WorkboardCard) {
   inlineDiscardOpen.delete(state);
   state.detailCardId = card.id;

@@ -260,6 +260,7 @@ export class WorkboardInlineText extends LitElement {
     const previousFocus = document.activeElement;
     this.querySelector<HTMLElement>(".workboard-detail__labels-popover")?.hidePopover();
     this.editing = false;
+    this.props.owner.onRequestUpdate?.();
     void this.updateComplete.then(() => {
       if (
         restoreFocus &&
