@@ -128,6 +128,8 @@ type RuntimeNodeDuplexChannel = {
 
 export type RuntimeGatewayRequestOptions = {
   timeoutMs?: number;
+  /** Exact source selection and synchronous captured host authority; never RPC JSON. */
+  sessionTranscriptSource?: import("../../gateway/session-transcript-source-handoff.js").SessionTranscriptGatewaySource;
   /** Requested Gateway scopes. Honored only for bundled or trusted official plugins. */
   scopes?: OperatorScope[];
 };
@@ -135,6 +137,8 @@ export type RuntimeGatewayRequestOptions = {
 /** Trusted in-process runtime surface injected into native plugins. */
 export type PluginRuntime = PluginRuntimeCore & {
   gateway: {
+    /** Actual host support; absent on older or independently injected adapters. */
+    readonly sessionTranscriptSourceAdmissionVersion?: 1;
     /** Whether this process owns an active Gateway request context. */
     isAvailable: () => Promise<boolean>;
     /** Dispatch a Gateway method as the current trusted plugin. */

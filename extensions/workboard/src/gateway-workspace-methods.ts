@@ -49,6 +49,15 @@ export function registerWorkboardWorkspaceCardMethods(params: WorkspaceGatewayMe
       "workboard.cards.create",
       WRITE_SCOPE,
       async (request) => {
+        if (
+          request.params.sourceAdmission !== undefined ||
+          request.params.sessionTranscriptSource !== undefined ||
+          request.params.takeSessionTranscriptSourceAdmission !== undefined
+        ) {
+          throw new Error(
+            "Transcript source authority cannot be supplied in Workboard request JSON.",
+          );
+        }
         const input = withoutWorkboardWorkspaceAccess(request.params);
         const access = await resolveGatewayWorkspaceMutationAccess(request, input);
         return {
@@ -57,6 +66,7 @@ export function registerWorkboardWorkspaceCardMethods(params: WorkspaceGatewayMe
               withWorkboardWorkspaceAccess(input, access),
               undefined,
               request.sessionMutationAuthorization?.assertCurrent,
+              request.takeSessionTranscriptSourceAdmission?.(),
             ),
           ),
         };

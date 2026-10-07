@@ -26,6 +26,28 @@ type RequestMutationOptions = Pick<
   "req" | "client" | "signal" | "hasCurrentClientAuthority" | "sessionMutationCommitGuard"
 >;
 
+/** Session reads retain their authorization until response publication. */
+export function createSessionMutationAuthorizedResponse(
+  sessionScope: SessionOperatorScope | undefined,
+  authorization: SessionMutationAuthorization | undefined,
+  respond: GatewayRequestOptions["respond"],
+): GatewayRequestOptions["respond"] {
+  return sessionScope === "operator.sessions.read"
+    ? (...response) => {
+        try {
+          authorization?.assertCurrent();
+        } catch (error) {
+          if (!(error instanceof SessionMutationAuthorizationChangedError)) {
+            throw error;
+          }
+          respond(false, undefined, error.error);
+          return;
+        }
+        respond(...response);
+      }
+    : respond;
+}
+
 type RequestMutationAuthorityBase = {
   assertCurrent: () => void;
   /** Original transport/SDK lifetime; prepared-profile methods check selection separately. */

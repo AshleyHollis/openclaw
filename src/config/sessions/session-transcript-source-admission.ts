@@ -196,7 +196,7 @@ export async function prepareSessionTranscriptSourceAdmission(
     // Only this owner mints capabilities. close revokes retained callers before awaiting native release.
     const capability = Object.freeze({
       close: () => source.close(),
-    }) as PreparedSessionTranscriptSourceAdmission;
+    }) as PreparedSessionTranscriptSourceAdmission; // SAFETY: WeakMap brands this owner-issued object.
     preparedSources.set(capability, source);
     transferred = true;
     return capability;
