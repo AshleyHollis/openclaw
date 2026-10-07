@@ -3478,34 +3478,15 @@ jobs:
         if: needs.preflight.outputs.ui_test_runtime_policy == 'bun-compatible' || needs.preflight.outputs.ui_test_runtime_policy == 'dual'
         uses: ./.ci-harness/.github/actions/setup-test-bun
 
-      - &cache_playwright_chromium
-        name: Cache Playwright Chromium
-        if: needs.preflight.outputs.cache_mode != 'off' && needs.preflight.outputs.compatibility_target != 'true'
-        uses: *cache_restore
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-chromium-1.63.0
-
       - &install_playwright_chromium
         name: Install Playwright Chromium
         timeout-minutes: 15
         env:
           PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT: "120000"
-          FROZEN_TARGET: *frozen_target
-        run: |
-          if [[ "${COMPATIBILITY_TARGET:-false}" == "true" ]]; then
-            # Legacy Vitest configs cannot pass a discovered system browser to Playwright.
-            # Install the managed browser revision pinned by the selected target instead.
-            pnpm --dir ui exec playwright install chromium
-          elif [[ -f scripts/ensure-playwright-chromium.mts ]]; then
-            # A cache miss must not substitute the runner image's unrelated Chromium revision.
-            node --import tsx scripts/ensure-playwright-chromium.mts --require-playwright-chromium
-          elif [[ "$FROZEN_TARGET" == "true" && -f scripts/ensure-playwright-chromium.mjs ]]; then
-            node scripts/ensure-playwright-chromium.mjs
-          else
-            echo "Target does not provide a supported Playwright Chromium installer." >&2
-            exit 1
-          fi
+        uses: ./.ci-harness/.github/actions/setup-playwright-chromium
+        with:
+          cache-mode: *cache_mode
+          compatibility-target: *historical_target
 
       - name: Lint Control UI window.open usage
         if: ${{ matrix.shard == 1 }}
@@ -3568,7 +3549,6 @@ jobs:
           dependency-cache: &trusted_first_attempt_dependency_cache ${{ ((needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' || runner.environment != 'self-hosted' || (github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) || (github.event_name == 'pull_request' && github.run_attempt > 1)) && 'false' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'openclaw/openclaw') && 'true' || 'false') }}
           restore-test-caches: *restore_test_caches
 
-      - *cache_playwright_chromium
       - *install_playwright_chromium
 
       - name: Test Control UI end-to-end
@@ -3660,7 +3640,6 @@ jobs:
           install-bun: "false"
           dependency-cache: *trusted_first_attempt_dependency_cache
 
-      - *cache_playwright_chromium
       - *install_playwright_chromium
 
       - name: Build runtime and Control UI artifacts for real-Gateway tests
@@ -3921,6 +3900,10 @@ jobs:
           echo "RATCHET_BASE_REF=${frozen_base_sha}" >> "$GITHUB_ENV"
 
       - *linux_node_setup_step
+
+      - name: Install ripgrep for baseline ratchets
+        if: runner.os == 'Linux'
+        uses: ./.ci-harness/.github/actions/setup-ripgrep
 
       - name: Run baseline ratchets
         env:
@@ -4570,14 +4553,7 @@ jobs:
       - name: Install ripgrep for native grep tests
         timeout-minutes: 10
         if: matrix.requires_ripgrep == true && runner.os == 'Linux'
-        shell: bash
-        run: |
-          if command -v rg >/dev/null 2>&1; then
-            exit 0
-          fi
-          apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=120 -o Acquire::https::Timeout=120 -o DPkg::Lock::Timeout=120)
-          sudo apt-get update -qq "${apt_options[@]}"
-          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ripgrep "${apt_options[@]}"
+        uses: ./.ci-harness/.github/actions/setup-ripgrep
 
       - name: Prepare Docker sandbox image
         if: matrix.requires_sandbox_image == true && runner.os == 'Linux'

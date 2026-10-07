@@ -10478,7 +10478,7 @@ describe("package artifact reuse", () => {
     );
     expect(chromiumInstall).toMatchObject({
       if: expect.stringContaining("matrix.suite_id == 'native-live-extensions-a-k'"),
-      run: "pnpm --dir ui exec playwright install --with-deps chromium",
+      uses: "./.release-harness/.github/actions/setup-playwright-chromium",
     });
     const mediaStepNames = mediaLiveJob.steps?.map((step) => step.name) ?? [];
     expect(mediaStepNames.indexOf(chromiumInstall.name)).toBeGreaterThan(
@@ -10593,7 +10593,8 @@ describe("package artifact reuse", () => {
       "Checkout trusted artifact harness",
     );
     expect(repoE2eHarnessCheckout.with).toMatchObject({
-      "sparse-checkout": "/package.json\n/scripts/\n/src/shared/non-packaged-plugin-dirs.ts\n",
+      "sparse-checkout":
+        "/.github/actions/setup-playwright-chromium/\n/package.json\n/scripts/\n/src/shared/non-packaged-plugin-dirs.ts\n",
       "sparse-checkout-cone-mode": false,
     });
     expect(workflow).toContain("suite_id: native-live-src-gateway-core");
