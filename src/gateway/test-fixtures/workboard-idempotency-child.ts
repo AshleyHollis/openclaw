@@ -107,7 +107,7 @@ process.on(
           }
           await Promise.all(disposals.map(async (dispose) => await dispose()));
           process.send?.({ id: message.id, stopped: true });
-          process.disconnect();
+          process.disconnect?.();
           return;
         }
         process.send?.({

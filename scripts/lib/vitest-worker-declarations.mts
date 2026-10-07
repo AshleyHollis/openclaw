@@ -117,6 +117,8 @@ export const vitestWorkerDeclarationEntries = {
     "extensions/team-reports/src/sqlite-backend-entrypoint.test-support.ts",
   "extensions/workboard/sqlite-backend-entrypoint.test-support":
     "extensions/workboard/src/sqlite-backend-entrypoint.test-support.ts",
+  "extensions/workboard/sqlite-source-entrypoint":
+    "extensions/workboard/src/sqlite-source-entrypoint.ts",
   "infra/update-managed-service-handoff-runtime-assets":
     "src/infra/update-managed-service-handoff-runtime-assets.ts",
   "infra/package-update-activation-runtime-assets":

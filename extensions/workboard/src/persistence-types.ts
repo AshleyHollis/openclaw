@@ -4,6 +4,7 @@ import type {
   WorkboardCard,
   WorkboardNotificationSubscription,
 } from "@openclaw/workboard-contract";
+import type { PreparedSessionTranscriptSourceAdmission } from "openclaw/plugin-sdk/session-transcript-runtime";
 
 /**
  * Guard the first accepted write (including CAS retries), then allow its settlement.
@@ -12,6 +13,7 @@ import type {
 export type WorkboardWriteAuthority = <T>(
   assertCurrent: () => void,
   run: () => Promise<T>,
+  sourceAdmission?: PreparedSessionTranscriptSourceAdmission,
 ) => Promise<T>;
 
 export type PersistedWorkboardCard = {

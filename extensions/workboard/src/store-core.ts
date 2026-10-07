@@ -457,12 +457,19 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     input: WorkboardLinkedCreateInput,
     scope?: WorkboardMutationScope,
     assertOwnerCurrent?: () => void,
+    sourceAdmission?: import("openclaw/plugin-sdk/session-transcript-runtime").PreparedSessionTranscriptSourceAdmission,
   ): Promise<WorkboardCard> {
-    return await this.enqueueMutation(
-      async () =>
-        await this.withCardCompensation(async () => await this.createDirect(input, scope)),
-      assertOwnerCurrent,
-    );
+    // Supplying native source custody transfers it to this entire attempt, including refusal.
+    try {
+      return await this.enqueueMutation(
+        async () =>
+          await this.withCardCompensation(async () => await this.createDirect(input, scope)),
+        assertOwnerCurrent,
+        sourceAdmission,
+      );
+    } finally {
+      await sourceAdmission?.close();
+    }
   }
 
   protected async createDirect(

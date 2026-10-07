@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import type { WorkboardChange } from "@openclaw/workboard-contract";
+import type { PreparedSessionTranscriptSourceAdmission } from "openclaw/plugin-sdk/session-transcript-runtime";
 import type {
   WorkboardCardStore,
   WorkboardKeyedStore,
@@ -161,10 +162,15 @@ export class WorkboardStoreRuntime {
   protected async enqueueMutation<T>(
     run: () => Promise<T>,
     assertCurrent?: () => void,
+    sourceAdmission?: PreparedSessionTranscriptSourceAdmission,
   ): Promise<T> {
     return await this.runOperation(async () => {
       const runAndNotify = async () =>
-        await this.withMutationAuthority(async () => await this.runMutation(run), assertCurrent);
+        await this.withMutationAuthority(
+          async () => await this.runMutation(run),
+          assertCurrent,
+          sourceAdmission,
+        );
       const result = this.mutationQueue.then(runAndNotify, runAndNotify);
       this.mutationQueue = result.then(
         () => undefined,
@@ -177,14 +183,18 @@ export class WorkboardStoreRuntime {
   protected async withMutationAuthority<T>(
     run: () => Promise<T>,
     assertCurrent?: () => void,
+    sourceAdmission?: PreparedSessionTranscriptSourceAdmission,
   ): Promise<T> {
     if (!assertCurrent) {
+      if (sourceAdmission) {
+        throw new Error("Workboard source admission requires current-owner authority.");
+      }
       return await run();
     }
     if (!this.runWithWriteAuthority) {
       throw new Error("Workboard persistence does not support current-owner admission.");
     }
-    return await this.runWithWriteAuthority(assertCurrent, run);
+    return await this.runWithWriteAuthority(assertCurrent, run, sourceAdmission);
   }
 
   private async runMutation<T>(run: () => Promise<T>): Promise<T> {

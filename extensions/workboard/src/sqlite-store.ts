@@ -1,6 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { extractErrorCode } from "openclaw/plugin-sdk/error-runtime";
+import { resolveRuntimeWorkerUrl } from "openclaw/plugin-sdk/process-runtime";
+import {
+  runSessionTranscriptSourceAdmissionOperation,
+  type PreparedSessionTranscriptSourceAdmission,
+} from "openclaw/plugin-sdk/session-transcript-runtime";
 import {
   openSqliteWorkerStore,
   runSqliteWorkerStoreOperation,
@@ -14,6 +20,7 @@ import type {
   WorkboardSubscriptionStore,
   WorkboardWriteAuthority,
 } from "./persistence-types.js";
+import { workboardSqliteSourceEntrypoint } from "./sqlite-source-entrypoint.js";
 import type {
   WorkboardSqliteOperations,
   WorkboardSqliteWorkerOperations,
@@ -50,7 +57,11 @@ export function createWorkboardSqliteStores(options: {
   let openingFailure: { error: unknown } | undefined;
   let closing: Promise<void> | undefined;
   const operations = new Set<Promise<unknown>>();
-  const writeAuthority = new AsyncLocalStorage<{ active: boolean; assertCurrent?: () => void }>();
+  const writeAuthority = new AsyncLocalStorage<{
+    active: boolean;
+    assertCurrent?: () => void;
+    sourceAdmission?: PreparedSessionTranscriptSourceAdmission;
+  }>();
   async function cleanup() {
     // Rejected admission stays broker-owned; this facade received no lease to release.
     const store = await worker.catch(() => undefined);
@@ -122,24 +133,56 @@ export function createWorkboardSqliteStores(options: {
       }
       authority.assertCurrent?.();
     };
+    const sourceAdmission = authority.sourceAdmission;
+    const sourceWorker = async () => {
+      if (
+        type !== "cards.register" &&
+        type !== "cards.registerIfAbsent" &&
+        type !== "cards.registerIdempotent"
+      ) {
+        throw new Error("Workboard source admission only accepts card creation.");
+      }
+      const canonicalPath = await realpath(databasePath);
+      const identity = await stat(canonicalPath, { bigint: true });
+      assertCurrent();
+      return await runSessionTranscriptSourceAdmissionOperation<WorkboardSqliteWorkerOperations, K>(
+        sourceAdmission!,
+        {
+          moduleUrl: resolveRuntimeWorkerUrl(workboardSqliteSourceEntrypoint),
+          input: {
+            databasePath: canonicalPath,
+            destinationIdentity: {
+              dev: identity.dev.toString(),
+              ino: identity.ino.toString(),
+              birthtime: identity.birthtimeNs.toString(),
+            },
+          },
+        },
+        { type, input },
+        assertCurrent,
+      );
+    };
     const result = unwrapWorkboardSqliteResult(
-      type.startsWith("cards.")
-        ? await runSqliteWorkerStoreWrite(
-            store,
-            (scope) => scope.execute({ type, input: { ...input, guarded: true } }),
-            assertCurrent,
-            [databasePath],
-          )
-        : await runSqliteWorkerStoreOperation(
-            store,
-            (scope) => scope.execute({ type, input }),
-            undefined,
-            assertCurrent,
-          ),
+      sourceAdmission
+        ? await sourceWorker()
+        : type.startsWith("cards.")
+          ? await runSqliteWorkerStoreWrite(
+              store,
+              (scope) => scope.execute({ type, input: { ...input, guarded: true } }),
+              assertCurrent,
+              [databasePath],
+            )
+          : await runSqliteWorkerStoreOperation(
+              store,
+              (scope) => scope.execute({ type, input }),
+              undefined,
+              assertCurrent,
+            ),
     );
     // A rejected comparison has accepted no mutation; a retry still needs authority.
     if (result !== false && result !== "conflict" && result !== "owner_busy") {
       authority.assertCurrent = undefined;
+      authority.sourceAdmission = undefined;
     }
     return result;
   }
@@ -168,15 +211,21 @@ export function createWorkboardSqliteStores(options: {
     return (...args) => run(args, operation);
   }
   return {
-    async runWithWriteAuthority(assertCurrent, operation) {
-      const authority: { active: boolean; assertCurrent?: () => void } = {
+    async runWithWriteAuthority(assertCurrent, operation, sourceAdmission) {
+      const authority: {
+        active: boolean;
+        assertCurrent?: () => void;
+        sourceAdmission?: PreparedSessionTranscriptSourceAdmission;
+      } = {
         active: true,
         assertCurrent,
+        sourceAdmission,
       };
       try {
         return await writeAuthority.run(authority, operation);
       } finally {
         authority.active = false;
+        await sourceAdmission?.close();
       }
     },
     ready,
