@@ -129,7 +129,7 @@ export function createGatewaySessionTranscriptSourceHandoffOwner(request: Gatewa
 }
 
 /** The authenticated router owns preparation, transfer and settlement of this invocation. */
-export async function prepareGatewaySessionTranscriptSourceHandoff(
+async function prepareGatewaySessionTranscriptSourceHandoff(
   request: GatewayRequestOptions,
   source: SessionTranscriptGatewaySource,
   assertWriteCurrent: () => void,
