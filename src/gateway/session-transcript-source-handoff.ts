@@ -114,8 +114,9 @@ export function createGatewaySessionTranscriptSourceHandoffOwner(request: Gatewa
         authorization.assertCurrent,
       );
     },
-    get take() {
-      return handoff?.take;
+    get take(): (() => PreparedSessionTranscriptSourceAdmission) | undefined {
+      const prepared = handoff;
+      return prepared ? () => prepared.take() : undefined;
     },
     async close(settle: () => void) {
       try {
@@ -128,7 +129,7 @@ export function createGatewaySessionTranscriptSourceHandoffOwner(request: Gatewa
 }
 
 /** The authenticated router owns preparation, transfer and settlement of this invocation. */
-export async function prepareGatewaySessionTranscriptSourceHandoff(
+async function prepareGatewaySessionTranscriptSourceHandoff(
   request: GatewayRequestOptions,
   source: SessionTranscriptGatewaySource,
   assertWriteCurrent: () => void,

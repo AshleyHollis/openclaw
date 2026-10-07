@@ -195,12 +195,14 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
     ),
     publicExports: readPluginSdkSurfaceBudgetEnv(
       "OPENCLAW_PLUGIN_SDK_MAX_PUBLIC_EXPORTS",
-      4591,
+      // +3: Gateway source-admission version, availability assertion, and source type.
+      4594,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
       "OPENCLAW_PLUGIN_SDK_MAX_PUBLIC_FUNCTION_EXPORTS",
-      2695,
+      // +1: the Gateway source-admission availability assertion.
+      2696,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
