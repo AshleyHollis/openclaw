@@ -165,6 +165,23 @@ applicable policy also requires fresh publication admission.
     );
     ```
 
+    Entitled external plugins use `dispatchGatewayMethod` from
+    `openclaw/plugin-sdk/gateway-method-runtime`, with the same host-only
+    `sessionTranscriptSource` third-argument option. Their actual injected
+    `api.runtime.gateway.authenticatedSessionTranscriptSourceAdmissionVersion`
+    must equal `1`, and the imported dispatcher must be available, before a
+    consumer reserves its journal or enables the operation. The existing
+    `sessionTranscriptSourceAdmissionVersion` marker describes the trusted
+    `request` path and does not establish support for this external path.
+    Current entitlement or the exact registered method allowlist and a current
+    authenticated scoped client remain required. External `gateway.request`
+    calls remain refused; this option grants no synthetic scopes or plugin trust.
+
+    The public dispatcher returns `{ ok, payload, error, meta }`. Consumers must
+    unwrap `payload` only when `ok` is true and preserve the error envelope on
+    refusal. They must not serialize source selection/current-authority sideband
+    into RPC params, pass an opaque admission capability, or retry a potentially
+    committed create without the existing exact idempotency/readback owner.
     `selection` is the transcript owner's exact `{ agentId, sessionKey, sessionId,
     entryId, generation, digest }` identity, using `sha256-public-message-v1`.
     `assertCurrent` is a captured synchronous host closure for the consumer's current

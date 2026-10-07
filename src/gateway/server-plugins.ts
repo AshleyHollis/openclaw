@@ -59,7 +59,7 @@ import {
   projectGatewayRuntimeNodes,
 } from "./server-plugins-node-runtime.js";
 import {
-  assertSessionTranscriptGatewaySource,
+  captureScopedSessionTranscriptGatewaySource,
   SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION,
 } from "./session-transcript-source-handoff.js";
 
@@ -100,48 +100,13 @@ export async function dispatchTrustedPluginGatewayMethod<T>(
       } See https://docs.openclaw.ai/plugins/sdk-runtime#api-runtime-gateway`,
     );
   }
-  const syntheticScopes = normalizeOperatorScopeList(options?.scopes);
-  let sessionTranscriptSource = options?.sessionTranscriptSource;
+  const sessionTranscriptSource = captureScopedSessionTranscriptGatewaySource(
+    method,
+    options,
+    scope,
+  );
   const hasSessionTranscriptSource = sessionTranscriptSource !== undefined;
-  if (sessionTranscriptSource !== undefined) {
-    // The in-process adapter copies client attribution while adding plugin metadata.
-    // Retain the live originating transport independently of that request projection.
-    const originalSource = sessionTranscriptSource;
-    const originalGuard = originalSource.assertCurrent;
-    const selection = Object.freeze({ ...originalSource.selection });
-    const client = scope?.client;
-    const userId = client?.authenticatedUserId;
-    const profileId = client?.authenticatedUserProfile?.profileId;
-    const connId = client?.connId;
-    const assertOriginCurrent = () => {
-      if (
-        !client ||
-        scope?.client !== client ||
-        scope?.hasCurrentClientAuthority?.() === false ||
-        client.authenticatedUserId !== userId ||
-        client.authenticatedUserProfile?.profileId !== profileId ||
-        client.connId !== connId
-      ) {
-        throw new Error("Transcript source handoff originating requester changed");
-      }
-    };
-    assertOriginCurrent();
-    assertSessionTranscriptGatewaySource(method, originalSource);
-    assertOriginCurrent();
-    if (originalSource.assertCurrent !== originalGuard) {
-      throw new Error("Transcript source handoff captured authority changed");
-    }
-    const capturedSource = { selection, assertCurrent: originalGuard.bind(originalSource) };
-    sessionTranscriptSource = {
-      selection,
-      assertCurrent() {
-        assertOriginCurrent();
-        assertSessionTranscriptGatewaySource(method, capturedSource);
-        assertOriginCurrent();
-      },
-    };
-    assertSessionTranscriptGatewaySource(method, sessionTranscriptSource);
-  }
+  const syntheticScopes = normalizeOperatorScopeList(options?.scopes);
   return await dispatchGatewayMethodInProcess<T>(method, params, {
     forceSyntheticClient: !hasSessionTranscriptSource,
     ...(hasSessionTranscriptSource
@@ -281,6 +246,7 @@ function createGatewayPluginRuntimeBindings(
           : await run();
       },
       gateway: {
+        authenticatedSessionTranscriptSourceAdmissionVersion: 1,
         sessionTranscriptSourceAdmissionVersion:
           SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION,
         isAvailable: async () => hasInProcessGatewayContext(resolveBoundGatewayContext),
