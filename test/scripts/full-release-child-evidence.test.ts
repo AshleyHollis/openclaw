@@ -286,6 +286,7 @@ describe("full release child evidence producer", () => {
     (runAttempt) => {
       const data = fixture();
       data.run.run_attempt = runAttempt;
+      data.run.status = "queued";
       data.run.triggering_actor.login = "release-maintainer";
       data.jobs[2]!.status = "completed";
       data.jobs[2]!.conclusion = "failure";
@@ -332,6 +333,13 @@ describe("full release child evidence producer", () => {
       name: "stale run attempt",
       mutate: (data: ReturnType<typeof fixture>) => {
         data.run.run_attempt = 2;
+      },
+      error: "current active workflow attempt",
+    },
+    {
+      name: "completed aggregate run with an active publisher",
+      mutate: (data: ReturnType<typeof fixture>) => {
+        data.run.status = "completed";
       },
       error: "current active workflow attempt",
     },

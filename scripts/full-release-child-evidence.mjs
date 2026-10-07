@@ -109,13 +109,23 @@ function seal() {
     workflowSha,
   };
   validateReleaseChildRunProvenance(run, expected);
+  // GitHub can keep a partial rerun queued while its publisher is running.
+  // The exact-attempt publisher job below supplies the live execution proof.
   if (
     run.run_attempt !== runAttempt ||
     run.head_repository?.full_name !== repository ||
-    run.status !== "in_progress" ||
+    !["queued", "in_progress"].includes(run.status) ||
     run.conclusion !== null
   ) {
-    throw new Error("Child evidence publisher is not in the current active workflow attempt");
+    throw new Error(
+      `Child evidence publisher is not in the current active workflow attempt: ${JSON.stringify({
+        expectedAttempt: runAttempt,
+        observedAttempt: run.run_attempt,
+        headRepository: run.head_repository?.full_name,
+        status: run.status,
+        conclusion: run.conclusion,
+      })}`,
+    );
   }
   if (workflowSha !== targetSha) {
     throw new Error("Child evidence workflow SHA does not match the target SHA");
