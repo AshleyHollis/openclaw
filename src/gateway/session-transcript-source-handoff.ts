@@ -114,7 +114,7 @@ export function createGatewaySessionTranscriptSourceHandoffOwner(request: Gatewa
         authorization.assertCurrent,
       );
     },
-    get take() {
+    get take(): (() => PreparedSessionTranscriptSourceAdmission) | undefined {
       const prepared = handoff;
       return prepared ? () => prepared.take() : undefined;
     },
