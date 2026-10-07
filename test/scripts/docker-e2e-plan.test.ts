@@ -1443,6 +1443,13 @@ await import('./scripts/check-docker-e2e-boundaries.mts');`,
     ]);
   });
 
+  it("retains the measured restart-auth update budgets", () => {
+    const lane = requireFirstLane(planFor({ selectedLaneNames: ["update-restart-auth"] }));
+    expect(lane.timeoutMs).toBe(3_720_000);
+    expect(lane.command).toContain("OPENCLAW_UPGRADE_SURVIVOR_COMMAND_TIMEOUT=1500s");
+    expect(lane.command).toContain("OPENCLAW_UPGRADE_SURVIVOR_DOCKER_RUN_TIMEOUT:-3420s");
+  });
+
   it.each([undefined, "."])(
     "rejects pre-June baselines before scheduling against target %s",
     (upgradeSurvivorTargetRoot) => {

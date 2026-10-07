@@ -78,8 +78,12 @@ Docker seed runs all six lanes in every ordinary manual/release scope:
 `npm-beta` and `npm-stable` qualification. The survivor uses `legacy-operator-state`
 with `auto-auth`, so the published driver must update
 the running managed Gateway. Every admitted canonical main run retains this
-exact combination; PRs omit Docker seed and QA Smoke. Manual/release CI builds
-the full declaration-complete package. Main's smoke package instead uses the
+exact combination; PRs omit Docker seed and QA Smoke. Ordinary manual CI builds
+the full declaration-complete package. Full Release Validation children use the
+16-class Blacksmith runner when no release runner group is configured, while
+hosted outage overrides and retries retain their recovery route. Weighted lane
+admission stays serial. Main and Full Release Validation use the smoke package
+through the
 existing `ciArtifacts` profile and canonical packer with `--skip-build`, retaining
 the runtime, public SDK declarations, and unchanged tarball integrity check.
 Hosted manual CI splits QA Smoke into six parts; normal hybrid first attempts use four parts
