@@ -115,7 +115,8 @@ export function createGatewaySessionTranscriptSourceHandoffOwner(request: Gatewa
       );
     },
     get take() {
-      return handoff?.take;
+      const prepared = handoff;
+      return prepared ? () => prepared.take() : undefined;
     },
     async close(settle: () => void) {
       try {

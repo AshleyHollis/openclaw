@@ -213,6 +213,7 @@ it("rejects asynchronous authority before invoking it or opening the native sour
   await expect(
     prepareAcceptedSessionAttachmentAdmission(source.selection, {
       ...source.authority,
+      // oxlint-disable-next-line typescript/no-misused-promises -- Invalid async authority must be refused before invocation.
       assertCurrent: guard,
     }),
   ).rejects.toThrow("synchronous captured native authority");
@@ -220,6 +221,7 @@ it("rejects asynchronous authority before invoking it or opening the native sour
   await expect(
     prepareAcceptedSessionAttachmentAdmission(source.selection, {
       ...source.authority,
+      // oxlint-disable-next-line typescript/no-misused-promises -- Invalid Promise-returning authority exercises synchronous admission refusal.
       assertCurrent: () => Promise.resolve(),
     }),
   ).rejects.toThrow("authority must be synchronous");
@@ -324,6 +326,7 @@ it("preserves entered effect state when a synchronous publication rolls itself b
     cap.publish(() => {
       fs.writeFileSync(destination, "tentative");
       fs.unlinkSync(destination);
+      // oxlint-disable-next-line typescript/only-throw-error -- Undefined failure proves entered-effect state does not depend on a truthy error.
       throw undefined;
     }),
   ).rejects.toMatchObject({
@@ -340,6 +343,7 @@ it("rejects a plain Promise-returning publication as entered without an unhandle
   const cap = await prepareAcceptedSessionAttachmentAdmission(source.selection, source.authority);
   caps.push(cap);
   await expect(
+    // oxlint-disable-next-line typescript/no-misused-promises -- Invalid Promise-returning effect proves rejection is drained after entry.
     cap.publish(() => Promise.reject(new Error("Invalid asynchronous effect"))),
   ).rejects.toMatchObject({ effectState: "entered" });
   expect(fs.readFileSync(source.media.path)).toEqual(source.bytes);

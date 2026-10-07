@@ -531,6 +531,7 @@ it("refuses missing read access, incognito, mismatched source binding and serial
       f.invoke("workboard.cards.create", f.input, {
         sessionTranscriptSource: {
           ...f.source,
+          // oxlint-disable-next-line typescript/no-misused-promises -- Invalid Promise-returning guard must be refused and its rejection drained.
           assertCurrent: () => Promise.reject(new Error("Invalid async guard")),
         },
       }),
