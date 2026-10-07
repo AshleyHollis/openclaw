@@ -12,6 +12,7 @@ const WORKBOARD_ALL_BOARDS_FILTER = "__all__";
 
 export type WorkboardRouteData = {
   boardFilter: string;
+  cardTarget?: { cardId: string; tenant?: string };
   canonicalLocation?: RouteLocation;
   search: string;
 };
@@ -29,9 +30,19 @@ export function resolveWorkboardRouteLocation(
   const location = workboardRouteLocation(sourceLocation);
   const pathBoardId = workboardBoardIdFromPath(location.pathname, basePath);
   const params = new URLSearchParams(location.search);
+  const cardTarget = params.has("p.cardId")
+    ? {
+        cardId: params.get("p.cardId") ?? "",
+        ...(params.has("p.tenant") ? { tenant: params.get("p.tenant") ?? "" } : {}),
+      }
+    : undefined;
   const hadLegacyBoard = params.has("board");
   if (!pathBoardId && !hadLegacyBoard) {
-    return { boardFilter: WORKBOARD_ALL_BOARDS_FILTER, search: location.search };
+    return {
+      boardFilter: WORKBOARD_ALL_BOARDS_FILTER,
+      search: location.search,
+      ...(cardTarget ? { cardTarget } : {}),
+    };
   }
   const legacyBoardValue = params.get("board")?.trim() ?? "";
   params.delete("board");
@@ -41,6 +52,7 @@ export function resolveWorkboardRouteLocation(
     (isValidWorkboardBoardId(legacyBoardValue) ? legacyBoardValue : WORKBOARD_ALL_BOARDS_FILTER);
   return {
     boardFilter,
+    ...(cardTarget ? { cardTarget } : {}),
     search: search ? `?${search}` : "",
     ...(hadLegacyBoard
       ? {

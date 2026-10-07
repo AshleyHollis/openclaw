@@ -14,6 +14,8 @@ export default {
     openWorkboardCard: "Open Workboard card",
   },
   workboard: {
+    cardDestinationUnavailable: "This Workboard card is unavailable. Refresh to try again.",
+    cardDestinationDeferred: "Finish the current edit before opening this card.",
     discardCardTitle: "Discard this card?",
     discardChangesTitle: "Discard changes?",
     discardDraftHelp: "Your unsaved changes will be lost.",

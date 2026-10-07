@@ -16,7 +16,13 @@ afterEach(() => {
 });
 
 export function mountPage(
-  params: { boardId?: string; connected?: boolean; presented?: boolean } = {},
+  params: {
+    boardId?: string;
+    cardId?: string;
+    tenant?: string;
+    connected?: boolean;
+    presented?: boolean;
+  } = {},
 ) {
   const fixture = workboardTestHost();
   const workboard = createWorkboardCapability();
@@ -48,7 +54,11 @@ export function mountPage(
   document.body.append(container);
   let context = createViewContext<Readonly<Record<string, string>>>(
     fixture.host,
-    params.boardId ? { boardId: params.boardId } : {},
+    {
+      ...(params.boardId ? { boardId: params.boardId } : {}),
+      ...(params.cardId !== undefined ? { cardId: params.cardId } : {}),
+      ...(params.tenant !== undefined ? { tenant: params.tenant } : {}),
+    },
     params.presented ?? true,
   );
   const mounted = createWorkboardPage(workboard)(container, context);
@@ -67,8 +77,8 @@ export function mountPage(
     agents(next: typeof agents) {
       agents = next;
     },
-    navigate(boardId: string) {
-      context = { ...context, props: { boardId } };
+    navigate(boardId: string, card?: { cardId: string; tenant?: string }) {
+      context = { ...context, props: { boardId, ...card } };
       mounted?.update?.(context);
     },
     present(presented: boolean) {
