@@ -289,10 +289,12 @@ describe("MCP OAuth refresh issuer binding", () => {
         });
         await expect(
           buildOAuthFetch(newIssuer.fetchFn)(SERVER_URL, { method: "POST", body: "{}" }),
-        ).rejects.toThrow(/requires OAuth authorization/);
+        ).rejects.toThrow("Incompatible auth server: does not support dynamic client registration");
 
         expect(newIssuer.tokenRequests).toEqual([]);
         expect((await readStore()).tokensAuthorizationServerUrl).toBe(ORIGINAL_ISSUER);
+        expect((await readStore()).tokens?.issuer).toBe(ORIGINAL_ISSUER);
+        expect((await readStore()).clientInformation?.issuer).toBe(ORIGINAL_ISSUER);
       },
       { prefix: "openclaw-mcp-oauth-issuer-upgrade-challenge-", ...TEMP_HOME_OPTIONS },
     );
