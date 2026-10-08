@@ -10,6 +10,8 @@ import { fileURLToPath } from "node:url";
 let text;
 
 const ownRoot = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), ".."));
+// Qualification-only repository identities; parent/publication admission remains upstream-owned.
+const qualificationRepositories = new Set(["openclaw/openclaw", "AshleyHollis/openclaw"]);
 const entryPath = "scripts/preflight-frozen-target-contracts.mjs";
 const readerPath = "scripts/lib/frozen-target-source.mjs";
 const toolingClosure = [
@@ -234,7 +236,9 @@ async function planWorkflowAdmission(input) {
   );
   if (
     input.version !== 2 ||
-    input.repository !== "openclaw/openclaw" ||
+    !qualificationRepositories.has(input.repository) ||
+    (input.repository !== "openclaw/openclaw" &&
+      !["package", "reusable"].includes(input.workflow)) ||
     !["parent", "release-checks", "reusable", "package"].includes(input.workflow)
   ) {
     throw new Error("invalid workflow admission identity");
@@ -316,7 +320,7 @@ async function planWorkflowAdmission(input) {
   }
   if (
     !/^[a-f0-9]{64}$/u.test(input.binding.inputsDigest) ||
-    !input.binding.workflowRef?.startsWith(`openclaw/openclaw/.github/workflows/`)
+    !input.binding.workflowRef?.startsWith(`${input.repository}/.github/workflows/`)
   ) {
     throw new Error("missing workflow input binding");
   }
@@ -879,7 +883,7 @@ async function preflightFrozenTargetContracts(input, workflow = false, verifiedT
     ],
     "admission request",
   );
-  if (input.version !== 1 || input.repository !== "openclaw/openclaw") {
+  if (input.version !== 1 || !qualificationRepositories.has(input.repository)) {
     throw new Error("invalid admission identity");
   }
   const allow = boolean(input.allowFrozenTargetScenarioOmissions);

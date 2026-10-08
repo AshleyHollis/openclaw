@@ -899,6 +899,109 @@ describe("frozen admission workflow barriers", () => {
     },
   );
 
+  it.each(["openclaw/openclaw", "AshleyHollis/openclaw"])(
+    "binds package qualification to its owned repository %s",
+    (repository) => {
+      const fixture = packageToolingCheckoutFixture();
+      const actual = fixture.run({
+        githubRepository: repository,
+        context: {
+          workflow_repository: repository,
+          workflow_ref: `${repository}/.github/workflows/package-acceptance.yml@refs/heads/main`,
+        },
+      });
+      expect(actual.result.status, actual.result.stderr).toBe(0);
+      expect(actual.sha).toBe(fixture.capturedSha);
+      expect(actual.identityOutputs).toEqual({ sha: fixture.capturedSha });
+    },
+  );
+
+  it("runs fork guard and credential-free native controls only after exact tooling setup", () => {
+    const job = workflowJob(PACKAGE_ACCEPTANCE_WORKFLOW, "resolve_package");
+    const steps = job.steps ?? [];
+    const proof = workflowStep(
+      job,
+      "Validate fork qualification guards and isolated native lifecycle",
+    );
+    expect(proof.if).toBe("github.repository == 'AshleyHollis/openclaw'");
+    expect(proof.env).toEqual({ OPENCLAW_LIVE_CODEX_INFERENCE: "0" });
+    expect(steps.indexOf(proof)).toBeGreaterThan(
+      steps.indexOf(workflowStep(job, "Setup Node environment")),
+    );
+    expect(steps.indexOf(proof)).toBeLessThan(
+      steps.indexOf(workflowStep(job, "Select acceptance profile")),
+    );
+    expect(proof.run).toContain("test/scripts/preflight-frozen-target-contracts.test.ts");
+    expect(proof.run).toContain("extensions/codex/src/app-server/inference-proxy.native.test.ts");
+    expect(proof.run).toContain("--maxWorkers=1");
+  });
+
+  it.each([
+    [PACKAGE_ACCEPTANCE_WORKFLOW, "resolve_package", "package"],
+    [LIVE_E2E_WORKFLOW, "validate_selected_ref", "reusable"],
+  ])("admits fork qualification planning for %s", (file, job, workflow) => {
+    const f = frozenWorkflowFixture(file, job, {});
+    const result = f.run("Plan frozen source admission", {
+      GITHUB_REPOSITORY: "AshleyHollis/openclaw",
+      ADMISSION_WORKFLOW: workflow,
+      ADMISSION_WORKFLOW_REF: `AshleyHollis/openclaw/${file}@${f.toolingSha}`,
+      ADMISSION_STAGE: "known-source",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(
+      JSON.parse(readFileSync(join(f.root, "frozen-admission-request.json"), "utf8")),
+    ).toMatchObject({
+      repository: "AshleyHollis/openclaw",
+      selected: { sha: f.sha },
+      tooling: { sha: f.toolingSha },
+    });
+  });
+
+  it.each([
+    ["parent", "AshleyHollis/openclaw"],
+    ["release-checks", "AshleyHollis/openclaw"],
+    ["package", "other/openclaw"],
+  ])("refuses fork widening to %s in repository %s", (workflow, repository) => {
+    const f = frozenWorkflowFixture(PACKAGE_ACCEPTANCE_WORKFLOW, "resolve_package", {});
+    const result = f.run("Plan frozen source admission", {
+      GITHUB_REPOSITORY: repository,
+      ADMISSION_WORKFLOW: workflow,
+      ADMISSION_WORKFLOW_REF: `${repository}/${PACKAGE_ACCEPTANCE_WORKFLOW}@${f.toolingSha}`,
+      ADMISSION_STAGE: "known-source",
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("invalid workflow admission identity");
+  });
+
+  it("refuses a fork admission bound to an upstream workflow", () => {
+    const f = frozenWorkflowFixture(PACKAGE_ACCEPTANCE_WORKFLOW, "resolve_package", {});
+    const result = f.run("Plan frozen source admission", {
+      GITHUB_REPOSITORY: "AshleyHollis/openclaw",
+      ADMISSION_WORKFLOW_REF: `openclaw/openclaw/${PACKAGE_ACCEPTANCE_WORKFLOW}@${f.toolingSha}`,
+      ADMISSION_STAGE: "known-source",
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("missing workflow input binding");
+  });
+
+  it.each([
+    ["AshleyHollis/openclaw", "openclaw/openclaw"],
+    ["openclaw/openclaw", "AshleyHollis/openclaw"],
+    ["other/openclaw", "other/openclaw"],
+  ])("rejects package repository %s called from %s", (repository, calledRepository) => {
+    const fixture = packageToolingCheckoutFixture();
+    const actual = fixture.run({
+      githubRepository: repository,
+      context: {
+        workflow_repository: calledRepository,
+        workflow_ref: `${calledRepository}/.github/workflows/package-acceptance.yml@refs/heads/main`,
+      },
+    });
+    expect(actual.checkoutReached).toBe(false);
+    expect(actual.result.status).toBe(1);
+    expect(actual.identityOutputs).toEqual({});
+  });
+
   it.each([
     "published-upgrade-survivor",
     "update-migration",
