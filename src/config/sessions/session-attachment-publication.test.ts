@@ -123,6 +123,7 @@ it("reports source retirement before entry even when the authority throws undefi
         effects++;
       },
       () => {
+        // oxlint-disable-next-line typescript/only-throw-error -- Undefined authority failure must still prevent effect entry.
         throw undefined;
       },
     ),
@@ -136,6 +137,7 @@ it("refuses an async effect before invoking it and releases its source", async (
   await expect(
     publishSessionTranscriptSourceAdmissionEffect(
       capability,
+      // oxlint-disable-next-line typescript/no-misused-promises -- Invalid async effect must be refused without invocation.
       async () => {
         effects++;
       },

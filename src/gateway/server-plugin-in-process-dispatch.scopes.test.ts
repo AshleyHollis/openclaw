@@ -10,7 +10,10 @@ import {
   createPluginRegistryFixture,
   registerVirtualTestPlugin,
 } from "../plugin-sdk/plugin-test-contracts.js";
-import { withPluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.js";
+import {
+  getPluginRuntimeGatewayRequestScope,
+  withPluginRuntimeGatewayRequestScope,
+} from "../plugins/runtime/gateway-request-scope.js";
 import { roleScopesAllow } from "../shared/operator-scope-compat.js";
 import { ensureProfileForEmail } from "../state/user-profiles.js";
 import { createGatewayMethodRegistry } from "./methods/registry.js";
@@ -201,7 +204,8 @@ describe("registered plugin SDK scope attenuation", () => {
         scopes: [`operator.${original}`],
       });
       const sourceController = new AbortController();
-      const current = () => true;
+      const current = vi.fn(() => true);
+      let dispatchScope: ReturnType<typeof getPluginRuntimeGatewayRequestScope>;
       const source = expectDefined(
         await captureGatewayOperatorRunAuthority({
           client: identified,
@@ -236,6 +240,7 @@ describe("registered plugin SDK scope attenuation", () => {
               "scopeProof.outer",
               async ({ params, respond }) => {
                 const method = params.write ? "scopeProof.write" : "scopeProof.read";
+                dispatchScope = getPluginRuntimeGatewayRequestScope();
                 const result = await dispatchGatewayMethod(method, {});
                 respond(result.ok, result.payload, result.error);
               },
@@ -277,7 +282,14 @@ describe("registered plugin SDK scope attenuation", () => {
         expect(client.connId).toBe(identified.connId);
         expect(client.authenticatedUserProfile).toBe(identified.authenticatedUserProfile);
         expect(client.connect.scopes).toEqual([`operator.${effective}`]);
-        expect(nested.hasCurrentClientAuthority).toBe(current);
+        const retainedCurrent = expectDefined(
+          nested.hasCurrentClientAuthority,
+          "retained originating authority",
+        );
+        expect(retainedCurrent()).toBe(true);
+        expect(current.mock.contexts.at(-1)).toBe(dispatchScope);
+        current.mockReturnValueOnce(false);
+        expect(retainedCurrent()).toBe(false);
         const accepted = expectDefined(client.internal?.operatorRunAuthority, "accepted source");
         expect(accepted.profileId).toBe(source.authority.profileId);
         expect(accepted.source).toBe(source.authority.source);

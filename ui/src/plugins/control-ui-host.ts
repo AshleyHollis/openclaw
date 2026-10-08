@@ -4,9 +4,6 @@ import type {
   ControlUiPageNavigationOptions,
   ControlUiPageTarget,
 } from "../../../src/plugin-sdk/control-ui.js";
-
-type ControlUiHttpRequest = Parameters<ControlUiHost["httpRequest"]>[0];
-type ControlUiHttpResponse = Awaited<ReturnType<ControlUiHost["httpRequest"]>>;
 import { isRouteId, pathForRoute, pluginTabLocation } from "../app-route-paths.ts";
 import { selectApplicationSession } from "../app/agent-selection.ts";
 import type { ApplicationContext } from "../app/context.ts";
@@ -25,6 +22,9 @@ import { normalizeSessionKeyForUiComparison } from "../lib/sessions/session-key.
 import { generateUUID } from "../lib/uuid.ts";
 import { createControlUiComponents } from "./control-ui-components.ts";
 import type { ControlUiPluginOwner, ControlUiPluginRuntime } from "./control-ui-runtime.ts";
+
+type ControlUiHttpRequest = Parameters<ControlUiHost["httpRequest"]>[0];
+type ControlUiHttpResponse = Awaited<ReturnType<ControlUiHost["httpRequest"]>>;
 
 const DECLARED_PLUGIN_HTTP_ROUTES: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   [
@@ -117,17 +117,26 @@ export function createControlUiPluginHost(
     options?: Pick<ControlUiPageNavigationOptions, "preserveSearch">,
   ) => {
     const context = current();
+    const pluginId = target.pluginId ?? owner.descriptor.pluginId;
     const tab = context.gateway.snapshot.hello?.controlUiTabs?.find(
-      (candidate) => candidate.pluginId === owner.descriptor.pluginId && candidate.id === target.id,
+      (candidate) => candidate.pluginId === pluginId && candidate.id === target.id,
     );
+    if (target.pluginId !== undefined) {
+      const page =
+        pluginId === owner.descriptor.pluginId
+          ? owner.contributions.pages.get(target.id)
+          : runtime
+              .registrations("pages")
+              .find((entry) => entry.pluginId === pluginId && entry.value.id === target.id);
+      if (!tab || !page || page.signal.aborted) {
+        throw new Error("The requested plugin page is unavailable.");
+      }
+    }
     const route = tab?.placement?.startsWith("route:")
       ? tab.placement.slice("route:".length)
       : null;
     const nativeRoute = route && isRouteId(route) ? route : null;
-    const tabLocation = pluginTabLocation(
-      tab ?? { pluginId: owner.descriptor.pluginId, id: target.id },
-      context.basePath,
-    );
+    const tabLocation = pluginTabLocation(tab ?? { pluginId, id: target.id }, context.basePath);
     const path = nativeRoute ? pathForRoute(nativeRoute, context.basePath) : tabLocation.pathname;
     const suffix = nativeRoute ? target.path?.map(encodeURIComponent).join("/") : undefined;
     const search = new URLSearchParams(options?.preserveSearch ? window.location.search : "");
@@ -139,7 +148,11 @@ export function createControlUiPluginHost(
       }
     }
     for (const [key, value] of Object.entries(target.params ?? {})) {
-      search.set(`p.${key}`, value);
+      if (value === null) {
+        search.delete(`p.${key}`);
+      } else {
+        search.set(`p.${key}`, value);
+      }
     }
     return {
       route: nativeRoute ?? ("plugin" as const),

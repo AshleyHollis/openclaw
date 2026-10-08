@@ -186,9 +186,13 @@ export async function prepareSessionTranscriptSourceAdmission(
       },
     );
     try {
-      await validation.execute({ type: "validate", input: undefined }, source.assertCurrent, {
-        signal,
-      });
+      await validation.execute(
+        { type: "validate", input: undefined },
+        () => source.assertCurrent(),
+        {
+          signal,
+        },
+      );
     } finally {
       await validation.close();
     }

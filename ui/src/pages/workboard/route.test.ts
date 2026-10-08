@@ -96,7 +96,53 @@ const legacyBoardLocation: RouteLocation = {
   hash: "#original",
 };
 
+it("retains exact card identity and tenant across cold URLs and canonical board redirects", () => {
+  for (const pathname of ["/ui/workboard/ops", "/ui/workboard"]) {
+    const route = resolveWorkboardRouteLocation(
+      { pathname, search: "?board=ops&p.cardId=card%2F1&p.tenant=life&unrelated=value", hash: "" },
+      "/ui",
+    );
+    expect(route.cardTarget).toEqual({ cardId: "card/1", tenant: "life" });
+    expect(route.boardFilter).toBe("ops");
+    expect(route.search).toContain("p.cardId=card%2F1");
+    expect(route.cardTarget).not.toHaveProperty("unrelated");
+  }
+});
+
 describe("Workboard route navigation ownership", () => {
+  it("restores exact card data on refresh and browser history changes on the same board", async () => {
+    const first = {
+      pathname: "/ui/workboard/ops",
+      search: "?p.cardId=first&p.tenant=life",
+      hash: "",
+    };
+    const second = { ...first, search: "?p.cardId=second&p.tenant=life" };
+    const fixture = routeFixture(first);
+    try {
+      await fixture.loading.promise;
+      fixture.resolve();
+      await fixture.started;
+      await vi.waitFor(() =>
+        expect(fixture.router.getState().matches[0]?.data).toMatchObject({
+          cardTarget: { cardId: "first", tenant: "life" },
+        }),
+      );
+      for (const location of [second, first, second]) {
+        fixture.pop(location);
+        await vi.waitFor(() =>
+          expect(fixture.router.getState().matches[0]?.data).toMatchObject({
+            cardTarget: {
+              cardId: new URLSearchParams(location.search).get("p.cardId"),
+              tenant: "life",
+            },
+          }),
+        );
+        expect(fixture.history.location()).toEqual(location);
+      }
+    } finally {
+      fixture.router.stop();
+    }
+  });
   it("canonicalizes the active legacy URL while preserving its query and hash", async () => {
     const fixture = routeFixture();
     await fixture.started;

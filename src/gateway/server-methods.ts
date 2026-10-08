@@ -591,8 +591,10 @@ export async function handleGatewayRequest(
   const entry = opts.requestEntry ?? context.requestEntryLifetime?.enter(opts);
   const releaseForegroundWork = retainSessionListForegroundWork();
   let sessionAccessAuthority: GatewaySessionAccessAuthority | undefined;
-  const transcriptSourceHandoff = createGatewaySessionTranscriptSourceHandoffOwner(opts);
+  let handoffOwner: ReturnType<typeof createGatewaySessionTranscriptSourceHandoffOwner> | undefined;
   try {
+    const transcriptSourceHandoff = createGatewaySessionTranscriptSourceHandoffOwner(opts);
+    handoffOwner = transcriptSourceHandoff;
     entry?.assertOpen();
     transcriptSourceHandoff.validate();
     // Prefer the caller-attached registry when it owns the requested method so plugin dispatch
@@ -727,13 +729,15 @@ export async function handleGatewayRequest(
       },
     });
   } finally {
-    await transcriptSourceHandoff.close(() => {
+    const settle = () => {
       sessionAccessAuthority?.release();
       releaseForegroundWork();
       // Transport/import owners retain failures through their response and logging paths.
       if (!opts.requestEntry) {
         entry?.release();
       }
-    });
+    };
+    // Source capture can throw before there is a handoff to close.
+    await (handoffOwner?.close(settle) ?? settle());
   }
 }

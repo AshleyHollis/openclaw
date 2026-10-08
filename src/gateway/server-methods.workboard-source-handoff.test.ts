@@ -36,6 +36,7 @@ import { createDirectChatContext } from "./server-chat.agent-events.test-helpers
 import { handleGatewayRequest } from "./server-methods.js";
 import type { GatewayRequestHandlerOptions } from "./server-methods/types.js";
 import { createOperatorClient } from "./server-plugin-in-process-dispatch.test-support.js";
+import { canRunSessionListBackgroundWork } from "./session-projection-work.js";
 import { bindSessionRowProjection } from "./session-row-projection-access.js";
 import { createSessionRowProjection } from "./session-row-projection.js";
 
@@ -422,6 +423,38 @@ it("retains initial native custody when the caller clears the mutable request op
   });
 });
 
+it("releases foreground work when direct-router source capture throws", async () => {
+  expect(canRunSessionListBackgroundWork()).toBe(true);
+  await expect(
+    handleGatewayRequest({
+      req: {
+        type: "req",
+        id: "source-capture-refusal",
+        method: "workboard.cards.create",
+        params: {},
+      },
+      client: createOperatorClient({ profileId: "fictional-capture", scopes: ["operator.write"] }),
+      context: createDirectChatContext(),
+      isWebchatConnect: () => false,
+      respond: vi.fn(),
+      sessionTranscriptSource: {
+        selection: {
+          agentId: "main",
+          sessionKey: "agent:main:fictional-source",
+          sessionId: "fictional-source",
+          entryId: "fictional-message",
+          generation: "fictional-generation",
+          digest: `sha256-public-message-v1:${"a".repeat(64)}`,
+        },
+        get assertCurrent(): () => void {
+          throw new Error("Source getter failed");
+        },
+      },
+    }),
+  ).rejects.toThrow("Source getter failed");
+  expect(canRunSessionListBackgroundWork()).toBe(true);
+});
+
 it("captures direct-router selection and original guard before the first callback", async () => {
   await withSourceGateway(async (f) => {
     const observer = observeSqliteWorkerAdmissionForTest();
@@ -578,6 +611,7 @@ it("refuses missing read access, incognito, mismatched source binding and serial
       f.invoke("workboard.cards.create", f.input, {
         sessionTranscriptSource: {
           ...f.source,
+          // oxlint-disable-next-line typescript/no-misused-promises -- Invalid Promise-returning guard must be refused and its rejection drained.
           assertCurrent: () => Promise.reject(new Error("Invalid async guard")),
         },
       }),

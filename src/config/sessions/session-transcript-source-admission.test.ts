@@ -91,6 +91,7 @@ it("refuses async native authority before invoking its source lookup", async () 
   let invoked = false;
   await expect(
     prepareSessionTranscriptSourceAdmission(selection, {
+      // oxlint-disable-next-line typescript/no-misused-promises -- Invalid async authority must not invoke or look up the native source.
       async assertCurrent() {
         invoked = true;
       },
@@ -102,6 +103,7 @@ it("refuses async native authority before invoking its source lookup", async () 
 it("refuses a native authority returning a promise before source lookup", async () => {
   await expect(
     prepareSessionTranscriptSourceAdmission(selection, {
+      // oxlint-disable-next-line typescript/no-misused-promises -- Invalid Promise-returning authority proves synchronous refusal before source lookup.
       assertCurrent() {
         return Promise.resolve();
       },
