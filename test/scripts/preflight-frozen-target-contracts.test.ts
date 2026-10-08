@@ -1294,6 +1294,17 @@ describe("frozen admission entry", () => {
     },
   );
 
+  it("records the explicit fork qualification identity without executing selected code", () => {
+    const f = fixture();
+    const result = f.run({}, { repository: "AshleyHollis/openclaw" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      repository: "AshleyHollis/openclaw",
+      selectedSha: f.selected.sha,
+      toolingSha: f.tooling.sha,
+    });
+  });
+
   it.each([
     { selection: { consumers: ["invented"] } },
     { selection: { docker: { lanes: ["not-a-lane"] } } },
