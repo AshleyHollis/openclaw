@@ -76,7 +76,7 @@ describe("explicit native plugin page ownership", () => {
       expect(href.searchParams.has("p.cardId")).toBe(false);
       expect(href.searchParams.has("p.tenant")).toBe(false);
       const route = resolveWorkboardRouteLocation(
-        { pathname: href.pathname, search: href.search },
+        { pathname: href.pathname, search: href.search, hash: "" },
         "/console",
       );
       expect(route.boardFilter).toBe(boardId);
@@ -108,7 +108,7 @@ describe("explicit native plugin page ownership", () => {
       );
       expect(href.searchParams.get("agent")).toBe("writer");
       const route = resolveWorkboardRouteLocation(
-        { pathname: href.pathname, search: href.search },
+        { pathname: href.pathname, search: href.search, hash: "" },
         "/console",
       );
       expect(route.boardFilter).toBe("default");
