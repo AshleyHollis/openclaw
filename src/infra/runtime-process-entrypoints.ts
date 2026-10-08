@@ -61,6 +61,12 @@ export const runtimeProcessEntrypoints = {
     "config/sessions/session-accessor.sqlite-archive.worker",
   ),
   sessionTranscript: runtimeProcessEntrypoint("config/sessions/session-transcript.worker"),
+  sessionTranscriptSourceAdmission: runtimeProcessEntrypoint(
+    "config/sessions/session-transcript-source-admission.worker",
+  ),
+  sessionAttachmentAdmission: runtimeProcessEntrypoint(
+    "config/sessions/session-attachment-admission.worker",
+  ),
   sessionManagerMetadata: runtimeProcessEntrypoint(
     "agents/sessions/session-manager-metadata.worker",
   ),

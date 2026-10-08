@@ -195,7 +195,18 @@ host lifetime survive. Use the fresh operations supplied by `update` when the
 view is presented again; previously captured operations remain retired.
 
 The host also exposes session and agent snapshots and operations, plugin page
-navigation, authenticated requests, and subscriptions. Session and agent
+navigation, authenticated requests, and subscriptions.
+
+Page targets normally belong to the calling plugin. Set `pluginId` explicitly
+to open another plugin's native page: `{ pluginId: "workboard", id: "workboard" }`.
+Explicit targets must match an advertised page and an active page registration;
+an unavailable destination throws instead of guessing a route or another owner.
+Use `host.navigation.pageHref(target)` or `openPage(target)` so the host retains
+route placement, query encoding, history and activation lifetime checks.
+With `preserveSearch`, a `null` target parameter removes its existing `p.` query
+key while retaining unrelated query state.
+
+Session and agent
 `refresh()` operations fetch new snapshots and reject on failure, so a plugin
 can display an error and offer Retry. `host.sessions.rows` is the current
 filtered, paginated session list. `host.sessions.refresh()` preserves that

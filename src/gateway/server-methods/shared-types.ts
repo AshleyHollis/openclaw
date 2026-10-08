@@ -475,6 +475,8 @@ export type GatewayRequestOptions = {
   expectedProfileBinding?: import("../expected-profile.js").ExpectedProfileBinding;
   /** In-process Gateway lifetime guard composed into durable session mutations. */
   sessionMutationCommitGuard?: () => void;
+  /** Native in-process input sideband, never copied from a request frame. */
+  sessionTranscriptSource?: import("../session-transcript-source-handoff.js").SessionTranscriptGatewaySource;
   /** In-process caller lifetime; never serialized into a Gateway request frame. */
   signal?: AbortSignal;
   /** Live transport authority; in-process only and never derived from request data. */
@@ -512,6 +514,8 @@ export type GatewayRequestHandlerOptions = Omit<
 > & {
   params: Record<string, unknown>;
   sessionMutationAuthorization?: SessionMutationAuthorization;
+  /** Single-use transfer minted by the authenticated router for this exact invocation. */
+  takeSessionTranscriptSourceAdmission?: () => import("../../config/sessions/session-transcript-source-admission.js").PreparedSessionTranscriptSourceAdmission;
   /** Host-prepared session resource authority; services explicitly retain their own borrow. */
   sessionAccessAuthority?: import("../session-access-authority.js").GatewaySessionAccessAuthority;
 };

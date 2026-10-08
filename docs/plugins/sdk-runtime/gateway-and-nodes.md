@@ -148,6 +148,64 @@ applicable policy also requires fresh publication admission.
     Use this for a small native composition seam; do not use a loopback connection or a broad
     catch-all allowlist.
 
+    Source-bound Workboard creation uses the host-only third-argument option
+    `sessionTranscriptSource: { selection, assertCurrent }`. Check
+    `SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION === 1` from
+    `openclaw/plugin-sdk/gateway-runtime` and the actual injected
+    `api.runtime.gateway.sessionTranscriptSourceAdmissionVersion === 1` before enabling
+    a consumer. An absent host marker means unsupported even when the imported SDK is
+    current. Use the SDK assertion before preparing a journal or invoking transport:
+
+    ```typescript
+    assertSessionTranscriptGatewaySourceAdmissionAvailable(api.runtime.gateway);
+    const result = await api.runtime.gateway.request(
+      "workboard.cards.create",
+      { title, idempotencyKey, agentId: selection.agentId, sessionKey: selection.sessionKey },
+      { sessionTranscriptSource: { selection, assertCurrent: assertPlanOwnerCurrent } },
+    );
+    ```
+
+    Entitled external plugins use `dispatchGatewayMethod` from
+    `openclaw/plugin-sdk/gateway-method-runtime`, with the same host-only
+    `sessionTranscriptSource` third-argument option. Their actual injected
+    `api.runtime.gateway.authenticatedSessionTranscriptSourceAdmissionVersion`
+    must equal `1`, and the imported dispatcher must be available, before a
+    consumer reserves its journal or enables the operation. The existing
+    `sessionTranscriptSourceAdmissionVersion` marker describes the trusted
+    `request` path and does not establish support for this external path.
+    Current entitlement or the exact registered method allowlist and a current
+    authenticated scoped client remain required. External `gateway.request`
+    calls remain refused; this option grants no synthetic scopes or plugin trust.
+
+    The public dispatcher returns `{ ok, payload, error, meta }`. Consumers must
+    unwrap `payload` only when `ok` is true and preserve the error envelope on
+    refusal. They must not serialize source selection/current-authority sideband
+    into RPC params, pass an opaque admission capability, or retry a potentially
+    committed create without the existing exact idempotency/readback owner.
+    `selection` is the transcript owner's exact `{ agentId, sessionKey, sessionId,
+    entryId, generation, digest }` identity, using `sha256-public-message-v1`.
+    `assertCurrent` is a captured synchronous host closure for the consumer's current
+    Topic, principal, tenant and cancellation policy. It cannot be serialized, return
+    a Promise, query transcripts or wait on workers. The native router separately
+    authorizes source Session read access and preserves the existing authenticated
+    card-write assertion. Source-bound calls require the actual scoped caller; detached
+    synthetic plugin requests are refused.
+
+    Only `workboard.cards.create` supports this option. Its `agentId` and `sessionKey`
+    must exactly match the selection. The router prepares an opaque single-use source
+    capability, transfers it once to the existing Workboard create owner, and joins
+    cleanup on rejection, replay and response loss. The source writer lock validates
+    the exact physical Session, generation, active entry, reset window and message
+    digest through actual card COMMIT. Session read eligibility uses the native
+    `createdActor`, `visibility` and `incognito` policy; this contract adds no arbitrary
+    entry-envelope predicate or new message-role restriction. Attachment admission
+    retains its separate USER/media policy.
+
+    Do not put this option, a capability or an authority assertion in RPC parameters.
+    A failed response can follow an accepted card: reconcile the same immutable
+    idempotency claim using a fresh native invocation before retrying. The versioned
+    source contract does not itself qualify an installed consumer/native pair.
+
   </Accordion>
   <Accordion title="api.runtime.nodes">
     List connected nodes and invoke a node-host command from Gateway-loaded plugin code or from plugin CLI commands. Use this when a plugin owns local work on a paired device, for example a browser or audio bridge on another Mac.

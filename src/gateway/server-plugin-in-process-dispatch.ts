@@ -669,6 +669,7 @@ export async function dispatchGatewayMethodInProcessRaw(
         // Nested RPCs keep the original request owner through preparation and final I/O.
         assertExplicitRequestCurrent();
       },
+      sessionTranscriptSource: options?.sessionTranscriptSource,
       ...(assertCreatedInputSourceCurrent
         ? {
             assertCreatedInputSourceCurrent: () => {

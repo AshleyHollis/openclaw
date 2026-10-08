@@ -154,9 +154,10 @@ describe("registered plugin RPC authority through the real dispatcher", () => {
       expect(nested?.client).toBe(f.client);
       expect(nested?.client?.internal?.syntheticClient).not.toBe(true);
       expect(nested?.hasCurrentClientAuthority).toBeTypeOf("function");
-      expect(nested?.hasCurrentClientAuthority).toBe(
-        f.outer.mock.calls[0]?.[0].hasCurrentClientAuthority,
+      expect(nested?.hasCurrentClientAuthority?.()).toBe(
+        f.outer.mock.calls[0]?.[0].hasCurrentClientAuthority?.(),
       );
+      expect(nested?.hasCurrentClientAuthority?.()).toBe(false);
     } else {
       expect(response.error).toMatchObject({ message: "missing scope: operator.write" });
     }

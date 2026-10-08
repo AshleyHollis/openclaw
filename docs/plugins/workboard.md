@@ -15,6 +15,31 @@ Workboard is intentionally small: it tracks local operating work for one
 OpenClaw Gateway. It is not a replacement for GitHub Issues, Linear, Jira, or
 other team project management systems.
 
+## Open an exact card from a native plugin
+
+Use the host's declared page navigation rather than constructing a URL:
+
+```ts
+host.navigation.openPage({
+  pluginId: "workboard",
+  id: "workboard",
+  path: [boardId],
+  params: { cardId, tenant: tenant ?? null },
+});
+```
+
+Carry the exact board, card and tenant returned by the native card owner. Omit
+`tenant` only when the card has no tenant and the query is not preserved. Use
+`tenant: null` to clear a previous tenant when preserving the query; no default
+is inferred. The host
+requires an advertised, active Workboard page. Workboard reads current cards
+through the authenticated Gateway and opens its existing details drawer only
+when the card's board, tenant and agent scope still match. Missing or changed
+scope yields an unavailable destination without choosing another card or board.
+Existing edit drafts and pending saves defer navigation. Opening a card never
+starts, specifies or decomposes it. The target survives refresh and browser
+back/forward navigation through the native route owner.
+
 ## Enable it
 
 Workboard is bundled but disabled by default:

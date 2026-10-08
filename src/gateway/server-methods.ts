@@ -54,6 +54,7 @@ import { isTargetedNonSafeGatewayRestartRequest } from "./server-methods/restart
 import {
   bindGatewayRequestHandlerMutationAuthority,
   captureGatewayRequestOperatorGuard,
+  createSessionMutationAuthorizedResponse,
   readGatewayRequestMutationAuthority,
   withSessionMutationCommitGuard,
 } from "./server-methods/session-mutation-guards.js";
@@ -88,6 +89,7 @@ import {
   resolveSessionMutationAuthorization,
   SessionMutationAuthorizationChangedError,
 } from "./session-sharing.js";
+import { createGatewaySessionTranscriptSourceHandoffOwner } from "./session-transcript-source-handoff.js";
 import { classifyGatewayStaleInstall } from "./stale-install.js";
 
 export { coreGatewayHandlers };
@@ -589,8 +591,12 @@ export async function handleGatewayRequest(
   const entry = opts.requestEntry ?? context.requestEntryLifetime?.enter(opts);
   const releaseForegroundWork = retainSessionListForegroundWork();
   let sessionAccessAuthority: GatewaySessionAccessAuthority | undefined;
+  let handoffOwner: ReturnType<typeof createGatewaySessionTranscriptSourceHandoffOwner> | undefined;
   try {
+    const transcriptSourceHandoff = createGatewaySessionTranscriptSourceHandoffOwner(opts);
+    handoffOwner = transcriptSourceHandoff;
     entry?.assertOpen();
+    transcriptSourceHandoff.validate();
     // Prefer the caller-attached registry when it owns the requested method so plugin dispatch
     // metadata newer than global runtime state still authorizes and dispatches correctly. When the
     // attached snapshot does not own the method, rebuild from the process-root registry so late
@@ -642,21 +648,11 @@ export async function handleGatewayRequest(
           }
         : undefined,
     );
-    const respondAuthorized: GatewayRequestOptions["respond"] =
-      authorization.sessionScope === "operator.sessions.read"
-        ? (...response) => {
-            try {
-              sessionMutationAuthorization?.assertCurrent();
-            } catch (error) {
-              if (!(error instanceof SessionMutationAuthorizationChangedError)) {
-                throw error;
-              }
-              respond(false, undefined, error.error);
-              return;
-            }
-            respond(...response);
-          }
-        : respond;
+    const respondAuthorized = createSessionMutationAuthorizedResponse(
+      authorization.sessionScope,
+      sessionMutationAuthorization,
+      respond,
+    );
     const observation = methodRegistry.isObservation(req.method);
     let observationResponded = false;
     const respondToHandler: GatewayRequestOptions["respond"] = observation
@@ -668,6 +664,7 @@ export async function handleGatewayRequest(
       : respondAuthorized;
     const invokeHandler = async () => {
       const preparedHandler = await prepareGatewayRequestHandler(handler, entry);
+      await transcriptSourceHandoff.prepare(sessionMutationAuthorization);
       // Lazy preparation may yield across a hot config change. Keep the router fence
       // unless the canonical owner reconciles accepted input before new admission.
       const uploadError = gatewayRouterUploadPolicyError(requestFacts, methodRegistry);
@@ -689,6 +686,7 @@ export async function handleGatewayRequest(
           ...(hasCurrentClientAuthority ? { hasCurrentClientAuthority } : {}),
           sessionMutationCommitGuard,
           sessionMutationAuthorization,
+          takeSessionTranscriptSourceAdmission: transcriptSourceHandoff.take,
           ...(authorization.sessionAccessAuthority
             ? { sessionAccessAuthority: authorization.sessionAccessAuthority }
             : {}),
@@ -731,11 +729,15 @@ export async function handleGatewayRequest(
       },
     });
   } finally {
-    sessionAccessAuthority?.release();
-    releaseForegroundWork();
-    // Transport/import owners retain failures through their response and logging paths.
-    if (!opts.requestEntry) {
-      entry?.release();
-    }
+    const settle = () => {
+      sessionAccessAuthority?.release();
+      releaseForegroundWork();
+      // Transport/import owners retain failures through their response and logging paths.
+      if (!opts.requestEntry) {
+        entry?.release();
+      }
+    };
+    // Source capture can throw before there is a handoff to close.
+    await (handoffOwner?.close(settle) ?? settle());
   }
 }

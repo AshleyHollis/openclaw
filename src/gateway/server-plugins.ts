@@ -58,6 +58,10 @@ import {
   openGatewayNodeDuplex,
   projectGatewayRuntimeNodes,
 } from "./server-plugins-node-runtime.js";
+import {
+  captureScopedSessionTranscriptGatewaySource,
+  SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION,
+} from "./session-transcript-source-handoff.js";
 
 export {
   dispatchGatewayMethodInProcess,
@@ -96,9 +100,22 @@ export async function dispatchTrustedPluginGatewayMethod<T>(
       } See https://docs.openclaw.ai/plugins/sdk-runtime#api-runtime-gateway`,
     );
   }
+  const sessionTranscriptSource = captureScopedSessionTranscriptGatewaySource(
+    method,
+    options,
+    scope,
+  );
+  const hasSessionTranscriptSource = sessionTranscriptSource !== undefined;
   const syntheticScopes = normalizeOperatorScopeList(options?.scopes);
   return await dispatchGatewayMethodInProcess<T>(method, params, {
-    forceSyntheticClient: true,
+    forceSyntheticClient: !hasSessionTranscriptSource,
+    ...(hasSessionTranscriptSource
+      ? {
+          disableSyntheticClient: true,
+          requireScopedClient: true,
+          sessionTranscriptSource,
+        }
+      : {}),
     pluginRuntimeOwnerId: pluginId,
     resolveGatewayContext,
     ...(!scope?.client ? { operatorRoleActor: { kind: "system" as const } } : {}),
@@ -229,6 +246,9 @@ function createGatewayPluginRuntimeBindings(
           : await run();
       },
       gateway: {
+        authenticatedSessionTranscriptSourceAdmissionVersion: 1,
+        sessionTranscriptSourceAdmissionVersion:
+          SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION,
         isAvailable: async () => hasInProcessGatewayContext(resolveBoundGatewayContext),
         request: (method, params, options) =>
           dispatchTrustedPluginGatewayMethod(method, params, options, resolveBoundGatewayContext),

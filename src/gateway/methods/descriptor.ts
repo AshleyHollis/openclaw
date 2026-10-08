@@ -26,7 +26,7 @@ export type GatewayMethodProfileAccess = "independent" | "required";
 
 /** A plugin operation addresses one existing session through the shared participation policy. */
 export type GatewayMethodSessionAccess = {
-  mode: "write";
+  mode: "read" | "write";
   allowOwnSessionScope?: boolean;
   /** Reuse the complete effective session tool policy for this capability. */
   requiredTool?: string;

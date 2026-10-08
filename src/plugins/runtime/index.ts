@@ -1,5 +1,6 @@
 import { resolveSandboxWorkspaceAuthority } from "../../agents/sandbox/workspace-authority.js";
 import { getRuntimeConfig } from "../../config/config.js";
+import { SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION } from "../../gateway/session-transcript-source-handoff.js";
 import { onAgentEvent } from "../../infra/agent-events.js";
 import { stageDurableFileInDirectory } from "../../infra/durable-publication.js";
 import {
@@ -39,6 +40,8 @@ const loadGatewayPluginRuntime = createLazyRuntimeModule(
 
 function createRuntimeGateway(): PluginRuntime["gateway"] {
   return {
+    sessionTranscriptSourceAdmissionVersion: SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION,
+    authenticatedSessionTranscriptSourceAdmissionVersion: 1,
     isAvailable: async () => {
       const runtime = await loadGatewayPluginRuntime();
       return runtime.hasInProcessGatewayContext();

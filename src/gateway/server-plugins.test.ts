@@ -562,6 +562,15 @@ afterEach(() => {
 });
 
 describe("loadGatewayPlugins", () => {
+  test("advertises transcript source admission on the actual bound Gateway adapter", () => {
+    loadOpenClawPlugins.mockReturnValue(createRegistry([]));
+    loadGatewayPluginsForTest();
+    const options = getLastPluginLoadOption("runtimeOptions") as
+      | Parameters<PluginRuntimeModule["createPluginRuntime"]>[0]
+      | undefined;
+    expect(options?.gateway?.sessionTranscriptSourceAdmissionVersion).toBe(1);
+    expect(options?.gateway?.authenticatedSessionTranscriptSourceAdmissionVersion).toBe(1);
+  });
   test.each(["error", "warn", "info"] as const)(
     "routes %s diagnostics and retires informational deduplication with metadata",
     (level) => {

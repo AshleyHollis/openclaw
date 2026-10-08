@@ -7,6 +7,7 @@ import {
   normalizeAgentId,
   parseAgentSessionKey,
 } from "../../routing/session-key.js";
+import type { OpenClawAgentDatabaseOptions } from "../../state/openclaw-agent-db-contract.js";
 import {
   createOpenClawAgentDatabaseClaim,
   type OpenClawAgentDatabaseClaim,
@@ -19,7 +20,10 @@ import {
   resolveOpenClawAgentSqlitePath,
 } from "../../state/openclaw-agent-db.js";
 import type { AgentDatabaseRequestExecutionSource } from "../../state/openclaw-agent-execution-contract.js";
-import { captureOpenClawAgentDatabaseExecution } from "../../state/openclaw-agent-execution.js";
+import {
+  captureOpenClawAgentDatabaseExecution,
+  type OpenClawAgentDatabaseExecution,
+} from "../../state/openclaw-agent-execution.js";
 import { runOpenClawAgentWorkerWrite } from "../../state/openclaw-agent-write-admission.js";
 import { cloneEnvWithPlatformSemantics } from "../config-env-vars.js";
 import { resolveStateDir } from "../paths.js";
@@ -54,7 +58,12 @@ export async function loadSessionEntryForAdmission(
     signal?: AbortSignal;
     assertCurrent?: () => void;
   } = {},
-): Promise<{ entry: SessionEntry | undefined; databaseClaim: SessionAdmissionDatabaseClaim }> {
+): Promise<{
+  entry: SessionEntry | undefined;
+  databaseClaim: SessionAdmissionDatabaseClaim;
+  databaseOptions?: OpenClawAgentDatabaseOptions;
+  execution?: OpenClawAgentDatabaseExecution;
+}> {
   const env = cloneEnvWithPlatformSemantics(input.env ?? process.env);
   env.OPENCLAW_STATE_DIR = resolveStateDir(env);
   const scope = { ...input, env };
@@ -192,7 +201,7 @@ export async function loadSessionEntryForAdmission(
                 release: () => (release ??= execution.release()),
               };
               transferred = true;
-              return { entry, databaseClaim: claim };
+              return { entry, databaseClaim: claim, databaseOptions: options, execution };
             } finally {
               if (!transferred) {
                 await execution.release();

@@ -30,7 +30,7 @@ export const page = definePage({
         html`<openclaw-plugin-page
           .pluginId=${"workboard"}
           .tabId=${"workboard"}
-          .params=${{ boardId: data?.boardFilter ?? "__all__" }}
+          .params=${{ boardId: data?.boardFilter ?? "__all__", ...data?.cardTarget }}
         ></openclaw-plugin-page>`,
     })),
 });
