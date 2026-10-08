@@ -423,7 +423,6 @@ function createCronCodeModeRunner(deps: CronTriggerEvaluatorDeps) {
               agentId: runtime.context.agentId,
               sessionKey: runtime.context.sessionKey,
               jobId: params.job.id,
-              deliveryAttemptFence: params.deliveryAttemptFence ?? null,
               toolsAllow: request.toolsAllow,
               scheduledToolPolicy: request.scheduledToolPolicy,
               channelRequester: resolveCronAuthenticatedChannelRequester(params.job),

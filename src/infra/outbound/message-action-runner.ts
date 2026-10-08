@@ -43,7 +43,6 @@ import {
 import { MessageActionDeniedError } from "./message-action-denial.js";
 import {
   assertMessageDeliveryCurrent,
-  beforeMessageDeliveryAttempt,
   executeMessagePlugin,
   executeMessagePoll,
 } from "./message-action-execution.js";
@@ -427,9 +426,6 @@ async function handleInternalSourceReplySendAction(
   const idempotencyKey = normalizeOptionalString(params.idempotencyKey);
   let persistedIdempotencyKey: string | undefined;
   let persistedTranscriptOwner = false;
-  if (!dryRun) {
-    await beforeMessageDeliveryAttempt(input);
-  }
   if (!dryRun && input.sessionId) {
     const sessionKey = input.sourceReplySessionKey ?? input.sessionKey;
     if (!sessionKey) {
@@ -449,10 +445,8 @@ async function handleInternalSourceReplySendAction(
         toolCallId: input.sourceReplyToolCallId,
         sourceTurnId: input.messageActionAuthorization?.toolContext?.currentSourceTurnId,
       });
-    if (
-      input.messageActionAuthorization?.scheduled ||
-      input.messageActionAuthorization?.deliveryAttempt
-    ) {
+    const scheduled = input.messageActionAuthorization?.scheduled;
+    if (scheduled) {
       await withSessionTranscriptWriteAssertion(
         {
           agentId: input.agentId ?? resolveSessionAgentId({ sessionKey, config: input.cfg }),
@@ -695,18 +689,16 @@ export async function runMessageAction(input: MessageActionInput): Promise<Messa
         },
         input.abortSignal,
       );
-      if (!context.dryRun && !isFencedProviderReadAction(action)) {
-        await beforeMessageDeliveryAttempt(context.input);
-        if (
-          context.input.messageActionAuthorization?.scheduled ||
-          context.input.messageActionAuthorization?.deliveryAttempt
-        ) {
-          const deliveryInput = context.input;
-          context.input = {
-            ...deliveryInput,
-            assertDirectAdapterHandoff: () => assertMessageDeliveryCurrent(deliveryInput),
-          };
-        }
+      if (
+        !context.dryRun &&
+        !isFencedProviderReadAction(action) &&
+        context.input.messageActionAuthorization?.scheduled
+      ) {
+        const deliveryInput = context.input;
+        context.input = {
+          ...deliveryInput,
+          assertDirectAdapterHandoff: () => assertMessageDeliveryCurrent(deliveryInput),
+        };
       }
       if (action === "send") {
         return executeMessageSend(context);
