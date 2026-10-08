@@ -5,6 +5,7 @@ import type {
   PreparedSessionTranscriptSourceAdmission,
   SessionTranscriptSourceSelection,
 } from "../config/sessions/session-transcript-source-admission.js";
+import type { PluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.types.js";
 import { isIncognitoSessionKey } from "../routing/session-key.js";
 import type {
   GatewayRequestOptions,
@@ -31,7 +32,7 @@ export type SessionTranscriptGatewaySource = Readonly<{
   assertCurrent: () => void;
 }>;
 
-export function assertSessionTranscriptGatewaySource(
+function assertSessionTranscriptGatewaySource(
   method: string,
   source: SessionTranscriptGatewaySource,
 ): void {
@@ -51,6 +52,56 @@ export function assertSessionTranscriptGatewaySource(
   }
 }
 
+/** Capture the scoped transport before any caller-controlled source-option getter. */
+export function captureScopedSessionTranscriptGatewaySource(
+  method: string,
+  options: { readonly sessionTranscriptSource?: SessionTranscriptGatewaySource } | undefined,
+  scope: PluginRuntimeGatewayRequestScope | undefined,
+  assertDispatchCurrent?: () => void,
+): SessionTranscriptGatewaySource | undefined {
+  const client = scope?.client;
+  const hasCurrentClientAuthority = scope?.hasCurrentClientAuthority;
+  const userId = client?.authenticatedUserId;
+  const profileId = client?.authenticatedUserProfile?.profileId;
+  const connId = client?.connId;
+  const assertOriginCurrent = () => {
+    assertDispatchCurrent?.();
+    if (
+      !client ||
+      scope?.client !== client ||
+      scope?.hasCurrentClientAuthority !== hasCurrentClientAuthority ||
+      hasCurrentClientAuthority?.call(scope) === false ||
+      client.authenticatedUserId !== userId ||
+      client.authenticatedUserProfile?.profileId !== profileId ||
+      client.connId !== connId
+    ) {
+      throw new Error("Transcript source handoff originating requester changed");
+    }
+  };
+  const supplied = options?.sessionTranscriptSource;
+  if (supplied === undefined) {
+    return undefined;
+  }
+  assertOriginCurrent();
+  const originalGuard = supplied.assertCurrent;
+  assertOriginCurrent();
+  const selection = Object.freeze({ ...supplied.selection });
+  assertOriginCurrent();
+  if (typeof originalGuard !== "function" || types.isAsyncFunction(originalGuard)) {
+    throw new Error("Transcript source handoff requires synchronous captured authority");
+  }
+  const capturedSource = { selection, assertCurrent: originalGuard.bind(supplied) };
+  const source = {
+    selection,
+    assertCurrent() {
+      assertOriginCurrent();
+      assertSessionTranscriptGatewaySource(method, capturedSource);
+      assertOriginCurrent();
+    },
+  };
+  assertSessionTranscriptGatewaySource(method, source);
+  return source;
+}
 /** Private router lifetime; capture the sideband once before any caller callback. */
 export function createGatewaySessionTranscriptSourceHandoffOwner(request: GatewayRequestOptions) {
   const client = request.client;

@@ -7,6 +7,7 @@ import { registerWorkboardGatewayMethods } from "../../extensions/workboard/runt
 import { observeSqliteWorkerAdmissionForTest } from "../../test/helpers/sqlite-worker-admission-observer.js";
 import { createSessionTranscriptVisibleMessageDigest } from "../config/sessions/session-transcript-visible-message.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { dispatchGatewayMethod } from "../plugin-sdk/gateway-method-runtime.js";
 import {
   assertSessionTranscriptGatewaySourceAdmissionAvailable,
   SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION,
@@ -21,6 +22,7 @@ import {
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../plugins/runtime.js";
 import { withPluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.js";
+import type { PluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.types.js";
 import { createPluginRuntime } from "../plugins/runtime/index.js";
 import type { RuntimeGatewayRequestOptions } from "../plugins/runtime/types.js";
 import { closeOpenClawAgentDatabasesAsync } from "../state/openclaw-agent-db.js";
@@ -81,6 +83,14 @@ async function withSourceGateway(
       input: Record<string, unknown>,
       options?: RuntimeGatewayRequestOptions,
     ) => Promise<T>;
+    publicInvoke: <T>(
+      method: string,
+      input: Record<string, unknown>,
+      options?: RuntimeGatewayRequestOptions,
+      admission?: "entitled" | "allowlisted" | "denied" | "missing-client",
+    ) => Promise<T>;
+    retirePublicAuthority: () => void;
+    publicScope: () => PluginRuntimeGatewayRequestScope;
     source: SessionTranscriptGatewaySource;
     input: Record<string, unknown>;
     client: ReturnType<typeof createOperatorClient>;
@@ -207,6 +217,8 @@ async function withSourceGateway(
       profileId: reader.id,
       scopes: ["operator.read", "operator.write"],
     });
+    let publicAuthorityCurrent = true;
+    let publicRequestScope: PluginRuntimeGatewayRequestScope | undefined;
     const invoke = <T>(
       method: string,
       params: Record<string, unknown>,
@@ -255,6 +267,41 @@ async function withSourceGateway(
             },
           });
           return result as T;
+        },
+        publicInvoke: async <T>(
+          method: string,
+          params: Record<string, unknown>,
+          options?: RuntimeGatewayRequestOptions,
+          admission = "entitled",
+        ) => {
+          publicRequestScope = {
+            pluginId: "command-center",
+            pluginOrigin: "config",
+            client: admission === "missing-client" ? undefined : client,
+            context,
+            gatewayMethodDispatchAllowed:
+              admission === "entitled" || admission === "missing-client",
+            gatewayMethodDispatchMethods:
+              admission === "allowlisted" ? ["workboard.cards.create"] : [],
+            hasCurrentClientAuthority: () => publicAuthorityCurrent && !client.invalidated,
+            isWebchatConnect: () => false,
+          };
+          const response = await withPluginRuntimeGatewayRequestScope(publicRequestScope, () =>
+            dispatchGatewayMethod(method, params, options),
+          );
+          if (!response.ok) {
+            throw new Error(response.error?.message ?? "Authenticated public dispatch refused");
+          }
+          return response.payload as T;
+        },
+        publicScope: () => {
+          if (!publicRequestScope) {
+            throw new Error("Original public request scope is unavailable");
+          }
+          return publicRequestScope;
+        },
+        retirePublicAuthority: () => {
+          publicAuthorityCurrent = false;
         },
         sourceScope,
         sourcePath: resolveOpenClawAgentSqlitePath(sourceScope),
@@ -588,3 +635,224 @@ it("joins source cleanup after accepted response loss and reconciles a fresh nat
     expect(replay.card.id).toBe(listed.cards[0]?.id);
   });
 });
+
+it.each(["entitled", "allowlisted"] as const)(
+  "carries external %s public dispatch custody through actual card COMMIT",
+  async (admission) => {
+    await withSourceGateway(async (f) => {
+      const observer = observeSqliteWorkerAdmissionForTest();
+      const stages = new Set<string>();
+      const options: RuntimeGatewayRequestOptions = {
+        sessionTranscriptSource: {
+          ...f.source,
+          assertCurrent() {
+            options.sessionTranscriptSource = undefined;
+            const stage = observer.currentRequest?.stage;
+            if ((stage === "transaction" || stage === "commit") && writerBusy(f.destinationPath)) {
+              stages.add(stage);
+              expect(writerBusy(f.sourcePath)).toBe(true);
+            }
+          },
+        },
+      };
+      try {
+        const created = await f.publicInvoke<{ card: { id: string } }>(
+          "workboard.cards.create",
+          f.input,
+          options,
+          admission,
+        );
+        expect(created.card.id).toBeTruthy();
+        expect(stages).toEqual(new Set(["transaction", "commit"]));
+        expect(writerBusy(f.sourcePath)).toBe(false);
+      } finally {
+        observer.restore();
+      }
+    });
+  },
+);
+
+it.each(["first-callback", "commit", "read-permission", "entitlement"] as const)(
+  "refuses external public source dispatch when %s authority changes",
+  async (retirement) => {
+    await withSourceGateway(async (f) => {
+      const observer = observeSqliteWorkerAdmissionForTest();
+      const originalUser = f.client.authenticatedUserId;
+      let retired = false;
+      try {
+        await expect(
+          f.publicInvoke("workboard.cards.create", f.input, {
+            sessionTranscriptSource: {
+              ...f.source,
+              assertCurrent() {
+                if (
+                  retirement === "first-callback" ||
+                  (observer.currentRequest?.stage === "commit" && writerBusy(f.destinationPath))
+                ) {
+                  retired = true;
+                  if (retirement === "entitlement") {
+                    const scope = f.publicScope();
+                    if (!scope) {
+                      throw new Error("External request scope is unavailable");
+                    }
+                    scope.gatewayMethodDispatchAllowed = false;
+                  } else if (retirement === "read-permission") {
+                    f.readPolicy.others = "none";
+                  } else {
+                    f.client.authenticatedUserId = "foreign-public-dispatch-principal";
+                  }
+                }
+              },
+            },
+          }),
+        ).rejects.toThrow();
+        expect(retired).toBe(true);
+      } finally {
+        f.client.authenticatedUserId = originalUser;
+        f.readPolicy.others = "view";
+        observer.restore();
+      }
+      const listed = await f.invoke<{ cards: unknown[] }>("workboard.cards.list", {});
+      expect(listed.cards).toEqual([]);
+      expect(writerBusy(f.sourcePath)).toBe(false);
+    });
+  },
+);
+
+it.each(["denied", "missing-client"] as const)(
+  "refuses external public source dispatch without %s entitlement or authenticated client",
+  async (admission) => {
+    await withSourceGateway(async (f) => {
+      let guardCalls = 0;
+      await expect(
+        f.publicInvoke(
+          "workboard.cards.create",
+          f.input,
+          {
+            sessionTranscriptSource: {
+              ...f.source,
+              assertCurrent() {
+                guardCalls += 1;
+              },
+            },
+          },
+          admission,
+        ),
+      ).rejects.toThrow();
+      expect(guardCalls).toBe(0);
+      const listed = await f.invoke<{ cards: unknown[] }>("workboard.cards.list", {});
+      expect(listed.cards).toEqual([]);
+    });
+  },
+);
+
+it("refuses a source-bound external call outside the exact admitted method allowlist", async () => {
+  await withSourceGateway(async (f) => {
+    let guardCalls = 0;
+    await expect(
+      f.publicInvoke(
+        "workboard.cards.list",
+        {},
+        {
+          sessionTranscriptSource: {
+            ...f.source,
+            assertCurrent() {
+              guardCalls += 1;
+            },
+          },
+        },
+        "allowlisted",
+      ),
+    ).rejects.toThrow("exact allowlist");
+    expect(guardCalls).toBe(0);
+  });
+});
+it.each(["source-option", "selection", "guard"] as const)(
+  "refuses external %s getters that replace the original connection before source capture",
+  async (getter) => {
+    await withSourceGateway(async (f) => {
+      const originalConn = f.client.connId;
+      let getterCalls = 0;
+      let guardCalls = 0;
+      const replaceConnection = () => {
+        getterCalls += 1;
+        f.client.connId = "same-authorized-user-different-connection";
+      };
+      const source: SessionTranscriptGatewaySource = {
+        get selection() {
+          if (getter === "selection") {
+            replaceConnection();
+          }
+          return f.source.selection;
+        },
+        get assertCurrent() {
+          if (getter === "guard") {
+            replaceConnection();
+          }
+          return () => {
+            guardCalls += 1;
+          };
+        },
+      };
+      const options: RuntimeGatewayRequestOptions = {
+        get sessionTranscriptSource() {
+          if (getter === "source-option") {
+            replaceConnection();
+          }
+          return source;
+        },
+      };
+      try {
+        await expect(f.publicInvoke("workboard.cards.create", f.input, options)).rejects.toThrow(
+          "originating requester changed",
+        );
+        expect(getterCalls).toBeGreaterThan(0);
+        expect(guardCalls).toBe(0);
+      } finally {
+        f.client.connId = originalConn;
+      }
+      const listed = await f.invoke<{ cards: unknown[] }>("workboard.cards.list", {});
+      expect(listed.cards).toEqual([]);
+      expect(writerBusy(f.sourcePath)).toBe(false);
+    });
+  },
+);
+
+it.each(["first-callback", "commit"] as const)(
+  "retains the original external scoped authority when a %s callback replaces it",
+  async (retirement) => {
+    await withSourceGateway(async (f) => {
+      const observer = observeSqliteWorkerAdmissionForTest();
+      let replaced = false;
+      try {
+        await expect(
+          f.publicInvoke("workboard.cards.create", f.input, {
+            sessionTranscriptSource: {
+              ...f.source,
+              assertCurrent() {
+                if (
+                  retirement === "first-callback" ||
+                  (observer.currentRequest?.stage === "commit" && writerBusy(f.destinationPath))
+                ) {
+                  const scope = f.publicScope();
+                  if (!scope) {
+                    throw new Error("External request scope is unavailable");
+                  }
+                  f.retirePublicAuthority();
+                  scope.hasCurrentClientAuthority = () => true;
+                  replaced = true;
+                }
+              },
+            },
+          }),
+        ).rejects.toThrow();
+        expect(replaced).toBe(true);
+      } finally {
+        observer.restore();
+      }
+      const listed = await f.invoke<{ cards: unknown[] }>("workboard.cards.list", {});
+      expect(listed.cards).toEqual([]);
+      expect(writerBusy(f.sourcePath)).toBe(false);
+    });
+  },
+);

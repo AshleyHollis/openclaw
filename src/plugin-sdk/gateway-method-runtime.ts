@@ -1,5 +1,9 @@
 // Gateway method runtime helpers dispatch plugin calls through the in-process gateway.
 import { dispatchGatewayMethodInProcessRaw } from "../gateway/server-plugins.js";
+import {
+  captureScopedSessionTranscriptGatewaySource,
+  type SessionTranscriptGatewaySource,
+} from "../gateway/session-transcript-source-handoff.js";
 import { getPluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.js";
 
 /** Error envelope returned by in-process Gateway method dispatch. */
@@ -34,6 +38,8 @@ export type GatewayMethodDispatchOptions = {
   expectFinal?: boolean;
   /** Maximum time to wait for Gateway dispatch before the runtime reports a timeout. */
   timeoutMs?: number;
+  /** Host-only source custody for workboard.cards.create; never serialize into RPC params. */
+  sessionTranscriptSource?: SessionTranscriptGatewaySource;
 };
 
 /**
@@ -48,23 +54,35 @@ export async function dispatchGatewayMethod(
   options?: GatewayMethodDispatchOptions,
 ): Promise<GatewayMethodDispatchResponse> {
   const scope = getPluginRuntimeGatewayRequestScope();
-  if (
-    scope?.gatewayMethodDispatchAllowed !== true &&
-    (scope?.client == null || !scope.gatewayMethodDispatchMethods?.includes(method))
-  ) {
-    // Gateway methods can mutate/control local runtime state; require the
-    // authenticated request scope recorded by the plugin loader contract.
-    const pluginLabel = scope?.pluginId ? ` for plugin "${scope.pluginId}"` : "";
-    throw new Error(
-      `Gateway method dispatch is reserved for entitled plugin HTTP routes or the exact allowlist of a current plugin Gateway method with contracts.gatewayMethodDispatch: ["authenticated-request"]${pluginLabel}.`,
-    );
-  }
+  const hasCurrentClientAuthority = scope?.hasCurrentClientAuthority;
+  const signal = scope?.signal;
+  const assertDispatchCurrent = () => {
+    if (
+      scope?.gatewayMethodDispatchAllowed !== true &&
+      (scope?.client == null || !scope.gatewayMethodDispatchMethods?.includes(method))
+    ) {
+      // Gateway methods can mutate/control local runtime state; require the
+      // authenticated request scope recorded by the plugin loader contract.
+      const pluginLabel = scope?.pluginId ? ` for plugin "${scope.pluginId}"` : "";
+      throw new Error(
+        `Gateway method dispatch is reserved for entitled plugin HTTP routes or the exact allowlist of a current plugin Gateway method with contracts.gatewayMethodDispatch: ["authenticated-request"]${pluginLabel}.`,
+      );
+    }
+  };
+  assertDispatchCurrent();
+  const source = captureScopedSessionTranscriptGatewaySource(
+    method,
+    options,
+    scope,
+    assertDispatchCurrent,
+  );
   return await dispatchGatewayMethodInProcessRaw(method, params, {
+    ...(source === undefined ? {} : { sessionTranscriptSource: source }),
     disableSyntheticClient: true,
     requireScopedClient: true,
-    ...(scope.signal ? { signal: scope.signal } : {}),
-    ...(scope.hasCurrentClientAuthority
-      ? { hasCurrentClientAuthority: scope.hasCurrentClientAuthority }
+    ...(signal ? { signal } : {}),
+    ...(hasCurrentClientAuthority
+      ? { hasCurrentClientAuthority: () => hasCurrentClientAuthority.call(scope) }
       : {}),
     ...(options?.expectFinal !== undefined ? { expectFinal: options.expectFinal } : {}),
     ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),

@@ -139,6 +139,8 @@ export type PluginRuntime = PluginRuntimeCore & {
   gateway: {
     /** Actual host support; absent on older or independently injected adapters. */
     readonly sessionTranscriptSourceAdmissionVersion?: 1;
+    /** Existing public authenticated dispatcher retains source custody through Workboard COMMIT. */
+    readonly authenticatedSessionTranscriptSourceAdmissionVersion?: 1;
     /** Whether this process owns an active Gateway request context. */
     isAvailable: () => Promise<boolean>;
     /** Dispatch a Gateway method as the current trusted plugin. */

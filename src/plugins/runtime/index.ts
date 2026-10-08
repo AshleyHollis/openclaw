@@ -41,6 +41,7 @@ const loadGatewayPluginRuntime = createLazyRuntimeModule(
 function createRuntimeGateway(): PluginRuntime["gateway"] {
   return {
     sessionTranscriptSourceAdmissionVersion: SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION,
+    authenticatedSessionTranscriptSourceAdmissionVersion: 1,
     isAvailable: async () => {
       const runtime = await loadGatewayPluginRuntime();
       return runtime.hasInProcessGatewayContext();
