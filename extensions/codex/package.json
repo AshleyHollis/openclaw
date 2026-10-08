@@ -51,8 +51,7 @@
       "publishToNpm": true,
       "requireLatestDependencies": [
         "@openai/codex"
-      ],
-      "bundleRuntimeDependencies": false
+      ]
     }
   }
 }

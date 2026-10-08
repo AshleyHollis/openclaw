@@ -1302,6 +1302,7 @@ process.stdout.write("PACKED_PLUGIN_CHANNEL_STATE_OK\\n");
 
   it.each([
     "default",
+    "codex-release-policy",
     "isolated",
     "isolated-short",
     "partial",
@@ -1319,6 +1320,14 @@ process.stdout.write("PACKED_PLUGIN_CHANNEL_STATE_OK\\n");
   ])("preserves patched dependency packaging contracts (%s)", async (bundling) => {
     const { repoDir, packageDir, sourceManifest, installedDir, installedSource, registryVersions } =
       writePatchedRuntimeFixture(bundling);
+    if (bundling === "codex-release-policy") {
+      const codex = JSON.parse(
+        readFileSync(join(process.cwd(), "extensions", "codex", "package.json"), "utf8"),
+      );
+      sourceManifest.openclaw.release = codex.openclaw.release;
+      sourceManifest.openclaw.install = codex.openclaw.install;
+      writeJsonFile(join(packageDir, "package.json"), sourceManifest);
+    }
     if (bundling === "unchanged") {
       delete sourceManifest.openclaw.setupEntry;
       writeJsonFile(join(packageDir, "package.json"), sourceManifest);
@@ -1515,6 +1524,11 @@ console.log(JSON.stringify({ path: path.join(destination, packed.filename) }));
       const published = JSON.parse(readFileSync(join(consumerPackage, "package.json"), "utf8"));
       expect(published.dependencies).toEqual(sourceManifest.dependencies);
       expect(published.optionalDependencies).toEqual(sourceManifest.optionalDependencies);
+      if (bundling === "codex-release-policy") {
+        expect(published.openclaw.install.requiredPlatformPackages).toEqual(
+          sourceManifest.openclaw.install.requiredPlatformPackages,
+        );
+      }
       expect(published.bundledDependencies).toEqual(
         ["partial", "all", "explicit-all"].includes(bundling) || bundling.startsWith("nested-")
           ? ["local-runtime-dep", "unpatched-sibling"]
