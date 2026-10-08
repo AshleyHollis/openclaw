@@ -49,6 +49,10 @@ function withCardHooks(
       await options.beforeCardWrite?.(key, value);
       return cards.registerIfAbsent(key, value);
     },
+    async registerIdempotent(key, value, intent, parentIds, missingParentId) {
+      await options.beforeCardWrite?.(key, value);
+      return cards.registerIdempotent(key, value, intent, parentIds, missingParentId);
+    },
     async registerIfUpdatedAt(key, value, expectedUpdatedAt) {
       await options.beforeCardWrite?.(key, value);
       return cards.registerIfUpdatedAt(key, value, expectedUpdatedAt);

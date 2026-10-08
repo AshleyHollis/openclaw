@@ -3,6 +3,7 @@ import {
   readSessionMessageIdentity,
 } from "@openclaw/gateway-client/browser";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { escapeRegExp } from "../../../../src/shared/regexp.js";
 import { stripInlineDirectiveTagsForDelivery } from "../../../../src/utils/directive-tags.js";
 import {
   accumulatedStreamText,
@@ -19,20 +20,13 @@ import {
 import {
   hasAssistantStreamPartReplacement,
   visibleAssistantStreamParts,
+  type ToolStreamReconciliationState,
 } from "./stream-reconciliation.ts";
 import {
   extractToolMessageRefs,
   resolveLiveToolStreamRefs,
   resolveMatchingLiveToolIdentity,
 } from "./tool-stream-identity.ts";
-
-type StreamSegmentPruningState = StreamCausalBoundaryState & {
-  chatStream: string | null;
-  chatStreamStartedAt: number | null;
-  chatToolMessages?: unknown[];
-  toolStreamById?: Map<string, unknown>;
-  toolStreamOrder?: unknown[];
-};
 
 type AssistantMessageVisibility = (message: unknown) => boolean;
 type StreamVisibility = (stream: string) => boolean;
@@ -72,7 +66,7 @@ export function discardStreamSegmentIndexes(
   );
 }
 
-export function reconcilePersistedAssistantStream(state: StreamSegmentPruningState): void {
+export function reconcilePersistedAssistantStream(state: ToolStreamReconciliationState): void {
   const runId = state.chatRunId;
   if (!runId) {
     return;
@@ -118,7 +112,7 @@ export function reconcilePersistedAssistantStream(state: StreamSegmentPruningSta
 }
 
 function retireCumulativePrefix(
-  state: StreamSegmentPruningState,
+  state: ToolStreamReconciliationState,
   runId: string,
   prefix: string,
   timestamp: number,
@@ -165,7 +159,7 @@ function retireCumulativePrefix(
 }
 
 function completePendingCommentary(
-  state: StreamSegmentPruningState,
+  state: ToolStreamReconciliationState,
   retired: ChatStreamSegment,
 ): { text: string } | null {
   const pending = retired.pendingCommentary;
@@ -185,10 +179,7 @@ function completePendingCommentary(
   } else {
     // Match only this already-owned occurrence. A coalesced delta may also
     // contain new output, including another identical commentary paragraph.
-    const pattern = expectedText
-      .split(/\s+/u)
-      .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-      .join("\\s+");
+    const pattern = expectedText.split(/\s+/u).map(escapeRegExp).join("\\s+");
     const match = new RegExp(`^\\s*${pattern}`, "u").exec(delivered);
     if (!match) {
       return null;
@@ -223,7 +214,7 @@ function completePendingCommentary(
 
 /** Transfer one cumulative occurrence to its first keyed owner. */
 export function retireCommentaryStream(
-  state: StreamSegmentPruningState,
+  state: ToolStreamReconciliationState,
   commentary: {
     runId: string;
     itemId: string;
@@ -309,11 +300,15 @@ export function retireCommentaryStream(
 /** A durable commentary row immediately replaces its keyed live projection.
  * Waiting for terminal cleanup renders both copies throughout the active run. */
 export function prunePersistedAssistantStreamSegments(
-  state: StreamCausalBoundaryState,
+  state: ToolStreamReconciliationState,
   message: unknown,
 ): void {
   const identity = readAssistantStreamSegmentIdentity(message);
-  if (!identity || !state.chatStreamSegments) {
+  if (!identity) {
+    return;
+  }
+  prunePersistedCurrentAssistantItem(state, identity);
+  if (!state.chatStreamSegments) {
     return;
   }
   const replacedIndexes = state.chatStreamSegments.flatMap((segment, index) => {
@@ -326,9 +321,48 @@ export function prunePersistedAssistantStreamSegments(
   discardStreamSegmentIndexes(state, replacedIndexes);
 }
 
+export function prunePersistedCurrentAssistantItem(
+  state: ToolStreamReconciliationState,
+  identity: { runId?: string; itemId: string },
+): boolean {
+  const runId = identity.runId ?? state.chatRunId;
+  if (
+    !runId ||
+    runId !== state.chatRunId ||
+    identity.itemId !== state.chatStreamItemId ||
+    state.chatStream === null ||
+    state.chatStreamItemStartOffset === undefined ||
+    state.chatStreamItemStartOffset > state.chatStream.length
+  ) {
+    return false;
+  }
+  const stream = state.chatStream;
+  const prefix = stream.slice(0, state.chatStreamItemStartOffset);
+  const accumulated = accumulatedStreamText(state.chatStreamSegments ?? []);
+  if (prefix && advanceAccumulatedStreamText(accumulated, prefix) !== accumulated) {
+    state.chatStreamSegments = [
+      ...(state.chatStreamSegments ?? []),
+      {
+        text: prefix,
+        ts: state.chatStreamStartedAt ?? Date.now(),
+        runId,
+        pendingCommentaryPrefixFor: identity.itemId,
+      },
+    ];
+  }
+  // The durable row replaces this item's display, but later item snapshots are
+  // still cumulative. Retain the consumed bytes as a hidden baseline so they
+  // cannot reappear when the next identified item arrives.
+  retireCumulativePrefix(state, runId, stream, state.chatStreamStartedAt ?? Date.now(), {
+    itemId: identity.itemId,
+  });
+  state.chatStream = "";
+  return true;
+}
+
 export function pruneHistoryReplacedStreamSegments(
   messages: unknown[],
-  state: StreamSegmentPruningState,
+  state: ToolStreamReconciliationState,
   opts: {
     isHiddenAssistantMessage: AssistantMessageVisibility;
     isHiddenStreamText: StreamVisibility;
@@ -371,7 +405,7 @@ export function pruneHistoryReplacedStreamSegments(
 }
 
 export function prunePersistedToolStreamMessages(
-  state: StreamSegmentPruningState,
+  state: ToolStreamReconciliationState,
   persistedToolIds: Set<string>,
 ) {
   if (persistedToolIds.size === 0) {

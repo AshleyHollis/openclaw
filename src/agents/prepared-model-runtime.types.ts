@@ -102,10 +102,10 @@ export type PreparedModelRuntimeSnapshot = Readonly<{
    * Full inventory discovery is deliberately outside the startup publication boundary.
    */
   modelCatalog: ModelCatalogSnapshot;
-  /** Returns saved inventory immediately while expired provider catalogs renew separately. */
-  readFullModelCatalog?: () => ModelCatalogSnapshot | undefined;
   /** Reads accepted inventory without scheduling discovery or expiry renewal. */
-  readPublishedModelCatalog?: () => ModelCatalogSnapshot | undefined;
+  readFullModelCatalog?: () => ModelCatalogSnapshot | undefined;
+  /** Inventory demand may renew expired providers without waiting or replacing saved rows. */
+  refreshExpiredModelCatalog?: () => void;
   /** Reads validated executable rows from this owner's accepted provider publication. */
   readPublishedModels?: () => ReadonlyMap<string, readonly Model[]> | undefined;
   /** Builds this generation's full control-plane catalog without replacing turn facts. */
@@ -236,7 +236,10 @@ export type PreparedModelCatalogInventory = {
   key: string;
   pluginFingerprint: string;
   nativeSource: string;
-  providers: ReadonlyMap<string, { source: string; credentials: string; expiresAt?: number }>;
+  providers: ReadonlyMap<
+    string,
+    { source: string; credentials: string; expiresAt?: number; legacyRows?: ReadonlySet<string> }
+  >;
   discoveryOrigins: readonly { provider: string; profileId?: string }[];
 };
 
@@ -269,6 +272,8 @@ export type PreparedModelRuntimeOwner = {
   /** Source-bound attempt status, including failure before any inventory was published. */
   catalogAttempt?: PreparedModelCatalogAttempt;
   refreshError?: Error;
+  /** The configured publication owner recovers when an idle Gateway lender retires. */
+  onPluginGenerationRetired?: () => void;
   snapshot?: PreparedModelRuntimeSnapshot;
   pluginGeneration?: PreparedModelRuntimePluginGeneration;
   /** Explicit generation admitted for the current publication, when known. */

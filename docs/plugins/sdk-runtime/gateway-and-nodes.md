@@ -12,6 +12,49 @@ Reach the Gateway and paired nodes from plugin code, and the events a long-lived
 
 ## Gateway and node namespaces
 
+### Session resource methods
+
+A plugin can declare `sessionAccess` when registering an additive Gateway method:
+
+```typescript
+api.registerGatewayMethod("my-plugin.session.open", handleOpen, {
+  scope: "operator.write",
+  sessionAccess: { mode: "write", allowOwnSessionScope: true, requiredTool: "my_tool" },
+});
+```
+
+This requires a current authenticated profile, an existing canonical top-level
+`sessionKey`, and, when supplied, its matching `agentId`. Broad writers retain
+the session's sharing rules. `allowOwnSessionScope` additionally admits
+`operator.sessions.write` only for the caller's own session. `requiredTool`
+checks the canonical effective session tool policy and an admitted agent run's
+tool limits. Agent callers are bound to their own conversation. Currently,
+resource tool-policy admission does not support locked model selection.
+
+The handler receives `sessionAccessAuthority`. Call `assertCurrent()` before
+and after awaited preparation and immediately before effects. The router closes
+this invocation handle when the handler finishes; it cannot be reused to adopt
+new resources afterward.
+
+Use `retain()` during the handler to obtain an original-person access borrow
+with `signal`, `assertCurrent()` and `release()`, for example for an interactive
+viewer. Use `retainSession()` for a resource shared by independently authorized
+collaborators. That second borrow checks only the exact session incarnation and
+store generation; it does not authorize operations. Each operation still needs
+its own person/run admission. Normal row progress preserves both lifetimes;
+reset, deletion or physical-store replacement invalidates the session borrow.
+Release every borrow on failed startup, replacement and service cleanup.
+
+`sandboxRequired` describes the admitted session/role constraint. A consumer
+must provide a compliant backend or report that its backend is unsupported.
+This metadata does not turn a Gateway-hosted process into a sandbox.
+
+For tool presentation, `readGatewayToolOperatorScopes()` from
+`openclaw/plugin-sdk/agent-harness-runtime` returns a copy of the current admitted
+operator's scopes after checking that authority. It returns `undefined` for
+system/local calls without an operator capture. It does not grant permissions;
+the selected Gateway method still authorizes the request.
+
 ### Person access lifetimes
 
 `api.registerGatewayAccessPolicy({ authorize })` adds a plugin-owned access
@@ -104,6 +147,64 @@ applicable policy also requires fresh publication admission.
     active, and still requires `contracts.gatewayMethodDispatch: ["authenticated-request"]`.
     Use this for a small native composition seam; do not use a loopback connection or a broad
     catch-all allowlist.
+
+    Source-bound Workboard creation uses the host-only third-argument option
+    `sessionTranscriptSource: { selection, assertCurrent }`. Check
+    `SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION === 1` from
+    `openclaw/plugin-sdk/gateway-runtime` and the actual injected
+    `api.runtime.gateway.sessionTranscriptSourceAdmissionVersion === 1` before enabling
+    a consumer. An absent host marker means unsupported even when the imported SDK is
+    current. Use the SDK assertion before preparing a journal or invoking transport:
+
+    ```typescript
+    assertSessionTranscriptGatewaySourceAdmissionAvailable(api.runtime.gateway);
+    const result = await api.runtime.gateway.request(
+      "workboard.cards.create",
+      { title, idempotencyKey, agentId: selection.agentId, sessionKey: selection.sessionKey },
+      { sessionTranscriptSource: { selection, assertCurrent: assertPlanOwnerCurrent } },
+    );
+    ```
+
+    Entitled external plugins use `dispatchGatewayMethod` from
+    `openclaw/plugin-sdk/gateway-method-runtime`, with the same host-only
+    `sessionTranscriptSource` third-argument option. Their actual injected
+    `api.runtime.gateway.authenticatedSessionTranscriptSourceAdmissionVersion`
+    must equal `1`, and the imported dispatcher must be available, before a
+    consumer reserves its journal or enables the operation. The existing
+    `sessionTranscriptSourceAdmissionVersion` marker describes the trusted
+    `request` path and does not establish support for this external path.
+    Current entitlement or the exact registered method allowlist and a current
+    authenticated scoped client remain required. External `gateway.request`
+    calls remain refused; this option grants no synthetic scopes or plugin trust.
+
+    The public dispatcher returns `{ ok, payload, error, meta }`. Consumers must
+    unwrap `payload` only when `ok` is true and preserve the error envelope on
+    refusal. They must not serialize source selection/current-authority sideband
+    into RPC params, pass an opaque admission capability, or retry a potentially
+    committed create without the existing exact idempotency/readback owner.
+    `selection` is the transcript owner's exact `{ agentId, sessionKey, sessionId,
+    entryId, generation, digest }` identity, using `sha256-public-message-v1`.
+    `assertCurrent` is a captured synchronous host closure for the consumer's current
+    Topic, principal, tenant and cancellation policy. It cannot be serialized, return
+    a Promise, query transcripts or wait on workers. The native router separately
+    authorizes source Session read access and preserves the existing authenticated
+    card-write assertion. Source-bound calls require the actual scoped caller; detached
+    synthetic plugin requests are refused.
+
+    Only `workboard.cards.create` supports this option. Its `agentId` and `sessionKey`
+    must exactly match the selection. The router prepares an opaque single-use source
+    capability, transfers it once to the existing Workboard create owner, and joins
+    cleanup on rejection, replay and response loss. The source writer lock validates
+    the exact physical Session, generation, active entry, reset window and message
+    digest through actual card COMMIT. Session read eligibility uses the native
+    `createdActor`, `visibility` and `incognito` policy; this contract adds no arbitrary
+    entry-envelope predicate or new message-role restriction. Attachment admission
+    retains its separate USER/media policy.
+
+    Do not put this option, a capability or an authority assertion in RPC parameters.
+    A failed response can follow an accepted card: reconcile the same immutable
+    idempotency claim using a fresh native invocation before retrying. The versioned
+    source contract does not itself qualify an installed consumer/native pair.
 
   </Accordion>
   <Accordion title="api.runtime.nodes">
@@ -262,6 +363,8 @@ applicable policy also requires fresh publication admission.
     unavailable state on expected preparation failure and let `isAvailable`
     withhold their commands; throwing aborts node startup. Use `watchAvailability`
     for later availability changes and `onDisconnect` for execution cleanup.
+    The cleanup callback returned by `watchAvailability` may return a promise.
+    Node shutdown awaits that callback and reports cleanup failures.
 
     <Warning>
     The optional `scopes` field requests Gateway operator scopes for the invocation. OpenClaw honors it only for bundled plugins and trusted official plugin installations; requests from other plugins do not elevate the call. When `openDuplex` runs inside an authenticated Gateway request, its effective scopes never exceed that authenticated caller's actual scopes, even if a trusted plugin requests stronger scopes. Without an authenticated incoming client, existing trusted-plugin scope behavior applies. Use requested scopes only when a trusted plugin must invoke a node command with a stricter Gateway scope, such as `operator.admin`.
@@ -290,6 +393,13 @@ Gateway-hosted services also receive `ctx.getCron?.()` for the scheduler operati
 already available to Gateway hooks: `list`, `add`, `update`, `remove`, and
 `removeStaleJobFamily`. Non-Gateway service hosts omit this getter.
 
+Current service handles also expose `enqueueRun(id, mode)` for service-owned
+work. It uses the normal cron admission queue with the service's live authority,
+independently of a completed agent tool caller. Use `"if-enabled"` to request an
+immediate run without overriding a disabled job. Retained handles still reject
+when the service stops or the scheduler is replaced, including while waiting for
+admission. This optional method is absent on older hosts; it has no caller-scoped
+fallback.
 On hosts that support conditional Cron access, the handle also offers optional
 `getWithRevision(id)` and `updateWithRevision(id, patch, expectedConfigRevision)`.
 The read returns the exact job and an opaque `configRevision`; the update checks

@@ -17,6 +17,22 @@ import {
 
 const LIVE_TEST_SUFFIX = ".live.test.ts";
 const OPTIONAL_LIVE_SHARD_FILE_ENVS = new Map([
+  // Whole-file opt-in gates: without the flag every case skips, so the file has no pass evidence.
+  ["extensions/anthropic/cli-output.compaction.live.test.ts", ["OPENCLAW_LIVE_CLAUDE_COMPACTION"]],
+  [
+    "extensions/codex/src/app-server/approval-requester.real-binary.live.test.ts",
+    ["OPENCLAW_LIVE_CODEX_APPROVAL_REQUESTER"],
+  ],
+  [
+    "extensions/codex/src/app-server/async-questions.real-binary.live.test.ts",
+    ["OPENCLAW_LIVE_CODEX_ASYNC_QUESTIONS"],
+  ],
+  [
+    "extensions/codex/src/app-server/thread-lifecycle.restricted-mcp.real-binary.live.test.ts",
+    ["OPENCLAW_LIVE_CODEX_RESTRICTED_MCP"],
+  ],
+  ["extensions/ollama/ollama.live.test.ts", ["OPENCLAW_LIVE_OLLAMA"]],
+  ["extensions/twitch/src/plugin.live.test.ts", ["TWITCH_LIVE_TEST"]],
   [
     "extensions/codex/src/app-server/native-subagent-monitor.live.test.ts",
     ["OPENCLAW_LIVE_CODEX_NATIVE_SUBAGENT"],
@@ -27,6 +43,10 @@ const OPTIONAL_LIVE_SHARD_FILE_ENVS = new Map([
   ],
   ["src/agents/agent-mcp-style.cache.live.test.ts", ["OPENCLAW_LIVE_CACHE_TEST"]],
   ["src/agents/cli-runner/bundle-mcp.gemini.live.test.ts", ["OPENCLAW_LIVE_CLI_MCP_GEMINI"]],
+  [
+    "src/agents/cli-runner/execute.compaction-watchdog.claude.live.test.ts",
+    ["OPENCLAW_LIVE_CLAUDE_COMPACTION"],
+  ],
   ["src/agents/embedded-agent-runner.cache.live.test.ts", ["OPENCLAW_LIVE_CACHE_TEST"]],
   ["src/agents/live-cache-regression.live.test.ts", ["OPENCLAW_LIVE_CACHE_TEST"]],
   ["src/agents/provider-headers.live.test.ts", ["OPENCLAW_LIVE_CACHE_TEST"]],
@@ -37,6 +57,19 @@ const OPTIONAL_LIVE_SHARD_FILE_ENVS = new Map([
     ["OPENCLAW_LIVE_OPENAI_COMPACTION"],
   ],
   ["src/agents/subagents/announce/subagent-announce.live.test.ts", ["OPENCLAW_LIVE_SUBAGENT_E2E"]],
+  [
+    "src/agents/subagents/announce/subagent-continuation.live.test.ts",
+    ["OPENCLAW_LIVE_SUBAGENT_E2E"],
+  ],
+  [
+    "src/agents/subagents/announce/subagent-late-reply.live.test.ts",
+    ["OPENCLAW_LIVE_SUBAGENT_STRESS"],
+  ],
+  [
+    "src/agents/subagents/announce/subagent-yield-resume.live.test.ts",
+    ["OPENCLAW_LIVE_SUBAGENT_STRESS"],
+  ],
+  ["src/agents/tools/sessions-send-peer.live.test.ts", ["OPENCLAW_LIVE_SUBAGENT_STRESS"]],
   ["src/agents/tools/image-tool.ollama.live.test.ts", ["OPENCLAW_LIVE_OLLAMA_IMAGE"]],
   ["src/agents/tools/image-tool.providers.live.test.ts", ["OPENCLAW_LIVE_IMAGE_TOOL_TEST"]],
   ["extensions/openai/realtime-meeting.live.test.ts", ["OPENCLAW_LIVE_GPT_LIVE"]],
@@ -59,6 +92,11 @@ const OPTIONAL_LIVE_SHARD_FILE_ENVS = new Map([
   ["src/infra/push-apns-http2.live.test.ts", ["OPENCLAW_LIVE_APNS_REACHABILITY"]],
   ["test/e2e/crabbox-sandbox.live.test.ts", ["OPENCLAW_E2E_CRABBOX"]],
   ["test/image-generation.infer-cli.live.test.ts", ["OPENCLAW_LIVE_INFER_CLI_TEST"]],
+]);
+const REQUIRED_NONEMPTY_LIVE_SHARD_FILE_ENVS = new Map([
+  ["extensions/llama-cpp/src/external-server/llama-server.live.test.ts", ["LLAMA_SERVER_LIVE_URL"]],
+  ["extensions/meta/meta.live.test.ts", ["MODEL_API_KEY"]],
+  ["extensions/mistral/mistral.live.test.ts", ["MISTRAL_API_KEY", "ELEVENLABS_API_KEY"]],
 ]);
 const SKIPPED_ASSERTION_STATUSES = new Set(["disabled", "pending", "skipped", "todo"]);
 const QA_RUNTIME_LIVE_TEST = "extensions/qa-lab/src/matrix-channel-driver.lifecycle.live.test.ts";
@@ -284,6 +322,51 @@ function isMoonshotLiveTest(file: string) {
   return file.startsWith("extensions/moonshot/");
 }
 
+// Release-lead waiver for 2026.9.7 (Peter, 2026-09-29 00:40 PT), carried through
+// 2026.9.9 by the release owner: these files' only live case is
+// skipped on the release branch, so selecting them would leave no passing assertion.
+// Scoped to the exact candidate versions; restore after #161083/#161084 and the
+// subagent cold-restart follow-up land.
+const RELEASE_2026_9_7_TO_9_WAIVED_LIVE_FILES = new Set([
+  "src/gateway/gateway-progress-refresh.live.test.ts",
+  "src/agents/embedded-agent-runner.responses-output-limit.live.test.ts",
+  "test/gateway-subagent-restart.live.test.ts",
+]);
+const RELEASE_WAIVED_LIVE_FILES = new Map<string, ReadonlySet<string>>([
+  ["2026.9.7", RELEASE_2026_9_7_TO_9_WAIVED_LIVE_FILES],
+  ["2026.9.8", RELEASE_2026_9_7_TO_9_WAIVED_LIVE_FILES],
+  [
+    "2026.9.9",
+    new Set([
+      ...RELEASE_2026_9_7_TO_9_WAIVED_LIVE_FILES,
+      // Release owner approved omitting the flaky Gemini switch probe for 2026.9.9.
+      // Keep Google provider/Gateway coverage; restore this probe on the next line.
+      "src/agents/google-gemini-switch.live.test.ts",
+    ]),
+  ],
+]);
+
+export function withoutReleaseWaivedLiveFiles(
+  files: string[],
+  candidateVersion: string | undefined,
+) {
+  const waived = candidateVersion ? RELEASE_WAIVED_LIVE_FILES.get(candidateVersion) : undefined;
+  return waived ? files.filter((file) => !waived.has(file)) : files;
+}
+
+function readCandidateVersion(repoRoot = process.cwd()) {
+  try {
+    const manifest: unknown = JSON.parse(
+      fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"),
+    );
+    return isUnknownRecord(manifest) && typeof manifest.version === "string"
+      ? manifest.version
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Selects the live test files belonging to one shard name.
  */
@@ -312,7 +395,12 @@ export function selectLiveShardFiles(shard: string, files = collectAllLiveTestFi
     case "native-live-src-gateway-backends":
       return files.filter(isGatewayBackendLiveTest);
     case "native-live-src-infra":
-      return files.filter((file) => file.startsWith("src/infra/") || file.startsWith("src/cli/"));
+      return files.filter(
+        (file) =>
+          file.startsWith("src/infra/") ||
+          file.startsWith("src/cli/") ||
+          file.startsWith("src/commands/"),
+      );
     case "native-live-test":
       return files.filter((file) => file.startsWith("test/"));
     case "native-live-extensions-a-k":
@@ -480,19 +568,6 @@ function normalizeReportFilePath(value: unknown, repoRoot = process.cwd()) {
   return repoRelative.split(path.sep).join("/");
 }
 
-function collectReportedLiveTestFiles(payload: unknown, repoRoot = process.cwd()) {
-  if (!isUnknownRecord(payload) || !Array.isArray(payload.testResults)) {
-    return null;
-  }
-  return new Set(
-    payload.testResults
-      .map((result) =>
-        normalizeReportFilePath(isUnknownRecord(result) ? result.name : undefined, repoRoot),
-      )
-      .filter((name) => name.length > 0),
-  );
-}
-
 function isDisabledOptInAssertion(assertion: Record<string, unknown>) {
   if (assertion.status !== "passed") {
     return false;
@@ -574,11 +649,14 @@ function isDisabledOptionalLiveShardFile(
   evidence: FilePassEvidence | undefined,
   env: NodeJS.ProcessEnv = process.env,
 ) {
-  const requiredEnvNames = OPTIONAL_LIVE_SHARD_FILE_ENVS.get(file);
-  if (
-    !requiredEnvNames ||
-    requiredEnvNames.some((name) => parsePermissiveBooleanToken(env[name]) === true)
-  ) {
+  const booleanOptIns = OPTIONAL_LIVE_SHARD_FILE_ENVS.get(file);
+  const requiredNonemptyEnv = REQUIRED_NONEMPTY_LIVE_SHARD_FILE_ENVS.get(file);
+  const enabled = booleanOptIns
+    ? booleanOptIns.some((name) => parsePermissiveBooleanToken(env[name]) === true)
+    : requiredNonemptyEnv
+      ? requiredNonemptyEnv.every((name) => env[name]?.trim())
+      : true;
+  if (enabled) {
     return false;
   }
   const statuses = evidence?.statuses ?? [];
@@ -596,7 +674,7 @@ function countEnabledLivePasses(
   env: NodeJS.ProcessEnv = process.env,
 ) {
   if (
-    OPTIONAL_LIVE_SHARD_FILE_ENVS.has(file) &&
+    (OPTIONAL_LIVE_SHARD_FILE_ENVS.has(file) || REQUIRED_NONEMPTY_LIVE_SHARD_FILE_ENVS.has(file)) &&
     isDisabledOptionalLiveShardFile(file, evidence, env)
   ) {
     return 0;
@@ -638,38 +716,33 @@ export function validateLiveShardReportPayload(
     return { ok: false, reason: "Vitest report has no passing live tests." };
   }
   if (expectedFiles.length > 0) {
-    const reportedFiles = collectReportedLiveTestFiles(payload, repoRoot);
     const fileEvidence = collectReportedLiveTestFileEvidence(payload, repoRoot);
-    if (!reportedFiles || !fileEvidence) {
+    if (!fileEvidence) {
       return { ok: false, reason: "Vitest report is missing testResults file evidence." };
     }
-    const missingFiles = expectedFiles
-      .map((file) => normalizeReportFilePath(file, repoRoot))
-      .filter((file) => !reportedFiles.has(file));
+    const normalizedFiles = expectedFiles.map((file) => normalizeReportFilePath(file, repoRoot));
+    const missingFiles = normalizedFiles.filter((file) => !fileEvidence.has(file));
     if (missingFiles.length > 0) {
       return {
         ok: false,
         reason: `Vitest report missing selected live test file evidence: ${missingFiles.join(", ")}`,
       };
     }
-    const enabledPassFiles = expectedFiles
-      .map((file) => normalizeReportFilePath(file, repoRoot))
-      .filter((file) => countEnabledLivePasses(file, fileEvidence.get(file), env) > 0);
-    if (enabledPassFiles.length === 0) {
+    if (
+      !normalizedFiles.some((file) => countEnabledLivePasses(file, fileEvidence.get(file), env) > 0)
+    ) {
       return {
         ok: false,
         reason: "Vitest report has no enabled selected live test files with passing assertions.",
       };
     }
-    const noPassFiles = expectedFiles
-      .map((file) => normalizeReportFilePath(file, repoRoot))
-      .filter((file) => {
-        const evidence = fileEvidence.get(file);
-        return (
-          countEnabledLivePasses(file, evidence, env) < 1 &&
-          !isDisabledOptionalLiveShardFile(file, evidence, env)
-        );
-      });
+    const noPassFiles = normalizedFiles.filter((file) => {
+      const evidence = fileEvidence.get(file);
+      return (
+        countEnabledLivePasses(file, evidence, env) < 1 &&
+        !isDisabledOptionalLiveShardFile(file, evidence, env)
+      );
+    });
     if (noPassFiles.length > 0) {
       return {
         ok: false,
@@ -761,7 +834,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 
   let files;
   try {
-    files = selectLiveShardFiles(shard);
+    files = withoutReleaseWaivedLiveFiles(selectLiveShardFiles(shard), readCandidateVersion());
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     usage();

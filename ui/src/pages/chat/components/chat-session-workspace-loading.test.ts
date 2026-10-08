@@ -5,6 +5,11 @@ import {
   createSessionCapabilityFixture,
 } from "../chat-pane.test-support.ts";
 import {
+  getSessionWorkspace,
+  retireSessionWorkspaceCheckout,
+  refreshSessionWorkspaceState,
+} from "./chat-session-workspace-state.ts";
+import {
   createSessionWorkspaceProps,
   openSessionWorkspaceFile,
   type SessionWorkspaceHost,
@@ -59,6 +64,48 @@ function fixture() {
 }
 
 describe("workspace listing ownership", () => {
+  it("keeps Files B independent of Chat A and rejects B results after Files C", async () => {
+    const { state, listFiles, resolve } = fixture();
+    state.sessionWorkspaceTarget = { sessionKey: "agent:writer:files-b", agentId: "writer" };
+    createSessionWorkspaceProps(state, { expanded: true });
+    await vi.waitFor(() => expect(createSessionWorkspaceProps(state).loading).toBe(false));
+    const filesB = getSessionWorkspace(state);
+    expect(listFiles).toHaveBeenLastCalledWith(
+      "agent:writer:files-b",
+      expect.objectContaining({ agentId: "writer" }),
+    );
+    expect(refreshSessionWorkspaceState(state, true)).toBe(false);
+    retireSessionWorkspaceCheckout(state);
+    expect(getSessionWorkspace(state)).toBe(filesB);
+    createSessionWorkspaceProps(state).onRefresh();
+    state.sessionWorkspaceTarget = { sessionKey: "agent:research:files-c", agentId: "research" };
+    const filesC = getSessionWorkspace(state);
+    resolve({ sessionKey: "agent:writer:files-b", files: [], artifacts: [] });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(getSessionWorkspace(state)).toBe(filesC);
+    expect(filesC.list).toBeNull();
+    expect(state.sessionKey).toBe("agent:main:current");
+    state.connectionEpoch++;
+    expect(getSessionWorkspace(state)).not.toBe(filesC);
+  });
+
+  it("targets the source Chat when opening its file after independent Files", async () => {
+    const { state } = fixture();
+    const getFile = vi.spyOn(state.sessions, "getFile");
+    state.sessionWorkspaceTarget = { sessionKey: "agent:writer:files-b", agentId: "writer" };
+    openSessionWorkspaceFile(state, {
+      path: "reports/inventory.csv",
+      sessionKey: state.sessionKey,
+    });
+    expect(getFile).toHaveBeenCalledWith(
+      "agent:main:current",
+      "reports/inventory.csv",
+      expect.objectContaining({ agentId: "main" }),
+    );
+    expect(state.sessionKey).toBe("agent:main:current");
+  });
+
   it.each(["success", "failure"] as const)(
     "ignores an old directory %s after browsing elsewhere",
     async (outcome) => {

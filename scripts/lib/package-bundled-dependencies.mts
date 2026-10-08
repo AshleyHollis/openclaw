@@ -4,10 +4,15 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { coerceErrorMessage } from "./error-format.mts";
 import {
+  collectPatchedFsSafeArtifactErrors,
+  PATCHED_FS_SAFE_NAME,
+  PATCHED_FS_SAFE_VERSION,
+} from "./package-bundled-fs-safe.mts";
+import {
   collectPatchedMcpArtifactErrors,
+  isSupportedPatchedMcpVersion,
   PATCHED_MCP_CLI,
   PATCHED_MCP_NAME,
-  PATCHED_MCP_VERSION,
 } from "./package-bundled-mcp.mts";
 import { collectPackageDistImportErrors } from "./package-dist-imports.mjs";
 import { isRecord } from "./record-shared.mjs";
@@ -153,9 +158,11 @@ function collectBundledPackageRuntimeErrors(
 function collectPatchedMcpErrors(
   { entries, packageRoot, readText }: BundledPackage,
   manifest: Record<string, unknown>,
+  declaredVersion: unknown,
 ): string[] {
   const prefix = `node_modules/${PATCHED_MCP_NAME}/`;
   const errors = collectPatchedMcpArtifactErrors({
+    declaredVersion,
     manifest,
     files: new Set(
       [...entries]
@@ -194,6 +201,13 @@ export function collectBundledDependencyErrors({
   const required = new Map<string, string>([
     [PATCHED_MCP_NAME, "its patched runtime must not be replaced by the registry package"],
   ]);
+  // Older frozen releases predate this atomic-publication patch contract.
+  if (dependencies[PATCHED_FS_SAFE_NAME] === PATCHED_FS_SAFE_VERSION) {
+    required.set(
+      PATCHED_FS_SAFE_NAME,
+      "its patched runtime must not be replaced by the registry package",
+    );
+  }
   if (requireBundledWorkspaceDeps) {
     required.set("@openclaw/ai", "it is private to the OpenClaw workspace");
   }
@@ -210,11 +224,11 @@ export function collectBundledDependencyErrors({
     }
   }
   if (
-    typeof dependencies[PATCHED_MCP_NAME] === "string" &&
-    dependencies[PATCHED_MCP_NAME] !== PATCHED_MCP_VERSION
+    names.has(PATCHED_MCP_NAME) &&
+    !isSupportedPatchedMcpVersion(dependencies[PATCHED_MCP_NAME])
   ) {
     errors.push(
-      `package.json dependencies.${PATCHED_MCP_NAME} must be pinned to ${PATCHED_MCP_VERSION}`,
+      `package.json dependencies.${PATCHED_MCP_NAME} must be pinned to a supported patched version`,
     );
   }
   for (const name of names) {
@@ -234,9 +248,54 @@ export function collectBundledDependencyErrors({
       errors.push(`bundled ${name} package.json must name ${name}`);
       continue;
     }
+    // npm infers peers of bundled packages are already in the bundle, while
+    // packlist excludes them unless explicitly bundled. Missing peers are not
+    // installed, even when the root declares them as required dependencies.
+    const peers = isRecord(manifest.peerDependencies) ? manifest.peerDependencies : {};
+    for (const peer of Object.keys(peers)) {
+      if (
+        typeof dependencies[peer] === "string" &&
+        !runtime.entries.has(`node_modules/${peer}/package.json`)
+      ) {
+        errors.push(`bundled ${name} is missing its root dependency peer ${peer}`);
+      }
+    }
     const bundled = { ...runtime, name };
     if (name === PATCHED_MCP_NAME) {
-      errors.push(...collectPatchedMcpErrors(bundled, manifest));
+      errors.push(...collectPatchedMcpErrors(bundled, manifest, dependencies[PATCHED_MCP_NAME]));
+    } else if (name === PATCHED_FS_SAFE_NAME) {
+      const prefix = `node_modules/${name}/`;
+      errors.push(
+        ...collectPatchedFsSafeArtifactErrors({
+          declaredVersion: dependencies[name],
+          manifest,
+          files: new Set(
+            [...runtime.entries]
+              .filter((entry) => entry.startsWith(prefix))
+              .map((entry) => entry.slice(prefix.length)),
+          ),
+          sha256: (file) =>
+            createHash("sha256")
+              .update(runtime.readText(`${prefix}${file}`))
+              .digest("hex"),
+        }),
+      );
+      errors.push(
+        ...collectPackageDistImportErrors({
+          files: runtime.files
+            .filter((file) => file.startsWith(prefix))
+            .map((file) => file.slice(prefix.length)),
+          readText: (file) => runtime.readText(`${prefix}${file}`),
+        }).map((error) => `bundled ${name} ${error}`),
+      );
+      const specifier = `${name}/atomic`;
+      const resolved = resolveBundledPackageSpecifiers(runtime.packageRoot, [specifier]);
+      if (
+        resolved?.[specifier] !==
+        pathToFileURL(path.join(runtime.packageRoot, prefix, "dist/atomic.js")).href
+      ) {
+        errors.push(`bundled ${name} atomic entry does not resolve inside its bundled package`);
+      }
     } else if (REQUIRED_BUNDLED_WORKSPACE_RUNTIME_ENTRIES.has(name)) {
       errors.push(...collectBundledPackageRuntimeErrors(bundled, manifest));
     }

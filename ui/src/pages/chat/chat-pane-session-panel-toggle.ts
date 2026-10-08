@@ -1,6 +1,8 @@
 import type { ControlUiLinkReaderDescriptor } from "../../../../src/shared/control-ui-link-reader.js";
 import { resolveLinkReaderTarget } from "../../components/link-reader-target.ts";
 import {
+  FILES_PANEL_OPEN_EVENT,
+  type FilesPanelOpenDetail,
   BROWSER_PANEL_TOGGLE_EVENT,
   LINK_READER_PANEL_TOGGLE_EVENT,
   DESKTOP_PANEL_TOGGLE_EVENT,
@@ -21,14 +23,12 @@ import {
 import { areUiSessionKeysEquivalent } from "../../lib/sessions/session-key.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import { resolveChatAgentId } from "./chat-state-route.ts";
-import { closeSlot, openSlot, setSidebarDock } from "./sidebar-layout.ts";
-
-type PanelTagName =
-  | "openclaw-link-reader-panel"
-  | "openclaw-browser-panel"
-  | "openclaw-desktop-panel"
-  | "openclaw-portals-page"
-  | "openclaw-terminal-panel";
+import {
+  closeSlot,
+  openSlot,
+  openFilesWithConversation,
+  setSidebarDock,
+} from "./sidebar-layout.ts";
 
 interface ActivePanelOwner {
   renderRoot: ParentNode;
@@ -58,6 +58,8 @@ const panelToggleEvents = [
   [PORTAL_PANEL_TOGGLE_EVENT, "portal", "openclaw-portals-page"],
 ] as const;
 
+type PanelTagName = (typeof panelToggleEvents)[number][2];
+
 /** Owns shell-to-pane panel intent handoff for the active chat presentation. */
 export class ChatPaneSessionPanelToggleController {
   constructor(private readonly options: SessionPanelToggleControllerOptions) {}
@@ -70,6 +72,25 @@ export class ChatPaneSessionPanelToggleController {
       window.addEventListener(eventName, listener);
       return () => window.removeEventListener(eventName, listener);
     });
+    const handleFilesOpen = (event: Event) => {
+      const owner = this.options.current();
+      const detail = (event as CustomEvent<FilesPanelOpenDetail>).detail;
+      if (
+        !owner ||
+        event.defaultPrevented ||
+        !owner.state.connected ||
+        owner.state.client !== detail.client
+      ) {
+        return;
+      }
+      owner.state.sessionWorkspaceTarget = {
+        sessionKey: detail.sessionKey,
+        agentId: detail.agentId,
+      };
+      this.options.updateSidebarLayout(openFilesWithConversation(owner.state.sidebarLayout));
+      event.preventDefault();
+    };
+    window.addEventListener(FILES_PANEL_OPEN_EVENT, handleFilesOpen);
     const handleTerminalDockBottom = () => {
       const owner = this.options.current();
       if (owner) {
@@ -79,6 +100,7 @@ export class ChatPaneSessionPanelToggleController {
     window.addEventListener(TERMINAL_PANEL_DOCK_BOTTOM_EVENT, handleTerminalDockBottom);
     return () => {
       cleanups.forEach((cleanup) => cleanup());
+      window.removeEventListener(FILES_PANEL_OPEN_EVENT, handleFilesOpen);
       window.removeEventListener(TERMINAL_PANEL_DOCK_BOTTOM_EVENT, handleTerminalDockBottom);
       this.options.pending.clear();
     };
@@ -180,7 +202,8 @@ export class ChatPaneSessionPanelToggleController {
     ])
       .then(async () => {
         this.options.requestUpdate();
-        await owner.updateComplete;
+        // requestUpdate schedules a new commit; the captured owner holds the previous promise.
+        await this.options.current()?.updateComplete;
         if (!isCurrent()) {
           return;
         }

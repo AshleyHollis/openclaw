@@ -15,6 +15,9 @@ import {
   registerRuntimeConfigSnapshotPreparer,
   resetConfigRuntimeState,
   setRuntimeConfigSnapshot,
+  setRuntimeConfigSourceSnapshotIfCurrent,
+  withRuntimeConfigSessionStoreSelection,
+  withRuntimeConfigSessionStoreSelectionAsync,
 } from "./runtime-snapshot.js";
 import {
   captureRuntimeConfig,
@@ -42,6 +45,164 @@ describe("prepared runtime snapshots", () => {
     expect(prepare).toHaveBeenLastCalledWith(next);
     expect(getRuntimeConfigSnapshot()).toBe(next);
     expect(prepareAsync).not.toHaveBeenCalled();
+  });
+
+  it("rejects a preparer's changed selection before it can publish", () => {
+    const active: OpenClawConfig = { session: { store: "/fixture/one" } };
+    setRuntimeConfigSnapshot(active);
+    unregister.push(
+      registerRuntimeConfigSnapshotPreparer((candidate) => {
+        if (candidate !== active) {
+          candidate.session = { store: "/fixture/two" };
+        }
+      }),
+    );
+    withRuntimeConfigSessionStoreSelection(() => {
+      expect(() => setRuntimeConfigSnapshot({ session: { store: "/fixture/one" } })).toThrow(
+        "session.store selection cannot change",
+      );
+      expect(getRuntimeConfigSnapshot()).toBe(active);
+    });
+  });
+
+  it("rejects reentrant preparer selection changes during an awaited admission", async () => {
+    const active: OpenClawConfig = { session: { store: "/fixture/one" } };
+    setRuntimeConfigSnapshot(active);
+    unregister.push(
+      registerRuntimeConfigSnapshotPreparer((candidate) => {
+        if (candidate !== active && candidate.session?.store === "/fixture/one") {
+          setRuntimeConfigSnapshot({ session: { store: "/fixture/two" } });
+        }
+      }),
+    );
+    const release = createDeferredCore();
+    const operation = withRuntimeConfigSessionStoreSelectionAsync(() => release.promise);
+    expect(() => setRuntimeConfigSnapshot({ session: { store: "/fixture/one" } })).toThrow(
+      "session.store selection cannot change",
+    );
+    expect(getRuntimeConfigSnapshot()).toBe(active);
+    release.resolve();
+    await operation;
+    setRuntimeConfigSnapshot({ session: { store: "/fixture/two" } });
+    expect(getRuntimeConfigSnapshot()?.session?.store).toBe("/fixture/two");
+  });
+
+  it("keeps the active selection when source publication passes it to a mutating preparer", () => {
+    const active: OpenClawConfig = { session: { store: "/fixture/one" } };
+    setRuntimeConfigSnapshot(active);
+    let mutate = false;
+    unregister.push(
+      registerRuntimeConfigSnapshotPreparer((config) => {
+        if (mutate) {
+          config.session = { store: "/fixture/two" };
+        }
+      }),
+    );
+    const revision = getRuntimeConfigSnapshotMetadata()?.revision;
+    if (revision === undefined) {
+      throw new Error("Expected an active runtime config revision");
+    }
+    withRuntimeConfigSessionStoreSelection(() => {
+      mutate = true;
+      try {
+        expect(() =>
+          setRuntimeConfigSourceSnapshotIfCurrent({
+            expectedRevision: revision,
+            sourceConfig: { session: { store: "/fixture/one" } },
+          }),
+        ).toThrow("session.store selection cannot change");
+      } finally {
+        mutate = false;
+      }
+      expect(getRuntimeConfigSnapshot()).toBe(active);
+      expect(getRuntimeConfigSnapshot()?.session?.store).toBe("/fixture/one");
+    });
+    expect(getRuntimeConfigSnapshot()?.session?.store).toBe("/fixture/one");
+  });
+
+  it("keeps the active selection when registering a mutating preparer during admission", () => {
+    const active: OpenClawConfig = { session: { store: "/fixture/one" } };
+    setRuntimeConfigSnapshot(active);
+    let mutate = true;
+    let release: (() => void) | undefined;
+    try {
+      withRuntimeConfigSessionStoreSelection(() => {
+        try {
+          release = registerRuntimeConfigSnapshotPreparer((config) => {
+            if (mutate) {
+              config.session = { store: "/fixture/two" };
+            }
+          });
+        } catch (error) {
+          expect(error).toBeInstanceOf(Error);
+          expect((error as Error).message).toContain("session.store selection cannot change");
+        }
+        expect(getRuntimeConfigSnapshot()).toBe(active);
+        expect(getRuntimeConfigSnapshot()?.session?.store).toBe("/fixture/one");
+      });
+      expect(getRuntimeConfigSnapshot()?.session?.store).toBe("/fixture/one");
+      mutate = false;
+      setRuntimeConfigSnapshot({ session: { store: "/fixture/three" } });
+      expect(getRuntimeConfigSnapshot()?.session?.store).toBe("/fixture/three");
+    } finally {
+      mutate = false;
+      release?.();
+    }
+  });
+
+  it("rejects a candidate sharing the active session selector before its preparer mutates it", () => {
+    const active: OpenClawConfig = { session: { store: "/fixture/one" } };
+    setRuntimeConfigSnapshot(active);
+    unregister.push(
+      registerRuntimeConfigSnapshotPreparer((config) => {
+        if (config !== active && config.session) {
+          config.session.store = "/fixture/two";
+        }
+      }),
+    );
+    const candidate: OpenClawConfig = { ...active };
+    withRuntimeConfigSessionStoreSelection(() => {
+      expect(() => setRuntimeConfigSnapshot(candidate)).toThrow(
+        "session.store selection cannot change",
+      );
+      expect(getRuntimeConfigSnapshot()?.session?.store).toBe("/fixture/one");
+    });
+    expect(active.session?.store).toBe("/fixture/one");
+    setRuntimeConfigSnapshot(candidate);
+    expect(getRuntimeConfigSnapshot()).toBe(candidate);
+    expect(getRuntimeConfigSnapshot()?.session?.store).toBe("/fixture/two");
+  });
+
+  it("does not retain a preparer when its initial active preparation throws", () => {
+    setRuntimeConfigSnapshot({ session: { store: "/fixture/one" } });
+    expect(() =>
+      registerRuntimeConfigSnapshotPreparer(() => {
+        throw new Error("preparer failed");
+      }),
+    ).toThrow("preparer failed");
+    const next: OpenClawConfig = { session: { store: "/fixture/two" } };
+    setRuntimeConfigSnapshot(next);
+    expect(getRuntimeConfigSnapshot()).toBe(next);
+  });
+
+  it("holds a selected store during a prepared contribution's reentrant publication", async () => {
+    const active: OpenClawConfig = { session: { store: "/fixture/one" } };
+    const candidate: OpenClawConfig = { session: { store: "/fixture/two" } };
+    unregister.push(
+      registerRuntimeConfigSnapshotPreparer(() => {}, {
+        prepareAsync: async () => () => {
+          setRuntimeConfigSnapshot(active);
+          withRuntimeConfigSessionStoreSelection(() => {
+            expect(() => setRuntimeConfigSnapshot(candidate)).toThrow(
+              "session.store selection cannot change",
+            );
+            expect(getRuntimeConfigSnapshot()).toBe(active);
+          });
+        },
+      }),
+    );
+    expect(await loadPinnedRuntimeConfigAsync(async () => ({ config: candidate }))).toBe(active);
+    expect(getRuntimeConfigSnapshot()).toBe(active);
   });
 
   it("publishes a cold config only after its contributions and legacy callbacks are ready", async () => {

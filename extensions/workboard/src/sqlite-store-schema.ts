@@ -6,7 +6,7 @@ import {
   migrateSqliteSchemaToStrict,
 } from "openclaw/plugin-sdk/plugin-state-runtime";
 import { openNodeSqliteDatabase } from "openclaw/plugin-sdk/sqlite-worker-runtime";
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 const WORKBOARD_SQLITE_BUSY_TIMEOUT_MS = 5000;
 const WORKBOARD_SQLITE_DIR_MODE = 0o700;
 const WORKBOARD_SQLITE_FILE_MODE = 0o600;
@@ -75,6 +75,10 @@ const WORKBOARD_SCHEMA_SQL = `
       execution_started_at INTEGER,
       execution_updated_at INTEGER,
       automation_json TEXT,
+      creation_idempotency_key TEXT,
+      creation_tenant TEXT,
+      creation_board_id TEXT,
+      creation_intent_json TEXT,
       claim_json TEXT,
       template_id TEXT,
       archived_at INTEGER,
@@ -261,6 +265,14 @@ const WORKBOARD_SCHEMA_SQL = `
 
 function ensureWorkboardSchema(db: DatabaseSync): void {
   db.exec(WORKBOARD_SCHEMA_SQL);
+  for (const column of [
+    "creation_idempotency_key",
+    "creation_tenant",
+    "creation_board_id",
+    "creation_intent_json",
+  ]) {
+    ensureColumn(db, "workboard_cards", column, `${column} TEXT`);
+  }
   ensureColumn(db, "workboard_boards", "automation_job_id", "automation_job_id TEXT");
   ensureColumn(
     db,
@@ -280,6 +292,11 @@ function ensureWorkboardSchema(db: DatabaseSync): void {
       "INSERT OR IGNORE INTO workboard_schema_migrations (id, applied_at) VALUES (?, ?)",
     ).run(migrationId, Date.now());
   }
+  // Legacy rows retain NULL: admission refuses unproven intent rather than
+  // inventing provenance or removing duplicates during migration.
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS workboard_cards_creation_idempotency_idx
+    ON workboard_cards(creation_tenant, creation_board_id, creation_idempotency_key)
+    WHERE creation_idempotency_key IS NOT NULL`);
 }
 
 function chmodIfExists(targetPath: string, mode: number): void {

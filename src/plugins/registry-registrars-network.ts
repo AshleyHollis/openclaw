@@ -93,6 +93,7 @@ export function createNetworkRegistrars(state: PluginRegistryState) {
     opts?: {
       scope?: OperatorScope;
       profileAccess?: GatewayMethodProfileAccess;
+      sessionAccess?: import("../gateway/methods/descriptor.js").GatewayMethodSessionAccess;
       gatewayMethodDispatchMethods?: readonly string[];
     },
   ) => {
@@ -148,6 +149,7 @@ export function createNetworkRegistrars(state: PluginRegistryState) {
         handler: wrappedHandler,
         scope: normalizedScope.scope,
         ...(opts?.profileAccess ? { profileAccess: opts.profileAccess } : {}),
+        ...(opts?.sessionAccess ? { sessionAccess: opts.sessionAccess } : {}),
       }),
     );
   };

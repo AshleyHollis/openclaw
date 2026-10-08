@@ -1,9 +1,16 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { extractErrorCode } from "openclaw/plugin-sdk/error-runtime";
+import { resolveRuntimeWorkerUrl } from "openclaw/plugin-sdk/process-runtime";
+import {
+  runSessionTranscriptSourceAdmissionOperation,
+  type PreparedSessionTranscriptSourceAdmission,
+} from "openclaw/plugin-sdk/session-transcript-runtime";
 import {
   openSqliteWorkerStore,
   runSqliteWorkerStoreOperation,
+  runSqliteWorkerStoreWrite,
 } from "openclaw/plugin-sdk/sqlite-runtime";
 import type {
   PersistedWorkboardAttachment,
@@ -13,6 +20,7 @@ import type {
   WorkboardSubscriptionStore,
   WorkboardWriteAuthority,
 } from "./persistence-types.js";
+import { workboardSqliteSourceEntrypoint } from "./sqlite-source-entrypoint.js";
 import type {
   WorkboardSqliteOperations,
   WorkboardSqliteWorkerOperations,
@@ -49,7 +57,11 @@ export function createWorkboardSqliteStores(options: {
   let openingFailure: { error: unknown } | undefined;
   let closing: Promise<void> | undefined;
   const operations = new Set<Promise<unknown>>();
-  const writeAuthority = new AsyncLocalStorage<{ active: boolean; assertCurrent?: () => void }>();
+  const writeAuthority = new AsyncLocalStorage<{
+    active: boolean;
+    assertCurrent?: () => void;
+    sourceAdmission?: PreparedSessionTranscriptSourceAdmission;
+  }>();
   async function cleanup() {
     // Rejected admission stays broker-owned; this facade received no lease to release.
     const store = await worker.catch(() => undefined);
@@ -115,22 +127,62 @@ export function createWorkboardSqliteStores(options: {
     if (!authority) {
       return unwrapWorkboardSqliteResult(await store.execute({ type, input }));
     }
-    const result = unwrapWorkboardSqliteResult(
-      await runSqliteWorkerStoreOperation(
-        store,
-        (scope) => scope.execute({ type, input }),
-        undefined,
-        () => {
-          if (!authority.active) {
-            throw new Error("Workboard mutation authority has settled.");
-          }
-          authority.assertCurrent?.();
+    const assertCurrent = () => {
+      if (!authority.active) {
+        throw new Error("Workboard mutation authority has settled.");
+      }
+      authority.assertCurrent?.();
+    };
+    const sourceAdmission = authority.sourceAdmission;
+    const sourceWorker = async () => {
+      if (
+        type !== "cards.register" &&
+        type !== "cards.registerIfAbsent" &&
+        type !== "cards.registerIdempotent"
+      ) {
+        throw new Error("Workboard source admission only accepts card creation.");
+      }
+      const canonicalPath = await realpath(databasePath);
+      const identity = await stat(canonicalPath, { bigint: true });
+      assertCurrent();
+      return await runSessionTranscriptSourceAdmissionOperation<WorkboardSqliteWorkerOperations, K>(
+        sourceAdmission!,
+        {
+          moduleUrl: resolveRuntimeWorkerUrl(workboardSqliteSourceEntrypoint),
+          input: {
+            databasePath: canonicalPath,
+            destinationIdentity: {
+              dev: identity.dev.toString(),
+              ino: identity.ino.toString(),
+              birthtime: identity.birthtimeNs.toString(),
+            },
+          },
         },
-      ),
+        { type, input },
+        assertCurrent,
+      );
+    };
+    const result = unwrapWorkboardSqliteResult(
+      sourceAdmission
+        ? await sourceWorker()
+        : type.startsWith("cards.")
+          ? await runSqliteWorkerStoreWrite(
+              store,
+              (scope) => scope.execute({ type, input: { ...input, guarded: true } }),
+              assertCurrent,
+              [databasePath],
+            )
+          : await runSqliteWorkerStoreOperation(
+              store,
+              (scope) => scope.execute({ type, input }),
+              undefined,
+              assertCurrent,
+            ),
     );
     // A rejected comparison has accepted no mutation; a retry still needs authority.
     if (result !== false && result !== "conflict" && result !== "owner_busy") {
       authority.assertCurrent = undefined;
+      authority.sourceAdmission = undefined;
     }
     return result;
   }
@@ -153,123 +205,110 @@ export function createWorkboardSqliteStores(options: {
       operations.delete(pending);
     }
   }
+  function bindOperation<Args extends unknown[], Result>(
+    operation: (connection: number, args: Args) => Promise<Result>,
+  ): (...args: Args) => Promise<Result> {
+    return (...args) => run(args, operation);
+  }
   return {
-    async runWithWriteAuthority(assertCurrent, operation) {
-      const authority: { active: boolean; assertCurrent?: () => void } = {
+    async runWithWriteAuthority(assertCurrent, operation, sourceAdmission) {
+      const authority: {
+        active: boolean;
+        assertCurrent?: () => void;
+        sourceAdmission?: PreparedSessionTranscriptSourceAdmission;
+      } = {
         active: true,
         assertCurrent,
+        sourceAdmission,
       };
       try {
         return await writeAuthority.run(authority, operation);
       } finally {
         authority.active = false;
+        await sourceAdmission?.close();
       }
     },
     ready,
     dataVersion: () => run(undefined, (connection) => execute("dataVersion", { connection })),
     cards: {
-      register: (...args) =>
-        run(args, (connection, captured) =>
-          execute("cards.register", { connection, args: captured }, true),
-        ),
-      registerIfAbsent: (...args) =>
-        run(args, (connection, captured) =>
-          execute("cards.registerIfAbsent", { connection, args: captured }, true),
-        ),
-      registerIfUpdatedAt: (...args) =>
-        run(args, (connection, captured) =>
-          execute("cards.registerIfUpdatedAt", { connection, args: captured }, true),
-        ),
-      claimIfOwnerAvailable: (...args) =>
-        run(args, (connection, captured) =>
-          execute("cards.claimIfOwnerAvailable", { connection, args: captured }, true),
-        ),
-      deleteIfUpdatedAt: (...args) =>
-        run(args, (connection, captured) =>
-          execute("cards.deleteIfUpdatedAt", { connection, args: captured }, true),
-        ),
-      lookup: (...args) =>
-        run(args, (connection, captured) =>
-          execute("cards.lookup", { connection, args: captured }),
-        ),
-      delete: (...args) =>
-        run(args, (connection, captured) =>
-          execute("cards.delete", { connection, args: captured }, true),
-        ),
+      register: bindOperation((connection, args) =>
+        execute("cards.register", { connection, args }, true),
+      ),
+      registerIfAbsent: bindOperation((connection, args) =>
+        execute("cards.registerIfAbsent", { connection, args }, true),
+      ),
+      registerIdempotent: bindOperation((connection, args) =>
+        execute("cards.registerIdempotent", { connection, args }, true),
+      ),
+      registerIfUpdatedAt: bindOperation((connection, args) =>
+        execute("cards.registerIfUpdatedAt", { connection, args }, true),
+      ),
+      claimIfOwnerAvailable: bindOperation((connection, args) =>
+        execute("cards.claimIfOwnerAvailable", { connection, args }, true),
+      ),
+      deleteIfUpdatedAt: bindOperation((connection, args) =>
+        execute("cards.deleteIfUpdatedAt", { connection, args }, true),
+      ),
+      lookup: bindOperation((connection, args) => execute("cards.lookup", { connection, args })),
+      delete: bindOperation((connection, args) =>
+        execute("cards.delete", { connection, args }, true),
+      ),
       entries: (...args) =>
         run(args, (connection, captured) =>
           execute("cards.entries", { connection, args: captured }),
         ),
-      listCardStatuses: (...args) =>
-        run(args, (connection, captured) =>
-          execute("cards.listCardStatuses", { connection, args: captured }),
-        ),
-      listBoardAggregates: (...args) =>
-        run(args, (connection, captured) =>
-          execute("cards.listBoardAggregates", { connection, args: captured }),
-        ),
+      listCardStatuses: bindOperation((connection, args) =>
+        execute("cards.listCardStatuses", { connection, args }),
+      ),
+      listBoardAggregates: bindOperation((connection, args) =>
+        execute("cards.listBoardAggregates", { connection, args }),
+      ),
       listStatsAggregates: (...args) =>
         run(args, (connection, captured) =>
           execute("cards.listStatsAggregates", { connection, args: captured }),
         ),
-      hasCards: (...args) =>
-        run(args, (connection, captured) =>
-          execute("cards.hasCards", { connection, args: captured }),
-        ),
+      hasCards: bindOperation((connection, args) =>
+        execute("cards.hasCards", { connection, args }),
+      ),
     },
     boards: {
-      register: (...args) =>
-        run(args, (connection, captured) =>
-          execute("boards.register", { connection, args: captured }, true),
-        ),
-      lookup: (...args) =>
-        run(args, (connection, captured) =>
-          execute("boards.lookup", { connection, args: captured }),
-        ),
-      delete: (...args) =>
-        run(args, (connection, captured) =>
-          execute("boards.delete", { connection, args: captured }, true),
-        ),
-      entries: (...args) =>
-        run(args, (connection, captured) =>
-          execute("boards.entries", { connection, args: captured }),
-        ),
+      register: bindOperation((connection, args) =>
+        execute("boards.register", { connection, args }, true),
+      ),
+      lookup: bindOperation((connection, args) => execute("boards.lookup", { connection, args })),
+      delete: bindOperation((connection, args) =>
+        execute("boards.delete", { connection, args }, true),
+      ),
+      entries: bindOperation((connection, args) => execute("boards.entries", { connection, args })),
     },
     subscriptions: {
-      register: (...args) =>
-        run(args, (connection, captured) =>
-          execute("subscriptions.register", { connection, args: captured }, true),
-        ),
-      lookup: (...args) =>
-        run(args, (connection, captured) =>
-          execute("subscriptions.lookup", { connection, args: captured }),
-        ),
-      delete: (...args) =>
-        run(args, (connection, captured) =>
-          execute("subscriptions.delete", { connection, args: captured }, true),
-        ),
+      register: bindOperation((connection, args) =>
+        execute("subscriptions.register", { connection, args }, true),
+      ),
+      lookup: bindOperation((connection, args) =>
+        execute("subscriptions.lookup", { connection, args }),
+      ),
+      delete: bindOperation((connection, args) =>
+        execute("subscriptions.delete", { connection, args }, true),
+      ),
       entries: (...args) =>
         run(args, (connection, captured) =>
           execute("subscriptions.entries", { connection, args: captured }),
         ),
     },
     attachments: {
-      register: (...args) =>
-        run(args, (connection, captured) =>
-          execute("attachments.register", { connection, args: captured }, true),
-        ),
-      lookup: (...args) =>
-        run(args, (connection, captured) =>
-          execute("attachments.lookup", { connection, args: captured }),
-        ),
-      delete: (...args) =>
-        run(args, (connection, captured) =>
-          execute("attachments.delete", { connection, args: captured }, true),
-        ),
-      entries: (...args) =>
-        run(args, (connection, captured) =>
-          execute("attachments.entries", { connection, args: captured }),
-        ),
+      register: bindOperation((connection, args) =>
+        execute("attachments.register", { connection, args }, true),
+      ),
+      lookup: bindOperation((connection, args) =>
+        execute("attachments.lookup", { connection, args }),
+      ),
+      delete: bindOperation((connection, args) =>
+        execute("attachments.delete", { connection, args }, true),
+      ),
+      entries: bindOperation((connection, args) =>
+        execute("attachments.entries", { connection, args }),
+      ),
     },
     close() {
       sealed = true;

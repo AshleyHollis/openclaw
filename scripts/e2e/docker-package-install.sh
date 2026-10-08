@@ -51,6 +51,7 @@ DOCKER_COMMAND_TIMEOUT="$DOCKER_RUN_TIMEOUT" docker_e2e_docker_run_cmd run -d \
   --name "$NPM_PROOF_CONTAINER" \
   --user root \
   -e OPENCLAW_FS_SAFE_NATIVE_CONTRACT \
+  -e OPENCLAW_FS_SAFE_PUBLICATION_CONTRACT \
   "${DOCKER_E2E_PACKAGE_ARGS[@]}" \
   -v "$PACKAGE_HARNESS_DIR:/repo:ro" \
   -v "$ROOT_DIR/scripts/docker/verify-fs-safe-native.mjs:/tmp/verify-fs-safe-native.mjs:ro" \
@@ -75,6 +76,7 @@ echo "Installing the real OpenClaw package artifact with pnpm..."
 DOCKER_COMMAND_TIMEOUT="$DOCKER_RUN_TIMEOUT" docker_e2e_docker_run_cmd run -d \
   --name "$PNPM_PROOF_CONTAINER" \
   -e OPENCLAW_FS_SAFE_NATIVE_CONTRACT \
+  -e OPENCLAW_FS_SAFE_PUBLICATION_CONTRACT \
   "${DOCKER_E2E_PACKAGE_ARGS[@]}" \
   -v "$PACKAGE_HARNESS_DIR:/repo:ro" \
   -v "$ROOT_DIR/scripts/docker/verify-fs-safe-native.mjs:/tmp/verify-fs-safe-native.mjs:ro" \
@@ -134,12 +136,13 @@ echo "Installing the real OpenClaw package artifact with Bun..."
 DOCKER_COMMAND_TIMEOUT="$DOCKER_RUN_TIMEOUT" docker_e2e_docker_run_cmd run -d \
   --name "$BUN_PROOF_CONTAINER" \
   -e OPENCLAW_FS_SAFE_NATIVE_CONTRACT \
+  -e OPENCLAW_FS_SAFE_PUBLICATION_CONTRACT \
   "${DOCKER_E2E_PACKAGE_ARGS[@]}" \
   -v "$PACKAGE_HARNESS_DIR:/repo:ro" \
   "$IMAGE_NAME" \
   bash -lc '
     set -euo pipefail
-    npm install -g --prefix /tmp/bun-runtime bun@1.4.0 --no-fund --no-audit
+    npm install -g --prefix /tmp/bun-runtime bun@1.4.2 --no-fund --no-audit
     cd /repo
     BUN_BIN=/tmp/bun-runtime/bin/bun \
       OPENCLAW_BUN_GLOBAL_SMOKE_HOST_BUILD=0 \
@@ -154,6 +157,7 @@ echo "Installing the real OpenClaw package artifact with npm on musl..."
 DOCKER_COMMAND_TIMEOUT="$DOCKER_RUN_TIMEOUT" docker_e2e_docker_run_cmd run -d \
   --name "$MUSL_PROOF_CONTAINER" \
   -e OPENCLAW_FS_SAFE_NATIVE_CONTRACT \
+  -e OPENCLAW_FS_SAFE_PUBLICATION_CONTRACT \
   "${DOCKER_E2E_PACKAGE_ARGS[@]}" \
   "$MUSL_IMAGE_NAME" \
   sh -lc '
@@ -164,24 +168,8 @@ DOCKER_COMMAND_TIMEOUT="$DOCKER_RUN_TIMEOUT" docker_e2e_docker_run_cmd run -d \
     exec sleep infinity
   ' >/dev/null
 
-wait_for_proof() {
-  local container_name="$1"
-  for _ in $(seq 1 240); do
-    if docker exec "$container_name" test -f /tmp/openclaw-proof-ready; then
-      return 0
-    fi
-    if [ "$(docker inspect --format '{{.State.Running}}' "$container_name")" != "true" ]; then
-      docker logs "$container_name" >&2
-      return 1
-    fi
-    sleep 1
-  done
-  docker logs "$container_name" >&2
-  return 1
-}
-
 for container_name in "$NPM_PROOF_CONTAINER" "$PNPM_PROOF_CONTAINER" "$BUN_PROOF_CONTAINER" "$MUSL_PROOF_CONTAINER"; do
-  wait_for_proof "$container_name"
+  docker_e2e_wait_for_proof "$container_name" 240
 done
 
 bash "$ROOT_DIR/scripts/e2e/lib/docker-package-identity.sh" \

@@ -1,3 +1,9 @@
+# Active stable 2026.9.8 inputs
+
+The active packaged runtime recipe uses [current-host](current-host/README.md).
+The files alongside this README and the description below are preserved historical
+inputs; do not use their older host archive integrity with the new package.
+
 # Retained packaged-runtime candidate
 
 This profile consumes the existing successful package run recorded in `candidate.json`.

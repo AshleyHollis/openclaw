@@ -81,6 +81,7 @@ type PackageOptions = RunOptions & {
   allowUnreleasedChangelog?: unknown;
   extractAiRuntime?: (tarballPath: string, destination: string) => Promise<unknown>;
   normalizeTarballModes?: (tarballPath: string) => Promise<unknown>;
+  onCleanupFailure?: (error: unknown) => void;
   outputName?: string;
   packJsonPath?: string;
   pnpmPack?: boolean;
@@ -578,6 +579,122 @@ function runPackageTar(
   );
 }
 
+// npm follows a bundled pnpm link into the virtual store and emits its sibling
+// dependency paths. Those paths are not a stable npm bundle after extraction.
+// Materialize only this patched bundle's installed runtime graph; manifests keep
+// their native optional dependencies so consumer platform repair remains owned
+// by fs-safe rather than by the build host.
+async function copyBundledRuntimePackage(
+  sourceRoot: string,
+  destination: string,
+  ancestors = new Set<string>(),
+): Promise<void> {
+  const realRoot = await fs.realpath(sourceRoot);
+  const manifest = JSON.parse(await fs.readFile(path.join(realRoot, "package.json"), "utf8")) as {
+    dependencies?: Record<string, string>;
+    optionalDependencies?: Record<string, string>;
+  };
+  await fs.cp(realRoot, destination, {
+    recursive: true,
+    dereference: true,
+    filter: (source) => source !== path.join(realRoot, "node_modules"),
+  });
+  const ancestry = new Set([...ancestors, realRoot]);
+  const requireFromPackage = createRequire(path.join(realRoot, "package.json"));
+  const optional = manifest.optionalDependencies ?? {};
+  for (const name of Object.keys({ ...manifest.dependencies, ...optional })) {
+    let dependencyRoot: string | undefined;
+    // Resolve installed package directories, not exports: runtime packages need
+    // not export package.json or expose a CommonJS entrypoint. A package.json
+    // subpath also avoids Node's builtin-name shortcut (e.g. string_decoder).
+    for (const modulesPath of requireFromPackage.resolve.paths(`${name}/package.json`) ?? []) {
+      try {
+        dependencyRoot = await fs.realpath(path.join(modulesPath, name));
+        break;
+      } catch (error) {
+        if (!hasErrorCode(error, "ENOENT")) {
+          throw error;
+        }
+      }
+    }
+    if (!dependencyRoot) {
+      if (Object.hasOwn(optional, name)) {
+        continue;
+      }
+      throw new Error(`bundled runtime dependency ${name} is missing from ${realRoot}`);
+    }
+    // A cycle resolves the identical ancestor copy through normal Node lookup.
+    if (!ancestry.has(dependencyRoot)) {
+      await copyBundledRuntimePackage(
+        dependencyRoot,
+        path.join(destination, "node_modules", name),
+        ancestry,
+      );
+    }
+  }
+}
+
+async function prepareBundledFsSafeRuntimePackage(
+  sourceDir: string,
+  onCleanupFailure: (error: unknown) => void,
+) {
+  const name = "@openclaw/fs-safe";
+  const manifest = JSON.parse(await fs.readFile(path.join(sourceDir, "package.json"), "utf8")) as {
+    bundleDependencies?: string[];
+  };
+  // Frozen sources predating this bundle retain their own packaging contract.
+  if (!manifest.bundleDependencies?.includes(name)) {
+    return async () => {};
+  }
+  const runtimePath = path.join(sourceDir, "node_modules", name);
+  const backupPath = path.join(path.dirname(runtimePath), ".openclaw-fs-safe-package-backup");
+  try {
+    await fs.lstat(backupPath);
+    throw new Error(`refusing to overwrite existing ${backupPath}`);
+  } catch (error) {
+    if (!hasErrorCode(error, "ENOENT")) {
+      throw error;
+    }
+  }
+  const stagePath = await fs.mkdtemp(
+    path.join(path.dirname(runtimePath), ".openclaw-fs-safe-package-"),
+  );
+  let originalMoved = false;
+  let stagedMoved = false;
+  const cleanup = async () => {
+    try {
+      if (stagedMoved) {
+        await fs.rm(runtimePath, { force: true, recursive: true });
+        stagedMoved = false;
+      }
+      if (originalMoved) {
+        await fs.rename(backupPath, runtimePath);
+        originalMoved = false;
+      }
+      await fs.rm(stagePath, { force: true, recursive: true });
+    } catch (error) {
+      onCleanupFailure(error);
+      throw error;
+    }
+  };
+  try {
+    // Copy before moving the source: a hoisted install may own a real directory.
+    await copyBundledRuntimePackage(runtimePath, stagePath);
+    await fs.rename(runtimePath, backupPath);
+    originalMoved = true;
+    await fs.rename(stagePath, runtimePath);
+    stagedMoved = true;
+    return cleanup;
+  } catch (error) {
+    try {
+      await cleanup();
+    } catch (restoreError) {
+      throw packagePreparationRestoreError(error, restoreError);
+    }
+    throw error;
+  }
+}
+
 export async function prepareBundledAiRuntimePackage(
   sourceDir: string,
   outputDir: string,
@@ -670,6 +787,7 @@ export async function prepareBundledAiRuntimePackage(
     originalAiRuntimeMoved = false;
     packedAiTarballs = [];
     if (cleanupError) {
+      packageOptions.onCleanupFailure?.(cleanupError);
       throw toErrorObject(cleanupError, "Package cleanup failed.");
     }
   };
@@ -703,6 +821,7 @@ export async function prepareBundledAiRuntimePackage(
     try {
       await restoreManifest(aiRuntimeSourceDir);
     } catch (restoreError) {
+      packageOptions.onCleanupFailure?.(restoreError);
       throw packError ? packagePreparationRestoreError(packError, restoreError) : restoreError;
     }
     if (packError) {
@@ -938,7 +1057,10 @@ export async function packOpenClawPackageForDocker(
   let packReceiptDir: string | undefined;
   try {
     let cleanupBundledAiRuntime = async () => {};
+    let cleanupBundledFsSafeRuntime = async () => {};
     let cleanupBundledPlugins = async () => {};
+    const cleanupFailures = new Set<unknown>();
+    const onCleanupFailure = (error: unknown) => void cleanupFailures.add(error);
     try {
       await cleanPackedOpenClawTarballs(outputPath);
       if (packageOptions.bundlePlugins?.length) {
@@ -946,6 +1068,7 @@ export async function packOpenClawPackageForDocker(
         cleanupBundledPlugins = await preparePackageBundledPlugins(
           sourcePath,
           packageOptions.bundlePlugins,
+          onCleanupFailure,
         );
       }
       cleanupBundledAiRuntime = await prepareBundledAiRuntime(
@@ -955,7 +1078,12 @@ export async function packOpenClawPackageForDocker(
         {
           prepareManifest,
           restoreManifest,
+          onCleanupFailure,
         },
+      );
+      cleanupBundledFsSafeRuntime = await prepareBundledFsSafeRuntimePackage(
+        sourcePath,
+        onCleanupFailure,
       );
       // AI staging materializes the bundled tree; pack must not inherit the
       // source workspace's isolated linker setting for that prepared bundle.
@@ -975,21 +1103,38 @@ export async function packOpenClawPackageForDocker(
           DEFAULT_PACKAGE_PACK_TIMEOUT_MS,
         ),
       });
+    } catch (error) {
+      packageError = error;
+      throw error;
     } finally {
-      try {
-        await cleanupBundledAiRuntime();
-      } finally {
+      // Restore shared manifests in reverse preparation order. A helper can
+      // fail restoring during preparation, before its cleanup handle returns.
+      for (const cleanup of [
+        cleanupBundledFsSafeRuntime,
+        cleanupBundledAiRuntime,
+        cleanupBundledPlugins,
+      ]) {
         try {
-          await cleanupBundledPlugins();
-        } finally {
-          await restorePackageSourceArtifacts(
-            sourcePath,
-            restoreDocsMap,
-            restoreManifest,
-            restoreChangelog,
-          );
+          await cleanup();
+        } catch (error) {
+          onCleanupFailure(error);
         }
       }
+      await restorePackageSourceArtifacts(
+        sourcePath,
+        async (cwd) => {
+          if (cleanupFailures.size) {
+            throw new AggregateError(
+              new Set([...(packageError === undefined ? [] : [packageError]), ...cleanupFailures]),
+              "Package source cleanup failed; packaging receipt retained.",
+              { cause: packageError },
+            );
+          }
+          await restoreDocsMap(cwd);
+        },
+        restoreManifest,
+        restoreChangelog,
+      );
     }
     // Scan the emptied pnpm destination instead of trusting its absolute-path output.
     let tarball = await newestOpenClawTarball(

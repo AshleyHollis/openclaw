@@ -12,15 +12,13 @@ import type { ChatCompletionChunk } from "openai/resources/chat/completions.js";
 import { getAiTransportHost } from "../host.js";
 import { applyProviderReportedUsageCost, calculateCost } from "../model-utils.js";
 import type { BaseOpenAIStreamOptions } from "../provider-options.js";
-/** Shared options, usage shape, cache identity, ordering, and stream scheduling for OpenAI APIs. */
+/** Shared options, usage shape, cache identity, and ordering for OpenAI APIs. */
 import { clampOpenAIPromptCacheKey } from "../providers/openai-prompt-cache.js";
 import { headersToRecord } from "../utils/headers.js";
-import { notifyProviderHttpResponse, transportAbortError } from "./transport-stream-shared.js";
+import { notifyProviderHttpResponse } from "./transport-stream-shared.js";
 
 export { sortPromptCacheToolsByName as sortTransportToolsByName } from "../utils/prompt-cache-stability.js";
 
-const MODEL_STREAM_COOPERATIVE_YIELD_INTERVAL_MS = 12;
-const MODEL_STREAM_COOPERATIVE_YIELD_MAX_EVENTS = 64;
 const OPENAI_RESPONSE_MODEL_HEADER_NAMES = new Set(["openai-model", "x-openai-model"]);
 const OPENAI_RESPONSE_MODEL_EVENT_TYPES = new Set([
   "response.created",
@@ -347,6 +345,16 @@ export function parseOpenAICompletionsUsage(
   const input = Math.max(0, (rawUsage.prompt_tokens || 0) - cacheRead - cacheWrite);
   const output = rawUsage.completion_tokens || 0;
   const reasoningTokens = rawUsage.completion_tokens_details?.reasoning_tokens;
+  const hasCoherentContext =
+    [
+      rawUsage.prompt_tokens,
+      rawUsage.completion_tokens,
+      rawUsage.total_tokens,
+      cacheRead,
+      cacheWrite,
+    ].every((value) => typeof value === "number" && Number.isFinite(value) && value >= 0) &&
+    rawUsage.prompt_tokens >= cacheRead + cacheWrite &&
+    rawUsage.total_tokens >= rawUsage.prompt_tokens + rawUsage.completion_tokens;
   const usage: MutableAssistantOutput["usage"] = {
     input,
     output,
@@ -358,6 +366,13 @@ export function parseOpenAICompletionsUsage(
     Number.isFinite(reasoningTokens)
       ? { reasoningTokens }
       : {}),
+    contextUsage: hasCoherentContext
+      ? {
+          state: "available",
+          promptTokens: rawUsage.prompt_tokens,
+          totalTokens: Math.max(input + output + cacheRead + cacheWrite, rawUsage.total_tokens),
+        }
+      : { state: "unavailable" },
     totalTokens: input + output + cacheRead + cacheWrite,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
   };
@@ -385,16 +400,6 @@ export function createOpenAIProviderAcceptanceHook(
   return () => notifyProviderHttpResponse({ options, response, model });
 }
 
-type ModelStreamCooperativeScheduler = {
-  afterEvent: () => Promise<void>;
-};
-
-export function throwIfModelStreamAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) {
-    throw transportAbortError(signal);
-  }
-}
-
 /** Measure one UTF-8 append without double-counting a surrogate pair split across chunks. */
 export function measureUtf8AppendBytes(bufferEndsWithHighSurrogate: boolean, chunk: string) {
   let bytes = Buffer.byteLength(chunk, "utf8");
@@ -410,33 +415,6 @@ export function measureUtf8AppendBytes(bufferEndsWithHighSurrogate: boolean, chu
   return {
     bytes,
     endsWithHighSurrogate: finalCodeUnit >= 0xd800 && finalCodeUnit <= 0xdbff,
-  };
-}
-
-export function createModelStreamCooperativeScheduler(
-  signal?: AbortSignal,
-): ModelStreamCooperativeScheduler {
-  let lastYieldedAt = Date.now();
-  let eventsSinceYield = 0;
-  return {
-    async afterEvent() {
-      throwIfModelStreamAborted(signal);
-      eventsSinceYield += 1;
-      const now = Date.now();
-      if (
-        eventsSinceYield < MODEL_STREAM_COOPERATIVE_YIELD_MAX_EVENTS &&
-        now - lastYieldedAt < MODEL_STREAM_COOPERATIVE_YIELD_INTERVAL_MS
-      ) {
-        return;
-      }
-      eventsSinceYield = 0;
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, 0);
-      });
-      throwIfModelStreamAborted(signal);
-      // Time waiting for the yield does not consume the next work budget.
-      lastYieldedAt = Date.now();
-    },
   };
 }
 

@@ -1,4 +1,3 @@
-// Produces redacted runtime config snapshots for diagnostics and UI surfaces.
 import { isDeepStrictEqual } from "node:util";
 import { sha256Base64Url } from "../infra/crypto-digest.js";
 import { clearExecutablePathCache } from "../infra/executable-path.js";
@@ -23,7 +22,8 @@ import {
   type CapturedRuntimeConfigRead,
   getRuntimeConfigCapture,
 } from "./runtime-config-capture-state.js";
-import type { OpenClawConfig } from "./types.js";
+import { runtimeSessionChangeScope } from "./runtime-session-changes.js";
+import type { ConfigFileSnapshot, OpenClawConfig } from "./types.js";
 
 export type RuntimeConfigSnapshotRefreshOptions = {
   includeAuthStoreRefs?: boolean;
@@ -46,20 +46,8 @@ export type ConfigWriteAfterWrite =
   | { mode: "none"; reason: string };
 
 export type ConfigWriteFollowUp =
-  | {
-      mode: "auto";
-      requiresRestart: false;
-    }
-  | {
-      mode: "none";
-      reason: string;
-      requiresRestart: false;
-    }
-  | {
-      mode: "restart";
-      reason: string;
-      requiresRestart: true;
-    };
+  | (Exclude<ConfigWriteAfterWrite, { mode: "restart" }> & { requiresRestart: false })
+  | (Extract<ConfigWriteAfterWrite, { mode: "restart" }> & { requiresRestart: true });
 
 export function resolveConfigWriteAfterWrite(
   afterWrite?: ConfigWriteAfterWrite,
@@ -99,6 +87,7 @@ export type RuntimeConfigSnapshotRefreshHandler = {
 
 export type RuntimeConfigWriteNotification = {
   configPath: string;
+  snapshot: ConfigFileSnapshot;
   sourceConfig: OpenClawConfig;
   runtimeConfig: OpenClawConfig;
   persistedHash: string;
@@ -120,23 +109,6 @@ export type RuntimeConfigWritePreparedCandidate = {
   reapplyCompareOverlays?: (config: OpenClawConfig) => OpenClawConfig;
 };
 
-export function projectRuntimeConfigWritePreparedCandidates(
-  preparedCandidates: ReadonlyMap<symbol, RuntimeConfigWritePreparedCandidate>,
-  runtimeConfig: OpenClawConfig,
-  sourceConfig: OpenClawConfig,
-): Map<symbol, RuntimeConfigWritePreparedCandidate> {
-  return new Map(
-    [...preparedCandidates].map(([ownerId, candidate]) => [
-      ownerId,
-      {
-        ...candidate,
-        runtimeConfig: candidate.reapplyRuntimeOverlays?.(runtimeConfig) ?? candidate.runtimeConfig,
-        compareConfig: candidate.reapplyCompareOverlays?.(sourceConfig) ?? candidate.compareConfig,
-      },
-    ]),
-  );
-}
-
 export type RuntimeConfigSnapshotMetadata = {
   revision: number;
   fingerprint: string;
@@ -152,6 +124,103 @@ let runtimeConfigSnapshotRevision = 0;
 let runtimeConfigSnapshotGeneration = 0;
 let runtimeConfigPreparerGeneration = 0;
 let runtimeConfigSnapshotRefreshHandler: RuntimeConfigSnapshotRefreshHandler | null = null;
+const admittedSessionStoreSelections = new Map<symbol, string | undefined>();
+const sessionStoreSelectionReleaseListeners = new Set<() => void>();
+
+export class RuntimeConfigSessionStoreSelectionHeldError extends Error {}
+
+export function isRuntimeConfigSessionStoreSelectionHeld(): boolean {
+  return admittedSessionStoreSelections.size > 0;
+}
+
+/** Called when the last admission settles, including a rejected async operation. */
+export function onRuntimeConfigSessionStoreSelectionReleased(listener: () => void): () => void {
+  sessionStoreSelectionReleaseListeners.add(listener);
+  return () => {
+    sessionStoreSelectionReleaseListeners.delete(listener);
+  };
+}
+
+function releaseSessionStoreSelection(owner: symbol): void {
+  admittedSessionStoreSelections.delete(owner);
+  if (admittedSessionStoreSelections.size === 0) {
+    for (const listener of sessionStoreSelectionReleaseListeners) {
+      try {
+        listener();
+      } catch {
+        // An observer cannot extend or revoke an already-settled admission.
+      }
+    }
+  }
+}
+
+function assertSessionStoreSelection(config: OpenClawConfig): void {
+  for (const selection of admittedSessionStoreSelections.values()) {
+    if (selection !== config.session?.store) {
+      throw new RuntimeConfigSessionStoreSelectionHeldError(
+        "Runtime session.store selection cannot change during admission",
+      );
+    }
+  }
+}
+
+function assertPreparerDoesNotReceiveAdmittedSelection(config: OpenClawConfig): void {
+  const active = runtimeConfigSnapshot;
+  if (
+    isRuntimeConfigSessionStoreSelectionHeld() &&
+    runtimeConfigSnapshotPreparers.size > 0 &&
+    active &&
+    (config === active || (config.session !== undefined && config.session === active.session))
+  ) {
+    throw new RuntimeConfigSessionStoreSelectionHeldError(
+      "Runtime session.store selection cannot change during admission",
+    );
+  }
+}
+
+/** Keep the published session store selection stable for a synchronous host operation. */
+export function withRuntimeConfigSessionStoreSelection<T>(callback: () => T): T {
+  const config = runtimeConfigSnapshot;
+  if (!config) {
+    throw new Error("Runtime session.store selection requires an active config snapshot");
+  }
+  assertSessionStoreSelection(config);
+  const owner = Symbol("runtime-session-store-selection");
+  admittedSessionStoreSelections.set(owner, config.session?.store);
+  try {
+    const result = callback();
+    if (
+      result &&
+      (typeof result === "object" || typeof result === "function") &&
+      "then" in result &&
+      typeof result.then === "function"
+    ) {
+      throw new Error("Runtime session.store selection admission must be synchronous");
+    }
+    return result;
+  } finally {
+    releaseSessionStoreSelection(owner);
+  }
+}
+
+/** Retain the published selection until the operation actually settles; no timer releases it. */
+export async function withRuntimeConfigSessionStoreSelectionAsync<T>(
+  callback: () => Promise<T>,
+): Promise<T> {
+  const config = runtimeConfigSnapshot;
+  if (!config) {
+    throw new Error("Runtime session.store selection requires an active config snapshot");
+  }
+  assertSessionStoreSelection(config);
+  const owner = Symbol("runtime-session-store-selection-async");
+  admittedSessionStoreSelections.set(owner, config.session?.store);
+  try {
+    return await callback();
+  } finally {
+    releaseSessionStoreSelection(owner);
+  }
+}
+
 type ManagedRuntimeConfigWritePreflight = (
   sourceConfig: OpenClawConfig,
   refreshOptions?: RuntimeConfigSnapshotRefreshOptions,
@@ -243,6 +312,9 @@ export function setRuntimeConfigSnapshot(
   config: OpenClawConfig,
   sourceConfig?: OpenClawConfig,
 ): void {
+  assertSessionStoreSelection(config);
+  // A preparer can mutate its input before the publication assertion runs.
+  assertPreparerDoesNotReceiveAdmittedSelection(config);
   const factSource = getConfigResolutionFacts(config) !== null ? config : (sourceConfig ?? config);
   copyConfigResolutionFacts(factSource, config);
   for (const prepare of runtimeConfigSnapshotPreparers.keys()) {
@@ -252,12 +324,14 @@ export function setRuntimeConfigSnapshot(
 }
 
 function publishRuntimeConfigSnapshot(config: OpenClawConfig, sourceConfig?: OpenClawConfig): void {
+  assertSessionStoreSelection(config);
+  const scope = runtimeSessionChangeScope(runtimeConfigSnapshot, config);
   runtimeConfigSnapshotGeneration += 1;
   clearExecutablePathCache();
   runtimeConfigSnapshot = config;
   runtimeConfigSourceSnapshot = sourceConfig ?? null;
   runtimeConfigSnapshotMetadata = createRuntimeConfigSnapshotMetadata(config, sourceConfig);
-  sessionChanges.emit({ all: true, scope: "config" });
+  sessionChanges.emit({ all: true, scope });
 }
 
 export function registerRuntimeConfigSnapshotPreparer(
@@ -269,10 +343,25 @@ export function registerRuntimeConfigSnapshotPreparer(
     ) => Promise<() => void>;
   },
 ): () => void {
+  if (isRuntimeConfigSessionStoreSelectionHeld() && runtimeConfigSnapshot) {
+    throw new Error("Runtime session.store selection cannot change during admission");
+  }
+  const previous = runtimeConfigSnapshotPreparers.get(prepare);
+  const wasRegistered = runtimeConfigSnapshotPreparers.has(prepare);
   runtimeConfigPreparerGeneration += 1;
   runtimeConfigSnapshotPreparers.set(prepare, options);
-  if (runtimeConfigSnapshot) {
-    prepare(runtimeConfigSnapshot);
+  try {
+    if (runtimeConfigSnapshot) {
+      prepare(runtimeConfigSnapshot);
+    }
+  } catch (error) {
+    if (wasRegistered) {
+      runtimeConfigSnapshotPreparers.set(prepare, previous);
+    } else {
+      runtimeConfigSnapshotPreparers.delete(prepare);
+    }
+    runtimeConfigPreparerGeneration += 1;
+    throw error;
   }
   return () => {
     runtimeConfigPreparerGeneration += 1;
@@ -355,12 +444,20 @@ export function setRuntimeConfigSourceSnapshotIfCurrent(params: {
   ) {
     return false;
   }
+  assertPreparerDoesNotReceiveAdmittedSelection(runtimeConfigSnapshot);
   copyConfigResolutionFacts(params.sourceConfig, runtimeConfigSnapshot);
   setRuntimeConfigSnapshot(runtimeConfigSnapshot, params.sourceConfig);
   return true;
 }
 
+export function assertRuntimeConfigSessionStoreSelectionCanClear(): void {
+  if (isRuntimeConfigSessionStoreSelectionHeld()) {
+    throw new Error("Runtime session.store selection cannot clear during admission");
+  }
+}
+
 export function resetConfigRuntimeState(options: { preserveConfigEnv?: boolean } = {}): void {
+  assertRuntimeConfigSessionStoreSelectionCanClear();
   runtimeConfigSnapshotGeneration += 1;
   clearExecutablePathCache();
   runtimeConfigSnapshot = null;
@@ -404,44 +501,6 @@ export function resolveRuntimeConfigCacheKey(config: OpenClawConfig): string {
     return `runtime:${metadata.revision}:${metadata.fingerprint}`;
   }
   return `config:${hashRuntimeConfigValue(config)}`;
-}
-
-export function createRuntimeConfigWriteNotification(params: {
-  configPath: string;
-  sourceConfig: OpenClawConfig;
-  runtimeConfig: OpenClawConfig;
-  persistedHash: string;
-  writtenAtMs?: number;
-  afterWrite?: ConfigWriteAfterWrite;
-  runtimeRefresh?: RuntimeConfigSnapshotRefreshOptions;
-  preparedCandidate?: RuntimeConfigWritePreparedCandidate;
-  preparedCandidatesByOwner?: ReadonlyMap<symbol, RuntimeConfigWritePreparedCandidate>;
-}): RuntimeConfigWriteNotification {
-  const metadata =
-    params.runtimeConfig === runtimeConfigSnapshot && runtimeConfigSnapshotMetadata
-      ? runtimeConfigSnapshotMetadata
-      : {
-          revision: runtimeConfigSnapshotRevision,
-          fingerprint: hashRuntimeConfigValue(params.runtimeConfig),
-          sourceFingerprint: hashRuntimeConfigValue(params.sourceConfig),
-          updatedAtMs: Date.now(),
-        };
-  return {
-    configPath: params.configPath,
-    sourceConfig: params.sourceConfig,
-    runtimeConfig: params.runtimeConfig,
-    persistedHash: params.persistedHash,
-    revision: metadata.revision,
-    fingerprint: metadata.fingerprint,
-    sourceFingerprint: metadata.sourceFingerprint,
-    writtenAtMs: params.writtenAtMs ?? Date.now(),
-    afterWrite: params.afterWrite,
-    ...(params.runtimeRefresh ? { runtimeRefresh: params.runtimeRefresh } : {}),
-    ...(params.preparedCandidate ? { preparedCandidate: params.preparedCandidate } : {}),
-    ...(params.preparedCandidatesByOwner
-      ? { preparedCandidatesByOwner: params.preparedCandidatesByOwner }
-      : {}),
-  };
 }
 
 export function selectApplicableRuntimeConfig(params: {

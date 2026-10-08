@@ -12,6 +12,7 @@ import { enqueueCommandInLane, isCommandLaneTaskMarkerCurrent } from "../process
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { resolveAdmittedRunActiveAssertion } from "./admitted-run-context.js";
 import { resolveSessionLane } from "./embedded-agent-runner/lanes.js";
+import type { RunEmbeddedAgentInternalParams } from "./embedded-agent-runner/run/internal-params.js";
 import { resolveEmbeddedRunSessionLanePolicy } from "./embedded-agent-runner/run/lane-runtime.js";
 import type { RunEmbeddedAgentParams } from "./embedded-agent-runner/run/params.js";
 import type { EmbeddedAgentRunResult } from "./embedded-agent-runner/types.js";
@@ -36,7 +37,7 @@ export type LocalTurnPlacementClaim = {
   runId: string;
 };
 
-export type SessionPlacementTurnParams = RunEmbeddedAgentParams & { sessionFile: string };
+export type SessionPlacementTurnParams = RunEmbeddedAgentInternalParams & { sessionFile: string };
 
 type SessionPlacementSandboxParams = {
   agentId: string;
@@ -53,7 +54,11 @@ export type SessionPlacementAdmissionProvider = {
     successorSessionId: string;
   }) => void;
   recoverTerminalTurn?: (session: { sessionId: string; sessionKey?: string }) => string | undefined;
-  executeLocalTurn: <T>(claim: LocalTurnPlacementClaim, runLocal: () => Promise<T>) => Promise<T>;
+  executeLocalTurn: <T>(
+    claim: LocalTurnPlacementClaim,
+    runLocal: () => Promise<T>,
+    assertCurrent?: () => void,
+  ) => Promise<T>;
   executeTurn: (
     claim: LocalTurnPlacementClaim,
     params: SessionPlacementTurnParams,
@@ -265,7 +270,7 @@ export async function withLocalSessionPlacementTurnSettlement(
         };
         const result = await withPlacementTurnCallerScope(options, () =>
           withoutSessionPlacementForcedTerminalSettlement(() =>
-            provider ? provider.executeLocalTurn(claim, runLocal) : runLocal(),
+            provider ? provider.executeLocalTurn(claim, runLocal, assertCurrent) : runLocal(),
           ),
         );
         if (options.isFinalFallbackAttempt === undefined) {

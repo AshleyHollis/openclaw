@@ -34,12 +34,13 @@ afterEach(() => {
 describe("check-package-patches", () => {
   it("allows approved pnpm patches together", () => {
     const approvedPatches = [
-      ["@awesome.me/webawesome@3.12.0", "patches/@awesome.me__webawesome@3.12.0.patch"],
-      ["@openclaw/fs-safe@0.8.5", "patches/@openclaw__fs-safe@0.8.5.patch"],
+      ["@openclaw/fs-safe@0.21.1", "patches/@openclaw__fs-safe@0.21.1.patch"],
+      ["@awesome.me/webawesome@3.13.0", "patches/@awesome.me__webawesome@3.13.0.patch"],
       ["baileys@7.0.0-rc12", "patches/baileys@7.0.0-rc12.patch"],
       ["baileys@7.0.0-rc13", "patches/baileys@7.0.0-rc13.patch"],
-      ["vitest@5.0.0", "patches/vitest@5.0.0.patch"],
-      ["matrix-js-sdk@42.3.0", "patches/matrix-js-sdk@42.3.0.patch"],
+      ["baileys@7.0.0-rc14", "patches/baileys@7.0.0-rc14.patch"],
+      ["vitest@5.0.1", "patches/vitest@5.0.1.patch"],
+      ["matrix-js-sdk@42.4.0", "patches/matrix-js-sdk@42.4.0.patch"],
     ] as const;
     const dir = makeRepo();
     mkdirSync(path.join(dir, "patches"), { recursive: true });
@@ -70,8 +71,8 @@ ${approvedPatches.map(([specifier]) => `  "${specifier}": a9aea1790d2c65b1ae543c
 
   it.each([
     ["left-pad@1.3.0", "patches/left-pad@1.3.0.patch"],
-    ["matrix-js-sdk@42.3.1", "patches/matrix-js-sdk@42.3.1.patch"],
-    ["matrix-js-sdk@42.3.0", "patches/matrix-js-sdk@42.3.0-other.patch"],
+    ["matrix-js-sdk@42.4.1", "patches/matrix-js-sdk@42.4.1.patch"],
+    ["matrix-js-sdk@42.4.0", "patches/matrix-js-sdk@42.4.0-other.patch"],
   ])("rejects unapproved workspace patch %s -> %s", (specifier, patchPath) => {
     const dir = makeRepo();
     mkdirSync(path.join(dir, "patches"), { recursive: true });
@@ -96,6 +97,11 @@ patchedDependencies:
         detail: `${specifier} -> ${patchPath}`,
       },
       {
+        file: "fixtures/fixture.patch",
+        kind: "patchFile",
+        detail: "new package patch file",
+      },
+      {
         file: patchPath,
         kind: "patchFile",
         detail: "new package patch file",
@@ -114,6 +120,19 @@ patchedDependencies:
     git(dir, ["add", "downstream"]);
 
     expect(collectPackagePatchViolations(dir)).toEqual([]);
+  });
+
+  it("rejects activating archived patches as package dependencies", () => {
+    const dir = makeRepo();
+    mkdirSync(path.join(dir, "downstream", "patches"), { recursive: true });
+    writeFileSync(path.join(dir, "downstream", "patches", "source-history.patch"), "diff\n");
+    writeFileSync(path.join(dir, "pnpm-workspace.yaml"),
+      'packages:\n  - .\npatchedDependencies:\n  "@openclaw/fs-safe@0.21.1": downstream/patches/source-history.patch\n');
+    git(dir, ["add", "downstream", "pnpm-workspace.yaml"]);
+    expect(collectPackagePatchViolations(dir)).toEqual([{
+      file: "pnpm-workspace.yaml", kind: "patchedDependency",
+      detail: "@openclaw/fs-safe@0.21.1 -> downstream/patches/source-history.patch",
+    }]);
   });
 
   it("allows deleted legacy patch files during the commit that removes them", () => {

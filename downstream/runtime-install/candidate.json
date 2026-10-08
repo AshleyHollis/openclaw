@@ -1,28 +1,42 @@
 {
   "schemaVersion": 1,
-  "sourceCommit": "cdd35381513427115bc2f7f24e08a748eeb8c14c",
-  "hostVersion": "2026.9.6",
-  "hostSha256": "a35064964350ab710298e513cccc5895a7682b651c4d5c3c6eab574bab52657d",
-  "hostRunId": 36318046783,
-  "hostRunCommit": "85406d371d3cae70e2e76ae882f2ebd28fc2a041",
-  "hostArtifactId": 10931551542,
-  "hostArtifactName": "nas-runtime-package-cdd35381513427115bc2f7f24e08a748eeb8c14c-36318046783-1",
-  "hostArtifactDigest": "sha256:9c9ff0dfe9c2a510dec744e2c6dabe4ab388f84a32ef0b851e6c02a6f95a3b49",
+  "hostVersion": "2026.9.8",
+  "hostProducedFrom": "13c9575fa34c1d8166223473f7446b9c3889ac64",
+  "sourceHead": "8916e2079fee0a64e0c67cc4f4a0d08e140b2396",
+  "hostArchiveSha256": "d66fb508a5c5714513f5268751779bcf3866210001547ccc4ea6a1c230a6ccc1",
+  "hostArchiveBytes": 116718179,
+  "commandCenter": {
+    "sourceCommit": "b3626e0e130e6adf1e17be5ceb6ed189ad41648b",
+    "archiveSha256": "b2d243a30e04dd6faa01fd03a3738403d9bd1a9ba24b91af1384436db4633c72",
+    "buildDigest": "b472e6869908444711ed164f856668b0b298b065ceacef3abbf5c0aeb5f0d625",
+    "receiptSha256": "4dd63ce2ba55586015ead339e148ce2d37d8f4d8d7c1609e06762497a86321f2"
+  },
   "components": {
     "codex": {
-      "version": "2026.9.6",
-      "url": "https://registry.npmjs.org/@openclaw/codex/-/codex-2026.9.6.tgz",
-      "sha256": "bcc79bb142e512e917e25e859902dafb3b0da88db826e3b56f6c3654533ef219"
-    },
-    "discord": {
-      "version": "2026.9.6",
-      "url": "https://registry.npmjs.org/@openclaw/discord/-/discord-2026.9.6.tgz",
-      "sha256": "f43f8129d011d248463fe452a75d1c2f8ad2eb7c81a4a00f8e6315dfb2d50948"
+      "version": "2026.9.8",
+      "engineVersion": "0.158.0",
+      "url": "https://registry.npmjs.org/@openclaw/codex/-/codex-2026.9.8.tgz",
+      "sha256": "b7325e7b605b2dcd1b55a405948512beaa397e36be632a7bd78d5cf255441c8d"
     },
     "qmd": {
       "version": "2.1.0",
       "url": "https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-qmd-2.1.0-nas.6.tgz",
       "sha256": "4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a"
     }
+  },
+  "locks": {
+    "host.package-lock.json": "fc11f4dfa07f4b1172405365d862c4c4055c3aed6e3fe7eac53eff55a9775900",
+    "plugins.package-lock.json": "438791f17b59c678f9e6126c459f2cc181c832094de94296c07b19d563be282c"
+  },
+  "imageBuilt": false,
+  "installed": false,
+  "provenance": {
+    "kind": "retained-engineering-package",
+    "actionsArtifactReady": false
+  },
+  "qualification": {
+    "releaseReady": false,
+    "pairedRehearsal": false,
+    "newSourcePackageRequired": true
   }
 }

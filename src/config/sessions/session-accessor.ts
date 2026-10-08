@@ -6,8 +6,15 @@
  */
 export * from "./session-history.js";
 export {
+  prepareSessionTranscriptSourceAdmission,
+  runSessionTranscriptSourceAdmissionOperation,
+  type PreparedSessionTranscriptSourceAdmission,
+  type SessionTranscriptSourceAuthority,
+  type SessionTranscriptSourceSelection,
+} from "./session-transcript-source-admission.js";
+export { listSessionPendingInputReceipts } from "./session-accessor.sqlite-pending-input-receipts.js";
+export {
   bindSessionPendingInputSources,
-  listSessionPendingInputReceipts,
   listSessionPendingInputs,
   readSessionPendingInput,
   readSessionSubmittedInput,
@@ -156,6 +163,7 @@ export {
   patchSessionEntryCore,
   patchSessionEntryTarget,
   patchSessionEntryWithKey,
+  prepareQualifiedSessionEntryTarget,
   readSessionUpdatedAtCore,
   readSessionStoreSummaryReadOnly,
   replaceSessionEntry,
@@ -233,7 +241,6 @@ export {
 export {
   commitReplySessionInitialization,
   loadReplySessionInitializationSnapshot,
-  persistSessionResetLifecycle,
   SessionInitializationAgentScopeMismatchError,
 } from "./session-accessor.reset.js";
 export {
@@ -249,7 +256,6 @@ export {
   loadTranscriptEvents,
   loadTranscriptEventsSync,
   loadTranscriptHeaderSync,
-  loadTranscriptTailEventsSync,
   loadTranscriptSuffixEventsBoundedSync,
   persistCompactionBoundaryWithSessionEntrySync,
   preflightSessionTranscriptForManualCompact,
@@ -281,10 +287,6 @@ export {
   appendTranscriptMessages,
   persistSessionTranscriptTurn,
 } from "./session-accessor.transcript-turn.js";
-export {
-  readClosedTranscriptTurn,
-  type ClosedTranscriptTurnReadResult,
-} from "./session-accessor.transcript-range.js";
 export { readActiveTranscriptEntryAnchor } from "./session-accessor.sqlite-transcript-anchor.js";
 export { validateSessionTranscriptContextAdmission } from "./session-accessor.sqlite-model-context.js";
 export {

@@ -80,7 +80,10 @@ export type ControlUiSessionListSubscription = {
 export type ControlUiAgent = Readonly<AgentSummary>;
 export type ControlUiPageTarget = {
   id: string;
-  params?: Readonly<Record<string, string>>;
+  /** Explicit owner of an advertised native page; omitted targets belong to this plugin. */
+  pluginId?: string;
+  /** A null value removes that parameter when preserving the current query. */
+  params?: Readonly<Record<string, string | null>>;
   /** Unescaped path segments for a page with an advertised native route placement. */
   path?: readonly string[];
 };
@@ -100,7 +103,7 @@ export type ControlUiSurfaceProps = {
     nativeSessionsHaveMore?: boolean;
     loadMoreNativeSessions?: () => Promise<void>;
   };
-  /** The native Files slot for the selected Conversation. */
+  /** The native Files slot, with its own Conversation target. */
   "session-files": BoardGetParams;
   composer: BoardGetParams & {
     agentId: string;
@@ -260,7 +263,7 @@ export type ControlUiHost = {
     ) => ControlUiSessionListSubscription;
     /** Opens this exact Session in native Chat, irrespective of its saved board face. */
     openChat: (session: BoardGetParams) => void;
-    /** Opens this exact Session with the native Files slot selected. */
+    /** Opens this Session in native Files without changing Chat selection or draft. */
     openFiles?: (session: BoardGetParams) => void;
     /** Opens this exact Session using its saved board face. */
     open: (session: BoardGetParams) => void;

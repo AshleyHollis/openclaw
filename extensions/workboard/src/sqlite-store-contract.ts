@@ -8,7 +8,7 @@ import type {
 import type { WorkboardSqliteResult } from "./sqlite-store-errors.js";
 
 type Operation<Method extends (...args: never[]) => unknown> = {
-  input: { connection: number; args: Parameters<Method> };
+  input: { connection: number; args: Parameters<Method>; guarded?: boolean };
   output: Awaited<ReturnType<Method>>;
 };
 export type WorkboardSqliteOperations = {
@@ -17,6 +17,7 @@ export type WorkboardSqliteOperations = {
   dataVersion: { input: { connection: number }; output: number };
   "cards.register": Operation<WorkboardCardStore["register"]>;
   "cards.registerIfAbsent": Operation<WorkboardCardStore["registerIfAbsent"]>;
+  "cards.registerIdempotent": Operation<WorkboardCardStore["registerIdempotent"]>;
   "cards.registerIfUpdatedAt": Operation<WorkboardCardStore["registerIfUpdatedAt"]>;
   "cards.claimIfOwnerAvailable": Operation<WorkboardCardStore["claimIfOwnerAvailable"]>;
   "cards.deleteIfUpdatedAt": Operation<WorkboardCardStore["deleteIfUpdatedAt"]>;

@@ -4,23 +4,27 @@ import type {
   ControlUiPageNavigationOptions,
   ControlUiPageTarget,
 } from "../../../src/plugin-sdk/control-ui.js";
-
-type ControlUiHttpRequest = Parameters<ControlUiHost["httpRequest"]>[0];
-type ControlUiHttpResponse = Awaited<ReturnType<ControlUiHost["httpRequest"]>>;
 import { isRouteId, pathForRoute, pluginTabLocation } from "../app-route-paths.ts";
 import { selectApplicationSession } from "../app/agent-selection.ts";
 import type { ApplicationContext } from "../app/context.ts";
 import { hasOperatorReadAccess, readGatewayOperatorAccess } from "../app/operator-access.ts";
+import {
+  FILES_PANEL_OPEN_EVENT,
+  type FilesPanelOpenDetail,
+} from "../components/panel-toggle-contract.ts";
 import { i18n } from "../i18n/index.ts";
 import { redactToolPayloadText } from "../lib/browser-redact.ts";
 import {
-  resolveSessionPreferredFaceForKey,
+  openPreferredApplicationSession,
   sessionNavigationTarget,
 } from "../lib/sessions/route-navigation.ts";
 import { normalizeSessionKeyForUiComparison } from "../lib/sessions/session-key.ts";
 import { generateUUID } from "../lib/uuid.ts";
 import { createControlUiComponents } from "./control-ui-components.ts";
 import type { ControlUiPluginOwner, ControlUiPluginRuntime } from "./control-ui-runtime.ts";
+
+type ControlUiHttpRequest = Parameters<ControlUiHost["httpRequest"]>[0];
+type ControlUiHttpResponse = Awaited<ReturnType<ControlUiHost["httpRequest"]>>;
 
 const DECLARED_PLUGIN_HTTP_ROUTES: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   [
@@ -113,17 +117,26 @@ export function createControlUiPluginHost(
     options?: Pick<ControlUiPageNavigationOptions, "preserveSearch">,
   ) => {
     const context = current();
+    const pluginId = target.pluginId ?? owner.descriptor.pluginId;
     const tab = context.gateway.snapshot.hello?.controlUiTabs?.find(
-      (candidate) => candidate.pluginId === owner.descriptor.pluginId && candidate.id === target.id,
+      (candidate) => candidate.pluginId === pluginId && candidate.id === target.id,
     );
+    if (target.pluginId !== undefined) {
+      const page =
+        pluginId === owner.descriptor.pluginId
+          ? owner.contributions.pages.get(target.id)
+          : runtime
+              .registrations("pages")
+              .find((entry) => entry.pluginId === pluginId && entry.value.id === target.id);
+      if (!tab || !page || page.signal.aborted) {
+        throw new Error("The requested plugin page is unavailable.");
+      }
+    }
     const route = tab?.placement?.startsWith("route:")
       ? tab.placement.slice("route:".length)
       : null;
     const nativeRoute = route && isRouteId(route) ? route : null;
-    const tabLocation = pluginTabLocation(
-      tab ?? { pluginId: owner.descriptor.pluginId, id: target.id },
-      context.basePath,
-    );
+    const tabLocation = pluginTabLocation(tab ?? { pluginId, id: target.id }, context.basePath);
     const path = nativeRoute ? pathForRoute(nativeRoute, context.basePath) : tabLocation.pathname;
     const suffix = nativeRoute ? target.path?.map(encodeURIComponent).join("/") : undefined;
     const search = new URLSearchParams(options?.preserveSearch ? window.location.search : "");
@@ -135,7 +148,11 @@ export function createControlUiPluginHost(
       }
     }
     for (const [key, value] of Object.entries(target.params ?? {})) {
-      search.set(`p.${key}`, value);
+      if (value === null) {
+        search.delete(`p.${key}`);
+      } else {
+        search.set(`p.${key}`, value);
+      }
     }
     return {
       route: nativeRoute ?? ("plugin" as const),
@@ -264,23 +281,7 @@ export function createControlUiPluginHost(
         return { refresh, dispose };
       },
       open({ sessionKey, agentId }) {
-        const context = current();
-        const face = resolveSessionPreferredFaceForKey(context, sessionKey, agentId);
-        const target = sessionNavigationTarget({
-          context,
-          face,
-          sessionKey,
-          agentId,
-          preferenceDerivedFace: true,
-          exactKey: true,
-        });
-        selectApplicationSession({
-          selection: context.agentSelection,
-          gateway: context.gateway,
-          sessionKey,
-          agentId,
-        });
-        context.navigate(face, target.options);
+        openPreferredApplicationSession(current(), sessionKey, agentId);
       },
       openChat({ sessionKey, agentId }) {
         const context = current();
@@ -301,22 +302,28 @@ export function createControlUiPluginHost(
       },
       openFiles({ sessionKey, agentId }) {
         const context = current();
+        const event = new CustomEvent<FilesPanelOpenDetail>(FILES_PANEL_OPEN_EVENT, {
+          cancelable: true,
+          detail: { client: context.gateway.snapshot.client, sessionKey, agentId },
+        });
+        window.dispatchEvent(event);
+        if (event.defaultPrevented) {
+          return;
+        }
+        // A non-Chat page has no mounted rail. Return to the current Chat, not
+        // the Files target, and hand the independent target to its native slot.
         const target = sessionNavigationTarget({
           context,
           face: "chat",
-          sessionKey,
-          agentId,
+          sessionKey: context.gateway.snapshot.sessionKey,
           exactKey: true,
         });
-        selectApplicationSession({
-          selection: context.agentSelection,
-          gateway: context.gateway,
-          sessionKey,
-          agentId,
-        });
         const search = new URLSearchParams(target.options.search ?? "");
-        // A fresh request must reopen Files even when the selected Chat has not changed.
         search.set("__openclawFilesPanel", generateUUID());
+        search.set("__openclawFilesSession", sessionKey);
+        if (agentId) {
+          search.set("__openclawFilesAgent", agentId);
+        }
         context.navigate("chat", { ...target.options, search: `?${search.toString()}` });
       },
       create: (params) => call((context) => context.sessions.create(params)),

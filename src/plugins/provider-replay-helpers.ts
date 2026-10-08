@@ -53,17 +53,9 @@ export function buildOpenAICompatibleReplayPolicy(
         }
       : {}),
     ...(isResponsesFamily ? { allowSyntheticToolResults: true } : {}),
-    ...(modelApi === "openai-completions"
-      ? {
-          applyAssistantFirstOrderingFix: true,
-          validateGeminiTurns: true,
-          validateAnthropicTurns: true,
-        }
-      : {
-          applyAssistantFirstOrderingFix: false,
-          validateGeminiTurns: false,
-          validateAnthropicTurns: false,
-        }),
+    applyAssistantFirstOrderingFix: modelApi === "openai-completions",
+    validateGeminiTurns: modelApi === "openai-completions",
+    validateAnthropicTurns: modelApi === "openai-completions",
     ...(modelApi === "openai-completions" && dropReasoningFromHistory
       ? { dropReasoningFromHistory: true }
       : {}),
@@ -110,6 +102,7 @@ export function shouldDropClaudeThinkingBlocks(
   const isClaude =
     canonicalId.startsWith("claude-") || resolveClaudeOpus5ModelIdentity(ref) !== undefined;
   const preservesThinking =
+    bindsClaudeThinkingPrefix(ref) ||
     resolveClaudeOpus5ModelIdentity(ref) !== undefined ||
     /(?:^|-)claude-(?:fable-5|mythos-(?:5|preview)|opus-4-(?:5|6|7|8)|sonnet-(?:5|4-6))(?=$|[^a-z0-9])/.test(
       canonicalId,

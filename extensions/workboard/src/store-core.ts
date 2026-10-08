@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { stableStringify } from "@openclaw/normalization-core/stable-stringify";
 import type {
   WorkboardBoardMetadata,
   WorkboardCard,
@@ -7,6 +8,7 @@ import type {
   WorkboardMetadata,
   WorkboardStatus,
 } from "@openclaw/workboard-contract";
+import { resolveNonNegativeIntegerOption } from "openclaw/plugin-sdk/number-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type {
   PersistedWorkboardAttachment,
@@ -62,7 +64,6 @@ import {
   normalizeLinkType,
   normalizeMetadata,
   normalizeNotes,
-  normalizePosition,
   normalizePriority,
   normalizeStatus,
   normalizeStringList,
@@ -123,20 +124,16 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     } catch (operationError) {
       const compensationErrors = await this.rollbackCardMutations(journal);
       if (compensationErrors.length > 0) {
-        throw this.compensationError(operationError, compensationErrors);
+        const message =
+          operationError instanceof Error ? operationError.message : String(operationError);
+        throw new AggregateError([operationError, ...compensationErrors], message, {
+          cause: operationError,
+        });
       }
       throw operationError;
     } finally {
       this.compensationJournal = undefined;
     }
-  }
-
-  private compensationError(operationError: unknown, cleanupErrors: unknown[]): AggregateError {
-    const message =
-      operationError instanceof Error ? operationError.message : String(operationError);
-    return new AggregateError([operationError, ...cleanupErrors], message, {
-      cause: operationError,
-    });
   }
 
   private recordCardMutation(before: WorkboardCard | undefined, after: WorkboardCard): void {
@@ -187,7 +184,13 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
         ...merged,
         updatedAt: Math.max(Date.now(), current.updatedAt + 1),
       };
-      if (await this.registerCardIfUpdatedAt(compensation, current.updatedAt)) {
+      if (
+        await this.store.registerIfUpdatedAt(
+          compensation.id,
+          { version: 1, card: compensation },
+          current.updatedAt,
+        )
+      ) {
         return;
       }
     }
@@ -200,22 +203,11 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       if (!current || !sameWorkboardCardState(current, created)) {
         return;
       }
-      if (await this.deleteCardIfUpdatedAt(created.id, current.updatedAt)) {
+      if (await this.store.deleteIfUpdatedAt(created.id, current.updatedAt)) {
         return;
       }
     }
     throw new Error(`card changed repeatedly during compensation: ${created.id}`);
-  }
-
-  private async registerCardIfUpdatedAt(
-    card: WorkboardCard,
-    expectedUpdatedAt: number,
-  ): Promise<boolean> {
-    return await this.store.registerIfUpdatedAt(card.id, { version: 1, card }, expectedUpdatedAt);
-  }
-
-  private async deleteCardIfUpdatedAt(id: string, expectedUpdatedAt: number): Promise<boolean> {
-    return await this.store.deleteIfUpdatedAt(id, expectedUpdatedAt);
   }
 
   protected async updateLatestCard(
@@ -224,10 +216,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     options: WorkboardUpdateCardOptions = {},
   ): Promise<{ card: WorkboardCard; updated: boolean }> {
     for (let attempt = 0; ; attempt += 1) {
-      const current = await this.get(id);
-      if (!current) {
-        throw new Error(`card not found: ${id}`);
-      }
+      const current = await this.requireCard(id);
       if (
         options.expectedUpdatedAt !== undefined &&
         current.updatedAt !== options.expectedUpdatedAt
@@ -423,6 +412,14 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     return entry?.version === 1 ? entry.card : undefined;
   }
 
+  protected async requireCard(id: string): Promise<WorkboardCard> {
+    const card = await this.get(id);
+    if (!card) {
+      throw new Error(`card not found: ${id}`);
+    }
+    return card;
+  }
+
   private async removeReferencesToCard(
     cardId: string,
   ): Promise<NonNullable<WorkboardDeleteResult["referenceUpdates"]>> {
@@ -460,12 +457,19 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     input: WorkboardLinkedCreateInput,
     scope?: WorkboardMutationScope,
     assertOwnerCurrent?: () => void,
+    sourceAdmission?: import("openclaw/plugin-sdk/session-transcript-runtime").PreparedSessionTranscriptSourceAdmission,
   ): Promise<WorkboardCard> {
-    return await this.enqueueMutation(
-      async () =>
-        await this.withCardCompensation(async () => await this.createDirect(input, scope)),
-      assertOwnerCurrent,
-    );
+    // Supplying native source custody transfers it to this entire attempt, including refusal.
+    try {
+      return await this.enqueueMutation(
+        async () =>
+          await this.withCardCompensation(async () => await this.createDirect(input, scope)),
+        assertOwnerCurrent,
+        sourceAdmission,
+      );
+    } finally {
+      await sourceAdmission?.close();
+    }
   }
 
   protected async createDirect(
@@ -487,25 +491,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       status = "todo";
       heldByDependencies = true;
     }
-    if (automation?.idempotencyKey) {
-      const existing = cards.find(
-        (card) =>
-          card.metadata?.automation?.idempotencyKey === automation.idempotencyKey &&
-          card.metadata?.automation?.tenant === automation.tenant &&
-          cardBoardId(card) === (automation.boardId ?? "default"),
-      );
-      if (existing) {
-        return existing;
-      }
-    }
     const cardsById = new Map(cards.map((card) => [card.id, card]));
-    const parentCards = parents.map((parentId) => {
-      const parent = cardsById.get(parentId);
-      if (!parent) {
-        throw new Error(`card not found: ${parentId}`);
-      }
-      return parent;
-    });
     const childAutomation = normalizeAutomation(
       {
         ...automation,
@@ -514,12 +500,11 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       },
       automation,
     );
-    const normalizedPosition = normalizePosition(input.position, Number.NaN);
+    const normalizedPosition = resolveNonNegativeIntegerOption(input.position, Number.NaN);
     const notes = normalizeNotes(input.notes);
     const agentId = normalizeOptionalString(input.agentId);
     const sessionKey = normalizeOptionalString(input.sessionKey);
     const runId = normalizeOptionalString(input.runId);
-    const taskId = normalizeOptionalString(input.taskId);
     const sourceUrl = normalizeOptionalString(input.sourceUrl);
     const normalizedExecution = normalizeExecution(input.execution);
     const execution =
@@ -546,6 +531,12 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       },
       { allowDependencyLinks: false, allowArchivedAt: false },
     );
+    parents.forEach((parentId) => {
+      const parent = cardsById.get(parentId);
+      if (!parent && !metadata.automation?.idempotencyKey) {
+        throw new Error(`card not found: ${parentId}`);
+      }
+    });
     const syncedMetadata = trimMetadataToBudget(
       syncExecutionAttemptMetadata(metadata, execution, now),
     );
@@ -581,14 +572,51 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       ...(agentId ? { agentId } : {}),
       ...(sessionKey ? { sessionKey } : {}),
       ...(runId ? { runId } : {}),
-      ...(taskId ? { taskId } : {}),
       ...(sourceUrl ? { sourceUrl } : {}),
       ...(execution ? { execution } : {}),
       ...(startedAt ? { startedAt } : {}),
       ...(completedAt ? { completedAt } : {}),
       ...(!metadataIsEmpty(syncedMetadata) ? { metadata: syncedMetadata } : {}),
     };
-    if (options.insertIfAbsent) {
+    if (card.metadata?.automation?.idempotencyKey) {
+      // Capture supplied effects before generated IDs, timestamps, positions,
+      // dependency promotion, and mutable lifecycle state can change a retry.
+      // Rich metadata/execution keep their supplied shape conservatively: an
+      // altered payload must never silently reuse another operation's result.
+      const intent = stableStringify({
+        version: 1,
+        title: card.title,
+        notes,
+        status: requestedStatus,
+        priority: card.priority,
+        labels: card.labels,
+        parents,
+        position: Number.isFinite(normalizedPosition) ? normalizedPosition : undefined,
+        agentId,
+        sessionKey,
+        runId,
+        sourceUrl,
+        startedAt:
+          input.startedAt === undefined ? undefined : normalizeTimestamp(input.startedAt, 0),
+        completedAt:
+          input.completedAt === undefined ? undefined : normalizeTimestamp(input.completedAt, 0),
+        execution: input.execution,
+        metadata: input.metadata,
+        templateId: normalizeTemplateId(input.templateId),
+        automation: childAutomation,
+      });
+      const result = await this.store.registerIdempotent(
+        card.id,
+        { version: 1, card },
+        intent,
+        parents,
+        parents.find((parentId) => !cardsById.has(parentId)),
+      );
+      if (!result.inserted) {
+        return result.card;
+      }
+      this.recordCardMutation(undefined, card);
+    } else if (options.insertIfAbsent) {
       const inserted = await this.store.registerIfAbsent(card.id, { version: 1, card });
       if (!inserted) {
         const winner = await this.get(card.id);
@@ -602,8 +630,8 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       await this.store.register(card.id, { version: 1, card });
       this.recordCardMutation(undefined, card);
     }
-    for (const parent of parentCards) {
-      card = await this.linkCardsDirect(parent.id, card.id, now, {
+    for (const parentId of parents) {
+      card = await this.linkCardsDirect(parentId, card.id, now, {
         allowStatusOnlyActiveChild: true,
         scope,
       });
@@ -662,7 +690,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
   async update(
     id: string,
     patch: WorkboardCardPatch,
-    options: { expectedUpdatedAt?: number } = {},
+    options: { expectedUpdatedAt?: number; assertOwnerCurrent?: () => void } = {},
   ): Promise<WorkboardCard> {
     return await this.enqueueMutation(
       async () =>
@@ -671,6 +699,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
           enforceStatusHolds: true,
           expectedUpdatedAt: options.expectedUpdatedAt,
         }),
+      options.assertOwnerCurrent,
     );
   }
 
@@ -679,10 +708,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     patch: WorkboardCardPatch,
     options: WorkboardUpdateCardOptions = {},
   ): Promise<WorkboardCard> {
-    const existing = await this.get(id);
-    if (!existing) {
-      throw new Error(`card not found: ${id}`);
-    }
+    const existing = await this.requireCard(id);
     if (
       options.expectedUpdatedAt !== undefined &&
       existing.updatedAt !== options.expectedUpdatedAt
@@ -799,10 +825,6 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
         effectivePatch.runId === undefined
           ? existing.runId
           : normalizeOptionalString(effectivePatch.runId),
-      taskId:
-        effectivePatch.taskId === undefined
-          ? existing.taskId
-          : normalizeOptionalString(effectivePatch.taskId),
       sourceUrl:
         effectivePatch.sourceUrl === undefined
           ? existing.sourceUrl
@@ -815,7 +837,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       position:
         effectivePatch.position === undefined
           ? existing.position
-          : normalizePosition(effectivePatch.position, existing.position),
+          : resolveNonNegativeIntegerOption(effectivePatch.position, existing.position),
       updatedAt: now,
       ...(startedAt ? { startedAt } : {}),
       ...(completedAt ? { completedAt } : {}),
@@ -921,7 +943,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     const deleted =
       options.expectedUpdatedAt === undefined
         ? await this.store.delete(cardId)
-        : await this.deleteCardIfUpdatedAt(cardId, options.expectedUpdatedAt);
+        : await this.store.deleteIfUpdatedAt(cardId, options.expectedUpdatedAt);
     if (!deleted) {
       if (options.expectedUpdatedAt !== undefined) {
         const current = await this.get(cardId);
@@ -1092,26 +1114,13 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       (await this.store.listCardStatuses(parentIds)).map((parent) => [parent.id, parent]),
     );
     const parentsDone = parentIds.every((id) => parentCards.get(id)?.status === "done");
-    if (
-      !parentsDone &&
-      scheduledAt &&
-      scheduledAt > now &&
-      isDependencyPromotableStatus(card.status)
-    ) {
+    if (!isDependencyPromotableStatus(card.status)) {
+      return card.status;
+    }
+    if (scheduledAt && scheduledAt > now) {
       return "scheduled";
     }
-    if (!parentsDone && isDependencyPromotableStatus(card.status)) {
-      return "todo";
-    }
-    if (
-      parentsDone &&
-      scheduledAt &&
-      scheduledAt > now &&
-      isDependencyPromotableStatus(card.status)
-    ) {
-      return "scheduled";
-    }
-    return parentsDone && isDependencyPromotableStatus(card.status) ? "ready" : card.status;
+    return parentsDone ? "ready" : "todo";
   }
 
   private async dependsOn(cardId: string, targetParentId: string): Promise<boolean> {
@@ -1159,10 +1168,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
   }
 
   protected async promoteDependencyReady(id: string, now = Date.now()): Promise<WorkboardCard> {
-    const card = await this.get(id);
-    if (!card) {
-      throw new Error(`card not found: ${id}`);
-    }
+    const card = await this.requireCard(id);
     if (card.metadata?.archivedAt) {
       return card;
     }

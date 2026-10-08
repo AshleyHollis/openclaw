@@ -136,7 +136,7 @@ export function estimateCommandWorkerSeconds(
       (fallbackSeconds * Math.max(1, Math.min(2, files.length))) /
         Math.max(1, Math.min(maxWorkers, files.length)),
       commandFileSecondsFloor(files, runnerBackend),
-      measured * (runnerBackend === "hybrid" ? COMPACT_HYBRID_GROUP_SECONDS_SCALE : 1),
+      measured,
     ),
   };
 }
@@ -151,6 +151,7 @@ const doctorSessionSqliteCorpusFiles = new Set([
   "doctor-session-sqlite.failure-reports.test.ts",
   "doctor-session-sqlite.inspection.test.ts",
   "doctor-session-sqlite.manifests.test.ts",
+  "doctor-session-sqlite.pre-artifact.test.ts",
   "doctor-session-sqlite.publication-recovery.test.ts",
   "doctor-session-sqlite.recovery.test.ts",
   "doctor-session-sqlite.recovery-generations.test.ts",
@@ -173,7 +174,7 @@ function resolveCommandShardName(file: string): string {
     return "agentic-commands-doctor-auth";
   }
   if (name.startsWith("doctor")) {
-    if (name.startsWith("doctor/shared/") || name.startsWith("doctor/")) {
+    if (name.startsWith("doctor/")) {
       return "agentic-commands-doctor-shared";
     }
     if (name.startsWith("doctor-auth")) {
@@ -255,7 +256,7 @@ function resolveCommandShardName(file: string): string {
 
 let commandFilesByOwner: Map<string, string[]> | undefined;
 
-function getCommandFilesByOwner(): Map<string, string[]> {
+export function getCommandFilesByOwner(): Map<string, string[]> {
   if (commandFilesByOwner) {
     return commandFilesByOwner;
   }

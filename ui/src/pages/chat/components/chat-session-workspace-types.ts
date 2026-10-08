@@ -73,6 +73,8 @@ export type SessionWorkspaceState = {
 // treats its loader as new and requests sessions.diff again.
 export type SessionWorkspaceHost = {
   sessionKey: string;
+  /** Files presentation may target another conversation without replacing Chat. */
+  sessionWorkspaceTarget?: { sessionKey: string; agentId?: string };
   sessions: SessionCapability;
   client: GatewayBrowserClient | null;
   connected: boolean;
@@ -86,10 +88,8 @@ export type SessionWorkspaceHost = {
   settings?: UiSettings;
   sessionWorkspaceState?: SessionWorkspaceState;
   sessionWorkspaceDraftScope?: string;
+  sessionWorkspaceDraftContext?: { sessionTitle?: string; paneLabel?: string };
   sidebarContent: SidebarSelection | null;
   requestUpdate?: () => void;
   handleOpenSidebar: (content: SidebarSelection | null) => void;
 };
-
-/** Agent owning the pane's current session: explicit key scope first, then the
- * assistant/default agent. */

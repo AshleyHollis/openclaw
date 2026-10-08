@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import { asOptionalRecord, isStringRecord } from "@openclaw/normalization-core/record-coerce";
 import { hasErrnoCode } from "../infra/errno.js";
 import { LAUNCH_AGENT_EXIT_TIMEOUT_SECONDS } from "../infra/gateway-shutdown-budget.js";
+import { hasCommandProcessCleanupError } from "../process/exec-result.js";
 import { runExec } from "../process/exec.js";
 import type {
   GatewayServiceCommandConfig,
@@ -53,14 +54,6 @@ function parseGeneratedEnvValue(value: string): string {
   return trimmed.slice(1, -1).replaceAll("'\\''", "'");
 }
 
-function includesGeneratedEnvironmentPathToken(value: string | undefined, token: string): boolean {
-  return Boolean(value?.replaceAll("\\", "/").includes(token));
-}
-
-function includesGeneratedEnvironmentDirToken(value: string | undefined): boolean {
-  return Boolean(value?.replaceAll("\\", "/").includes("/service-env/"));
-}
-
 function resolveSiblingGeneratedEnvFilePath(
   envFilePath: string,
   options?: ReadLaunchAgentProgramArgumentsOptions,
@@ -104,15 +97,17 @@ function isExpectedGeneratedEnvWrapperPair(
   }
   // Legacy/corrupted plists may preserve the label-derived wrapper name inside
   // a mangled service-env path. Still unwrap it so the next rewrite can repair.
+  const normalizedWrapper = wrapperPath.replaceAll("\\", "/");
+  const normalizedEnvFile = envFilePath.replaceAll("\\", "/");
   return (
-    includesGeneratedEnvironmentDirToken(wrapperPath) &&
-    includesGeneratedEnvironmentDirToken(envFilePath) &&
-    includesGeneratedEnvironmentPathToken(wrapperPath, `${label}-env-wrapper.sh`) &&
-    includesGeneratedEnvironmentPathToken(envFilePath, `${label}.env`)
+    normalizedWrapper.includes("/service-env/") &&
+    normalizedEnvFile.includes("/service-env/") &&
+    normalizedWrapper.includes(`${label}-env-wrapper.sh`) &&
+    normalizedEnvFile.includes(`${label}.env`)
   );
 }
 
-function resolveGeneratedEnvWrapperLayout(
+export function resolveGeneratedEnvWrapperLayout(
   programArguments: string[],
   options?: ReadLaunchAgentProgramArgumentsOptions,
 ): { envFilePath: string; commandStartIndex: number } | null {
@@ -132,14 +127,12 @@ function resolveGeneratedEnvWrapperLayout(
 }
 
 async function readLaunchAgentEnvironmentFile(
-  programArguments: string[],
+  envFilePath: string | undefined,
   options?: ReadLaunchAgentProgramArgumentsOptions,
 ): Promise<Record<string, string>> {
-  const layout = resolveGeneratedEnvWrapperLayout(programArguments, options);
-  if (!layout) {
+  if (envFilePath === undefined) {
     return {};
   }
-  const envFilePath = layout.envFilePath;
   let content = "";
   const candidateEnvFilePaths = options?.requireEffective
     ? [envFilePath]
@@ -206,17 +199,6 @@ async function readLaunchAgentEnvironmentFile(
     environment[key] = parsedValue;
   }
   return environment;
-}
-
-function unwrapGeneratedEnvWrapperArgs(
-  programArguments: string[],
-  options?: ReadLaunchAgentProgramArgumentsOptions,
-): string[] {
-  const layout = resolveGeneratedEnvWrapperLayout(programArguments, options);
-  if (!layout) {
-    return programArguments;
-  }
-  return programArguments.slice(layout.commandStartIndex);
 }
 
 const renderEnvDict = (env: Record<string, string | undefined> | undefined): string => {
@@ -303,8 +285,9 @@ export async function readLaunchAgentProgramArgumentsFromFile(
     ) {
       throw new Error("Invalid LaunchAgent command fields");
     }
-    const fileEnvironment = await readLaunchAgentEnvironmentFile(args, options);
-    const effectiveProgramArguments = unwrapGeneratedEnvWrapperArgs(args, options);
+    const layout = resolveGeneratedEnvWrapperLayout(args, options);
+    const fileEnvironment = await readLaunchAgentEnvironmentFile(layout?.envFilePath, options);
+    const effectiveProgramArguments = layout ? args.slice(layout.commandStartIndex) : args;
     if (options?.requireEffective && !effectiveProgramArguments[0]) {
       throw new Error("Missing LaunchAgent command");
     }
@@ -326,9 +309,14 @@ export async function readLaunchAgentProgramArgumentsFromFile(
       ...(Object.keys(environmentValueSources).length > 0 ? { environmentValueSources } : {}),
       sourcePath: plistPath,
     };
-  } catch {
+  } catch (error) {
+    if (hasCommandProcessCleanupError(error)) {
+      throw error;
+    }
     if (options?.requireEffective) {
-      throw new Error("Effective LaunchAgent service command could not be inspected.");
+      throw new Error("Effective LaunchAgent service command could not be inspected.", {
+        cause: error,
+      });
     }
     return null;
   }

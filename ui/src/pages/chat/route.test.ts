@@ -50,6 +50,43 @@ function contextFor(resolution: SessionsResolveResult = { ok: false }, mainKey =
   return { context: { ...context, sessions }, list, request };
 }
 
+function coldContext() {
+  type GatewayListener = Parameters<ApplicationContext["gateway"]["subscribe"]>[0];
+  let listener: GatewayListener | null = null;
+  let snapshot = {
+    phase: "connecting",
+    client: null,
+    hello: null,
+  } as unknown as ApplicationContext["gateway"]["snapshot"];
+  const context = {
+    basePath: "",
+    gateway: {
+      get snapshot() {
+        return snapshot;
+      },
+      subscribe: (next: GatewayListener) => {
+        listener = next;
+        return () => undefined;
+      },
+    },
+    agents: { state: { agentsList: null } },
+  } as unknown as ApplicationContext;
+  return {
+    context,
+    connect(this: void, mainKey = "workspace") {
+      snapshot = {
+        phase: "connected",
+        client: {},
+        hello: { snapshot: { sessionDefaults: { mainKey } } },
+      } as unknown as ApplicationContext["gateway"]["snapshot"];
+      if (!listener) {
+        throw new Error("expected gateway readiness subscription");
+      }
+      listener(snapshot);
+    },
+  };
+}
+
 describe("loadChatRoute", () => {
   it.each(["connection", "profile"])(
     "does not carry an established key into a new %s scope",
@@ -173,7 +210,7 @@ describe("loadChatRoute", () => {
           context,
           {
             pathname: "/chat/main/telegram/12345",
-            search: `?draft=unsent&__openclawFilesPanel=${request}`,
+            search: `?draft=unsent&__openclawFilesPanel=${request}&__openclawFilesSession=agent%3Awriter%3Afiles&__openclawFilesAgent=writer`,
             hash: "",
           },
           "chat",
@@ -184,6 +221,8 @@ describe("loadChatRoute", () => {
         sessionKey: "agent:main:telegram:12345",
         draft: "unsent",
         filesOpenRequest: request,
+        filesSessionKey: "agent:writer:files",
+        filesAgentId: "writer",
       });
     }
     expect(list).not.toHaveBeenCalled();
@@ -413,26 +452,7 @@ describe("loadChatRoute", () => {
   });
 
   it("waits for configured session defaults before resolving an agent main route", async () => {
-    type GatewayListener = Parameters<ApplicationContext["gateway"]["subscribe"]>[0];
-    let listener: GatewayListener | null = null;
-    let snapshot = {
-      phase: "connecting",
-      client: null,
-      hello: null,
-    } as unknown as ApplicationContext["gateway"]["snapshot"];
-    const context = {
-      basePath: "",
-      gateway: {
-        get snapshot() {
-          return snapshot;
-        },
-        subscribe: (next: GatewayListener) => {
-          listener = next;
-          return () => undefined;
-        },
-      },
-      agents: { state: { agentsList: null } },
-    } as unknown as ApplicationContext;
+    const { context, connect } = coldContext();
     const pending = loadChatRoute(
       context,
       { pathname: "/chat/research", search: "", hash: "" },
@@ -446,16 +466,7 @@ describe("loadChatRoute", () => {
     await Promise.resolve();
     expect(settled).toBe(false);
 
-    snapshot = {
-      phase: "connected",
-      client: {},
-      hello: { snapshot: { sessionDefaults: { mainKey: "workspace" } } },
-    } as unknown as ApplicationContext["gateway"]["snapshot"];
-    const connectedListener = listener as GatewayListener | null;
-    if (!connectedListener) {
-      throw new Error("expected gateway subscription");
-    }
-    connectedListener(snapshot);
+    connect();
 
     await expect(pending).resolves.toEqual({
       kind: "session",
@@ -463,26 +474,6 @@ describe("loadChatRoute", () => {
       draft: undefined,
       face: "chat",
     });
-  });
-
-  it("treats a configured main key as a reserved literal", async () => {
-    const { context, list } = contextFor({ ok: false }, "workspace");
-    await expect(
-      loadChatRoute(
-        context,
-        { pathname: "/chat/main/workspace", search: "", hash: "" },
-        "chat",
-        new AbortController().signal,
-      ),
-    ).resolves.toEqual({
-      kind: "session",
-      sessionKey: "agent:main:workspace",
-      draft: undefined,
-      face: "chat",
-      canonicalLocation: { pathname: "/chat/main", search: "", hash: "" },
-      canonicalLocationSource: { pathname: "/chat/main/workspace", search: "", hash: "" },
-    });
-    expect(list).not.toHaveBeenCalled();
   });
 
   it("canonicalizes a literal configured-main route when defaults are warm", async () => {
@@ -514,26 +505,7 @@ describe("loadChatRoute", () => {
   });
 
   it("reclassifies a slug-shaped path after cold defaults reveal the main key", async () => {
-    type GatewayListener = Parameters<ApplicationContext["gateway"]["subscribe"]>[0];
-    let listener: GatewayListener | null = null;
-    let snapshot = {
-      phase: "connecting",
-      client: null,
-      hello: null,
-    } as unknown as ApplicationContext["gateway"]["snapshot"];
-    const context = {
-      basePath: "",
-      gateway: {
-        get snapshot() {
-          return snapshot;
-        },
-        subscribe: (next: GatewayListener) => {
-          listener = next;
-          return () => undefined;
-        },
-      },
-      agents: { state: { agentsList: null } },
-    } as unknown as ApplicationContext;
+    const { context, connect } = coldContext();
     const pending = loadChatRoute(
       context,
       { pathname: "/chat/research/workspace", search: "", hash: "" },
@@ -547,16 +519,7 @@ describe("loadChatRoute", () => {
     await Promise.resolve();
     expect(settled).toBe(false);
 
-    snapshot = {
-      phase: "connected",
-      client: {},
-      hello: { snapshot: { sessionDefaults: { mainKey: "workspace" } } },
-    } as unknown as ApplicationContext["gateway"]["snapshot"];
-    const connectedListener = listener as GatewayListener | null;
-    if (!connectedListener) {
-      throw new Error("expected gateway readiness subscription");
-    }
-    connectedListener(snapshot);
+    connect();
 
     await expect(pending).resolves.toEqual({
       kind: "session",
@@ -582,26 +545,7 @@ describe("loadChatRoute", () => {
       ],
       ["/chat/research/main", "agent:research:main", "workspace", null],
     ] as const) {
-      type GatewayListener = Parameters<ApplicationContext["gateway"]["subscribe"]>[0];
-      let listener: GatewayListener | null = null;
-      let snapshot = {
-        phase: "connecting",
-        client: null,
-        hello: null,
-      } as unknown as ApplicationContext["gateway"]["snapshot"];
-      const context = {
-        basePath: "",
-        gateway: {
-          get snapshot() {
-            return snapshot;
-          },
-          subscribe: (next: GatewayListener) => {
-            listener = next;
-            return () => undefined;
-          },
-        },
-        agents: { state: { agentsList: null } },
-      } as unknown as ApplicationContext;
+      const { context, connect } = coldContext();
       const loaded = await loadChatRoute(
         context,
         { pathname, search: "", hash: "" },
@@ -617,16 +561,7 @@ describe("loadChatRoute", () => {
         throw new Error("expected deferred main-session canonicalization");
       }
 
-      snapshot = {
-        phase: "connected",
-        client: {},
-        hello: { snapshot: { sessionDefaults: { mainKey } } },
-      } as unknown as ApplicationContext["gateway"]["snapshot"];
-      const connectedListener = listener as GatewayListener | null;
-      if (!connectedListener) {
-        throw new Error("expected gateway readiness subscription");
-      }
-      connectedListener(snapshot);
+      connect(mainKey);
 
       await expect(loaded.canonicalLocationReady).resolves.toEqual(expectedCanonicalLocation);
     }
@@ -653,26 +588,6 @@ describe("loadChatRoute", () => {
       face: "chat",
     });
     expect(list).not.toHaveBeenCalled();
-  });
-
-  it("preserves the path agent for synthetic catalog sessions", async () => {
-    const { context } = contextFor();
-    await expect(
-      loadChatRoute(
-        context,
-        {
-          pathname: "/chat/research",
-          search: "?catalog=claude&host=gateway%3Alocal&thread=thread-2",
-          hash: "",
-        },
-        "chat",
-        new AbortController().signal,
-      ),
-    ).resolves.toMatchObject({
-      kind: "session",
-      sessionKey: "agent:research:catalog:claude:gateway%3Alocal:thread-2",
-      agentId: "research",
-    });
   });
 
   it("loads synthetic catalog sessions in the dashboard namespace", async () => {

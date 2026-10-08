@@ -44,6 +44,11 @@ export { createOperatorApprovalsGatewayClient } from "../gateway/operator-approv
 export { ErrorCodes, errorShape } from "../../packages/gateway-protocol/src/schema/error-codes.js";
 
 export type { GatewayRequestHandlerOptions } from "../gateway/server-methods/types.js";
+export {
+  SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION,
+  assertSessionTranscriptGatewaySourceAdmissionAvailable,
+} from "../gateway/session-transcript-source-handoff.js";
+export type { SessionTranscriptGatewaySource } from "../gateway/session-transcript-source-handoff.js";
 
 export {
   channelBlockedPatch,

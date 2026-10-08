@@ -13,7 +13,7 @@ export const syncPluginsForUpdateChannel = vi.fn();
 export const updateNpmInstalledPlugins = vi.fn();
 export const loadInstalledPluginIndexInstallRecords = vi.fn();
 export const pathExists = vi.fn();
-export const spawn = vi.fn();
+const spawn = vi.fn();
 export const observeUpdateGatewayReadiness =
   vi.fn<typeof import("./update-cli/update-command-readiness.js").observeUpdateGatewayReadiness>();
 const { defaultRuntime: runtimeCapture, resetRuntimeCapture } = createCliRuntimeCapture();
@@ -26,11 +26,15 @@ vi.mock("node:child_process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:child_process")>()),
   spawn,
 }));
-vi.mock("../process/exec.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../process/exec.js")>()),
-  runCommandWithTimeout: vi.fn(),
-  runExec: vi.fn(),
-}));
+vi.mock("../process/exec.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../process/exec.js")>();
+  return {
+    ...actual,
+    runCommandWithTimeout: vi.fn(),
+    runExec: vi.fn(),
+    runUtf8CommandWithTimeout: vi.fn(actual.runUtf8CommandWithTimeout),
+  };
+});
 vi.mock("../runtime.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../runtime.js")>()),
   defaultRuntime: runtimeCapture,
@@ -39,7 +43,8 @@ vi.mock("../infra/update-runner-git.js", () => ({
   updateGitCheckout: vi.fn(),
 }));
 // Runtime publication has its own fixture; this suite owns deferred completion and config writes.
-vi.mock("./update-cli/update-command-runtime.js", () => ({
+vi.mock("./update-cli/update-command-runtime.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./update-cli/update-command-runtime.js")>()),
   completeSourceUpdateRuntime: sourceRuntimeCompletion,
 }));
 vi.mock("../infra/update-check.js", async (importOriginal) => ({
@@ -193,7 +198,9 @@ const { createTempHomeEnv } = await import("../test-utils/temp-home.js");
 const existingHostUri = nodeSqlite.resolveExistingSqliteFileUri;
 const immutableHostUri = nodeSqlite.resolveImmutableSqliteFileUri;
 export const { updateGitCheckout } = await import("../infra/update-runner-git.js");
-export const { runExec, runCommandWithTimeout } = await import("../process/exec.js");
+const { runExec, runCommandWithTimeout, runUtf8CommandWithTimeout } =
+  await import("../process/exec.js");
+export { runExec, runUtf8CommandWithTimeout };
 export const { defaultRuntime, ExitError } = await import("../runtime.js");
 export const { readConfigFileSnapshot, replaceConfigFile, mutateConfigFileWithRetry } =
   await import("../config/config.js");
@@ -434,33 +441,6 @@ export function installDeferredCompletionFixture() {
   ): Promise<void> =>
     fs.writeFile(filePath, `${JSON.stringify(value)}${trailingNewline ? "\n" : ""}`, "utf-8");
 
-  const setupPostCoreConfigFixture = async (params: {
-    backupConfig?: OpenClawConfig;
-    postDoctorConfig: OpenClawConfig;
-    preUpdateConfig?: OpenClawConfig;
-    snapshotSuffix?: ".bak" | ".pre-update";
-    preserveParsed?: boolean;
-  }) => {
-    const tempDir = createCaseDir("openclaw-update");
-    const configPath = path.join(tempDir, "openclaw.json");
-    await fs.mkdir(tempDir, { recursive: true });
-    if (params.preUpdateConfig) {
-      await writeJsonFixture(
-        `${configPath}${params.snapshotSuffix ?? ".pre-update"}`,
-        params.preUpdateConfig,
-      );
-    }
-    if (params.backupConfig) {
-      await writeJsonFixture(`${configPath}.bak`, params.backupConfig);
-    }
-    await writeJsonFixture(configPath, params.postDoctorConfig);
-    mockPostDoctorSnapshot(configPath, params.postDoctorConfig, {
-      preserveParsed: params.preserveParsed,
-    });
-    mockNoopPostUpdatePluginConvergence();
-    return { tempDir, configPath };
-  };
-
   beforeEach(async () => {
     tempHome = await createTempHomeEnv("openclaw-deferred-completion-");
     fixtureRoot = dirs.make("openclaw-deferred-completion-fixtures-");
@@ -504,13 +484,28 @@ export function installDeferredCompletionFixture() {
     );
     const entrypoint = path.join(process.cwd(), "dist", "index.js");
     pathExists.mockImplementation(async (candidate: string) => candidate === entrypoint);
-    // Child completion may invoke only Doctor, config validation, and the parent's start probe.
-    vi.mocked(runExec).mockImplementation(async (file, args) => {
-      if (file === process.execPath && (args[1] === "doctor" || args[1] === "config")) {
-        return { stdout: "", stderr: "" };
+    // Child completion may invoke only Doctor and config validation.
+    const runCompletionProcess = vi.mocked(runUtf8CommandWithTimeout).getMockImplementation();
+    if (!runCompletionProcess) {
+      throw new Error("Missing completion process transport");
+    }
+    vi.mocked(runUtf8CommandWithTimeout).mockImplementation(async (argv, options) => {
+      if (argv[2] === "doctor") {
+        return {
+          code: 0,
+          signal: null,
+          killed: false,
+          termination: "exit",
+          cleanup: "normal",
+          stdout: "",
+          stderr: "",
+        };
       }
-      if (file === "ps") {
-        return { stdout: new Date(Date.now() - 1000).toString(), stderr: "" };
+      return runCompletionProcess(argv, options);
+    });
+    vi.mocked(runExec).mockImplementation(async (file, args) => {
+      if (file === process.execPath && args[1] === "config") {
+        return { stdout: "", stderr: "" };
       }
       throw new Error(`Unexpected completion process: ${file}`);
     });
@@ -574,6 +569,5 @@ export function installDeferredCompletionFixture() {
     mockPostDoctorSnapshot,
     runPostCoreUpdate,
     lastReplaceConfigCall,
-    setupPostCoreConfigFixture,
   };
 }

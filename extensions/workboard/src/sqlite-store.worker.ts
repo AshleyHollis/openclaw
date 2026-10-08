@@ -2,6 +2,7 @@ import type {
   SqliteWorkerBackend,
   SqliteWorkerCommand,
 } from "openclaw/plugin-sdk/sqlite-worker-runtime";
+import { requestSqliteWorkerOperationAdmission } from "openclaw/plugin-sdk/sqlite-worker-runtime";
 import type {
   WorkboardSqliteOperations,
   WorkboardSqliteWorkerOperations,
@@ -18,7 +19,13 @@ export function createSqliteWorkerBackend(
   _input: undefined,
   context: { databasePath: string },
 ): SqliteWorkerBackend<WorkboardSqliteWorkerOperations> {
-  const initial = createWorkboardSqliteKernel(context.databasePath);
+  let guarded = false;
+  const admitWrite = (stage: "transaction" | "commit") => {
+    if (guarded) {
+      requestSqliteWorkerOperationAdmission({ stage, facts: undefined });
+    }
+  };
+  const initial = createWorkboardSqliteKernel(context.databasePath, undefined, admitWrite);
   const connections = new Map<number, Connection>();
   // Broker admission opens the native database; the first logical lease adopts it.
   connections.set(0, { kernel: initial, close: initial.close });
@@ -46,6 +53,8 @@ export function createSqliteWorkerBackend(
         return kernel.cards.register(...command.input.args);
       case "cards.registerIfAbsent":
         return kernel.cards.registerIfAbsent(...command.input.args);
+      case "cards.registerIdempotent":
+        return kernel.cards.registerIdempotent(...command.input.args);
       case "cards.registerIfUpdatedAt":
         return kernel.cards.registerIfUpdatedAt(...command.input.args);
       case "cards.claimIfOwnerAvailable":
@@ -101,9 +110,13 @@ export function createSqliteWorkerBackend(
           connections.delete(0);
           const kernel =
             unclaimed?.kernel ??
-            createWorkboardSqliteKernel(context.databasePath, (close) => {
-              connections.set(connection, { close });
-            });
+            createWorkboardSqliteKernel(
+              context.databasePath,
+              (close) => {
+                connections.set(connection, { close });
+              },
+              admitWrite,
+            );
           connections.set(connection, { kernel, close: kernel.close });
           return { ok: true, value: { connection, dataVersion: kernel.dataVersion() } };
         } catch (error) {
@@ -123,9 +136,12 @@ export function createSqliteWorkerBackend(
         }
       }
       try {
+        guarded = "guarded" in command.input && command.input.guarded === true;
         return { ok: true, value: execute(command) };
       } catch (error) {
         return { ok: false, failure: encodeWorkboardSqliteFailure(error) };
+      } finally {
+        guarded = false;
       }
     },
     close() {

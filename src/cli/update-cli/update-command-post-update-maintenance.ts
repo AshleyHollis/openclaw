@@ -5,10 +5,7 @@ import { retireStandaloneGitWrapper } from "./update-command-git.js";
 import { markControlPlaneUpdateRestartSentinelFailureBestEffort } from "./update-command-result.js";
 import type { PreManagedServiceStop } from "./update-command-service-context-types.js";
 import { createWindowsTaskAutoStartGuard } from "./update-command-service-maintenance.js";
-import {
-  maybeResumeWindowsTaskAutoStartAfterPackageUpdate,
-  tryInstallShellCompletion,
-} from "./update-command-service.js";
+import { tryInstallShellCompletion } from "./update-command-service.js";
 
 /** Shell integration changes follow settled restart and health recovery. */
 export async function completePostUpdateMaintenance(
@@ -52,21 +49,33 @@ export async function completePostUpdateMaintenance(
 export async function resumePostUpdateWindowsAutoStart(
   params: Pick<FinishUpdateParams, "root" | "updateStepTimeoutMs">,
   result: UpdateRunResult,
-  stopped: PreManagedServiceStop | undefined,
+  readStopped: () => PreManagedServiceStop | undefined,
+  callbacks?: {
+    beforeAttempt: () => void;
+    onFailure: (cause: unknown) => Promise<unknown>;
+  },
 ): Promise<void> {
-  await maybeResumeWindowsTaskAutoStartAfterPackageUpdate(
-    stopped,
-    true,
-    stopped
-      ? createWindowsTaskAutoStartGuard({
-          root:
-            result.recovery?.packageRollbackVerified &&
-            stopped.serviceUpdateVerdict?.kind === "owned"
-              ? stopped.serviceUpdateVerdict.root
-              : (result.root ?? params.root),
-          before: stopped,
-          timeoutMs: params.updateStepTimeoutMs,
-        })
-      : undefined,
-  );
+  try {
+    if (callbacks && readStopped()?.windowsTaskAutoStartRecovery) {
+      callbacks.beforeAttempt();
+    }
+    const stopped = readStopped();
+    await stopped?.windowsTaskAutoStartRecovery?.restore(
+      true,
+      createWindowsTaskAutoStartGuard({
+        root:
+          result.recovery?.packageRollbackVerified && stopped.serviceUpdateVerdict?.kind === "owned"
+            ? stopped.serviceUpdateVerdict.root
+            : (result.root ?? params.root),
+        before: stopped,
+        timeoutMs: params.updateStepTimeoutMs,
+      }),
+    );
+  } catch (cause) {
+    if (!callbacks) {
+      throw cause;
+    }
+    // The attempted restore already failed; reporting must not attempt it again.
+    await callbacks.onFailure(cause);
+  }
 }

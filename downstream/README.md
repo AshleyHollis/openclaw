@@ -2,10 +2,22 @@
 
 This directory contains the public, reproducible overlay used to build the OpenClaw image for the TerraMaster NAS. It deliberately contains no NAS credentials, deployment credentials, Discord tokens, model credentials, or private infrastructure state.
 
-The current source integration is based on upstream tag `v2026.9.6` at commit
-`eb377ac59e6c9fd6c7705028034812becf00271b`. The retained downstream delta was
-replayed from the verified private patch with SHA-256
-`7B9951041B9B02C610D105BF2F3A5216294E80D221E5DB95454A8AD57F6DAE17`.
+The current source candidate integrates pinned upstream tag `v2026.9.9` at
+commit `bcfc88812a35243893585dbeca87ca41b48272ca` over the frozen native candidate
+`245fcc6e0f88bc63098df2cec533ccc95b86b938`, preserving the deployed Life fork
+at `26a9c0faa4124e53ae2eab34291d68a7245f630c`. The approved active-answer
+compaction wait and commentary reconciliation are carried at their native owners.
+See [the Code-first integration handoff](stable-2026.9.9.md) for source scope,
+compatibility limits and the remaining qualification sequence.
+Historical release manifests and runtime installation locks describe their frozen
+artifacts, not this candidate. They must not be used as proof that the 9.9 package,
+managed Codex plugin or image is built or installed.
+
+The active filesystem package patch is `@openclaw/fs-safe@0.21.1`, with durable
+publication owned by `src/infra/durable-publication.ts`. Retired filesystem
+adapters and the unreferenced SQLite snapshot worker are not resurrected.
+Fork Topic rollback, revision-aware scheduling, transcript and Control UI public
+SDK behavior remain alongside the stable release's newer lifecycle owners.
 
 The workflow is intentionally split into three trust boundaries:
 

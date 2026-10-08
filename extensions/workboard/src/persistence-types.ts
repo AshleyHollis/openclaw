@@ -1,14 +1,19 @@
-// Workboard plugin module implements persistence types behavior.
 import type {
   WorkboardAttachment,
   WorkboardBoardMetadata,
   WorkboardCard,
   WorkboardNotificationSubscription,
 } from "@openclaw/workboard-contract";
+import type { PreparedSessionTranscriptSourceAdmission } from "openclaw/plugin-sdk/session-transcript-runtime";
 
+/**
+ * Guard the first accepted write (including CAS retries), then allow its settlement.
+ * Independently authorized effects need separate scopes; settled scopes cannot be reused.
+ */
 export type WorkboardWriteAuthority = <T>(
   assertCurrent: () => void,
   run: () => Promise<T>,
+  sourceAdmission?: PreparedSessionTranscriptSourceAdmission,
 ) => Promise<T>;
 
 export type PersistedWorkboardCard = {
@@ -84,6 +89,13 @@ export type WorkboardCardStore = Omit<WorkboardKeyedStore, "entries"> & {
     scope?: WorkboardCardReadScope,
   ): Promise<Array<{ key: string; value: PersistedWorkboardCard }>>;
   registerIfAbsent(key: string, value: PersistedWorkboardCard): Promise<boolean>;
+  registerIdempotent(
+    key: string,
+    value: PersistedWorkboardCard,
+    intent: string,
+    parentIds: readonly string[],
+    missingParentId?: string,
+  ): Promise<{ card: WorkboardCard; inserted: boolean }>;
   registerIfUpdatedAt(
     key: string,
     value: PersistedWorkboardCard,

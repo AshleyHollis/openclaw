@@ -1,6 +1,3 @@
-/**
- * Embedded-agent run orchestration implementation.
- */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import {
@@ -8,7 +5,6 @@ import {
   resolveAgentLifecycleTerminalMetadata,
 } from "../../auto-reply/reply/agent-lifecycle-terminal.js";
 import { SILENT_REPLY_TOKEN } from "../../auto-reply/tokens.js";
-import { getRuntimeConfigSnapshot } from "../../config/config.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { revokeMessageActionTurnCapability } from "../../gateway/message-action-turn-capability.js";
 import {
@@ -73,7 +69,7 @@ import {
 } from "../session-suspension.js";
 import { SessionManager } from "../sessions/session-manager.js";
 import { resolveSystemPromptRepoRoot } from "../system-prompt-params.js";
-import { redactRunIdentifier, resolveRunWorkspaceDir } from "../workspace-run.js";
+import { redactRunIdentifier } from "../workspace-run.js";
 import { runEmbeddedAgentViaCliBackendIfEligible } from "./cli-backend-dispatch.js";
 import { waitForDeferredTurnMaintenanceForSession } from "./context-engine-maintenance.js";
 import { resolveGlobalLane, resolveSessionLane } from "./lanes.js";
@@ -91,7 +87,14 @@ import type {
   RunEmbeddedAgentParamsWithSessionFile,
 } from "./run/internal-params.js";
 import { createEmbeddedRunLaneController } from "./run/lane-controller.js";
-import { bindRunToPreparedModelRuntime } from "./run/prepared-runtime-context.js";
+import {
+  assertInitialOperatorModelPolicy,
+  resolveEmbeddedRunConfig,
+} from "./run/model-admission.js";
+import {
+  bindRunToPreparedModelRuntime,
+  resolvePreparedRuntimeWorkspaces,
+} from "./run/prepared-runtime-context.js";
 import { createEmbeddedRunProgressController } from "./run/progress-controller.js";
 import { createRecoveryMessageActionTurnCapability } from "./run/recovery-message-action-capability.js";
 import { resolveInitialEmbeddedRunModel } from "./run/runtime-resolution.js";
@@ -110,13 +113,7 @@ const EMPTY_EMBEDDED_AGENT_CONFIG: OpenClawConfig = Object.freeze({});
 export function runEmbeddedAgent(
   internalParamsInput: RunEmbeddedAgentInternalParams,
 ): Promise<EmbeddedAgentRunResult> {
-  const requestedProvider = normalizeOptionalString(internalParamsInput.provider);
-  const requestedModel = normalizeOptionalString(internalParamsInput.model);
-  const needsConfiguredDefault =
-    !internalParamsInput.config && !requestedProvider && !requestedModel;
-  const config =
-    internalParamsInput.config ??
-    (needsConfiguredDefault ? (getRuntimeConfigSnapshot() ?? undefined) : undefined);
+  const config = resolveEmbeddedRunConfig(internalParamsInput);
   const lifecycleGeneration =
     internalParamsInput.lifecycleGeneration ??
     captureAgentRunLifecycleGeneration(internalParamsInput.runId);
@@ -182,7 +179,7 @@ async function runEmbeddedAgentInternal(
     skillWorkshopProposalMutationBudget,
   });
   const sessionLane = resolveSessionLane(params.sessionKey?.trim() || params.sessionId);
-  const globalLane = resolveGlobalLane(params.lane);
+  const globalLane = resolveGlobalLane(params.lane, params);
   // Outer fallback attempts defer session suspension only while another
   // candidate remains. Direct and final-candidate runs suspend normally.
   // Detached runs neither write durable metadata nor claim the outer deferral.
@@ -261,6 +258,7 @@ async function runEmbeddedAgentInternal(
       const onAttemptStart = params.onAttemptStart;
       const runGeneration = async (): Promise<EmbeddedAgentRunResult> => {
         throwIfAborted();
+        assertInitialOperatorModelPolicy(params, sessionAdmission?.entry);
         // Subscription-scoped claude-cli auth executes via the CLI backend;
         // resolved post-admission so dispatched runs obey the same lifecycle,
         // placement, and concurrency gates as native embedded runs.
@@ -273,12 +271,11 @@ async function runEmbeddedAgentInternal(
           return cliDispatched;
         }
         const startupStages = createEmbeddedRunStageTracker();
-        const requestedWorkspaceResolution = resolveRunWorkspaceDir({
-          workspaceDir: params.workspaceDir,
-          sessionKey: params.sessionKey,
-          agentId: params.agentId,
-          config: params.config,
-        });
+        const {
+          requestedWorkspaceResolution,
+          runtimeWorkspaceResolution,
+          preserveExecutionWorkspace,
+        } = resolvePreparedRuntimeWorkspaces(params);
         startupStages.mark("workspace");
         const config = params.config ?? EMPTY_EMBEDDED_AGENT_CONFIG;
         const requestedAgentDir =
@@ -304,7 +301,7 @@ async function runEmbeddedAgentInternal(
           params.pluginGeneration?.pluginMetadataSnapshot ??
           loadPluginMetadataSnapshot({
             config,
-            workspaceDir: requestedWorkspaceResolution.workspaceDir,
+            workspaceDir: runtimeWorkspaceResolution.workspaceDir,
             env: process.env,
           });
         const runtimePluginSelections = resolveModelCandidateChain({
@@ -338,8 +335,8 @@ async function runEmbeddedAgentInternal(
           // Shared credential inheritance stays anchored to its compatibility owner;
           // the selected session agent already owns this prepared runtime.
           inheritedAuthDir: resolveLegacyInheritedAuthDir(config),
-          workspaceDir: requestedWorkspaceResolution.workspaceDir,
-          preserveWorkspaceDirOnRefresh: !requestedWorkspaceResolution.isCanonicalWorkspace,
+          workspaceDir: runtimeWorkspaceResolution.workspaceDir,
+          preserveWorkspaceDirOnRefresh: !runtimeWorkspaceResolution.isCanonicalWorkspace,
           ...(params.allowGatewaySubagentBinding ? { allowGatewaySubagentBinding: true } : {}),
           ...(params.preparedModelRuntimeMode === "isolated-read-only"
             ? { loadRuntimePlugins: true }
@@ -398,6 +395,7 @@ async function runEmbeddedAgentInternal(
             const rebound = bindRunToPreparedModelRuntime({
               runParams: params,
               requestedWorkspaceResolution,
+              preserveExecutionWorkspace,
               preparedModelRuntime: preparedModelRuntimeOwnerSnapshot,
             });
             params = rebound.runParams;

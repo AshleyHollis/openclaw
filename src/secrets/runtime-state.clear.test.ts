@@ -4,6 +4,11 @@ import { afterEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import * as diagnostics from "../agents/auth-profiles/legacy-source-diagnostic.js";
 import * as authSnapshots from "../agents/auth-profiles/runtime-snapshots.js";
+import {
+  getRuntimeConfigSnapshot,
+  withRuntimeConfigSessionStoreSelectionAsync,
+} from "../config/runtime-snapshot.js";
+import { createDeferredCore } from "../shared/deferred.js";
 import * as state from "./runtime-state.js";
 
 vi.mock("./runtime.js", () => {
@@ -13,6 +18,29 @@ vi.mock("./runtime.js", () => {
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 afterEach(() => state.clearSecretsRuntimeSnapshotState());
+
+it("refuses shutdown before clearing any linked state during an async selection hold", async () => {
+  const config = { session: { store: "/fixture/one" } };
+  state.activateSecretsRuntimeSnapshotState({
+    snapshot: preparedSnapshot({ config, sourceConfig: config }),
+    refreshContext: null,
+    refreshHandler: null,
+  });
+  const previousRevision = state.getActiveSecretsRuntimeSnapshotRevisionState();
+  const previousWebTools = state.getActiveSecretsRuntimeSnapshotState()?.webTools;
+  const release = createDeferredCore();
+  const operation = withRuntimeConfigSessionStoreSelectionAsync(() => release.promise);
+  expect(() => state.clearSecretsRuntimeSnapshotState()).toThrow(
+    "session.store selection cannot clear",
+  );
+  expect(state.getActiveSecretsRuntimeSnapshotRevisionState()).toBe(previousRevision);
+  expect(state.getActiveSecretsRuntimeSnapshotState()?.webTools).toEqual(previousWebTools);
+  expect(getRuntimeConfigSnapshot()?.session?.store).toBe("/fixture/one");
+  release.resolve();
+  await operation;
+  state.clearSecretsRuntimeSnapshotState();
+  expect(getRuntimeConfigSnapshot()).toBeNull();
+});
 
 function preparedSnapshot(
   overrides: Partial<state.PreparedSecretsRuntimeSnapshot> = {},

@@ -1,11 +1,16 @@
 import { writeSync } from "node:fs";
 import os from "node:os";
+import { collectNestedErrorCandidates } from "@openclaw/normalization-core/error-coercion";
 import { resolveStateDir } from "../../config/paths.js";
 import { extractErrorCode, formatErrorMessage } from "../../infra/errors.js";
 import { resolveAggregateSqliteInspectionTimeoutMs } from "../../infra/sqlite-readonly-worker.js";
 import { readUpdateStateDatabaseSizes } from "../../infra/update-candidate-state.sizes.js";
 import { UPDATE_RUN_ID_ENV } from "../../infra/update-control-plane-sentinel.js";
-import { UpdateDoctorError } from "../../infra/update-doctor-result.js";
+import {
+  collectUpdateDoctorFailureFacts,
+  DoctorMaintenanceRefusalError,
+  UpdateDoctorError,
+} from "../../infra/update-doctor-result.js";
 import {
   createUpdateFailureFact,
   type UpdateFailureFact,
@@ -22,11 +27,13 @@ import {
   recordUpdateRunRepairContinuation,
   recordUpdateRunStep,
 } from "../../infra/update-run-ledger.js";
+import { updateRunStepsFromResultStep } from "../../infra/update-run-step.js";
 import {
   UPDATE_RUN_HEARTBEAT_MS,
   UPDATE_RUNNER_TIMEOUT_MS,
 } from "../../infra/update-run-timeouts.js";
 import type { UpdateRunResult } from "../../infra/update-runner-types.js";
+import type { UpdateStepResult } from "../../infra/update-step-result.js";
 import { redactSupportDiagnosticLine } from "../../logging/diagnostic-support-redaction.js";
 import { hasCommandProcessCleanupError } from "../../process/exec-result.js";
 import { resolveCommandProcessSignal, withCommandProcessScope } from "../../process/exec-spawn.js";
@@ -140,7 +147,7 @@ export class UpdateFinalizationLifecycle {
 
   private record(
     active: { phase: Phase; step: string },
-    status: "in_progress" | "completed" | "failed",
+    status: "in_progress" | "completed" | "failed" | "skipped",
     at: number,
     detail?: string,
     failureFacts?: UpdateFailureFact[],
@@ -180,6 +187,20 @@ export class UpdateFinalizationLifecycle {
         detail,
       );
     });
+  }
+
+  recordDoctorStep(step: UpdateStepResult): void {
+    const endedAtMs = Date.now();
+    for (const row of updateRunStepsFromResultStep(step)) {
+      this.record(
+        { phase: "doctor", step: row.step },
+        row.status === "failed" ? "failed" : "completed",
+        endedAtMs,
+        row.detail,
+        row.failureFacts,
+        row.exitCode,
+      );
+    }
   }
 
   budget(phase: DoctorPhase): number | undefined;
@@ -258,7 +279,7 @@ export class UpdateFinalizationLifecycle {
       });
       this.record(
         active,
-        result === "failed" ? "failed" : "completed",
+        result === "failed" ? "failed" : result === "deferred" ? "skipped" : "completed",
         Date.now(),
         detail,
         failureFacts,
@@ -360,6 +381,9 @@ export class UpdateFinalizationLifecycle {
           failure.message,
         );
       }
+      const doctorFailure = collectNestedErrorCandidates(error).find(
+        (cause): cause is UpdateDoctorError => cause instanceof UpdateDoctorError,
+      );
       const facts = failure
         ? [
             createUpdateFailureFact({
@@ -368,8 +392,8 @@ export class UpdateFinalizationLifecycle {
               message: failure.message,
             }),
           ]
-        : error instanceof UpdateDoctorError
-          ? error.failureFacts
+        : doctorFailure
+          ? collectUpdateDoctorFailureFacts(error)
           : [
               createUpdateFailureFact({
                 check: phase,
@@ -377,16 +401,20 @@ export class UpdateFinalizationLifecycle {
                 message: formatErrorMessage(error),
               }),
             ];
+      const deferred =
+        !failure &&
+        error instanceof DoctorMaintenanceRefusalError &&
+        error.refusal.kind === "deferred";
       end(
-        "failed",
+        deferred ? "deferred" : "failed",
         doctorOutput
           ? formatDoctorOutputDetail(doctorOutput)
           : redactSupportDiagnosticLine(formatErrorMessage(error), {
               env: process.env,
               stateDir: resolveStateDir(process.env),
             }),
-        facts,
-        error instanceof UpdateDoctorError ? error.exitCode : undefined,
+        deferred ? undefined : facts,
+        deferred ? undefined : doctorFailure?.exitCode,
       );
       throw error;
     } finally {

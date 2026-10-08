@@ -2,6 +2,10 @@ import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process"
 import { sliceUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { BrokerChild } from "../process/spawn-broker/child.js";
 import type { SpawnBrokerHost } from "../process/spawn-broker/host.js";
+import { recordChildProcessSpawn } from "../process/spawn-diagnostics.js";
+import { createDeferredCore } from "../shared/deferred.js";
+import type { RuntimeWorkerGeneration } from "./runtime-worker-generation.js";
+import { tryProcessCwd } from "./safe-cwd.js";
 import { createSqliteAuthTransferReceiver } from "./sqlite-readonly-auth-transfer.js";
 import { retainSnapshotWork } from "./sqlite-readonly-location-cleanup.js";
 import {
@@ -17,6 +21,7 @@ import {
 } from "./sqlite-readonly-worker-protocol.js";
 
 export type SqliteReadOnlyWorkerLaunch = {
+  runtimeGeneration?: RuntimeWorkerGeneration;
   env: NodeJS.ProcessEnv;
   cwd: string;
   transport: { kind: "native" } | { kind: "broker"; owner: SpawnBrokerHost };
@@ -28,6 +33,7 @@ export function isSameSqliteReadOnlyWorkerLaunch(
 ): boolean {
   const keys = Object.keys(requested.env);
   return (
+    captured.runtimeGeneration === requested.runtimeGeneration &&
     captured.transport.kind === requested.transport.kind &&
     (captured.transport.kind === "native" ||
       (requested.transport.kind === "broker" &&
@@ -39,6 +45,7 @@ export function isSameSqliteReadOnlyWorkerLaunch(
 }
 
 type SqliteReadOnlyWorkerSession = {
+  readonly closed: Promise<void>;
   readonly notStarted: boolean;
   createNativeReplacement: () => SqliteReadOnlyWorkerSession;
   isRetired: () => boolean;
@@ -64,23 +71,27 @@ export function createSqliteReadOnlyWorkerSession(
 ): SqliteReadOnlyWorkerSession {
   const env = { ...host.env };
   const cwd = host.cwd;
+  const executable = process.execPath;
   const transport: SqliteReadOnlyWorkerLaunch["transport"] =
     host.transport.kind === "broker"
       ? { kind: "broker", owner: host.transport.owner }
       : { kind: "native" };
-  const capturedLaunch = { env, cwd, transport };
+  const capturedLaunch = { env, cwd, transport, runtimeGeneration: host.runtimeGeneration };
   const argv = [...host.argv];
   const spawnOptions: SpawnOptions = {
     env,
-    cwd,
+    // Inheriting the current directory avoids a redundant chdir that can fail under sudo -u.
+    ...(transport.kind === "native" && cwd === tryProcessCwd() ? {} : { cwd }),
     stdio: ["ignore", "pipe", "pipe", "ipc"],
   };
   const child: ChildProcess =
     transport.kind === "broker"
-      ? transport.owner.spawn(process.execPath, argv, spawnOptions)
-      : spawn(process.execPath, argv, spawnOptions);
+      ? transport.owner.spawn(executable, argv, spawnOptions)
+      : spawn(executable, argv, spawnOptions);
+  recordChildProcessSpawn(executable, child);
   let retired = false;
   let sequence = 0;
+  let pendingOperation: Promise<SqliteReadOnlyWorkerValue> | undefined;
   let stderr = "";
   let outputBytes = 0;
   let pending:
@@ -94,11 +105,9 @@ export function createSqliteReadOnlyWorkerSession(
         auth?: ReturnType<typeof createSqliteAuthTransferReceiver>;
       }
     | undefined;
-  let resolveClosed: () => void;
+  const { promise: closeSignal, resolve: resolveClosed } = createDeferredCore();
   // Broker loss retains group cleanup later in the same turn as proxy close.
-  const closed = new Promise<void>((resolve) => {
-    resolveClosed = resolve;
-  }).then(() => {
+  const closed = closeSignal.then(() => {
     if (
       transport.kind === "broker" &&
       child instanceof BrokerChild &&
@@ -120,7 +129,28 @@ export function createSqliteReadOnlyWorkerSession(
   if (host.retainLifetime !== false) {
     void retainSnapshotWork(closed, () => retire(new Error("SQLite snapshot owner stopped")));
   }
-  child.on("error", (error) => retire(error));
+  let spawned = false;
+  child.once("spawn", () => {
+    spawned = true;
+  });
+  child.on("error", (error: NodeJS.ErrnoException) =>
+    retire(
+      spawned
+        ? error
+        : Object.assign(
+            new Error(
+              [
+                ["EACCES", "ENOENT", "EPERM"].includes(error.code ?? "")
+                  ? `SQLite read-only worker runtime binary not executable: ${executable} (${error.code}, cwd ${cwd}). Check runtime execute permissions and access to the working directory`
+                  : `SQLite read-only worker failed to start (executable ${executable}, cwd ${cwd})`,
+                error.message,
+              ].join(": "),
+              { cause: error },
+            ),
+            { code: error.code },
+          ),
+    ),
+  );
   child.once("close", (code, signal) => {
     retired = true;
     if (pending) {
@@ -222,7 +252,8 @@ export function createSqliteReadOnlyWorkerSession(
       retire(error);
     }
   });
-  return {
+  const session: SqliteReadOnlyWorkerSession = {
+    closed,
     isRetired() {
       return retired;
     },
@@ -245,7 +276,7 @@ export function createSqliteReadOnlyWorkerSession(
       if (retired) {
         return Promise.reject(new Error("SQLite read-only worker is closed"));
       }
-      return new Promise<SqliteReadOnlyWorkerValue>((resolve, reject) => {
+      return (pendingOperation = new Promise<SqliteReadOnlyWorkerValue>((resolve, reject) => {
         const { timeoutMs, size } = host.readBudget(pathname);
         stderr = "";
         outputBytes = 0;
@@ -285,7 +316,6 @@ export function createSqliteReadOnlyWorkerSession(
                   ? {
                       auth: {
                         expectedIdentity: options.expectedIdentity,
-                        coordinatorRuntime: options.coordinatorRuntime,
                       },
                     }
                   : {}),
@@ -305,7 +335,7 @@ export function createSqliteReadOnlyWorkerSession(
         } else {
           send();
         }
-      });
+      }));
     },
     async close() {
       if (retired) {
@@ -333,4 +363,9 @@ export function createSqliteReadOnlyWorkerSession(
       }
     },
   };
+  host.runtimeGeneration?.retain(session, async () => {
+    await pendingOperation?.catch(() => undefined);
+    await session.close();
+  });
+  return session;
 }

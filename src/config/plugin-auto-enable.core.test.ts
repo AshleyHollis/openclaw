@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { setCurrentPluginMetadataSnapshot } from "../plugins/current-plugin-metadata.test-support.js";
-import type { PluginCandidate, PluginDiscoveryResult } from "../plugins/discovery.js";
+import type { PluginDiscoveryResult } from "../plugins/discovery.js";
 import { loadPluginManifest } from "../plugins/manifest.js";
 import { initializeNativeSessionCatalogPreferences } from "../plugins/native-session-catalog-config.js";
 import { clearPluginMetadataLifecycleCaches } from "../plugins/plugin-metadata-lifecycle.js";
@@ -15,10 +15,17 @@ import {
 } from "./plugin-auto-enable.js";
 import {
   createPluginMetadataSnapshot,
+  makeBundledChannelCandidate,
   makeIsolatedEnv,
   makeRegistry,
   resetPluginAutoEnableTestState,
 } from "./plugin-auto-enable.test-helpers.js";
+import {
+  createConfigResolutionFacts,
+  getConfigResolutionFacts,
+  hasUnresolvedConfigPath,
+  setConfigResolutionFacts,
+} from "./resolution-facts.js";
 import type { OpenClawConfig } from "./types.openclaw.js";
 import { validateConfigObject } from "./validation.js";
 
@@ -27,6 +34,13 @@ vi.mock("../channels/plugins/package-state-probes.js", async (importOriginal) =>
     await importOriginal<typeof import("../channels/plugins/package-state-probes.js")>();
   return {
     ...actual,
+    listBundledChannelIdsForPackageState: (
+      ...args: Parameters<typeof actual.listBundledChannelIdsForPackageState>
+    ) => {
+      const channelIds = actual.listBundledChannelIdsForPackageState(...args);
+      // Declare the synthetic checker; discovery still controls its candidacy.
+      return args[0] === "configuredState" ? [...channelIds, "cache-channel"] : channelIds;
+    },
     hasBundledChannelPackageState: (
       params: Parameters<typeof actual.hasBundledChannelPackageState>[0],
     ) => {
@@ -84,22 +98,6 @@ const nativeCatalogRegistry = makeRegistry([
     configSchema: codexManifest.configSchema,
   },
 ]);
-
-function makeBundledChannelCandidate(params: {
-  pluginId: string;
-  channelId: string;
-}): PluginCandidate {
-  return {
-    idHint: params.pluginId,
-    source: `/fake/${params.pluginId}/index.js`,
-    rootDir: `/fake/${params.pluginId}`,
-    origin: "bundled",
-    packageManifest: {
-      plugin: { id: params.pluginId },
-      channel: { id: params.channelId },
-    },
-  };
-}
 
 afterAll(() => {
   resetPluginAutoEnableTestState();
@@ -1660,6 +1658,55 @@ describe("applyPluginAutoEnable core", () => {
 
     expect(result.config.plugins?.entries?.slack?.enabled).toBeUndefined();
     expect(result.changes).toStrictEqual([]);
+  });
+
+  it("carries loader resolution facts onto a config the auto-enable rewrite rebuilt", () => {
+    const unresolvedPath = "channels.a2a.peers.hermes.outboundToken";
+    const config: OpenClawConfig = {
+      channels: {
+        slack: { botToken: "x" },
+        a2a: {
+          peers: { hermes: { token: "inbound-secret", outboundToken: "${A2A_UNSET_OUT}" } },
+        },
+      },
+    };
+    setConfigResolutionFacts(
+      config,
+      createConfigResolutionFacts([{ varName: "A2A_UNSET_OUT", configPath: unresolvedPath }]),
+    );
+
+    const result = applyPluginAutoEnable({ config, env });
+
+    // The rewrite enabled Slack, so the caller receives a different object than it passed in.
+    expect(result.config).not.toBe(config);
+    expect(result.config.channels?.slack?.enabled).toBe(true);
+    expect(hasUnresolvedConfigPath(result.config, unresolvedPath)).toBe(true);
+    expect(hasUnresolvedConfigPath(result.config, "channels.a2a.peers.hermes.token")).toBe(false);
+  });
+
+  it("keeps a fact for a sibling value the rewrite left untouched", () => {
+    const config: OpenClawConfig = {
+      channels: { slack: { botToken: "${SLACK_UNSET_TOKEN}" } },
+    };
+    setConfigResolutionFacts(
+      config,
+      createConfigResolutionFacts([
+        { varName: "SLACK_UNSET_TOKEN", configPath: "channels.slack.botToken" },
+      ]),
+    );
+
+    const result = applyPluginAutoEnable({ config, env });
+
+    // Untouched sibling values keep their fact; only the rewritten path may lose it.
+    expect(result.config.channels?.slack?.botToken).toBe("${SLACK_UNSET_TOKEN}");
+    expect(hasUnresolvedConfigPath(result.config, "channels.slack.botToken")).toBe(true);
+  });
+
+  it("leaves a config without loader facts without facts", () => {
+    const config: OpenClawConfig = { channels: { slack: { botToken: "x" } } };
+    const result = applyPluginAutoEnable({ config, env });
+    expect(result.config).not.toBe(config);
+    expect(getConfigResolutionFacts(result.config)).toBeNull();
   });
 });
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

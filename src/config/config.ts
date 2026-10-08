@@ -38,6 +38,7 @@ export {
   resolveConfigWriteFollowUp,
   setAppliedRuntimeConfigSnapshot,
   setRuntimeConfigAppliedHash,
+  withRuntimeConfigSessionStoreSelection,
 } from "./runtime-snapshot.js";
 export type {
   ConfigWriteAfterWrite,

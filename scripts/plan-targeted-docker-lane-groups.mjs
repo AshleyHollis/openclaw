@@ -1,7 +1,9 @@
 // Plans grouped targeted Docker lane matrix entries without installed dependencies.
 import { fileURLToPath } from "node:url";
 import { parsePositiveInt } from "./lib/numeric-options.mjs";
+import { expandUpdateFirstHopCompatLanes } from "./lib/update-first-hop-lanes.mjs";
 import {
+  assertSupportedUpgradeSurvivorBaselineSpec,
   CUSTOM_PLUGIN_SIBLINGS_BASELINE,
   normalizeUpgradeSurvivorBaselineSpec,
   parseUpgradeSurvivorBaselineSpecs,
@@ -10,7 +12,9 @@ import {
 } from "./lib/upgrade-survivor-policy.mjs";
 
 const BASELINE_SHARDED_LANES = new Set(["published-upgrade-survivor", "update-migration"]);
-const SURVIVOR_SCENARIOS_PER_GROUP = 3;
+const SURVIVOR_SCENARIOS_PER_GROUP = 1;
+// The 62-minute restart-auth lane needs setup and upload headroom.
+const LONG_LANE_JOB_TIMEOUT_MINUTES = new Map([["update-restart-auth", 75]]);
 
 function splitTokens(raw) {
   return [
@@ -59,7 +63,8 @@ export function planTargetedDockerLaneGroups({
   upgradeSurvivorBaselines = "",
   upgradeSurvivorScenarios = "",
 } = {}) {
-  const selectedLanes = splitTokens(lanes);
+  // Each recorded first-hop source becomes its own job.
+  const selectedLanes = expandUpdateFirstHopCompatLanes(splitTokens(lanes));
   if (selectedLanes.length === 0) {
     throw new Error("docker_lanes is required when planning targeted Docker lane groups.");
   }
@@ -69,6 +74,9 @@ export function planTargetedDockerLaneGroups({
     throw new Error("Unknown upgrade survivor baseline scope.");
   }
   const baselineSpecs = parseUpgradeSurvivorBaselineSpecs(upgradeSurvivorBaselines);
+  const predecessor = normalizeUpgradeSurvivorBaselineSpec(upgradeSurvivorBaseline);
+  baselineSpecs.forEach(assertSupportedUpgradeSurvivorBaselineSpec);
+  assertSupportedUpgradeSurvivorBaselineSpec(predecessor);
   const hasExpandedSurvivorScenarios = splitTokens(upgradeSurvivorScenarios).length > 0;
   const survivorScenarios = selectedLanes.some((lane) => BASELINE_SHARDED_LANES.has(lane))
     ? parseUpgradeSurvivorScenarios(upgradeSurvivorScenarios)
@@ -78,7 +86,6 @@ export function planTargetedDockerLaneGroups({
     upgradeSurvivorBaselineScope === "legacy-operator-state" &&
     selectedLanes.some((lane) => BASELINE_SHARDED_LANES.has(lane))
   ) {
-    const predecessor = normalizeUpgradeSurvivorBaselineSpec(upgradeSurvivorBaseline);
     if (!predecessor || !/^openclaw@\d{4}\.\d+\.\d+(?:-\d+)?$/u.test(predecessor)) {
       throw new Error("Supported-line pairing requires an exact published predecessor.");
     }
@@ -116,6 +123,12 @@ export function planTargetedDockerLaneGroups({
       groupLanes.some((lane) => BASELINE_SHARDED_LANES.has(lane))
     ) {
       group.timeout_minutes = 90;
+    }
+    for (const lane of groupLanes) {
+      const minutes = LONG_LANE_JOB_TIMEOUT_MINUTES.get(lane);
+      if (minutes !== undefined && (group.timeout_minutes ?? 60) < minutes) {
+        group.timeout_minutes = minutes;
+      }
     }
     groups.push(group);
   };

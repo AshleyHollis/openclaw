@@ -1,13 +1,15 @@
 import { resolveSandboxWorkspaceAuthority } from "../../agents/sandbox/workspace-authority.js";
-// Plugin runtime entrypoint assembles runtime helpers available to activated plugins.
 import { getRuntimeConfig } from "../../config/config.js";
-import { stageDurableFileInDirectory } from "../../infra/fs-safe-advanced.js";
+import { SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION } from "../../gateway/session-transcript-source-handoff.js";
+import { onAgentEvent } from "../../infra/agent-events.js";
+import { stageDurableFileInDirectory } from "../../infra/durable-publication.js";
 import {
   listImageGenerationProviders,
   listMusicGenerationProviders,
   listVideoGenerationProviders,
 } from "../../media-generation/registry.js";
 import { RequestScopedSubagentRuntimeError } from "../../plugin-sdk/error-runtime.js";
+import { onSessionTranscriptUpdate } from "../../sessions/transcript-events.js";
 import {
   createLazyRuntimeMethod,
   createLazyRuntimeMethodBinder,
@@ -23,15 +25,12 @@ import {
 import { createRuntimeAgent } from "./runtime-agent.js";
 import { createRuntimeBase } from "./runtime-base.js";
 import { createRuntimeChannel } from "./runtime-channel.js";
-import { createRuntimeEvents } from "./runtime-events.js";
 import { createRuntimeLogging } from "./runtime-logging.js";
 import { createRuntimeMedia } from "./runtime-media.js";
-import { createRuntimeTaskFlow } from "./runtime-taskflow.js";
-import { createRuntimeTasks } from "./runtime-tasks.js";
 import type { PluginRuntimeFactory, PluginRuntime } from "./types.js";
 
 const loadTtsRuntime = createLazyRuntimeModule(() => import("../../plugin-sdk/tts-runtime.js"));
-const loadTtsRequestRuntime = createLazyRuntimeModule(() => import("./runtime-tts-request.js"));
+const loadTtsRequestRuntime = createLazyRuntimeModule(() => import("../../tts/runtime-api.js"));
 const loadMediaUnderstandingRuntime = createLazyRuntimeModule(
   () => import("../../media-understanding/runtime.js"),
 );
@@ -41,6 +40,8 @@ const loadGatewayPluginRuntime = createLazyRuntimeModule(
 
 function createRuntimeGateway(): PluginRuntime["gateway"] {
   return {
+    sessionTranscriptSourceAdmissionVersion: SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION,
+    authenticatedSessionTranscriptSourceAdmissionVersion: 1,
     isAvailable: async () => {
       const runtime = await loadGatewayPluginRuntime();
       return runtime.hasInProcessGatewayContext();
@@ -101,7 +102,7 @@ function createRuntimeLlmFacade(): PluginRuntime["llm"] {
       }),
   );
   return {
-    acquireLocalService: (...args) => loadAcquireLocalService(...args),
+    acquireLocalService: loadAcquireLocalService,
     complete: async (params) => {
       const llm = await loadLlm();
       return llm.complete(params);
@@ -200,16 +201,10 @@ export const createPluginRuntime: PluginRuntimeFactory = (
   _options = {},
   base = createRuntimeBase(),
 ) => {
-  const taskFlow = createRuntimeTaskFlow();
-  const tasks = createRuntimeTasks({
-    managedTaskFlow: taskFlow,
-  });
   const agent = createRuntimeAgent();
   let modelAuth = _options.modelAuth;
   let modelConfig = _options.modelConfig;
   const runtime: PluginRuntime = {
-    // Sourced from the shared OpenClaw version resolver (#52899) so plugins
-    // always see the same version the CLI reports, avoiding API-version drift.
     version: VERSION,
     decisions: {
       evaluate: async (...args) =>
@@ -241,10 +236,9 @@ export const createPluginRuntime: PluginRuntimeFactory = (
         ? { dispatchReplyFromConfig: _options.dispatchReplyFromConfig }
         : undefined,
     ),
-    events: createRuntimeEvents(),
+    events: { onAgentEvent, onSessionTranscriptUpdate },
     logging: createRuntimeLogging(),
     state: base.state,
-    tasks,
 
     tts: createRuntimeTts(),
     mediaUnderstanding: createRuntimeMediaUnderstandingFacade(),

@@ -301,6 +301,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises';
+          const candidate = JSON.parse(await readFile('downstream/runtime-install/candidate.json', 'utf8'));
+          if (candidate.provenance?.actionsArtifactReady !== true) {
+            throw new Error('Selected 9.8 package has no authenticated Actions artifact receipt. Root must use the reviewed external assembly packet; never fall back to historical 9.6 inputs.');
+          }
+          NODE
           run_id=$(node -p "require('./downstream/runtime-install/candidate.json').hostRunId")
           artifact_id=$(node -p "require('./downstream/runtime-install/candidate.json').hostArtifactId")
           gh api "repos/AshleyHollis/openclaw/actions/runs/$run_id" > "$RUNNER_TEMP/host-run.json"
@@ -331,7 +338,7 @@ jobs:
             execFileSync('curl', ['--fail', '--location', '--proto', '=https', '--tlsv1.2', component.url, '--output', `${name}-current.tgz`], { stdio: 'inherit' });
           }
           await validatePackagedCandidate(process.cwd());
-          const args = [`OPENCLAW_SOURCE_COMMIT=${c.sourceCommit}`, `OPENCLAW_VERSION=${c.hostVersion}`, `OPENCLAW_TARBALL_SHA256=${c.hostSha256}`];
+          const args = [`OPENCLAW_SOURCE_COMMIT=${c.hostProducedFrom}`, `OPENCLAW_VERSION=${c.hostVersion}`, `OPENCLAW_TARBALL_SHA256=${c.hostArchiveSha256}`];
           for (const [name, component] of Object.entries(c.components)) args.push(`${name.toUpperCase()}_VERSION=${component.version}`, `${name.toUpperCase()}_TARBALL_SHA256=${component.sha256}`);
           await appendFile(process.env.GITHUB_OUTPUT, `args<<BUILD_ARGS\n${args.join('\n')}\nBUILD_ARGS\ntag=ghcr.io/ashleyhollis/openclaw:packaged-candidate-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}\n`);
           NODE
@@ -366,8 +373,8 @@ jobs:
           docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
             --tmpfs /tmp:rw,nosuid,nodev,size=4g \
             -v "$GITHUB_WORKSPACE/downstream/scripts/smoke-image-runtime.mjs:/smoke.mjs:ro" \
-            -e EXPECTED_OPENCLAW_VERSION=2026.9.6 -e EXPECTED_CODEX_VERSION=2026.9.6 \
-            -e EXPECTED_DISCORD_VERSION=2026.9.6 -e EXPECTED_QMD_VERSION=2.1.0 \
+            -e EXPECTED_OPENCLAW_VERSION=2026.9.8 -e EXPECTED_CODEX_VERSION=2026.9.8 \
+            -e EXPECTED_DISCORD_VERSION=absent -e EXPECTED_QMD_VERSION=2.1.0 \
             --entrypoint node "$IMAGE" /smoke.mjs
 
       - name: Scan before publication
