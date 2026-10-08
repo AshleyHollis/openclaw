@@ -32,7 +32,7 @@ export type SessionTranscriptGatewaySource = Readonly<{
   assertCurrent: () => void;
 }>;
 
-export function assertSessionTranscriptGatewaySource(
+function assertSessionTranscriptGatewaySource(
   method: string,
   source: SessionTranscriptGatewaySource,
 ): void {
