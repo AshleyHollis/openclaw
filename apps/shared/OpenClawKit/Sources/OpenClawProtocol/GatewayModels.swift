@@ -3891,6 +3891,8 @@ public struct ChatDeltaEvent: Codable, Sendable {
     public let state: String
     public let message: AnyCodable?
     public let deltatext: String
+    public let itemid: String?
+    public let itemstartoffset: Int?
     public let replace: Bool?
     public let usage: AnyCodable?
 
@@ -3903,6 +3905,8 @@ public struct ChatDeltaEvent: Codable, Sendable {
         state: String,
         message: AnyCodable? = nil,
         deltatext: String,
+        itemid: String? = nil,
+        itemstartoffset: Int? = nil,
         replace: Bool? = nil,
         usage: AnyCodable? = nil)
     {
@@ -3914,6 +3918,8 @@ public struct ChatDeltaEvent: Codable, Sendable {
         self.state = state
         self.message = message
         self.deltatext = deltatext
+        self.itemid = itemid
+        self.itemstartoffset = itemstartoffset
         self.replace = replace
         self.usage = usage
     }
@@ -3927,6 +3933,8 @@ public struct ChatDeltaEvent: Codable, Sendable {
         case state
         case message
         case deltatext = "deltaText"
+        case itemid = "itemId"
+        case itemstartoffset = "itemStartOffset"
         case replace
         case usage
     }
@@ -17170,6 +17178,8 @@ public struct SessionsDeleteParams: Codable, Sendable {
     public let expectedsessionid: String?
     public let expectedlifecyclerevision: String?
     public let expectedsessionupdatedat: Double?
+    public let expectedstorepath: String?
+    public let requireemptyhistory: Bool?
     public let emitlifecyclehooks: Bool?
     public let archivedonly: Bool?
 
@@ -17180,6 +17190,8 @@ public struct SessionsDeleteParams: Codable, Sendable {
         expectedsessionid: String? = nil,
         expectedlifecyclerevision: String? = nil,
         expectedsessionupdatedat: Double? = nil,
+        expectedstorepath: String? = nil,
+        requireemptyhistory: Bool? = nil,
         emitlifecyclehooks: Bool? = nil,
         archivedonly: Bool? = nil)
     {
@@ -17189,6 +17201,8 @@ public struct SessionsDeleteParams: Codable, Sendable {
         self.expectedsessionid = expectedsessionid
         self.expectedlifecyclerevision = expectedlifecyclerevision
         self.expectedsessionupdatedat = expectedsessionupdatedat
+        self.expectedstorepath = expectedstorepath
+        self.requireemptyhistory = requireemptyhistory
         self.emitlifecyclehooks = emitlifecyclehooks
         self.archivedonly = archivedonly
     }
@@ -17200,6 +17214,8 @@ public struct SessionsDeleteParams: Codable, Sendable {
         case expectedsessionid = "expectedSessionId"
         case expectedlifecyclerevision = "expectedLifecycleRevision"
         case expectedsessionupdatedat = "expectedSessionUpdatedAt"
+        case expectedstorepath = "expectedStorePath"
+        case requireemptyhistory = "requireEmptyHistory"
         case emitlifecyclehooks = "emitLifecycleHooks"
         case archivedonly = "archivedOnly"
     }
