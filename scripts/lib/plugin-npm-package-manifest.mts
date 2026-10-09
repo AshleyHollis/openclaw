@@ -651,6 +651,34 @@ function collectWorkspacePatchedDependencies(
   });
 }
 
+export function withIsolatedPatchedDependencyPackSource<T>(
+  source: string,
+  callback: (packSource: string) => T,
+): T {
+  const manifest = readJsonFile(path.join(source, "package.json"));
+  // Declared bundles own their installed closure. Only unbundled packages can
+  // discard the source install graph without changing their npm payload.
+  if (
+    [manifest.bundleDependencies, manifest.bundledDependencies].some(
+      (bundles) => bundles === true || (Array.isArray(bundles) && bundles.length > 0),
+    )
+  ) {
+    return callback(source);
+  }
+  const stagingRoot = fs.mkdtempSync(path.join(tmpdir(), "openclaw-patched-package-source-"));
+  const packSource = path.join(stagingRoot, "package");
+  try {
+    fs.cpSync(source, packSource, {
+      recursive: true,
+      verbatimSymlinks: true,
+      filter: (entry) => entry !== path.join(source, "node_modules"),
+    });
+    return callback(packSource);
+  } finally {
+    fs.rmSync(stagingRoot, { recursive: true, force: true });
+  }
+}
+
 function packPatchedDependencies(packageDir: string, dependencies: WorkspacePatchedDependency[]) {
   if (dependencies.length === 0) {
     return { artifacts: [], cleanup: () => {} };
@@ -660,22 +688,24 @@ function packPatchedDependencies(packageDir: string, dependencies: WorkspacePatc
   try {
     const artifacts: NpmLocalPackageArtifact[] = dependencies.map(
       ({ name, version, packageDir: source }) => {
-        const result = spawnNpmSync(
-          [
-            "pack",
-            source,
-            "--json",
-            "--ignore-scripts",
-            "--workspaces=false",
-            "--pack-destination",
-            outputDir,
-          ],
-          {
-            cwd: packageDir,
-            env: process.env,
-            encoding: "utf8",
-            stdio: ["ignore", "pipe", "inherit"],
-          },
+        const result = withIsolatedPatchedDependencyPackSource(source, (packSource) =>
+          spawnNpmSync(
+            [
+              "pack",
+              packSource,
+              "--json",
+              "--ignore-scripts",
+              "--workspaces=false",
+              "--pack-destination",
+              outputDir,
+            ],
+            {
+              cwd: packageDir,
+              env: process.env,
+              encoding: "utf8",
+              stdio: ["ignore", "pipe", "inherit"],
+            },
+          ),
         );
         if (result.error) {
           throw result.error;
