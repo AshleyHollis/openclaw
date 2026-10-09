@@ -1,8 +1,20 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { publishDiagnostics } from "../../scripts/e2e/lib/upgrade-survivor/diagnostics.mjs";
+import {
+  assertRecoverySnapshot,
+  recoveryTreeSnapshot,
+} from "../../scripts/e2e/lib/upgrade-survivor/recovery-cleanup-fixture.mjs";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const dirs = useAutoCleanupTempDirTracker(afterEach);
@@ -343,5 +355,209 @@ update_candidate 1 file:synthetic 2026.9.9
     } else {
       expect(result.stderr).toMatch(/timeout|positive integer/);
     }
+  },
+);
+
+const compileCacheSetup = source.slice(
+  source.indexOf("configure_recovery_compile_cache() {"),
+  source.indexOf("configure_recovery_compile_cache\n\nexport PATH"),
+);
+function cacheFixture() {
+  const root = dirs.make("survivor-recovery-cache-");
+  const runtime = join(root, "runtime");
+  const env = {
+    PATH: process.env.PATH,
+    HOME: join(root, "home"),
+    TMPDIR: join(runtime, "tmp"),
+    npm_config_cache: join(runtime, "npm-cache"),
+    OPENCLAW_STATE_DIR: join(root, "state"),
+    OPENCLAW_CONFIG_PATH: join(root, "config.json"),
+  };
+  for (const directory of [
+    runtime,
+    env.HOME,
+    env.TMPDIR,
+    env.npm_config_cache,
+    env.OPENCLAW_STATE_DIR,
+  ])
+    mkdirSync(directory, { recursive: true });
+  return { root, runtime, env };
+}
+function configureCache(
+  fixture: ReturnType<typeof cacheFixture>,
+  {
+    scenario = "recovery-cleanup",
+    stateHome = join(fixture.runtime, "state-home"),
+    env = fixture.env,
+  } = {},
+) {
+  return spawnSync(
+    "bash",
+    [
+      "-c",
+      `set -euo pipefail; RUNTIME_ROOT="$1"; STATE_HOME_ROOT="$2"; SCENARIO="$3"; ${compileCacheSetup}
+configure_recovery_compile_cache
+node -e 'console.log(JSON.stringify({cache:process.env.NODE_COMPILE_CACHE,disabled:process.env.NODE_DISABLE_COMPILE_CACHE}))'`,
+      "fixture",
+      fixture.runtime,
+      stateHome,
+      scenario,
+    ],
+    { env, encoding: "utf8", timeout: 5000 },
+  );
+}
+
+it.skipIf(process.platform === "win32")(
+  "sets the same enabled native cache for every recovery command and leaves other lanes unchanged",
+  () => {
+    const fixture = cacheFixture();
+    const result = configureCache(fixture);
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      cache: join(fixture.runtime, "native-compile-cache"),
+    });
+    const other = configureCache(fixture, { scenario: "base" });
+    expect(other.status, other.stderr).toBe(0);
+    expect(JSON.parse(other.stdout)).toEqual({});
+    const inherited = { ...fixture.env, NODE_COMPILE_CACHE: join(fixture.root, "existing-cache") };
+    const preserved = configureCache(fixture, { scenario: "base", env: inherited });
+    expect(preserved.status, preserved.stderr).toBe(0);
+    expect(JSON.parse(preserved.stdout)).toEqual({ cache: inherited.NODE_COMPILE_CACHE });
+    const repeated = configureCache(fixture);
+    expect(repeated.status, repeated.stderr).toBe(0);
+    expect(JSON.parse(repeated.stdout)).toEqual(JSON.parse(result.stdout));
+    expect(source.indexOf("configure_recovery_compile_cache\n\nexport PATH")).toBeLessThan(
+      source.indexOf("initialize_state() {"),
+    );
+    expect(
+      source.slice(source.indexOf("initialize_state() {"), source.indexOf("seed_state() {")),
+    ).toContain("configure_recovery_compile_cache");
+  },
+);
+
+it
+  .skipIf(process.platform === "win32")
+  .each([
+    "HOME",
+    "TMPDIR",
+    "npm_config_cache",
+    "OPENCLAW_STATE_DIR",
+    "OPENCLAW_CONFIG_PATH",
+    "state-home",
+    "alias",
+    "escape",
+    "dangling",
+  ])("rejects native cache/protected-root collision before execution (%s)", (fault) => {
+  const fixture = cacheFixture();
+  const cache = join(fixture.runtime, "native-compile-cache");
+  let stateHome = join(fixture.runtime, "state-home");
+  const env = { ...fixture.env };
+  if (fault === "state-home") stateHome = fixture.runtime;
+  else if (fault === "alias") {
+    const alias = join(fixture.root, "alias");
+    symlinkSync(fixture.runtime, alias);
+    env.HOME = alias;
+  } else if (fault === "escape" || fault === "dangling") {
+    symlinkSync(join(fixture.root, fault === "escape" ? "home" : "missing"), cache);
+  } else
+    env[fault as keyof typeof env] =
+      fault === "OPENCLAW_CONFIG_PATH" ? join(cache, "config.json") : fixture.runtime;
+  const result = configureCache(fixture, { env, stateHome });
+  expect(result.status).not.toBe(0);
+  expect(result.stdout).toBe("");
+});
+
+it.skipIf(process.platform === "win32")(
+  "actual packaged bootstrap keeps native cache enabled outside unchanged protected recovery snapshots",
+  () => {
+    const fixture = cacheFixture();
+    const installation = join(fixture.root, "installed");
+    mkdirSync(join(installation, "dist"), { recursive: true });
+    for (const file of [
+      "openclaw.mjs",
+      "node-compile-cache.mjs",
+      "node-host-launcher.mjs",
+      "node-runtime-recovery.mjs",
+      "node-version.mjs",
+      "node-sqlite.mjs",
+      "cli-root-options.mjs",
+      "gateway-run-argv.mjs",
+      "gateway-shutdown-budget.mjs",
+    ])
+      cpSync(resolve(file), join(installation, file));
+    writeFileSync(
+      join(installation, "package.json"),
+      JSON.stringify({ type: "module", version: "2026.9.9" }),
+    );
+    writeFileSync(
+      join(installation, "dist/build-info.json"),
+      JSON.stringify({ buildId: "isolated-cache-fixture" }),
+    );
+    const setup = configureCache(fixture);
+    expect(setup.status, setup.stderr).toBe(0);
+    const cache = JSON.parse(setup.stdout).cache as string;
+    const roots = [
+      fixture.env.HOME,
+      fixture.env.OPENCLAW_STATE_DIR,
+      fixture.env.OPENCLAW_CONFIG_PATH,
+      fixture.env.TMPDIR,
+      fixture.env.npm_config_cache,
+    ];
+    const run = (suffix: string, isolated: boolean) => {
+      writeFileSync(
+        join(installation, `dist/payload-${suffix}.js`),
+        `export const value = ${JSON.stringify(suffix)};`,
+      );
+      writeFileSync(
+        join(installation, "dist/entry.js"),
+        `import module from 'node:module'; import {value} from './payload-${suffix}.js'; console.log(JSON.stringify({value,cache:module.getCompileCacheDir(),disabled:process.env.NODE_DISABLE_COMPILE_CACHE}));`,
+      );
+      const result = spawnSync(
+        process.execPath,
+        [join(installation, "openclaw.mjs"), "cache-fixture"],
+        {
+          env: { ...fixture.env, ...(isolated ? { NODE_COMPILE_CACHE: cache } : {}) },
+          encoding: "utf8",
+          timeout: 10000,
+        },
+      );
+      expect(result.status, result.stderr).toBe(0);
+      return JSON.parse(result.stdout);
+    };
+    run("default-seed", false);
+    const beforeDefault = recoveryTreeSnapshot(roots);
+    run("default-after", false);
+    expect(() => assertRecoverySnapshot(beforeDefault, recoveryTreeSnapshot(roots))).toThrow(
+      "node-compile-cache",
+    );
+    const seed = run("isolated-seed", true);
+    expect(seed.cache.startsWith(cache + "/")).toBe(true);
+    expect(seed.cache).toContain("/openclaw/2026.9.9/");
+    expect(seed.disabled).toBeUndefined();
+    const before = recoveryTreeSnapshot(roots);
+    const after = run("isolated-after", true);
+    expect(after.cache).toBe(seed.cache);
+    expect(after.value).toBe("isolated-after");
+    assertRecoverySnapshot(before, recoveryTreeSnapshot(roots));
+    expect(
+      readdirSync(cache, { recursive: true }).some((entry) => String(entry).includes("openclaw")),
+    ).toBe(true);
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "validates without acquiring an inherited caller compile cache",
+  () => {
+    const fixture = cacheFixture();
+    const inheritedCache = join(fixture.root, "caller-cache");
+    const env = { ...fixture.env, HOME: fixture.runtime, NODE_COMPILE_CACHE: inheritedCache };
+    const rejected = configureCache(fixture, { env });
+    expect(rejected.status).not.toBe(0);
+    expect(existsSync(inheritedCache)).toBe(false);
+    mkdirSync(inheritedCache);
+    writeFileSync(join(inheritedCache, "sentinel"), "retained caller bytecode");
+    const before = recoveryTreeSnapshot([inheritedCache]);
+    configureCache(fixture, { env });
+    assertRecoverySnapshot(before, recoveryTreeSnapshot([inheritedCache]));
   },
 );
