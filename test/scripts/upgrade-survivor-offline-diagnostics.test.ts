@@ -389,7 +389,8 @@ process.exitCode=await proof;clearInterval(timer);`,
     let active = false;
     try {
       const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
-      active = !["Z", "X"].includes(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[0]);
+      const state = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[0];
+      active = state === undefined || !["Z", "X"].includes(state);
     } catch {}
     expect(active, "the measured installed CLI must not remain active").toBe(false);
   },

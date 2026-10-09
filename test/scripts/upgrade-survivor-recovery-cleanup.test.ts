@@ -639,7 +639,9 @@ describe("bounded strict recovery snapshot comparisons", () => {
     );
     const after = structuredClone(before);
     expect(() => assertRecoverySnapshot(before, after)).not.toThrow();
-    after["/isolated/fixture/30000"].mtimeNs = "changed";
+    const changed = after["/isolated/fixture/30000"];
+    if (!changed) throw new Error("large recovery snapshot fixture omitted its selected entry");
+    changed.mtimeNs = "changed";
     expect(() => assertRecoverySnapshot(before, after)).toThrow("/isolated/fixture/30000");
   });
 });
