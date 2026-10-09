@@ -1572,8 +1572,14 @@ update_candidate() {
   fi
   update_outcome="failed"
   if [ "$SCENARIO" = "recovery-cleanup" ]; then
+    local recovery_budgets recovery_phase_ms recovery_wall_ms
+    recovery_budgets="$(node scripts/e2e/lib/upgrade-survivor/recovery-update-budget.mjs "$COMMAND_TIMEOUT")" || return "$?"
+    read -r recovery_phase_ms recovery_wall_ms <<< "$recovery_budgets"
     # Keep sampler output outside the old updater's JSON and join its process group.
-    openclaw_e2e_maybe_timeout "$COMMAND_TIMEOUT" node scripts/e2e/lib/plugin-lifecycle-matrix/measure.mjs \
+    openclaw_e2e_maybe_timeout "$COMMAND_TIMEOUT" env \
+      "OPENCLAW_PLUGIN_LIFECYCLE_PHASE_TIMEOUT_MS=$recovery_phase_ms" \
+      "OPENCLAW_PLUGIN_LIFECYCLE_MAX_WALL_MS=$recovery_wall_ms" \
+      node scripts/e2e/lib/plugin-lifecycle-matrix/measure.mjs \
       "$ARTIFACT_ROOT/recovery-resources.tsv" update -- bash -c \
       'out="$1"; err="$2"; shift 2; exec "$@" >"$out" 2>"$err"' recovery-update \
       "$update_json" "$update_err" "${update_env[@]}" openclaw "${update_args[@]}" \
