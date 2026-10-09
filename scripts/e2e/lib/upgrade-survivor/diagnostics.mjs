@@ -7,6 +7,7 @@ import { isMainThread } from "node:worker_threads";
 import { publishedBackupRollback } from "./backup-rollback-summary.mjs";
 import { publishedNativeAssignments } from "./native-assignment-summary.mjs";
 import { publishedPluginPolicy } from "./plugin-policy-summary.mjs";
+import { projectRecoveryReceipts } from "./recovery-offline-diagnostics.mjs";
 
 // Capture and snapshot validation stay plain Node. The host entrypoint owns
 // the redactor; neither candidate code nor raw fixture data owns uploads.
@@ -1535,6 +1536,10 @@ function capturePackageIntegrity(observationRoot) {
 async function capture(artifactRoot, phase, exitStatus, signal = "", observationRoot = "") {
   const report = {
     ...phaseResult(phase, Number(exitStatus), signal || null),
+    scenario:
+      process.env.OPENCLAW_UPGRADE_SURVIVOR_SCENARIO === "recovery-cleanup"
+        ? "recovery-cleanup"
+        : null,
     logs: {},
     service: {},
     config: {},
@@ -1843,6 +1848,18 @@ function publishedSuccessSummary(artifactRoot, sanitize) {
   };
 }
 
+function publishedRecoveryResources(artifactRoot) {
+  return ["recovery-offline-resources.jsonl", "recovery-offline-samples.jsonl"]
+    .flatMap((name) =>
+      fs.existsSync(path.join(artifactRoot, name))
+        ? projectRecoveryReceipts(
+            readOwned(artifactRoot, name, "recovery offline resources"),
+          ).slice(0, 64)
+        : [],
+    )
+    .slice(0, 128);
+}
+
 export function publishDiagnostics(
   artifactRoot,
   destination,
@@ -1853,13 +1870,11 @@ export function publishDiagnostics(
     delete omissions[label];
   }
   if (outcome === "passed") {
-    writeReport(
-      artifactRoot,
-      destination,
-      "summary.json",
-      publishedSuccessSummary(artifactRoot, sanitize),
-      publicLimit,
-    );
+    const summary = publishedSuccessSummary(artifactRoot, sanitize);
+    const recoveryOffline =
+      summary.scenario === "recovery-cleanup" ? publishedRecoveryResources(artifactRoot) : [];
+    if (recoveryOffline.length) summary.recoveryOffline = recoveryOffline;
+    writeReport(artifactRoot, destination, "summary.json", summary, publicLimit);
     return undefined;
   }
   if (outcome !== "failed") {
@@ -2043,6 +2058,9 @@ export function publishDiagnostics(
       }
     }),
   );
+  const recoveryOffline =
+    snapshot.scenario === "recovery-cleanup" ? publishedRecoveryResources(artifactRoot) : [];
+  if (recoveryOffline.length) report.recoveryOffline = recoveryOffline;
   writeReport(artifactRoot, destination, "failure.json", report, publicLimit);
   if (Object.keys(omissions).length) {
     process.stderr.write(

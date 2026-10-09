@@ -2544,6 +2544,7 @@ if [ "$SCENARIO" = "recovery-cleanup" ]; then
     exit 1
   fi
   phase recovery-package-evidence node scripts/e2e/lib/upgrade-survivor/recovery-cleanup.mjs packages "$baseline_spec" "$CANDIDATE_SPEC"
+  phase recovery-baseline-snapshot node scripts/e2e/lib/upgrade-survivor/recovery-offline-diagnostics.mjs baseline-snapshot
 fi
 run_plugin_fixture_phase configure-plugin-registry configure_plugin_registry
 if [ "$SCENARIO" = "legacy-operator-state" ]; then
@@ -2718,7 +2719,7 @@ fi
 if [ "$SCENARIO" = "recovery-cleanup" ]; then
   phase recovery-live node scripts/e2e/lib/upgrade-survivor/recovery-cleanup.mjs live
   phase gateway-stop stop_gateway
-  phase recovery-offline node scripts/e2e/lib/upgrade-survivor/recovery-cleanup.mjs offline
+  phase recovery-offline node scripts/e2e/lib/upgrade-survivor/recovery-offline-diagnostics.mjs offline
   phase gateway-restart start_gateway
   phase gateway-restart-probes check_gateway_probes
   phase gateway-restart-status check_gateway_status

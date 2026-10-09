@@ -1689,6 +1689,10 @@ docker() {
       printf "%s\\n" "\${DOCKER_STUB_INSPECT_ERROR:-inspect failed}" >&2
       return "$DOCKER_STUB_INSPECT_STATUS"
     fi
+    for field in Memory MemorySwap NanoCpus PidsLimit; do
+      [[ "$3" == *"$field={{.HostConfig.$field}}"* ]] || return 93
+    done
+    printf "Memory=4294967296\\nMemorySwap=4294967296\\nNanoCpus=2000000000\\nPidsLimit=512\\n"
     printf "ExitCode=%s\\nOOMKilled=%s\\nError=%s\\n" \\
       "\${DOCKER_STUB_EXIT_CODE:-0}" \\
       "\${DOCKER_STUB_OOM:-false}" \\
@@ -1750,6 +1754,10 @@ test "$(sed -n '3p' "$TMPDIR/docker-lifecycle")" = "rm container-7"
 grep -q '^Docker container state:$' "$TMPDIR/failure-stderr"
 grep -q '^ExitCode=137$' "$TMPDIR/failure-stderr"
 grep -q '^OOMKilled=true$' "$TMPDIR/failure-stderr"
+grep -q '^Memory=4294967296$' "$TMPDIR/failure-stderr"
+grep -q '^MemorySwap=4294967296$' "$TMPDIR/failure-stderr"
+grep -q '^NanoCpus=2000000000$' "$TMPDIR/failure-stderr"
+grep -q '^PidsLimit=512$' "$TMPDIR/failure-stderr"
 test "$(wc -c <"$TMPDIR/failure-stderr")" -lt 5000
 test -f "$TMPDIR/package-mount-seen"
 test ! -e "$pack_dir"
