@@ -38,6 +38,19 @@ test('Code selection admits exact 9.9 product without CC; paired remains the def
   assert.equal(runtimeSelectionPaths('code').target,'code-runtime');
   assert.throws(()=>runtimeSelectionPaths('life-ish'));
 });
+for (const triple of ['gnu', 'musl']) for (const layout of ['codex/codex', 'bin/codex']) {
+  test(`closed Linux-x64 Codex layout ${triple}/${layout}`, () => {
+    const c=structuredClone(candidate);
+    c.codexPlatform.binaryRelativePath=`vendor/x86_64-unknown-linux-${triple}/${layout}`;
+    assert.equal(validateCodeSelection(c),c);
+  });
+}
+for (const binaryRelativePath of ['vendor/aarch64-unknown-linux-musl/bin/codex','vendor/x86_64-unknown-linux-musl/bin/other','vendor/x86_64-unknown-linux-musl/bin/codex/extra','vendor/x86_64-unknown-linux-musl/bin/../bin/codex','/vendor/x86_64-unknown-linux-musl/bin/codex']) {
+  test(`reject nonclosed Codex path ${binaryRelativePath}`,()=>{
+    const c=structuredClone(candidate);c.codexPlatform.binaryRelativePath=binaryRelativePath;
+    assert.throws(()=>validateCodeSelection(c));
+  });
+}
 for (const [name, mutate] of Object.entries({
   role:c=>c.role='life',arch:c=>c.platform='linux/arm64',version:c=>c.hostVersion='2026.9.8',source:c=>c.hostProducedFrom='0'.repeat(40),
   archive:c=>c.hostArchiveSha256='0'.repeat(64),producer:c=>c.hostArtifactId++,companion:c=>c.components.codex.sha256='0'.repeat(64),
@@ -49,7 +62,8 @@ for (const [name, mutate] of Object.entries({
 for(const [name,mutate] of Object.entries({engine:p=>p.packages[engine].version='0.158.0',platform:p=>p.packages[platform].version='0.158.0-linux-x64',arch:p=>p.packages[platform].cpu=['arm64'],peer:p=>p.packages['node_modules/openclaw'].resolved='/registry-host'})) {
   test(`Code rejects old or wrong lock ${name}`,()=>{const p=structuredClone(pluginLock);mutate(p);assert.throws(()=>validateCurrentHostRecords(candidate,hostLock,p,actual));});
 }
-for(const failure of [null,'binary','manifest','lock','host','engine']) test(`installed Code graph bytes: ${failure??'matching'}`,async t=>{
+for(const [failure,binaryPath] of [[null,candidate.codexPlatform.binaryRelativePath],[null,'vendor/x86_64-unknown-linux-musl/bin/codex'],['binary',candidate.codexPlatform.binaryRelativePath],['manifest',candidate.codexPlatform.binaryRelativePath],['lock',candidate.codexPlatform.binaryRelativePath],['host',candidate.codexPlatform.binaryRelativePath],['engine',candidate.codexPlatform.binaryRelativePath]]) test(`installed Code graph bytes: ${failure??binaryPath}`,async t=>{
+  const selected=structuredClone(candidate);selected.codexPlatform.binaryRelativePath=binaryPath;
   const tmp=await mkdtemp(path.join(os.tmpdir(),'code-graph-'));t.after(()=>rm(tmp,{recursive:true,force:true}));
   const root=path.join(tmp,'plugins'),host=path.join(tmp,'app/node_modules/openclaw');
   const put=async(file,bytes)=>{await mkdir(path.dirname(file),{recursive:true});await writeFile(file,bytes);};
@@ -59,10 +73,10 @@ for(const failure of [null,'binary','manifest','lock','host','engine']) test(`in
   await put(path.join(root,'node_modules/@openclaw/codex/package.json'),JSON.stringify({name:'@openclaw/codex',version:'2026.9.9'}));
   await put(path.join(root,engine,'package.json'),JSON.stringify({version:failure==='engine'?'0.158.0':'0.160.0'}));
   await put(path.join(root,platform,'package.json'),failure==='manifest'?Buffer.from('{}'):platformBytes);
-  await put(path.join(root,platform,candidate.codexPlatform.binaryRelativePath),failure==='binary'?Buffer.from('tampered'):binaryBytes);
+  await put(path.join(root,platform,selected.codexPlatform.binaryRelativePath),failure==='binary'?Buffer.from('tampered'):binaryBytes);
   await put(path.join(host,'dist/build-info.json'),JSON.stringify({...actual.build,commit:failure==='host'?'0'.repeat(40):candidate.hostProducedFrom}));
   if(failure==='lock')await put(path.join(root,'package-lock.json'),JSON.stringify({...pluginLock,extra:true}));
   await mkdir(path.join(root,'node_modules/@openclaw/codex/node_modules'),{recursive:true});
   await symlink(host,path.join(root,'node_modules/openclaw'));await symlink(host,path.join(root,'node_modules/@openclaw/codex/node_modules/openclaw'));
-  if(failure)await assert.rejects(validateInstalledPluginRuntime(root,host,candidate));else await validateInstalledPluginRuntime(root,host,candidate);
+  if(failure)await assert.rejects(validateInstalledPluginRuntime(root,host,selected));else await validateInstalledPluginRuntime(root,host,selected);
 });

@@ -49,7 +49,7 @@ export function validateCodeSelection(candidate) {
   for (const digest of Object.values(candidate.locks)) assert.match(digest, /^[0-9a-f]{64}$/u);
   for (const field of ["manifestSha256", "binarySha256"]) assert.match(candidate.codexPlatform?.[field] ?? "", /^[0-9a-f]{64}$/u);
   assert.equal(candidate.codexPlatform.packageVersion, "0.160.0-linux-x64");
-  assert.match(candidate.codexPlatform.binaryRelativePath ?? "", /^vendor\/x86_64-unknown-linux-(?:gnu|musl)\/codex\/codex$/u);
+  assert.match(candidate.codexPlatform.binaryRelativePath ?? "", /^vendor\/x86_64-unknown-linux-(?:gnu|musl)\/(?:codex\/codex|bin\/codex)$/u);
   return candidate;
 }
 
