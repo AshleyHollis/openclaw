@@ -5,6 +5,8 @@ import path from 'node:path';
 import {spawn, spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import test from 'node:test';
+import {DatabaseSync} from 'node:sqlite';
+import {createHash} from 'node:crypto';
 import {interruptDriver,prefixInventory,digest,validateInterruptedRestore} from './first-hop-interruption.mjs';
 import {isTrustedHarnessOwnedUpgradeSurvivorScenario,supportsUpgradeSurvivorScenarioAtBaseline} from '../../../lib/upgrade-survivor-policy.mjs';
 
@@ -159,4 +161,73 @@ test('manual artifact dispatch stays within25inputs and strict existing registry
  assert(workflow.includes('Prerelease plugin registry inputs disagree.'));
  const call=workflow.split('  workflow_call:')[1];assert(call.includes('      prepublish_plugin_registry_json:'));
  assert(dispatch.includes('      package_spec:'));assert(dispatch.includes('      allow_frozen_target_scenario_omissions:'));
+});
+
+// Exercise the actual readonly restart observer on disposable SQLite/native
+// identity fixtures. This is not an executed original9.8 release qualification.
+const hashBytes=value=>createHash('sha256').update(value).digest('hex');
+function restartFixture(t, fileCount = 1) {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'restart-difference-'));
+  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const state=path.join(root,'restored');fs.mkdirSync(state);
+  const dbFile=path.join(state,'agent.sqlite');const db=new DatabaseSync(dbFile);
+  db.exec("PRAGMA user_version=24; CREATE TABLE session_key_contract(id INTEGER PRIMARY KEY, main_key TEXT, updated_at INTEGER); INSERT INTO session_key_contract VALUES(1,'fictional-private-main',100);");db.close();
+  const columnSha256=Object.fromEntries(['id','main_key','updated_at'].map((key,index)=>[key,hashBytes(JSON.stringify([1,'fictional-private-main',{integer:'100'}][index]))]));
+  const before={databases:[{kind:'agent',relative:'agent.sqlite',agentId:'main',present:true,userVersion:24,contentVersion:24,metadata:[],sessions:[],tables:[{table:'session_key_contract',columns:['id','main_key','updated_at'],rows:1,sha256:hashBytes('[{"integer":"1"},"fictional-private-main",{"integer":"100"}]\n'),columnSha256:{...columnSha256,id:hashBytes('{"integer":"1"}')}}]}],files:[]};
+  for(let i=0;i<fileCount;i++){const relative=`owned-${i}.json`;fs.writeFileSync(path.join(state,relative),'original');before.files.push({relative,kind:'fixture',sha256:hashBytes('original')});}
+  fs.writeFileSync(path.join(state,'openclaw.json'),'{}');
+  const packageRoot=path.join(root,'original-runtime');fs.mkdirSync(packageRoot);
+  const manifest={name:'openclaw',version:'2026.9.8',openclaw:{schemaVersions:{agent:24,state:19}}};
+  fs.writeFileSync(path.join(packageRoot,'package.json'),JSON.stringify(manifest));
+  const entry=path.join(packageRoot,'openclaw.mjs');fs.writeFileSync(entry,'// fictional retained original entry');
+  const runtime={packageRoot,entry,version:manifest.version,schemaVersions:manifest.openclaw.schemaVersions,manifestSha256:hashBytes(fs.readFileSync(path.join(packageRoot,'package.json'))),entrySha256:hashBytes(fs.readFileSync(entry))};
+  const archivePath=path.join(root,'backup.tar');fs.writeFileSync(archivePath,'fictional immutable backup');
+  const captured={status:'captured',baselineVersion:'2026.9.8',before,runtime,archive:{path:archivePath,sha256:hashBytes(fs.readFileSync(archivePath))}};
+  const capturedProofPath=path.join(root,'captured.json');fs.writeFileSync(capturedProofPath,JSON.stringify(captured));
+  const fault={outcome:'interrupted-not-upgraded',capturedProofPath,backupProofSha256:hashBytes(fs.readFileSync(capturedProofPath)),configRelative:'openclaw.json',configSha256:hashBytes('{}')};
+  const interruptionFile=path.join(root,'interruption.json');fs.writeFileSync(interruptionFile,JSON.stringify(fault));
+  const resultFile=path.join(root,'backup-rollback.json');fs.writeFileSync(resultFile,JSON.stringify({...captured,status:'passed',restoredStateDir:state,interruptionSha256:hashBytes(fs.readFileSync(interruptionFile))}));
+  const command=()=>spawnSync(process.execPath,[fileURLToPath(new URL('backup-rollback.mjs',import.meta.url)),'verify-restarted',resultFile,interruptionFile],{encoding:'utf8',timeout:10000});
+  return {root,state,dbFile,command,resultFile,diagnostic:path.join(root,'backup-rollback-restart-difference.json')};
+}
+test('unchanged restarted inventory passes without failure diagnostic',t=>{
+  const f=restartFixture(t);const r=f.command();assert.equal(r.status,0,r.stderr);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(f.root,'backup-rollback-restart.json'),'utf8')).status,'passed');
+  assert(!fs.existsSync(f.diagnostic));
+});
+test('changed contract column still refuses and identifies exact column without raw values',t=>{
+  const f=restartFixture(t);const db=new DatabaseSync(f.dbFile);db.exec("UPDATE session_key_contract SET main_key='fictional-secret-replacement',updated_at=200");db.close();
+  const inventoryBefore=fs.readFileSync(f.dbFile);const proofBefore=fs.readFileSync(f.resultFile);
+  const r=f.command();assert.equal(r.status,1);assert.match(r.stderr,/original baseline restart changed/);
+  const raw=fs.readFileSync(f.diagnostic,'utf8'),d=JSON.parse(raw);
+  assert(d.differences.some(x=>x.pointer==='/databases/0/tables/0/columnSha256/main_key'));
+  assert(d.differences.some(x=>x.pointer==='/databases/0/tables/0/columnSha256/updated_at'));
+  assert(!d.differences.some(x=>x.pointer.endsWith('/columnSha256/id')));
+  assert(!raw.includes('fictional-secret-replacement'));assert(!raw.includes('fictional-private-main'));
+  assert(Buffer.byteLength(raw)<=16384);assert.equal(d.omittedDifferences,0);
+  assert.deepEqual(fs.readFileSync(f.dbFile),inventoryBefore);assert.deepEqual(fs.readFileSync(f.resultFile),proofBefore);
+  assert(!fs.existsSync(path.join(f.root,'backup-rollback-restart.json')));
+  assert.equal(fs.statSync(f.diagnostic).mode & 0o777,0o600);
+});
+test('bounded difference report retains refusal and explicit omissions; no overwrite/retry',t=>{
+  const f=restartFixture(t,160);
+  for(let i=0;i<160;i++)fs.writeFileSync(path.join(f.state,`owned-${i}.json`),'modified');
+  const r=f.command();assert.equal(r.status,1);
+  const raw=fs.readFileSync(f.diagnostic),d=JSON.parse(raw);assert.equal(d.totalDifferences,160);
+  assert(d.omittedDifferences>0);assert.equal(d.differences.length+d.omittedDifferences,160);assert(raw.length<=16384);
+  assert(Buffer.byteLength(JSON.stringify(raw.toString('utf8'))) <= 16384);
+  const again=f.command();assert.equal(again.status,1);assert.match(again.stderr,/EEXIST/);assert.deepEqual(fs.readFileSync(f.diagnostic),raw);
+});
+test('actual capped/redacted diagnostic publisher retains difference log, not arbitrary files',t=>{
+  const f=restartFixture(t);const rawDir=path.join(f.root,'diagnostics');fs.mkdirSync(rawDir);
+  const label='backup-rollback-restart-difference.json';
+  const diagnostic='{"status":"failed","fictionalSecret":"DO_NOT_UPLOAD"}';
+  fs.writeFileSync(path.join(rawDir,'raw.json'),JSON.stringify({phase:'restored-original-history',exitStatus:1,signal:null,logs:{[label]:diagnostic,'unlisted-private.json':'DO_NOT_UPLOAD'}}));
+  const destination=path.join(f.root,'published');
+  const script=`import {publishDiagnostics} from ${JSON.stringify(new URL('diagnostics.mjs',import.meta.url).href)}; publishDiagnostics(${JSON.stringify(f.root)},${JSON.stringify(destination)},s=>s.replaceAll('DO_NOT_UPLOAD','[REDACTED]'));`;
+  const r=spawnSync(process.execPath,['--input-type=module','-e',script],{encoding:'utf8',timeout:10000});assert.equal(r.status,0,r.stderr);
+  const raw=fs.readFileSync(path.join(destination,'failure.json'),'utf8'),d=JSON.parse(raw);
+  assert.equal(d.logs[label],diagnostic.replace('DO_NOT_UPLOAD','[REDACTED]'));
+  assert(!raw.includes('DO_NOT_UPLOAD'));assert(!('unlisted-private.json' in d.logs));
+  assert.equal(d.limits.outputBytesPerLog,16384);assert.equal(d.limits.reportBytes,524288);
 });

@@ -78,7 +78,17 @@ function tableInventory(database, table) {
   for (const row of rows) {
     hash.update(`${row}\n`);
   }
-  return { table, columns, rows: rows.length, sha256: hash.digest("hex") };
+  return {
+    table, columns, rows: rows.length, sha256: hash.digest("hex"),
+    // Identify the changing contract column without publishing row contents.
+    // Keep the complete row hash/equality above: these are diagnostics, not
+    // a projection that excuses any restart mutation.
+    ...(table === "session_key_contract" ? {
+      columnSha256: Object.fromEntries(columns.map((column, index) => [column,
+        createHash("sha256").update(rows.map((row) => JSON.stringify(JSON.parse(row)[index])).sort().join("\n")).digest("hex"),
+      ])),
+    } : {}),
+  };
 }
 
 function databaseInventory(stateDir, specimen) {
@@ -670,8 +680,47 @@ function verifyRestarted(resultFile, interruptionFile) {
   const files = captured.before.files.map(({relative,kind})=>({relative,kind}));
   // Same history-specific readonly observer as the established restore owner;
   // not a broad physical-database/table/index equality or ownership claim.
-  assert.deepEqual(inventory(proof.restoredStateDir, specimens, files), captured.before,
-    "original baseline restart changed restored history/configuration");
+  const after = inventory(proof.restoredStateDir, specimens, files);
+  try {
+    assert.deepEqual(after, captured.before,
+      "original baseline restart changed restored history/configuration");
+  } catch (error) {
+    // The assertion printer elides large inventories. Retain exact changed
+    // JSON paths and value fingerprints within the existing 16 KiB log cap.
+    // Neither an incomplete diagnostic nor its omission can turn failure into
+    // success. No raw session/configuration/column values are exported.
+    const differences = [];
+    let totalDifferences = 0;
+    const fingerprint = (value) => value === undefined ? { type: "absent" } : {
+      type: value === null ? "null" : typeof value,
+      sha256: createHash("sha256").update(JSON.stringify(value)).digest("hex"),
+    };
+    function compare(expected, actual, pointer) {
+      if (Object.is(expected, actual)) return;
+      if (expected !== null && actual !== null && typeof expected === "object" && typeof actual === "object"
+          && Array.isArray(expected) === Array.isArray(actual)) {
+        for (const key of [...new Set([...Object.keys(expected), ...Object.keys(actual)])].sort()) {
+          compare(expected[key], actual[key], `${pointer}/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`);
+        }
+        return;
+      }
+      totalDifferences++;
+      if (differences.length < 128) differences.push({ pointer, expected: fingerprint(expected), actual: fingerprint(actual) });
+    }
+    compare(captured.before, after, "");
+    const diagnostic = { schemaVersion: 1, status: "failed", phase: "restored-original-history",
+      interruptionSha256: proof.interruptionSha256, capturedBackupSha256: fault.backupProofSha256,
+      expectedInventorySha256: fingerprint(captured.before).sha256,
+      actualInventorySha256: fingerprint(after).sha256, totalDifferences, differences,
+      omittedDifferences: totalDifferences - differences.length };
+    // The publisher budgets the JSON-escaped log string, not raw file bytes.
+    while (Buffer.byteLength(JSON.stringify(`${JSON.stringify(diagnostic)}\n`)) > 16 * 1024 && differences.length) {
+      differences.pop(); diagnostic.omittedDifferences++;
+    }
+    fs.writeFileSync(path.join(path.dirname(resultFile), "backup-rollback-restart-difference.json"),
+      `${JSON.stringify(diagnostic)}\n`, { flag: "wx", mode: 0o600 });
+    throw error;
+  }
   const output = path.join(path.dirname(resultFile), "backup-rollback-restart.json");
   fs.writeFileSync(output, JSON.stringify({status:"passed",baselineVersion:captured.baselineVersion,
     runtime:captured.runtime,interruptionSha256:hashFile(interruptionFile),
