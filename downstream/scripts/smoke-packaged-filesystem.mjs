@@ -7,11 +7,14 @@ import { pathToFileURL } from "node:url";
 
 // Exercise installed SDK bytes, not a source checkout with pnpm's patched deps.
 const require = createRequire("/app/package.json");
-const { stageDurableFileInDirectory } = await import(
-  pathToFileURL(require.resolve("openclaw/plugin-sdk/file-access-runtime")).href
-);
+const sdkEntry = require.resolve("openclaw/plugin-sdk/file-access-runtime");
+// The SDK's installed package owns fs-safe; /app is only an assembly wrapper.
+// Anchor Node's native resolver at that exported entry, not a private/blocked
+// openclaw/package.json export or a hoisted wrapper dependency.
+const hostRequire = createRequire(sdkEntry);
+const { stageDurableFileInDirectory } = await import(pathToFileURL(sdkEntry).href);
 const { getFsSafeNativeConfig } = await import(
-  pathToFileURL(require.resolve("@openclaw/fs-safe/config")).href
+  pathToFileURL(hostRequire.resolve("@openclaw/fs-safe/config")).href
 );
 const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "packaged-fs-smoke-")));
 const stages = [];
