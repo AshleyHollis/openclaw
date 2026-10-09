@@ -559,3 +559,87 @@ describe("recovery survivor evidence", () => {
     ).toThrow(/message identity/);
   });
 });
+
+describe("bounded strict recovery snapshot comparisons", () => {
+  const identity = { dev: "1", ino: "2", size: 3, mtimeNs: "4", sha256: "abc", mode: "33188" };
+
+  it.each(Object.keys(identity))("rejects changed file identity field %s", (field) => {
+    expect(() =>
+      assertRecoverySnapshot({ file: identity }, { file: { ...identity, [field]: "changed" } }),
+    ).toThrow("changed");
+  });
+
+  it("retains unknown fields, links, and exact root key presence", () => {
+    expect(() =>
+      assertRecoverySnapshot(
+        { file: { ...identity, extra: { value: 1 } } },
+        { file: { ...identity, extra: { value: 1 } } },
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertRecoverySnapshot({ file: identity }, { file: { ...identity, extra: true } }),
+    ).toThrow("changed");
+    expect(() => assertRecoverySnapshot({ link: { link: "a" } }, { link: { link: "b" } })).toThrow(
+      "changed",
+    );
+    expect(() => assertRecoverySnapshot({ root: { directory: true } }, {}, [], true)).toThrow(
+      "missing",
+    );
+    expect(() => assertRecoverySnapshot({}, { root: { directory: true } }, [], true)).toThrow(
+      "added",
+    );
+  });
+
+  it("allows exactly selected additions/removals and optional directory times", () => {
+    const directory = { directory: true, mode: "16877", mtimeNs: "1" };
+    expect(() =>
+      assertRecoverySnapshot(
+        { removed: identity, root: directory },
+        { added: identity, root: { ...directory, mtimeNs: "2" } },
+        ["removed", "added"],
+        true,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertRecoverySnapshot({ root: directory }, { root: { ...directory, mtimeNs: "2" } }),
+    ).toThrow("changed");
+    expect(() =>
+      assertRecoverySnapshot(
+        { root: directory },
+        { root: { ...directory, mode: "16832" } },
+        [],
+        true,
+      ),
+    ).toThrow("changed");
+    expect(() => assertRecoverySnapshot({ removed: identity }, {}, ["remove"])).toThrow("missing");
+  });
+
+  it("reports a bounded sanitized path without retaining the snapshot objects", () => {
+    const file = "\u001b[31m\n" + "x".repeat(10000);
+    let failure: unknown;
+    try {
+      assertRecoverySnapshot({ [file]: identity }, {});
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).name).toBe("Error");
+    expect((failure as Error).message.length).toBeLessThan(1200);
+    expect((failure as Error).message).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/u);
+    expect(failure).not.toHaveProperty("actual");
+    expect(failure).not.toHaveProperty("expected");
+  });
+
+  it("compares a large equal tree and rejects the first strict mismatch", () => {
+    const before = Object.fromEntries(
+      Array.from({ length: 66258 }, (_, index) => [
+        `/isolated/fixture/${index}`,
+        { ...identity, ino: String(index) },
+      ]),
+    );
+    const after = structuredClone(before);
+    expect(() => assertRecoverySnapshot(before, after)).not.toThrow();
+    after["/isolated/fixture/30000"].mtimeNs = "changed";
+    expect(() => assertRecoverySnapshot(before, after)).toThrow("/isolated/fixture/30000");
+  });
+});

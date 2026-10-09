@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 export function writeRecoveryJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -330,23 +331,38 @@ export function assertRecoverySnapshot(
   allowDirectoryTimes = false,
 ) {
   const allowed = new Set(allowedFiles);
-  const project = (snapshot) =>
-    Object.fromEntries(
-      Object.entries(snapshot)
-        .filter(([file]) => !allowed.has(file))
-        .map(([file, entry]) => {
-          if (allowDirectoryTimes && entry.directory) {
-            const { mtimeNs: _mtime, ...rest } = entry;
-            return [file, rest];
-          }
-          return [file, entry];
-        }),
+  const projectEntry = (entry) => {
+    if (allowDirectoryTimes && entry.directory) {
+      const { mtimeNs: _mtime, ...rest } = entry;
+      return rest;
+    }
+    return entry;
+  };
+  const fail = (file, reason) => {
+    // Never ask AssertionError to format the whole retained filesystem tree.
+    const boundedPath = file
+      .replace(/[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/gu, "?")
+      .slice(0, 512);
+    throw new Error(
+      `cleanup mutated files outside its declared payloads/receipts: ${reason} ${JSON.stringify(boundedPath)}`,
     );
-  assert.deepEqual(
-    project(after),
-    project(before),
-    "cleanup mutated files outside its declared payloads/receipts",
-  );
+  };
+  for (const file of Object.keys(before)) {
+    if (allowed.has(file)) {
+      continue;
+    }
+    if (!Object.prototype.propertyIsEnumerable.call(after, file)) {
+      fail(file, "missing");
+    }
+    if (!isDeepStrictEqual(projectEntry(after[file]), projectEntry(before[file]))) {
+      fail(file, "changed");
+    }
+  }
+  for (const file of Object.keys(after)) {
+    if (!allowed.has(file) && !Object.prototype.propertyIsEnumerable.call(before, file)) {
+      fail(file, "added");
+    }
+  }
 }
 
 export function recoveryHistoryMessages(history) {
