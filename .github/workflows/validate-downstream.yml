@@ -9,6 +9,15 @@ on:
       - ".github/workflows/validate-downstream.yml"
       - ".github/workflows/build-downstream-artifact.yml"
   workflow_dispatch:
+    inputs:
+      root_test_typecheck:
+        description: Run the maintained root-test typecheck on an exact source commit.
+        type: boolean
+        default: false
+      source_sha:
+        description: Full lowercase source commit SHA for the optional typecheck.
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -50,3 +59,140 @@ jobs:
           ':(exclude)CHANGELOG/**'
           ':(exclude)patches/**'
           ':(exclude)downstream/patches/**'
+
+  root-test-typecheck:
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.root_test_typecheck &&
+      github.repository == 'AshleyHollis/openclaw' && github.actor == github.repository_owner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      # Frozen task qualification only; changing this admission requires source review.
+      ADMITTED_SOURCE_SHA: d7d039c8ed935dce3b207f312307c439e2b9da31
+    steps:
+      - name: Admit exact source
+        id: admission
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          TOOLING_SHA: ${{ github.workflow_sha }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const root = path.join(process.env.RUNNER_TEMP, 'root-test-typecheck');
+          fs.mkdirSync(root, { recursive: true });
+          const source = process.env.SOURCE_SHA || '';
+          const valid = source.length === 40 && /^[0-9a-f]{40}$/.test(source);
+          const admitted = valid && process.env.SOURCE_SHA === process.env.ADMITTED_SOURCE_SHA;
+          fs.writeFileSync(path.join(root, 'receipt.json'), JSON.stringify({
+            version: 1, requestedSourceSha: valid ? process.env.SOURCE_SHA : null,
+            toolingSha: process.env.TOOLING_SHA, admittedSourceSha: process.env.ADMITTED_SOURCE_SHA, checkoutSha: null,
+            admission: admitted ? 'accepted' : 'rejected', typecheckExitCode: null,
+          }, null, 2) + '\n');
+          if (!valid) throw new Error('source_sha must be a full lowercase 40-character commit SHA');
+          if (!admitted) throw new Error('source_sha does not match the reviewed frozen task source');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `sha=${process.env.SOURCE_SHA}\n`);
+          NODE
+
+      - name: Checkout exact source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ steps.admission.outputs.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Bind source checkout
+        id: binding
+        env:
+          REQUESTED_SHA: ${{ steps.admission.outputs.sha }}
+        run: |
+          CHECKED_OUT_SHA="$(git rev-parse HEAD)" node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const file = path.join(process.env.RUNNER_TEMP, 'root-test-typecheck', 'receipt.json');
+          const receipt = JSON.parse(fs.readFileSync(file, 'utf8'));
+          receipt.checkoutSha = process.env.CHECKED_OUT_SHA;
+          receipt.sourceBound = process.env.CHECKED_OUT_SHA === process.env.REQUESTED_SHA;
+          fs.writeFileSync(file, JSON.stringify(receipt, null, 2) + '\n');
+          if (!receipt.sourceBound) throw new Error('checkout HEAD does not match requested source SHA');
+          NODE
+
+      - name: Setup physically owned dependencies
+        id: setup
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.21.0"
+          semantic-checks: "true"
+          install-bun: "false"
+          cache-mode: "off"
+          frozen-lockfile: "true"
+
+      - name: Typecheck root tests
+        id: typecheck
+        run: |
+          set +e
+          node scripts/run-tsgo-core-test-shards.mjs root >"$RUNNER_TEMP/root-test-typecheck/typecheck.log" 2>&1
+          code=$?
+          set -e
+          TYPECHECK_EXIT_CODE="$code" node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const file = path.join(process.env.RUNNER_TEMP, 'root-test-typecheck', 'receipt.json');
+          const receipt = JSON.parse(fs.readFileSync(file, 'utf8'));
+          receipt.typecheckExitCode = Number(process.env.TYPECHECK_EXIT_CODE);
+          receipt.nodeVersion = process.version;
+          const log = path.join(path.dirname(file), 'typecheck.log');
+          const bytes = fs.statSync(log).size;
+          const limit = 1024 * 1024;
+          if (bytes > limit) {
+            const headAndTail = Buffer.alloc(limit);
+            const descriptor = fs.openSync(log, 'r');
+            try {
+              for (const [position, destination] of [[0, 0], [bytes - limit / 2, limit / 2]]) {
+                let read = 0;
+                while (read < limit / 2) {
+                  const count = fs.readSync(descriptor, headAndTail, destination + read, limit / 2 - read, position + read);
+                  if (count === 0) throw new Error('typecheck log ended during bounded capture');
+                  read += count;
+                }
+              }
+            }
+            finally { fs.closeSync(descriptor); }
+            fs.writeFileSync(log, headAndTail);
+          }
+          receipt.logBytesOriginal = bytes;
+          receipt.logBytesRetained = Math.min(bytes, limit);
+          receipt.logBytesOmitted = bytes - receipt.logBytesRetained;
+          fs.writeFileSync(file, JSON.stringify(receipt, null, 2) + '\n');
+          NODE
+          cat "$RUNNER_TEMP/root-test-typecheck/typecheck.log"
+          exit "$code"
+
+      - name: Record check outcomes
+        if: always()
+        env:
+          ADMISSION_OUTCOME: ${{ steps.admission.outcome }}
+          BINDING_OUTCOME: ${{ steps.binding.outcome }}
+          SETUP_OUTCOME: ${{ steps.setup.outcome }}
+          TYPECHECK_OUTCOME: ${{ steps.typecheck.outcome }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const file = path.join(process.env.RUNNER_TEMP, 'root-test-typecheck', 'receipt.json');
+          const receipt = JSON.parse(fs.readFileSync(file, 'utf8'));
+          const outcome = (value) => ['success', 'failure', 'cancelled', 'skipped'].includes(value) ? value : 'unknown';
+          receipt.outcomes = Object.fromEntries(['admission', 'binding', 'setup', 'typecheck']
+            .map((step) => [step, outcome(process.env[`${step.toUpperCase()}_OUTCOME`])]));
+          fs.writeFileSync(file, JSON.stringify(receipt, null, 2) + '\n');
+          NODE
+
+      - name: Retain exact source check evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: root-test-typecheck-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/root-test-typecheck
+          if-no-files-found: error
