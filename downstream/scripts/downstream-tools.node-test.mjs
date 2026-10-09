@@ -308,7 +308,7 @@ test("packaged runtime binds the exact retained 9.8 host and Codex-only overlay"
   assert.match(dockerfile, /COPY codex-current\.tgz \/tmp\/codex-current\.tgz/u);
   assert.doesNotMatch(dockerfile, /DISCORD_TARBALL_SHA256|COPY discord-current/u);
   assert.match(dockerfile, /validate-plugin-runtime\.mjs/u);
-  assert.match(workflow, /EXPECTED_CODEX_VERSION=2026\.9\.8/u);
+  assert.match(workflow, /EXPECTED_CODEX_VERSION="\$\{\{ steps\.selection\.outputs\.codex_version \}\}"/u);
   assert.match(workflow, /EXPECTED_DISCORD_VERSION=absent/u);
   assert.match(workflow, /actionsArtifactReady !== true/u);
   assert.equal(candidate.qualification.releaseReady, false);
@@ -389,4 +389,30 @@ test("keeps the latest pointer aligned with the selected manifest", async () => 
     manifest.image.provenanceDigest,
     "sha256:e9c4fe3a118eec55fd477f1807d7e5f9f247093f72e369ea8ed087a2777dcb4e",
   );
+});
+
+// Fictional packages test Node's real resolution context, not product readiness.
+for (const hoisted of [false, true]) test(`filesystem smoke resolves host-owned fs-safe, wrapper decoy=${hoisted}`, async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "packaged-fs-owner-"));
+  t.after(() => rm(root, { recursive:true, force:true }));
+  const host = path.join(root, "node_modules/openclaw");
+  const put = async (name, bytes) => { await mkdir(path.dirname(name), {recursive:true}); await writeFile(name, bytes); };
+  await put(path.join(root,"package.json"), JSON.stringify({type:"module"}));
+  await put(path.join(host,"package.json"), JSON.stringify({name:"openclaw",type:"module",exports:{"./plugin-sdk/file-access-runtime":"./dist/file-access-runtime.js"}}));
+  await put(path.join(host,"dist/file-access-runtime.js"), `import fs from 'node:fs/promises';import path from 'node:path';export async function stageDurableFileInDirectory({directory,content}){return {publish:async(name)=>{await fs.writeFile(path.join(directory,name),content,{flag:'wx'});return {status:'published'};},cleanup:async()=>{}};}`);
+  const configRoot=path.join(host,"node_modules/@openclaw/fs-safe");
+  await put(path.join(configRoot,"package.json"),JSON.stringify({name:"@openclaw/fs-safe",type:"module",exports:{"./config":"./config.js"}}));
+  await put(path.join(configRoot,"config.js"),"export const getFsSafeNativeConfig=()=>({mode:'auto'});\n");
+  if(hoisted){const decoy=path.join(root,"node_modules/@openclaw/fs-safe");await put(path.join(decoy,"package.json"),JSON.stringify({name:"@openclaw/fs-safe",type:"module",exports:{"./config":"./config.js"}}));await put(path.join(decoy,"config.js"),"throw Error('wrapper fs-safe must not serve the installed SDK');\n");}
+  const original=await readFile(path.join(repositoryRoot,"downstream/scripts/smoke-packaged-filesystem.mjs"),"utf8");
+  // Substitute only the fixed Docker /app location with the owned fixture root.
+  // The consumer/resolution/staging/no-overwrite/policy assertions run unchanged.
+  assert.equal(original.split('createRequire("/app/package.json")').length,2);
+  const script=path.join(root,"actual-smoke-consumer.mjs");
+  await put(script,original.replace('createRequire("/app/package.json")',`createRequire(${JSON.stringify(path.join(root,"package.json"))})`));
+  const result=spawnSync(process.execPath,[script],{cwd:root,encoding:"utf8"});
+  assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/PASS packaged SDK/);
+  await rm(path.join(configRoot,"config.js"));
+  const refused=spawnSync(process.execPath,[script],{cwd:root,encoding:"utf8"});
+  assert.notEqual(refused.status,0);assert(!refused.stdout.includes("PASS packaged SDK"));
 });

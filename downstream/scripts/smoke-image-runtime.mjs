@@ -6,6 +6,8 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
+const codeProfile = process.env.RUNTIME_PROFILE === "code";
+if (![undefined, "paired-life", "code"].includes(process.env.RUNTIME_PROFILE)) throw new Error("unknown smoke runtime profile");
 const expectedOpenClawVersion = process.env.EXPECTED_OPENCLAW_VERSION;
 const expectedCodexVersion = process.env.EXPECTED_CODEX_VERSION;
 // Preserve the historical July invocation; modern images require an explicit
@@ -22,6 +24,8 @@ if (
   throw new Error("expected OpenClaw, Codex, Discord, and QMD versions are required");
 }
 
+if (codeProfile && (expectedOpenClawVersion !== "2026.9.9" || expectedCodexVersion !== "2026.9.9" || expectedQmdVersion !== "absent" || includeDiscord)) throw new Error("Code smoke selection differs");
+if (!codeProfile && expectedQmdVersion === "absent") throw new Error("paired smoke requires QMD");
 const imagePluginRuntimeRoot = "/opt/openclaw-plugin-runtime";
 const root = await mkdtemp(path.join(os.tmpdir(), "openclaw-image-smoke-"));
 const stateDir = path.join(root, "state");
@@ -66,8 +70,8 @@ try {
           auth: { mode: "token", token },
         },
         plugins: {
-          allow: includeDiscord ? ["codex", "discord"] : ["codex"],
-          entries: { codex: { enabled: true }, ...(includeDiscord ? { discord: { enabled: true } } : {}) },
+          allow: codeProfile ? ["codex", "openai", "workboard"] : includeDiscord ? ["codex", "discord"] : ["codex"],
+          entries: { ...(codeProfile ? { openai: { enabled: true }, workboard: { enabled: true } } : {}), codex: { enabled: true }, ...(includeDiscord ? { discord: { enabled: true } } : {}) },
         },
       },
       null,
@@ -81,6 +85,7 @@ try {
     throw new Error(`unexpected OpenClaw version: ${version.trim()}`);
   }
 
+  if (!codeProfile) {
   const qmd = spawnSync("qmd", ["--version"], { encoding: "utf8", env: environment });
   if (qmd.status !== 0 || !qmd.stdout.includes(`qmd ${expectedQmdVersion}`)) {
     throw new Error(`unexpected QMD version: ${(qmd.stdout || qmd.stderr).trim()}`);
@@ -90,6 +95,7 @@ try {
     throw new Error(
       `QMD failed to open its database runtime: ${(qmdStatus.stdout || qmdStatus.stderr).trim()}`,
     );
+  }
   }
   const pythonRequests = spawnSync("python3", ["-c", "import requests"], {
     encoding: "utf8",
@@ -139,6 +145,7 @@ try {
   ) {
     throw new Error(`Chromium headless launch failed: ${chromiumLaunch.stderr.trim()}`);
   }
+  if (!codeProfile) {
   const qmdRoot = "/opt/qmd-runtime/node_modules/@tobilu/qmd";
   const qmdManifest = JSON.parse(await readFile(path.join(qmdRoot, "package.json"), "utf8"));
   const qmdShrinkwrap = JSON.parse(
@@ -152,6 +159,8 @@ try {
     qmdShrinkwrap.packages?.[""]?.version !== qmdManifest.version
   ) {
     throw new Error("QMD image runtime metadata disagrees");
+  }
+
   }
 
   const inspected = runOpenClaw(["plugins", "inspect", "codex", "--json"], environment);
@@ -169,6 +178,13 @@ try {
     throw new Error("Codex plugin runtime dependencies are incomplete");
   }
 
+  if (codeProfile) {
+    for (const id of ["openai", "workboard"]) {
+      const inspection = JSON.parse(runOpenClaw(["plugins", "inspect", id, "--json"], environment).stdout);
+      if (inspection.plugin?.status !== "loaded") throw new Error(`Code ${id} plugin is not loaded`);
+      if (!inspection.plugin.rootDir?.startsWith("/app/node_modules/openclaw/")) throw new Error(`Code ${id} plugin is outside the frozen host`);
+    }
+  }
   if (includeDiscord) {
   const discordInspected = runOpenClaw(["plugins", "inspect", "discord", "--json"], environment);
   const discordInspection = JSON.parse(discordInspected.stdout);
@@ -229,7 +245,7 @@ try {
       `scoped loopback RPC failed (gateway exit=${String(gateway.exitCode)}, signal=${String(gateway.signalCode)}): ${redact(lastRpcError)}\n${redact(log)}`,
     );
   }
-  console.log("Exact image, baked Codex plugin, QMD runtime, and scoped loopback RPC passed");
+  console.log("Exact selected image, baked plugins, selected tools, and scoped loopback RPC passed");
 } finally {
   if (gateway?.exitCode === null) {
     gateway.kill("SIGTERM");
@@ -260,7 +276,10 @@ async function validateAndHydrateImagePluginRuntime() {
       throw new Error("packaged runtime requires an explicit Discord version");
     }
     const { validateInstalledPluginRuntime } = await import(packagedValidator);
-    await validateInstalledPluginRuntime(imagePluginRuntimeRoot);
+    const candidate = JSON.parse(await readFile("/opt/openclaw-runtime/candidate.json", "utf8"));
+    if (codeProfile && candidate.role !== "code") throw new Error("Code smoke requires Code image selection");
+    if (!codeProfile && candidate.role === "code") throw new Error("paired smoke cannot validate Code image");
+    await validateInstalledPluginRuntime(imagePluginRuntimeRoot, undefined, codeProfile ? candidate : null);
   } else {
     const shrinkwrap = JSON.parse(
       await readFile(path.join(imagePluginPath, "npm-shrinkwrap.json"), "utf8"),

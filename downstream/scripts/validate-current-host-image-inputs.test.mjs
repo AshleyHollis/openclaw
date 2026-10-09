@@ -31,12 +31,13 @@ for (const failure of [null, "public-version-only", "old-lock", "archive", "code
 test("Life recipe uses current locks, exact producer, Codex and QMD; no Discord", async () => {
   const recipe = await readFile(new URL("../Dockerfile.packaged-runtime", import.meta.url), "utf8");
   assert(!/discord/iu.test(recipe));
-  assert(recipe.includes("runtime-install/current-host/host.package-lock.json"));
-  assert(recipe.includes("runtime-install/current-host/plugins.package-lock.json"));
+  assert(recipe.includes("${RUNTIME_INPUT_ROOT}/host.package-lock.json"));
+  assert(recipe.includes("${RUNTIME_INPUT_ROOT}/plugins.package-lock.json"));
   assert(recipe.includes(candidate.hostProducedFrom));
   assert(recipe.includes(candidate.hostArchiveSha256));
   assert(recipe.includes(candidate.components.codex.sha256));
   assert(recipe.includes(candidate.components.qmd.sha256));
-  assert(recipe.includes("codex-cli 0.158.0"));
+  assert(recipe.includes('ARG CODEX_ENGINE_VERSION="0.158.0"'));
+  assert(recipe.includes('codex-cli $CODEX_ENGINE_VERSION'));
   assert(recipe.includes("dist/build-info.json"));
 });

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { runtimeSelectionPaths, validateCodeSelection } from "./validate-packaged-candidate.mjs";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
@@ -9,8 +10,13 @@ const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const integrity = (bytes) => `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
 
 export function validateCurrentHostRecords(candidate, hostLock, pluginLock, actual) {
-  assert.equal(candidate.hostVersion, "2026.9.8");
-  assert.equal(candidate.hostProducedFrom, "13c9575fa34c1d8166223473f7446b9c3889ac64");
+  const code = candidate.role === "code";
+  if (code) validateCodeSelection(candidate);
+  else {
+    assert(candidate.role === undefined || candidate.role === "paired-life", "unknown runtime role");
+    assert.equal(candidate.hostVersion, "2026.9.8");
+    assert.equal(candidate.hostProducedFrom, "13c9575fa34c1d8166223473f7446b9c3889ac64");
+  }
   assert.equal(actual.build.version, candidate.hostVersion);
   assert.equal(actual.build.commit, candidate.hostProducedFrom);
   assert.equal(actual.hostSha256, candidate.hostArchiveSha256);
@@ -22,26 +28,39 @@ export function validateCurrentHostRecords(candidate, hostLock, pluginLock, actu
   assert.equal(codex.version, candidate.components.codex.version);
   assert.equal(codex.integrity, actual.codexIntegrity);
   assert.equal(actual.codexSha256, candidate.components.codex.sha256);
-  assert.equal(actual.qmdSha256, candidate.components.qmd.sha256);
-  assert.equal(actual.ccSha256, candidate.commandCenter.archiveSha256);
+  if (code) {
+    const engine = pluginLock.packages["node_modules/@openclaw/codex/node_modules/@openai/codex"];
+    assert.equal(engine?.version, "0.160.0");
+    const platform = pluginLock.packages["node_modules/@openclaw/codex/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64"];
+    assert.equal(platform?.version, candidate.codexPlatform.packageVersion);
+    assert.deepEqual(platform?.os, ["linux"]);
+    assert.deepEqual(platform?.cpu, ["x64"]);
+    assert.match(platform?.integrity ?? "", /^sha512-[A-Za-z0-9+/]+=*$/u);
+  } else {
+    assert.equal(actual.qmdSha256, candidate.components.qmd.sha256);
+    assert.equal(actual.ccSha256, candidate.commandCenter.archiveSha256);
+  }
   assert.equal(pluginLock.packages["node_modules/openclaw"].link, true);
   assert.equal(path.resolve("/opt/openclaw-plugin-runtime", pluginLock.packages["node_modules/openclaw"].resolved), "/app/node_modules/openclaw");
   assert(!Object.keys(pluginLock.packages).some((key) => key.includes("@openclaw/discord")));
   return candidate;
 }
 
-export async function validateCurrentHostImageInputs(root) {
-  const overlay = new URL("../runtime-install/current-host/", import.meta.url);
+export async function validateCurrentHostImageInputs(root, profile = "paired-life") {
+  const selected = runtimeSelectionPaths(profile);
+  const overlay = new URL(`../../${selected.inputRoot}/`, import.meta.url);
   const readJson = async (name) => JSON.parse(await readFile(new URL(name, overlay), "utf8"));
-  const candidate = JSON.parse(await readFile(new URL("../runtime-install/candidate.json", import.meta.url), "utf8"));
+  const candidate = JSON.parse(await readFile(new URL(`../../${selected.candidate}`, import.meta.url), "utf8"));
   const hostBytes = await readFile(path.join(root, "openclaw-current.tgz"));
   const codexBytes = await readFile(path.join(root, "codex-current.tgz"));
   const build = JSON.parse(execFileSync("tar", ["-xOf", path.join(root, "openclaw-current.tgz"), "package/dist/build-info.json"], { maxBuffer: 65536 }));
   const actual = {
     build, hostSha256: sha(hostBytes), hostIntegrity: integrity(hostBytes),
     codexSha256: sha(codexBytes), codexIntegrity: integrity(codexBytes),
-    qmdSha256: sha(await readFile(path.join(root, "qmd-current.tgz"))),
-    ccSha256: sha(await readFile(path.join(root, "command-center.tgz"))),
+    ...(profile === "code" ? {} : {
+      qmdSha256: sha(await readFile(path.join(root, "qmd-current.tgz"))),
+      ccSha256: sha(await readFile(path.join(root, "command-center.tgz"))),
+    }),
   };
   for (const [name, digest] of Object.entries(candidate.locks)) {
     assert.equal(sha(await readFile(new URL(name, overlay))), digest, `${name} bytes differ`);
@@ -50,6 +69,6 @@ export async function validateCurrentHostImageInputs(root) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  const candidate = await validateCurrentHostImageInputs(process.argv[2] ?? process.cwd());
+  const candidate = await validateCurrentHostImageInputs(process.argv[2] ?? process.cwd(), process.argv[3]);
   console.log(JSON.stringify({ inputsVerified: true, hostProducedFrom: candidate.hostProducedFrom, imageBuilt: false, installed: false }));
 }

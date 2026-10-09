@@ -37,3 +37,52 @@ lock before hydration rewrites temporary archive specs. NAS retains its historic
 shrinkwrap branch for rollback images, but modern images use this validator. A matching
 Command Center artifact, real-data rehearsal, final acceptance, independent evaluation
 and normal backup/rollback admission remain separate requirements.
+
+## Frozen 2026.9.9 Code selection (recipe-only successor)
+
+`runtime-image` accepts `runtime_profile=code`; `paired-life` is still the
+unchanged default. Code consumes the **existing** EA product/package, not a
+package built from the tooling PR. It selects `current-code/candidate.json`,
+`current-code/{host,plugins}.package.json` and freshly generated matching locks.
+Those files are deliberately not synthesized from the historical 9.8 locks.
+Until the owner supplies and seals actual inputs, Code assembly refuses; it does
+not fall back to `current-host` or silently build the tooling source as product.
+
+The closed Code selection requires:
+
+- Role `code`, platform `linux/amd64`, OpenClaw/Codex companion version `2026.9.9`.
+- Product EA `ea4135dbeced9c393ab4f6ebde8bf3e751ea5fa2`, original package producer
+  `37873292633` / artifact `11591748081`, its successful workflow/artifact metadata,
+  original package-candidate receipt and archive SHA `acf8cd1c…`.
+- Complete retained prepublish registry directory, raw manifest SHA `f156c4bc…`,
+  authenticated artifact metadata, manifest source identity, and the
+  manifest-declared Codex tarball SHA `4dbfc268…`. The existing registry validator
+  verifies **every** entry and rejects extra files before selecting Codex.
+- Codex engine `0.160.0`, `0.160.0-linux-x64` platform package, actual raw platform
+  package manifest and executable SHA-256, and its exact package-relative binary
+  path. These identities come from the actual selected platform bytes, not old
+  `.158` metadata or a model catalogue.
+- SHA-256 of both locks regenerated with the pinned Node image/npm 12.0.1 and
+  existing two-pass procedure above. Review lifecycle declarations against the
+  actual archives; run the clean strict `npm ci` proof. Do not hand-edit a lock.
+
+No CC archive/receipt or QMD is selected by Code. The paired profile retains both
+its CC input validation and QMD runtime. Code's image-owned validator rechecks
+host/source, both lock bytes, engine and platform manifest/executable bytes. Its
+isolated smoke additionally loads the frozen host's OpenAI and Workboard plugins;
+this is **not** a credentialed provider turn. Both targets retain filesystem,
+Chromium, Python, npm/tar, Codex registration, loopback RPC, vulnerability scan,
+SBOM/provenance and tested-image readback gates.
+
+After the exact `current-code` inputs are independently reviewed and committed,
+Root's existing dispatcher can select this **tooling** ref with
+`artifact_kind=runtime-image`, `runtime_profile=code`, `publish=false`. Product
+source remains EA. Image publication requires a separate exact tested-image
+Root disposition. No workflow invocation deploys Code or Life.
+
+Code activation additionally requires owner-controlled copied-state canonical
+compatibility and installed-9.8 first-hop interruption/failure/rollback proof,
+plus real configured-provider Codex initialize/turn/stream/terminal/cancel/exit
+proof in the existing isolated credential owner. Do not run Doctor/lint against
+live Code, hydrate CI with production credentials, mark ownership to force
+readiness, or reuse Life's release approval. Life/CC is a separate later target.
