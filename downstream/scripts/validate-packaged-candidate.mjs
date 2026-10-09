@@ -10,7 +10,7 @@ export const CODE_SELECTION = Object.freeze({
   source: "ea4135dbeced9c393ab4f6ebde8bf3e751ea5fa2",
   archive: "acf8cd1cedd1b64f6b855c7177fd3340a03208cd9cbf30aeaf5a511d2e2ef470",
   companion: "4dbfc268212996f43ce5ea6a42b281bf5358c065618185de3e4cc3f31d8dbf13",
-  registryManifest: "f156c4bce7faef83892bce842c39f1cb8ec6158c8cd6293cc01502b0dd58530c",
+  registryManifest: "1e52816586e4cf01d1d469228027b28e769e6eb6e53518a1e8ffc17b64bdbbee",
 });
 
 export function runtimeSelectionPaths(profile = "paired-life") {

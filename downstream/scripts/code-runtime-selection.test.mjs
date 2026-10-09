@@ -38,6 +38,12 @@ test('Code selection admits exact 9.9 product without CC; paired remains the def
   assert.equal(runtimeSelectionPaths('code').target,'code-runtime');
   assert.throws(()=>runtimeSelectionPaths('life-ish'));
 });
+test('Q8 tuple rejects retained Q5 manifest despite identical selected Codex archive', () => {
+  const c=structuredClone(candidate);
+  c.companionManifestSha256='f156c4bce7faef83892bce842c39f1cb8ec6158c8cd6293cc01502b0dd58530c';
+  assert.throws(()=>validateCodeSelection(c));
+  assert.equal(CODE_SELECTION.registryManifest,'1e52816586e4cf01d1d469228027b28e769e6eb6e53518a1e8ffc17b64bdbbee');
+});
 for (const triple of ['gnu', 'musl']) for (const layout of ['codex/codex', 'bin/codex']) {
   test(`closed Linux-x64 Codex layout ${triple}/${layout}`, () => {
     const c=structuredClone(candidate);
