@@ -76,7 +76,8 @@ export function publishedBackupRollback(snapshot, { sanitize, boundedList, textF
         fault.parentJoined !== true || !Array.isArray(fault.liveProcessesAfter) || fault.liveProcessesAfter.length !== 0 ||
         fault.terminal?.signal !== "SIGKILL" ||
         fault.marker?.boundary !== "after-original-prefix-rename-before-candidate-publication" ||
-        restart?.status !== "passed" || restart.baselineVersion !== proof.baselineVersion ||
+        restart?.status !== "passed" || restart.nativeRecertification !== "passed" ||
+        typeof restart.recertificationSha256 !== "string" || !/^[a-f0-9]{64}$/.test(restart.recertificationSha256) || restart.baselineVersion !== proof.baselineVersion ||
         restart.capturedBackupSha256 !== fault.backupProofSha256 ||
         restart.interruptionSha256 !== proof.interruptionSha256 ||
         restart.runtime?.manifestSha256 !== proof.runtime.manifestSha256 ||

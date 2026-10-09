@@ -32,11 +32,24 @@ run_first_hop_interruption() {
   hash -r
   export OPENCLAW_STATE_DIR="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).restoredStateDir" "$ARTIFACT_ROOT/backup-rollback.json")"
   export OPENCLAW_CONFIG_PATH="$OPENCLAW_STATE_DIR/openclaw.json"
+  # Restore creates a NEW physical SQLite generation. Original fc23 canonical
+  # certification binds dev/inode/birthtime and cannot reuse the archive receipt.
+  # Predict only that exact native write, then prove every other byte invariant.
+  phase plan-restored-native-recertification node /tmp/openclaw-release-harness/scripts/e2e/lib/upgrade-survivor/backup-rollback.mjs \
+    prepare-recertification "$ARTIFACT_ROOT/backup-rollback.json" "$ARTIFACT_ROOT/first-hop-interruption/result.json"
   phase restart-restored-original9.8 start_gateway
   phase restored-original-health check_gateway_probes
   phase restored-original-rpc check_gateway_status
   phase stop-restored-original stop_gateway
+  phase verify-restored-native-recertification node /tmp/openclaw-release-harness/scripts/e2e/lib/upgrade-survivor/backup-rollback.mjs \
+    verify-recertified "$ARTIFACT_ROOT/backup-rollback.json" "$ARTIFACT_ROOT/first-hop-interruption/result.json"
+  # SECOND actual original restart: the physical certificate must now remain
+  # byte-identical with ALL history/configuration on those same files.
+  phase restart-certified-original9.8 start_gateway
+  phase restarted-certified-health check_gateway_probes
+  phase restarted-certified-rpc check_gateway_status
+  phase stop-restarted-certified-original stop_gateway
   phase restored-original-history node /tmp/openclaw-release-harness/scripts/e2e/lib/upgrade-survivor/backup-rollback.mjs \
-    verify-restarted "$ARTIFACT_ROOT/backup-rollback.json" "$ARTIFACT_ROOT/first-hop-interruption/result.json"
+    verify-certified-restarted "$ARTIFACT_ROOT/backup-rollback.json" "$ARTIFACT_ROOT/first-hop-interruption/result.json"
   phase assert-retained-original-identity node -e 'const fs=require("fs"),a=require("assert/strict"),p=process.argv[1];a.equal(JSON.parse(fs.readFileSync(p+"/package.json")).version,"2026.9.8");a.equal(JSON.parse(fs.readFileSync(p+"/dist/build-info.json")).commit,"fc23bc864e4553c2d215e479eeec47b67a0bf943")' "$retained_root"
 }

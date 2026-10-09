@@ -53,13 +53,13 @@ function containedPath(root, relative) {
   return result;
 }
 
-function tableInventory(database, table) {
+function tableInventory(database, table, physicalReceipt) {
   const statement = database.prepare(`SELECT * FROM ${quoteIdentifier(table)}`);
   statement.setReadBigInts(true);
   const columns = statement.columns().map((column) => column.name);
   const rows = statement.all().map((row) =>
     JSON.stringify(
-      columns.map((column) => row[column]),
+      columns.map((column) => table === "session_key_contract" && row.id === 1n && column === "canonical_ready" && physicalReceipt !== undefined ? physicalReceipt : row[column]),
       (_key, value) => {
         if (typeof value === "bigint") {
           return { integer: value.toString() };
@@ -661,7 +661,108 @@ function verify(resultFile, candidateSchemaFile, interrupted = false) {
   return "passed";
 }
 
-function verifyRestarted(resultFile, interruptionFile) {
+function recertificationPath(resultFile, kind) {
+  return path.join(path.dirname(resultFile), `backup-rollback-recertification-${kind}.json`);
+}
+
+function restoredPhysicalIdentities(proof) {
+  return proof.before.databases.filter((item) => item.kind === "agent" && item.present).map((item) => {
+    const file = containedPath(proof.restoredStateDir, item.relative);
+    const st = fs.lstatSync(file, {bigint:true});
+    assert(st.isFile() && !st.isSymbolicLink() && st.nlink === 1n, "unsafe restored physical database");
+    assert(typeof item.agentId === "string" && item.agentId.length > 0);
+    const identity = `${st.dev}:${st.ino}`, birthtime = st.birthtimeNs.toString();
+    return {relative:item.relative,agentId:item.agentId,identity,birthtime,
+      receipt:JSON.stringify([1,item.agentId,identity,birthtime])};
+  });
+}
+
+function expectedRecertifiedInventory(proof, plan) {
+  assert.deepEqual(plan.originalRuntime,proof.runtime,"foreign original runtime");
+  assert.equal(plan.restoredStateDir,proof.restoredStateDir);
+  assert(plan.originalReceipt === null || typeof plan.originalReceipt === "string");
+  const physical = restoredPhysicalIdentities(proof);
+  assert.deepEqual(physical,plan.physical,"restored physical generation changed");
+  const main = physical.filter((item)=>item.agentId==="main" && item.relative==="agents/main/agent/openclaw-agent.sqlite");
+  assert.equal(main.length,1);
+  const expected = structuredClone(proof.before);
+  const target = expected.databases.find((item)=>item.relative===main[0].relative && item.agentId==="main");
+  const index = target.tables.findIndex((item)=>item.table==="session_key_contract");
+  assert(index>=0);
+  const db = new DatabaseSync(containedPath(proof.restoredStateDir,main[0].relative),{readOnly:true});
+  try {
+    assert.equal(db.prepare("SELECT count(*) AS n FROM session_canonical_validation_pending").get().n,0,
+      "restored canonical rows have pending validation");
+    const rows = db.prepare("SELECT * FROM session_key_contract").all();
+    assert.equal(rows.length,1,"ambiguous original physical receipt row"); assert.equal(rows[0].id,1);
+    assert(Object.hasOwn(rows[0],"canonical_ready"),"canonical receipt column absent");
+    // Reconstruct the ORIGINAL full row hash from actual current nonreceipt
+    // columns plus retained original receipt. Any forged plan or other mutation
+    // must still match the independently bound captured full table inventory.
+    assert.deepEqual(tableInventory(db,"session_key_contract",plan.originalReceipt),target.tables[index],
+      "nonreceipt row/schema differs from original captured inventory");
+    target.tables[index] = tableInventory(db,"session_key_contract",main[0].receipt);
+  } finally { db.close(); }
+  return expected;
+}
+
+function recertify(resultFile, interruptionFile, verifyOnly) {
+  const proof = readJson(resultFile), fault = readJson(interruptionFile);
+  assert.equal(proof.status,"passed");
+  assert.equal(fault.outcome,"interrupted-not-upgraded");
+  assert.equal(proof.baselineVersion,"2026.9.8");
+  assert.equal(hashFile(interruptionFile),proof.interruptionSha256);
+  assert.equal(hashFile(fault.capturedProofPath),fault.backupProofSha256);
+  const captured = readJson(fault.capturedProofPath);
+  assert.deepEqual(proof.before,captured.before);
+  assert.deepEqual(runtimeIdentity(proof.runtime.packageRoot,proof.runtime.entry),captured.runtime);
+  assert.equal(hashFile(proof.archive.path),captured.archive.sha256);
+  assert.equal(hashFile(containedPath(proof.restoredStateDir,fault.configRelative)),fault.configSha256);
+  const specimens = proof.before.databases.map(({kind,relative,agentId})=>({kind,relative,...(agentId?{agentId}:{})}));
+  const files = proof.before.files.map(({relative,kind})=>({relative,kind}));
+  const physical = restoredPhysicalIdentities(proof);
+  const planPath = recertificationPath(resultFile,"intent");
+  if (!verifyOnly) {
+    // EXACT archive fidelity is still required before the original native owner
+    // admits these new files. No raw DB writes or actual-inventory projection.
+    assert.deepEqual(inventory(proof.restoredStateDir,specimens,files),proof.before,
+      "restored inventory changed before native recertification");
+    const main = physical.filter((item)=>item.agentId==="main" && item.relative==="agents/main/agent/openclaw-agent.sqlite");
+    assert.equal(main.length,1,"one exact original main physical database required");
+    const db = new DatabaseSync(containedPath(proof.restoredStateDir,main[0].relative),{readOnly:true});
+    let originalReceipt;
+    try {
+      const rows = db.prepare("SELECT * FROM session_key_contract").all();
+      assert.equal(rows.length,1); assert.equal(rows[0].id,1);
+      originalReceipt = rows[0].canonical_ready;
+      assert(originalReceipt === null || typeof originalReceipt === "string");
+    } finally { db.close(); }
+    const plan = {schemaVersion:1,status:"planned",originalReceipt,
+      interruptionSha256:proof.interruptionSha256,capturedBackupSha256:fault.backupProofSha256,
+      originalRuntime:captured.runtime,restoredStateDir:proof.restoredStateDir,physical};
+    const expected = expectedRecertifiedInventory(proof,plan);
+    fs.writeFileSync(planPath,JSON.stringify({...plan,expected})+"\n",{flag:"wx",mode:0o600});
+    return "planned";
+  }
+  const plan = readJson(planPath);
+  assert.equal(plan.schemaVersion,1);
+  assert.equal(plan.status,"planned");
+  assert.equal(plan.interruptionSha256,proof.interruptionSha256);
+  assert.equal(plan.capturedBackupSha256,fault.backupProofSha256);
+  assert.equal(plan.restoredStateDir,proof.restoredStateDir);
+  assert.deepEqual(physical,plan.physical,"restored physical generation changed");
+  const independentlyExpected = expectedRecertifiedInventory(proof,plan);
+  assert.deepEqual(plan.expected,independentlyExpected,"forged expected native transition");
+  assert.deepEqual(inventory(proof.restoredStateDir,specimens,files),independentlyExpected,
+    "original native recertification changed history/config or wrong physical receipt");
+  fs.writeFileSync(recertificationPath(resultFile,"result"),JSON.stringify({schemaVersion:1,status:"passed",
+    intentSha256:hashFile(planPath),interruptionSha256:proof.interruptionSha256,
+    originalRuntime:captured.runtime,restoredStateDir:proof.restoredStateDir,
+    capturedBackupSha256:fault.backupProofSha256,physical,inventory:independentlyExpected})+"\n",{flag:"wx",mode:0o600});
+  return "passed";
+}
+
+function verifyRestarted(resultFile, interruptionFile, certified = false) {
   const proof = readJson(resultFile);
   const fault = readJson(interruptionFile);
   assert.equal(proof.status, "passed", "interrupted restore was not verified");
@@ -680,9 +781,34 @@ function verifyRestarted(resultFile, interruptionFile) {
   const files = captured.before.files.map(({relative,kind})=>({relative,kind}));
   // Same history-specific readonly observer as the established restore owner;
   // not a broad physical-database/table/index equality or ownership claim.
+  let expectedInventory = captured.before;
+  let recertificationSha256;
+  if (certified) {
+    const planPath = recertificationPath(resultFile,"intent");
+    const certificatePath = recertificationPath(resultFile,"result");
+    const plan = readJson(planPath), certificate = readJson(certificatePath);
+    assert.equal(plan.schemaVersion,1); assert.equal(plan.status,"planned");
+    assert.equal(plan.interruptionSha256,proof.interruptionSha256);
+    assert.equal(certificate.schemaVersion,1);
+    assert.equal(certificate.status,"passed");
+    assert.equal(certificate.intentSha256,hashFile(planPath));
+    assert.equal(certificate.interruptionSha256,proof.interruptionSha256);
+    assert.equal(plan.capturedBackupSha256,fault.backupProofSha256);
+    assert.equal(plan.restoredStateDir,proof.restoredStateDir);
+    assert.deepEqual(certificate.physical,restoredPhysicalIdentities(proof));
+    assert.deepEqual(certificate.physical,plan.physical);
+    assert.deepEqual(certificate.originalRuntime,captured.runtime);
+    assert.equal(certificate.restoredStateDir,proof.restoredStateDir);
+    assert.equal(certificate.capturedBackupSha256,fault.backupProofSha256);
+    const independentlyExpected = expectedRecertifiedInventory(proof,plan);
+    assert.deepEqual(plan.expected,independentlyExpected);
+    assert.deepEqual(certificate.inventory,independentlyExpected);
+    expectedInventory = independentlyExpected;
+    recertificationSha256 = hashFile(certificatePath);
+  }
   const after = inventory(proof.restoredStateDir, specimens, files);
   try {
-    assert.deepEqual(after, captured.before,
+    assert.deepEqual(after, expectedInventory,
       "original baseline restart changed restored history/configuration");
   } catch (error) {
     // The assertion printer elides large inventories. Retain exact changed
@@ -707,10 +833,10 @@ function verifyRestarted(resultFile, interruptionFile) {
       totalDifferences++;
       if (differences.length < 128) differences.push({ pointer, expected: fingerprint(expected), actual: fingerprint(actual) });
     }
-    compare(captured.before, after, "");
+    compare(expectedInventory, after, "");
     const diagnostic = { schemaVersion: 1, status: "failed", phase: "restored-original-history",
       interruptionSha256: proof.interruptionSha256, capturedBackupSha256: fault.backupProofSha256,
-      expectedInventorySha256: fingerprint(captured.before).sha256,
+      expectedInventorySha256: fingerprint(expectedInventory).sha256,
       actualInventorySha256: fingerprint(after).sha256, totalDifferences, differences,
       omittedDifferences: totalDifferences - differences.length };
     // The publisher budgets the JSON-escaped log string, not raw file bytes.
@@ -725,7 +851,8 @@ function verifyRestarted(resultFile, interruptionFile) {
   fs.writeFileSync(output, JSON.stringify({status:"passed",baselineVersion:captured.baselineVersion,
     runtime:captured.runtime,interruptionSha256:hashFile(interruptionFile),
     capturedBackupSha256:fault.backupProofSha256,restoredStateDir:proof.restoredStateDir,
-    scope:"isolated native seeded history after original9.8 restart; not live Code history"},null,2)+"\n",{flag:"wx",mode:0o600});
+    ...(certified ? {nativeRecertification:"passed",recertificationSha256} : {}),
+    scope:certified ? "exact restored archive, original native physical recertification, second same-generation restart; not live Code history" : "isolated native seeded history after original9.8 restart; not live Code history"},null,2)+"\n",{flag:"wx",mode:0o600});
   return "passed";
 }
 
@@ -734,11 +861,11 @@ try {
   assert(
     (command === "eligibility" && args.length === 2) ||
       (command === "capture" && args.length === 5) ||
-      (["verify", "verify-interrupted", "verify-restarted"].includes(command) && args.length === 2),
+      (["verify", "verify-interrupted", "verify-restarted", "prepare-recertification", "verify-recertified", "verify-certified-restarted"].includes(command) && args.length === 2),
     "usage: backup-rollback.mjs eligibility <baseline-version> <result.json> | capture <schema-before.json> <baseline-package> <baseline-entry> <runtime-root> <result.json> | verify <result.json> <schema-after.json> | verify-interrupted <captured.json> <actual-interruption.json> | verify-restarted <restored.json> <actual-interruption.json>",
   );
   process.stdout.write(
-    `${command === "eligibility" ? eligibility(...args) : command === "capture" ? capture(...args) : command === "verify-restarted" ? verifyRestarted(...args) : verify(...args, command === "verify-interrupted")}\n`,
+    `${command === "eligibility" ? eligibility(...args) : command === "capture" ? capture(...args) : command === "prepare-recertification" ? recertify(...args,false) : command === "verify-recertified" ? recertify(...args,true) : ["verify-restarted","verify-certified-restarted"].includes(command) ? verifyRestarted(...args,command === "verify-certified-restarted") : verify(...args, command === "verify-interrupted")}\n`,
   );
 } catch (error) {
   const resultFile = command === "capture" ? args[4] : ["verify", "verify-interrupted"].includes(command) ? args[0] : undefined;

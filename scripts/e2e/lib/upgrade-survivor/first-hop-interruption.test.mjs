@@ -145,10 +145,10 @@ test('published interruption summary preserves original9.8 identity and refuses 
  const proof={status:'passed',baselineVersion:'2026.9.8',candidateVersion:'2026.9.9',interruptionSha256:h,runtime,archive:{sha256:h},before:{databases:[{kind:'state',present:true,userVersion:19,contentVersion:19,sessions:[],tables:[]},{kind:'agent',agentId:'main',present:true,userVersion:24,contentVersion:24,sessions:[{key:'fictional',sessionId:'fictional'}],tables:[{table:'transcript_events',rows:1,sha256:h}]}],files:[{kind:'transcript',sha256:h}]},preflights:[{agentId:'main',status:'exact',foundVersion:24,targetVersion:24}],sessionReads:[{agentId:'main',count:1}]};
  const snapshot={scenario:'first-hop-interruption',baseline:{spec:'openclaw@2026.9.8',version:'2026.9.8'},candidate:{version:'2026.9.9'},installedVersion:'2026.9.8',updateRestartMode:'manual',updateOutcome:'interrupted-baseline-restored',backupRollback:proof,
  firstHopInterruption:{schema:'openclaw.first-hop-interruption.v1',outcome:'interrupted-not-upgraded',baselineVersion:'2026.9.8',baselineSource:'fc23bc864e4553c2d215e479eeec47b67a0bf943',targetSource:'ea4135dbeced9c393ab4f6ebde8bf3e751ea5fa2',targetSha256:'acf8cd1cedd1b64f6b855c7177fd3340a03208cd9cbf30aeaf5a511d2e2ef470',parentJoined:true,liveProcessesAfter:[],terminal:{signal:'SIGKILL'},marker:{boundary:'after-original-prefix-rename-before-candidate-publication'},backupProofSha256:h,markerSha256:h,intentSha256:h,originalPrefixSha256:h},
- backupRollbackRestart:{status:'passed',baselineVersion:'2026.9.8',runtime,capturedBackupSha256:h,interruptionSha256:h}};
+ backupRollbackRestart:{status:'passed',nativeRecertification:'passed',recertificationSha256:h,baselineVersion:'2026.9.8',runtime,capturedBackupSha256:h,interruptionSha256:h}};
  const io={sanitize:v=>v,boundedList:v=>{assert(Array.isArray(v));return v;},textFields:()=>({})};
  const result=publishedBackupRollback(snapshot,io);assert.equal(result.interruption.candidateActivated,false);assert.equal(result.interruption.restoredOriginalRestart,'passed');assert.equal(result.candidateSchemaVersions,undefined);
- for(const mutate of [s=>s.installedVersion='2026.9.9',s=>s.updateOutcome='success',s=>delete s.backupRollbackRestart,s=>s.firstHopInterruption.parentJoined=false,s=>s.firstHopInterruption.liveProcessesAfter=[123],s=>s.firstHopInterruption.terminal.signal=null,s=>s.backupRollbackRestart.capturedBackupSha256='b'.repeat(64),s=>s.backupRollback.interruptionSha256='b'.repeat(64),s=>s.backupRollback.candidateVersion='2026.9.8',s=>s.backupRollback.preflights=[],s=>s.backupRollback.before.databases[1].tables=[]]){const bad=structuredClone(snapshot);mutate(bad);assert.throws(()=>publishedBackupRollback(bad,io));}
+ for(const mutate of [s=>s.installedVersion='2026.9.9',s=>s.updateOutcome='success',s=>delete s.backupRollbackRestart,s=>delete s.backupRollbackRestart.nativeRecertification,s=>delete s.backupRollbackRestart.recertificationSha256,s=>s.backupRollbackRestart.recertificationSha256=[h],s=>s.firstHopInterruption.parentJoined=false,s=>s.firstHopInterruption.liveProcessesAfter=[123],s=>s.firstHopInterruption.terminal.signal=null,s=>s.backupRollbackRestart.capturedBackupSha256='b'.repeat(64),s=>s.backupRollback.interruptionSha256='b'.repeat(64),s=>s.backupRollback.candidateVersion='2026.9.8',s=>s.backupRollback.preflights=[],s=>s.backupRollback.before.databases[1].tables=[]]){const bad=structuredClone(snapshot);mutate(bad);assert.throws(()=>publishedBackupRollback(bad,io));}
 });
 
 test('manual artifact dispatch stays within25inputs and strict existing registry owner; npm/paired contracts retained',()=>{
@@ -170,10 +170,10 @@ function restartFixture(t, fileCount = 1) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'restart-difference-'));
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const state=path.join(root,'restored');fs.mkdirSync(state);
-  const dbFile=path.join(state,'agent.sqlite');const db=new DatabaseSync(dbFile);
-  db.exec("PRAGMA user_version=24; CREATE TABLE session_key_contract(id INTEGER PRIMARY KEY, main_key TEXT, updated_at INTEGER); INSERT INTO session_key_contract VALUES(1,'fictional-private-main',100);");db.close();
-  const columnSha256=Object.fromEntries(['id','main_key','updated_at'].map((key,index)=>[key,hashBytes(JSON.stringify([1,'fictional-private-main',{integer:'100'}][index]))]));
-  const before={databases:[{kind:'agent',relative:'agent.sqlite',agentId:'main',present:true,userVersion:24,contentVersion:24,metadata:[],sessions:[],tables:[{table:'session_key_contract',columns:['id','main_key','updated_at'],rows:1,sha256:hashBytes('[{"integer":"1"},"fictional-private-main",{"integer":"100"}]\n'),columnSha256:{...columnSha256,id:hashBytes('{"integer":"1"}')}}]}],files:[]};
+  const dbFile=path.join(state,'agents/main/agent/openclaw-agent.sqlite');fs.mkdirSync(path.dirname(dbFile),{recursive:true});const db=new DatabaseSync(dbFile);
+  db.exec("PRAGMA user_version=24; CREATE TABLE session_key_contract(id INTEGER PRIMARY KEY, main_key TEXT, updated_at INTEGER, canonical_ready TEXT); INSERT INTO session_key_contract VALUES(1,'fictional-private-main',100,NULL); CREATE TABLE session_canonical_validation_pending(session_key TEXT);");db.close();
+  const columnSha256=Object.fromEntries(['id','main_key','updated_at','canonical_ready'].map((key,index)=>[key,hashBytes(JSON.stringify([1,'fictional-private-main',{integer:'100'},null][index]))]));
+  const before={databases:[{kind:'agent',relative:'agents/main/agent/openclaw-agent.sqlite',agentId:'main',present:true,userVersion:24,contentVersion:24,metadata:[],sessions:[],tables:[{table:'session_canonical_validation_pending',columns:['session_key'],rows:0,sha256:hashBytes('')},{table:'session_key_contract',columns:['id','main_key','updated_at','canonical_ready'],rows:1,sha256:hashBytes('[{"integer":"1"},"fictional-private-main",{"integer":"100"},null]\n'),columnSha256:{...columnSha256,id:hashBytes('{"integer":"1"}')}}]}],files:[]};
   for(let i=0;i<fileCount;i++){const relative=`owned-${i}.json`;fs.writeFileSync(path.join(state,relative),'original');before.files.push({relative,kind:'fixture',sha256:hashBytes('original')});}
   fs.writeFileSync(path.join(state,'openclaw.json'),'{}');
   const packageRoot=path.join(root,'original-runtime');fs.mkdirSync(packageRoot);
@@ -188,7 +188,7 @@ function restartFixture(t, fileCount = 1) {
   const interruptionFile=path.join(root,'interruption.json');fs.writeFileSync(interruptionFile,JSON.stringify(fault));
   const resultFile=path.join(root,'backup-rollback.json');fs.writeFileSync(resultFile,JSON.stringify({...captured,status:'passed',restoredStateDir:state,interruptionSha256:hashBytes(fs.readFileSync(interruptionFile))}));
   const command=()=>spawnSync(process.execPath,[fileURLToPath(new URL('backup-rollback.mjs',import.meta.url)),'verify-restarted',resultFile,interruptionFile],{encoding:'utf8',timeout:10000});
-  return {root,state,dbFile,command,resultFile,diagnostic:path.join(root,'backup-rollback-restart-difference.json')};
+  return {root,state,dbFile,command,resultFile,interruptionFile,diagnostic:path.join(root,'backup-rollback-restart-difference.json')};
 }
 test('unchanged restarted inventory passes without failure diagnostic',t=>{
   const f=restartFixture(t);const r=f.command();assert.equal(r.status,0,r.stderr);
@@ -200,8 +200,8 @@ test('changed contract column still refuses and identifies exact column without 
   const inventoryBefore=fs.readFileSync(f.dbFile);const proofBefore=fs.readFileSync(f.resultFile);
   const r=f.command();assert.equal(r.status,1);assert.match(r.stderr,/original baseline restart changed/);
   const raw=fs.readFileSync(f.diagnostic,'utf8'),d=JSON.parse(raw);
-  assert(d.differences.some(x=>x.pointer==='/databases/0/tables/0/columnSha256/main_key'));
-  assert(d.differences.some(x=>x.pointer==='/databases/0/tables/0/columnSha256/updated_at'));
+  assert(d.differences.some(x=>x.pointer==='/databases/0/tables/1/columnSha256/main_key'));
+  assert(d.differences.some(x=>x.pointer==='/databases/0/tables/1/columnSha256/updated_at'));
   assert(!d.differences.some(x=>x.pointer.endsWith('/columnSha256/id')));
   assert(!raw.includes('fictional-secret-replacement'));assert(!raw.includes('fictional-private-main'));
   assert(Buffer.byteLength(raw)<=16384);assert.equal(d.omittedDifferences,0);
@@ -230,4 +230,99 @@ test('actual capped/redacted diagnostic publisher retains difference log, not ar
   assert.equal(d.logs[label],diagnostic.replace('DO_NOT_UPLOAD','[REDACTED]'));
   assert(!raw.includes('DO_NOT_UPLOAD'));assert(!('unlisted-private.json' in d.logs));
   assert.equal(d.limits.outputBytesPerLog,16384);assert.equal(d.limits.reportBytes,524288);
+});
+
+function recertificationCommand(f, command) {
+  return spawnSync(process.execPath,[fileURLToPath(new URL('backup-rollback.mjs',import.meta.url)),
+    command,f.resultFile,f.interruptionFile],{encoding:'utf8',timeout:10000});
+}
+function fixtureNativeReceipt(f) {
+  const st=fs.statSync(f.dbFile,{bigint:true});
+  return JSON.stringify([1,'main',`${st.dev}:${st.ino}`,st.birthtimeNs.toString()]);
+}
+function fixtureCertify(f, receipt=fixtureNativeReceipt(f)) {
+  // Explicit fictional writer models ONLY the native fc23 output. Real hosted
+  // proof uses the retained original Gateway, never this test helper/SQL.
+  const db=new DatabaseSync(f.dbFile);
+  db.prepare('UPDATE session_key_contract SET canonical_ready=? WHERE id=1').run(receipt);db.close();
+}
+test('restored physical certification is exact, readonly observer; strict same-generation restart includes receipt',t=>{
+ const f=restartFixture(t);const original=fs.readFileSync(f.dbFile),proof=fs.readFileSync(f.resultFile);
+ let r=recertificationCommand(f,'prepare-recertification');assert.equal(r.status,0,r.stderr);
+ assert.deepEqual(fs.readFileSync(f.dbFile),original);assert.deepEqual(fs.readFileSync(f.resultFile),proof);
+ fixtureCertify(f);const certified=fs.readFileSync(f.dbFile);
+ r=recertificationCommand(f,'verify-recertified');assert.equal(r.status,0,r.stderr);
+ r=recertificationCommand(f,'verify-certified-restarted');assert.equal(r.status,0,r.stderr);
+ assert.deepEqual(fs.readFileSync(f.dbFile),certified);assert.deepEqual(fs.readFileSync(f.resultFile),proof);
+ const result=JSON.parse(fs.readFileSync(path.join(f.root,'backup-rollback-restart.json')));
+ assert.equal(result.nativeRecertification,'passed');assert.match(result.recertificationSha256,/^[a-f0-9]{64}$/);
+});
+for (const wrong of ['null','malformed','wrong-agent','stale-physical','main-key','timestamp','config','row-count','replaced-file','schema','pending-row','wrong-revision','wrong-birthtime']) {
+ test(`native recertification refuses ${wrong}, no complete proof`,t=>{
+  const f=restartFixture(t);let r=recertificationCommand(f,'prepare-recertification');assert.equal(r.status,0,r.stderr);
+  let receipt=fixtureNativeReceipt(f);
+  if(wrong==='null')receipt=null;
+  if(wrong==='malformed')receipt='not a receipt';
+  if(wrong==='wrong-revision')receipt=JSON.stringify([2,'main','0:0','0']);
+  if(wrong==='wrong-birthtime'){const parts=JSON.parse(receipt);parts[3]='wrong';receipt=JSON.stringify(parts);}
+  if(wrong==='wrong-agent')receipt=JSON.stringify([1,'foreign','0:0','0']);
+  if(wrong==='stale-physical')receipt=JSON.stringify([1,'main','0:0','0']);
+  fixtureCertify(f,receipt);
+  const db=new DatabaseSync(f.dbFile);
+  if(wrong==='main-key')db.exec("UPDATE session_key_contract SET main_key='foreign'");
+  if(wrong==='timestamp')db.exec('UPDATE session_key_contract SET updated_at=101');
+  if(wrong==='schema')db.exec('ALTER TABLE session_key_contract ADD COLUMN foreign_column TEXT');
+  if(wrong==='pending-row')db.exec("INSERT INTO session_canonical_validation_pending VALUES('invalid')");
+  if(wrong==='row-count')db.exec("INSERT INTO session_key_contract VALUES(2,'foreign',101,NULL)");
+  db.close();
+  if(wrong==='config')fs.writeFileSync(path.join(f.state,'openclaw.json'),'changed');
+  if(wrong==='replaced-file'){const renamed=f.dbFile+'.old';fs.renameSync(f.dbFile,renamed);fs.copyFileSync(renamed,f.dbFile);}
+  const bytes=fs.readFileSync(f.dbFile);
+  r=recertificationCommand(f,'verify-recertified');assert.equal(r.status,1);
+  assert(!fs.existsSync(path.join(f.root,'backup-rollback-recertification-result.json')));
+  assert(!fs.existsSync(path.join(f.root,'backup-rollback-restart.json')));
+  assert.deepEqual(fs.readFileSync(f.dbFile),bytes);
+ });
+}
+test('certified inventory remains strict on later restart; no changed receipt or ordinary row waiver',t=>{
+ const f=restartFixture(t);assert.equal(recertificationCommand(f,'prepare-recertification').status,0);
+ fixtureCertify(f);assert.equal(recertificationCommand(f,'verify-recertified').status,0);
+ fixtureCertify(f,null);
+ assert.equal(recertificationCommand(f,'verify-certified-restarted').status,1);
+ assert(!fs.existsSync(path.join(f.root,'backup-rollback-restart.json')));
+});
+
+test('old cross-generation equality fails exact native physical receipt; preplanned owner transition fixes only that contract',t=>{
+ const f=restartFixture(t);assert.equal(recertificationCommand(f,'prepare-recertification').status,0);
+ fixtureCertify(f);const r=f.command();assert.equal(r.status,1);
+ const d=JSON.parse(fs.readFileSync(f.diagnostic));assert.equal(d.totalDifferences,2);
+ assert(d.differences.some(x=>x.pointer.endsWith('/columnSha256/canonical_ready')));
+ assert.equal(recertificationCommand(f,'verify-recertified').status,0);
+ assert.equal(recertificationCommand(f,'verify-certified-restarted').status,0);
+});
+test('recertification preflight refuses pending canonical rows before native start and never creates intent',t=>{
+ const f=restartFixture(t);const db=new DatabaseSync(f.dbFile);db.exec("INSERT INTO session_canonical_validation_pending VALUES('invalid')");db.close();
+ const bytes=fs.readFileSync(f.dbFile);assert.equal(recertificationCommand(f,'prepare-recertification').status,1);
+ assert(!fs.existsSync(path.join(f.root,'backup-rollback-recertification-intent.json')));assert.deepEqual(fs.readFileSync(f.dbFile),bytes);
+});
+
+test('forged expected plan cannot bless simultaneous nonreceipt drift; full captured row hash owns authority',t=>{
+ const f=restartFixture(t);assert.equal(recertificationCommand(f,'prepare-recertification').status,0);
+ fixtureCertify(f);const db=new DatabaseSync(f.dbFile);db.exec("UPDATE session_key_contract SET main_key='forged'");db.close();
+ const planPath=path.join(f.root,'backup-rollback-recertification-intent.json');const plan=JSON.parse(fs.readFileSync(planPath));
+ plan.expected.databases[0].tables[1].columnSha256.main_key=hashBytes(JSON.stringify('forged'));
+ fs.writeFileSync(planPath,JSON.stringify(plan));
+ const r=recertificationCommand(f,'verify-recertified');assert.equal(r.status,1);assert.match(r.stderr,/nonreceipt/);
+ assert(!fs.existsSync(path.join(f.root,'backup-rollback-recertification-result.json')));
+});
+
+for(const detached of ['interruption','backup','runtime','state','physical'])test(`recertification refuses foreign ${detached} intent`,t=>{
+ const f=restartFixture(t);assert.equal(recertificationCommand(f,'prepare-recertification').status,0);fixtureCertify(f);
+ const file=path.join(f.root,'backup-rollback-recertification-intent.json'),p=JSON.parse(fs.readFileSync(file));
+ if(detached==='interruption')p.interruptionSha256='0'.repeat(64);
+ if(detached==='backup')p.capturedBackupSha256='0'.repeat(64);
+ if(detached==='runtime')p.originalRuntime.version='2026.9.9';
+ if(detached==='state')p.restoredStateDir=f.root;
+ if(detached==='physical')p.physical[0].birthtime='foreign';
+ fs.writeFileSync(file,JSON.stringify(p));assert.equal(recertificationCommand(f,'verify-recertified').status,1);
 });

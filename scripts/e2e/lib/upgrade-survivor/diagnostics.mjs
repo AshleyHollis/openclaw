@@ -41,6 +41,8 @@ const restoredIndexLogs = [
 ];
 const backupRollbackLogs = [
   "backup-rollback-restart-difference.json",
+    "backup-rollback-recertification-intent.json",
+    "backup-rollback-recertification-result.json",
   "backup-rollback.json",
   "backup-rollback-create.json",
   "backup-rollback-create.json.err",
