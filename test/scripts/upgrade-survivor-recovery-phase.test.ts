@@ -256,3 +256,92 @@ run_completed=1
     );
   },
 );
+
+it.skipIf(process.platform === "win32").each([
+  { timeout: undefined, phase: undefined, wall: undefined, expected: [900_000, 900_000] },
+  { timeout: "1500s", phase: undefined, wall: undefined, expected: [1_500_000, 1_500_000] },
+  { timeout: "25m", phase: "240000", wall: "120000", expected: [240_000, 120_000] },
+  { timeout: "1500", phase: "240000", wall: undefined, expected: [240_000, 240_000] },
+  { timeout: "1500s", phase: "2000000", wall: "2000000", expected: [1_500_000, 1_500_000] },
+  { timeout: "invalid", phase: undefined, wall: undefined, expected: undefined },
+  { timeout: "0s", phase: undefined, wall: undefined, expected: undefined },
+  { timeout: "999999999999999999h", phase: undefined, wall: undefined, expected: undefined },
+  { timeout: "1500s", phase: "invalid", wall: undefined, expected: undefined },
+  { timeout: "1500s", phase: undefined, wall: "0", expected: undefined },
+])(
+  "binds actual recovery update sampling to command and explicit budgets ($timeout/$phase/$wall)",
+  ({ timeout, phase, wall, expected }) => {
+    const root = dirs.make("survivor-recovery-budget-");
+    const commandTimeout = source.match(/^COMMAND_TIMEOUT=.*$/m)?.[0];
+    expect(commandTimeout).toBeDefined();
+    const result = spawnSync(
+      "bash",
+      [
+        "-c",
+        `set -euo pipefail
+exec 3>&1
+ARTIFACT_ROOT="$1"
+SCENARIO=recovery-cleanup
+UPDATE_RESTART_MODE=manual
+ROOT_MANAGED_VPS=0
+${commandTimeout}
+candidate_version=2026.9.9
+baseline_version=2026.9.8
+baseline_spec=openclaw@2026.9.8
+CANDIDATE_KIND=tarball
+UPDATE_JSON="$1/update.json"
+UPDATE_ERR="$1/update.err"
+POST_UPDATE_VALIDATE_JSON="$1/validate.json"
+POST_UPDATE_VALIDATE_ERR="$1/validate.err"
+CURRENT_PHASE=recovery-update-restart
+read_installed_version() { printf '2026.9.9'; }
+openclaw_e2e_print_log() { :; }
+node() {
+  if [ "$1" = scripts/e2e/lib/upgrade-survivor/recovery-update-budget.mjs ]; then
+    command node "$@"
+  else
+    return 91
+  fi
+}
+openclaw_e2e_maybe_timeout() {
+  if [ "$2" = openclaw ]; then return 0; fi
+  printf 'sampler\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$OPENCLAW_PLUGIN_LIFECYCLE_MAX_RSS_KB" >&3
+  printf 'cpu\t%s\n' "$OPENCLAW_PLUGIN_LIFECYCLE_MAX_CPU_CORE_RATIO" >&3
+  return 17
+}
+${update}
+update_candidate 1 file:synthetic 2026.9.9
+`,
+        "fixture",
+        root,
+      ],
+      {
+        env: {
+          PATH: process.env.PATH,
+          HOME: root,
+          OPENCLAW_PLUGIN_LIFECYCLE_MAX_RSS_KB: "123456",
+          OPENCLAW_PLUGIN_LIFECYCLE_MAX_CPU_CORE_RATIO: "3",
+          ...(timeout === undefined ? {} : { OPENCLAW_UPGRADE_SURVIVOR_COMMAND_TIMEOUT: timeout }),
+          ...(phase === undefined ? {} : { OPENCLAW_PLUGIN_LIFECYCLE_PHASE_TIMEOUT_MS: phase }),
+          ...(wall === undefined ? {} : { OPENCLAW_PLUGIN_LIFECYCLE_MAX_WALL_MS: wall }),
+        },
+        encoding: "utf8",
+        timeout: 5_000,
+      },
+    );
+    expect(result.status, result.stderr).toBe(expected ? 17 : 2);
+    const sampler = result.stdout.split("\n").filter((line) => line.startsWith("sampler\t"));
+    expect(sampler).toEqual(
+      expected
+        ? [
+            `sampler\t${timeout ?? "900s"}\tenv\tOPENCLAW_PLUGIN_LIFECYCLE_PHASE_TIMEOUT_MS=${expected[0]}\tOPENCLAW_PLUGIN_LIFECYCLE_MAX_WALL_MS=${expected[1]}\tnode\tscripts/e2e/lib/plugin-lifecycle-matrix/measure.mjs\t123456`,
+          ]
+        : [],
+    );
+    if (expected) {
+      expect(result.stdout).toContain("cpu\t3");
+    } else {
+      expect(result.stderr).toMatch(/timeout|positive integer/);
+    }
+  },
+);
