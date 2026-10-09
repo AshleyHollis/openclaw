@@ -25,6 +25,7 @@ import {
   writeRecoveryJson,
   writeRecoveryTranscript,
 } from "./recovery-cleanup-fixture.mjs";
+import { recoveryOfflineStep } from "./recovery-offline-diagnostics.mjs";
 
 const run = promisify(execFile);
 const stateDir = process.env.OPENCLAW_STATE_DIR;
@@ -309,59 +310,85 @@ async function live() {
 }
 
 async function offline() {
-  const originals = readRecoveryJson(evidencePath).originals;
-  const entries = await inspect("offline-before");
-  const before = recoveryTreeSnapshot(roots());
-  const preview = await cleanup("offline-preview", ["--dry-run"]);
-  assertRecoveryInventory(preview, originals);
-  assertRecoverySnapshot(before, recoveryTreeSnapshot(roots()));
-  const noConsent = await cleanup("no-consent", [], { failure: true });
-  assert.equal(noConsent.status, "refused");
-  assertRecoverySnapshot(before, recoveryTreeSnapshot(roots()));
-  const apply = await cleanup("apply", ["--yes"], { measured: true });
-  const moves = readRecoveryMoves(stateDir);
-  const removed = assertRecoveryApplied(apply, preview, originals, moves);
+  const step = (name, operation, snapshot = false) =>
+    recoveryOfflineStep(artifactRoot, "offline", name, operation, snapshot);
+  const assertSnapshot = async (name, previous, allowedFiles, allowDirectoryTimes) => {
+    const after = await step(`snapshot-${name}`, () => recoveryTreeSnapshot(roots()), true);
+    await step(name, () =>
+      assertRecoverySnapshot(previous, after, allowedFiles, allowDirectoryTimes),
+    );
+  };
+  const originals = await step("originals", () => readRecoveryJson(evidencePath).originals);
+  const entries = await step("inspect-before", () => inspect("offline-before"));
+  const before = await step("snapshot-before", () => recoveryTreeSnapshot(roots()), true);
+  const preview = await step("preview", () => cleanup("offline-preview", ["--dry-run"]));
+  await step("inventory", () => assertRecoveryInventory(preview, originals));
+  await assertSnapshot("assert-preview", before);
+  const noConsent = await step("no-consent", () => cleanup("no-consent", [], { failure: true }));
+  await step("consent-status", () => {
+    assert.equal(noConsent.status, "refused");
+  });
+  await assertSnapshot("assert-no-consent", before);
+  const apply = await step("apply", () => cleanup("apply", ["--yes"], { measured: true }));
+  const moves = await step("moves", () => readRecoveryMoves(stateDir));
+  const removed = await step("assert-applied", () =>
+    assertRecoveryApplied(apply, preview, originals, moves),
+  );
   const receipts = [
     ...new Set(
       moves.filter((move) => removed.includes(move.archivePath)).map((move) => move.manifestPath),
     ),
   ];
   const walIndexes = recoveryWalIndexPaths(stateDir, moves);
-  assertRecoverySnapshot(
+  await assertSnapshot(
+    "assert-apply-snapshot",
     before,
-    recoveryTreeSnapshot(roots()),
     [...removed, ...receipts, ...walIndexes],
     true,
   );
-  const retryBefore = recoveryTreeSnapshot(roots());
-  const retry = await cleanup("retry", ["--yes"]);
-  assert.equal(retry.status, "complete");
-  assert.equal(retry.totals.removedFiles, 0);
-  assert.equal(retry.totals.removedBytes, 0);
-  assertRecoverySnapshot(retryBefore, recoveryTreeSnapshot(roots()), walIndexes, true);
+  const retryBefore = await step("snapshot-retry", () => recoveryTreeSnapshot(roots()), true);
+  const retry = await step("retry", () => cleanup("retry", ["--yes"]));
+  await step("retry-status", () => {
+    assert.equal(retry.status, "complete");
+    assert.equal(retry.totals.removedFiles, 0);
+    assert.equal(retry.totals.removedBytes, 0);
+  });
+  await assertSnapshot("assert-retry", retryBefore, walIndexes, true);
   const recreated = removed[0];
-  fs.writeFileSync(recreated, "replacement at an intentionally disposed archive path\n", {
-    flag: "wx",
+  await step("recreate", () =>
+    fs.writeFileSync(recreated, "replacement at an intentionally disposed archive path\n", {
+      flag: "wx",
+    }),
+  );
+  const replacementBefore = await step(
+    "snapshot-replacement",
+    () => recoveryTreeSnapshot(roots()),
+    true,
+  );
+  const replacement = await step("replacement", () => cleanup("replacement", ["--yes"]));
+  await step("replacement-status", () => {
+    assert.equal(replacement.totals.removedBytes, 0);
   });
-  const replacementBefore = recoveryTreeSnapshot(roots());
-  const replacement = await cleanup("replacement", ["--yes"]);
-  assert.equal(replacement.totals.removedBytes, 0);
-  assertRecoverySnapshot(replacementBefore, recoveryTreeSnapshot(roots()), walIndexes, true);
-  assert.equal(await inspect("offline-after"), entries, "cleanup changed current session totals");
-  saveEvidence({
-    offline: {
-      preview: preview.totals,
-      apply: apply.totals,
-      retry: retry.totals,
-      recreated,
-      recreatedIdentity: recoveryFileIdentity(recreated),
-      replacement: replacement.totals,
-      sqliteEntries: entries,
-      removed,
-      receipts,
-      databaseBytesUnchanged: true,
-    },
-  });
+  await assertSnapshot("assert-replacement", replacementBefore, walIndexes, true);
+  await step("inspect-after", async () =>
+    assert.equal(await inspect("offline-after"), entries, "cleanup changed current session totals"),
+  );
+  await step("evidence", () =>
+    saveEvidence({
+      offline: {
+        preview: preview.totals,
+        apply: apply.totals,
+        retry: retry.totals,
+        recreated,
+        recreatedIdentity: recoveryFileIdentity(recreated),
+        replacement: replacement.totals,
+        sqliteEntries: entries,
+        removed,
+        receipts,
+        databaseBytesUnchanged: true,
+      },
+    }),
+  );
 }
 
 async function customRestore() {
@@ -560,6 +587,8 @@ try {
       // Artifact directories can be reused by a rerun; never compare with a previous run's history.
       fs.rmSync(evidencePath, { force: true });
       fs.rmSync(metricsPath, { force: true });
+      fs.rmSync(path.join(artifactRoot, "recovery-offline-resources.jsonl"), { force: true });
+      fs.rmSync(path.join(artifactRoot, "recovery-offline-samples.jsonl"), { force: true });
       fs.rmSync(path.join(runtimeRoot, "recovery-restore-home"), { recursive: true, force: true });
       const fixture = seedRecoveryFixture(stateDir, recoveryVolumeSpec());
       const preDoctorPaths = Object.keys(recoveryTreeSnapshot([stateDir])).filter((file) =>
@@ -607,6 +636,15 @@ try {
       break;
     case "live":
       await live();
+      break;
+    case "baseline-snapshot":
+      await recoveryOfflineStep(
+        artifactRoot,
+        "baseline-snapshot",
+        "snapshot-before",
+        () => recoveryTreeSnapshot(roots()),
+        true,
+      );
       break;
     case "offline":
       await offline();

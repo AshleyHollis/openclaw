@@ -67,6 +67,7 @@ function fixture() {
       OPENCLAW_UPGRADE_SURVIVOR_RUNTIME_ROOT: root,
       OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_ROOT: artifacts,
       OPENCLAW_UPGRADE_SURVIVOR_BASELINE_VERSION: "2026.9.4",
+      OPENCLAW_UPGRADE_SURVIVOR_SCENARIO: "base",
     },
   };
 }
@@ -76,12 +77,16 @@ function write(file: string, value: unknown) {
   fs.writeFileSync(file, JSON.stringify(value));
 }
 
-function capture(f: ReturnType<typeof fixture>, outcome: "failed" | "passed" = "failed") {
-  const result = spawnSync(
-    node,
-    [observer, "capture", f.artifacts, "update-candidate", "1", "", f.artifacts],
-    { env: f.env, encoding: "utf8", timeout: 10_000 },
-  );
+function capture(
+  f: ReturnType<typeof fixture>,
+  outcome: "failed" | "passed" = "failed",
+  phase = "update-candidate",
+) {
+  const result = spawnSync(node, [observer, "capture", f.artifacts, phase, "1", "", f.artifacts], {
+    env: f.env,
+    encoding: "utf8",
+    timeout: 10_000,
+  });
   expect(result.status, result.stderr).toBe(0);
   const output = path.join(f.root, "public");
   publishDiagnostics(f.artifacts, output, redactSensitiveText, outcome);
@@ -963,6 +968,8 @@ it("does not reuse sibling or startup observations when an attempt fails before 
     ["out", "err"].map((extension) => `legacy-operator-${stage}-turn.${extension}`),
   );
   const logs = [
+    "recovery-offline-resources.jsonl",
+    "recovery-offline-samples.jsonl",
     "update-noop.json",
     "update-noop.err",
     ...turnLogs,
@@ -1041,8 +1048,11 @@ it("does not reuse sibling or startup observations when an attempt fails before 
   const report = capture(f);
   expect(report.migration.sibling.availability).toBe("unavailable");
   for (const name of logs) {
-    expect(report.logs[name]).toBeNull();
+    if (name.startsWith("recovery-offline-")) {
+      expect(fs.existsSync(path.join(f.artifacts, name))).toBe(false);
+    } else expect(report.logs[name]).toBeNull();
   }
+  expect(report).not.toHaveProperty("recoveryOffline");
 });
 
 it("does not create missing WAL sidecars through either receipt or plugin-index capture", () => {
@@ -1085,4 +1095,91 @@ it("keeps the existing complete WAL family unchanged after observation closes", 
   } finally {
     database.close();
   }
+});
+
+it.each(["failed", "passed"] as const)(
+  "retains bounded recovery resources for later %s outcomes",
+  (outcome) => {
+    const f = fixture();
+    f.env.OPENCLAW_UPGRADE_SURVIVOR_SCENARIO = "recovery-cleanup";
+    const receipt = {
+      schemaVersion: 1,
+      stage: "offline",
+      step: "assert-preview",
+      status: "started",
+      elapsedMs: 12,
+      observerRssKiB: 42,
+      cgroup: { peakBytes: 1234 },
+      argv: [secret],
+      environment: privateBody,
+    };
+    fs.writeFileSync(
+      path.join(f.artifacts, "recovery-offline-resources.jsonl"),
+      JSON.stringify(receipt) + "\n" + "partial final JSON",
+    );
+    fs.writeFileSync(
+      path.join(f.artifacts, "recovery-offline-samples.jsonl"),
+      JSON.stringify({
+        ...receipt,
+        stage: "baseline-snapshot",
+        step: "process",
+        status: "sample",
+      }) + "\n",
+    );
+    write(path.join(f.artifacts, "summary.json"), {
+      ...policySuccessSummary(undefined),
+      scenario: "recovery-cleanup",
+    });
+    const report = capture(f, outcome, "recovery-restarted");
+    expect(report.recoveryOffline).toHaveLength(2);
+    expect(report.recoveryOffline[0]).toMatchObject({
+      step: "assert-preview",
+      observerRssKiB: 42,
+      cgroup: { peakBytes: 1234 },
+    });
+    expect(JSON.stringify(report)).not.toContain(secret);
+    expect(JSON.stringify(report)).not.toContain(privateBody);
+  },
+);
+
+it("rejects unsafe and oversized recovery receipt files on the host", () => {
+  const f = fixture();
+  f.env.OPENCLAW_UPGRADE_SURVIVOR_SCENARIO = "recovery-cleanup";
+  const outside = path.join(f.root, "outside-recovery");
+  fs.writeFileSync(outside, privateBody);
+  fs.symlinkSync(outside, path.join(f.artifacts, "recovery-offline-resources.jsonl"));
+  fs.writeFileSync(path.join(f.artifacts, "recovery-offline-samples.jsonl"), "x".repeat(262145));
+  const report = capture(f);
+  expect(report).not.toHaveProperty("recoveryOffline");
+  expect(JSON.stringify(report)).not.toContain(privateBody);
+});
+
+it.each(["failed", "passed"] as const)(
+  "omits recovery numbers for unrelated %s scenarios",
+  (outcome) => {
+    const f = fixture();
+    fs.writeFileSync(
+      path.join(f.artifacts, "recovery-offline-resources.jsonl"),
+      JSON.stringify({
+        schemaVersion: 1,
+        stage: "offline",
+        step: "process",
+        status: "completed",
+        observerRssKiB: 999,
+      }) + "\n",
+    );
+    write(path.join(f.artifacts, "summary.json"), policySuccessSummary(undefined));
+    expect(capture(f, outcome)).not.toHaveProperty("recoveryOffline");
+  },
+);
+
+it("bounds combined forged fixed-label checkpoint and sample rows at the existing 128 entries", () => {
+  const f = fixture();
+  f.env.OPENCLAW_UPGRADE_SURVIVOR_SCENARIO = "recovery-cleanup";
+  const row =
+    JSON.stringify({ schemaVersion: 1, stage: "offline", step: "process", status: "started" }) +
+    "\n";
+  for (const name of ["resources", "samples"])
+    fs.writeFileSync(path.join(f.artifacts, `recovery-offline-${name}.jsonl`), row.repeat(200));
+  expect(capture(f).recoveryOffline).toHaveLength(128);
 });
