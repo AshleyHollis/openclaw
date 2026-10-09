@@ -67,6 +67,7 @@ const memoryFields = [
   "oomGroupKill",
 ];
 
+/** @param {{procRoot?: string, cgroupRoot?: string, childPid?: number | null}} [options] */
 export function readRecoveryResources({
   procRoot = "/proc",
   cgroupRoot = "/sys/fs/cgroup",
@@ -144,6 +145,37 @@ export function readRecoveryResources({
   };
 }
 
+/**
+ * The projector always emits this closed shape; rejected or absent numeric inputs become null.
+ * @typedef {object} RecoveryReceipt
+ * @property {1} schemaVersion
+ * @property {"baseline-snapshot" | "offline"} stage
+ * @property {string} step
+ * @property {"started" | "completed" | "failed" | "sample"} status
+ * @property {"observer" | "worker" | null} source
+ * @property {"recent" | "peak" | null} sampleKind
+ * @property {number | null} atUnixMs
+ * @property {number | null} elapsedMs
+ * @property {number | null} exitCode
+ * @property {number | null} observerRssKiB
+ * @property {number | null} childRssKiB
+ * @property {number | null} descendantRssKiB
+ * @property {number | null} otherLargestRssKiB
+ * @property {number | null} otherRssKiB
+ * @property {number | null} otherProcessCount
+ * @property {number | null} entries
+ * @property {number | null} files
+ * @property {number | null} bytes
+ * @property {"SIGTERM" | "SIGINT" | "SIGHUP" | "SIGKILL" | null} signal
+ * @property {boolean} processScanTruncated
+ * @property {boolean | null} cleanupProved
+ * @property {{currentBytes: number | null, maxBytes: number | null, peakBytes: number | null,
+ * low: number | null, high: number | null, max: number | null, oom: number | null,
+ * oomKill: number | null, oomGroupKill: number | null, unlimited: boolean,
+ * peakScope: "whole-cgroup-lifetime"}} cgroup
+ */
+
+/** @returns {RecoveryReceipt | null} */
 export function projectRecoveryReceipt(row) {
   if (
     row?.schemaVersion !== 1 ||
@@ -186,6 +218,7 @@ export function projectRecoveryReceipt(row) {
   return result;
 }
 
+/** @returns {RecoveryReceipt[]} */
 export function projectRecoveryReceipts(text) {
   if (typeof text !== "string" || Buffer.byteLength(text) > recoveryReceiptLimit) return [];
   const rows = [];
