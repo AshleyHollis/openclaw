@@ -8,6 +8,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -25,6 +26,7 @@ import {
   resolvePluginNpmCommand,
   runPluginNpmCiWithRetry,
   withAugmentedPluginNpmManifestForPackage,
+  withIsolatedPatchedDependencyPackSource,
 } from "../scripts/lib/plugin-npm-package-manifest.mts";
 import { hasChannelPackageState } from "../src/channels/plugins/package-state-probes.js";
 import type { PluginManifest } from "../src/plugins/manifest-types.js";
@@ -497,6 +499,75 @@ function writePatchedRuntimeFixture(bundling = "default") {
     lock,
   };
 }
+
+describe("isolated patched dependency pack source", () => {
+  it.each([false, true])("preserves payload and cleans up after callback failure=%s", (fail) => {
+    const repoDir = makeTempRepoRoot(tempDirs, "openclaw-patched-pack-source-");
+    const source = join(repoDir, "installed");
+    const manifestText =
+      '{ "name": "patched-runtime", "version": "1.0.0", "optionalDependencies": {"native-platform":"1.0.0"}, "files": ["dist/**"] }\n';
+    writeFileText(join(source, "package.json"), manifestText);
+    writeFileText(join(source, "dist", "entry.js"), "export const patched = true;\n");
+    chmodSync(join(source, "dist", "entry.js"), 0o751);
+    writeFileText(join(source, "vendor", "node_modules", "payload.js"), "nested payload\n");
+    const graph = join(source, "node_modules");
+    mkdirSync(graph);
+    if (process.platform !== "win32") {
+      // Neither an unrelated workspace nor a missing dependency may enter packing.
+      symlinkSync(repoDir, join(graph, "outside-workspace"));
+      symlinkSync(join(repoDir, "missing"), join(graph, "missing-dependency"));
+      symlinkSync("entry.js", join(source, "dist", "entry-link.js"));
+    }
+    let stagedSource = "";
+    const operation = () =>
+      withIsolatedPatchedDependencyPackSource(source, (packSource) => {
+        stagedSource = packSource;
+        expect(packSource).not.toBe(source);
+        expect(readFileSync(join(packSource, "package.json"), "utf8")).toBe(manifestText);
+        expect(readFileSync(join(packSource, "dist", "entry.js"))).toEqual(
+          readFileSync(join(source, "dist", "entry.js")),
+        );
+        expect(existsSync(join(packSource, "node_modules"))).toBe(false);
+        expect(readFileSync(join(packSource, "vendor", "node_modules", "payload.js"), "utf8")).toBe(
+          "nested payload\n",
+        );
+        if (process.platform !== "win32") {
+          expect(lstatSync(join(packSource, "dist", "entry.js")).mode & 0o777).toBe(0o751);
+          expect(readlinkSync(join(packSource, "dist", "entry-link.js"))).toBe("entry.js");
+        }
+        if (fail) throw new Error("pack callback failed");
+        return "packed";
+      });
+    if (fail) expect(operation).toThrow("pack callback failed");
+    else expect(operation()).toBe("packed");
+    expect(stagedSource).not.toBe("");
+    expect(existsSync(dirname(stagedSource))).toBe(false);
+    expect(readFileSync(join(source, "package.json"), "utf8")).toBe(manifestText);
+    expect(existsSync(graph)).toBe(true);
+  });
+
+  it.each([
+    { bundleDependencies: true },
+    { bundledDependencies: true },
+    { bundleDependencies: ["bundled-child"] },
+    { bundledDependencies: ["bundled-child"] },
+  ])("retains a declared bundled closure %j", (bundles) => {
+    const source = makeTempRepoRoot(tempDirs, "openclaw-patched-pack-bundle-");
+    writeJsonFile(join(source, "package.json"), {
+      name: "patched-runtime",
+      version: "1.0.0",
+      ...bundles,
+    });
+    writeFileText(join(source, "node_modules", "bundled-child", "index.js"), "bundled payload\n");
+    expect(
+      withIsolatedPatchedDependencyPackSource(source, (packSource) => {
+        expect(packSource).toBe(source);
+        return readFileSync(join(packSource, "node_modules", "bundled-child", "index.js"), "utf8");
+      }),
+    ).toBe("bundled payload\n");
+    expect(existsSync(source)).toBe(true);
+  });
+});
 
 describe("plugin npm package manifest staging", () => {
   it("keeps msteams runtime dependencies registry-installed", () => {
