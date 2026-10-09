@@ -5,6 +5,10 @@ FROM ${OPENCLAW_NODE_IMAGE} AS host-runtime
 ARG OPENCLAW_TARBALL_SHA256="d66fb508a5c5714513f5268751779bcf3866210001547ccc4ea6a1c230a6ccc1"
 ARG CODEX_TARBALL_SHA256="b7325e7b605b2dcd1b55a405948512beaa397e36be632a7bd78d5cf255441c8d"
 ARG CODEX_VERSION="2026.9.8"
+ARG CODEX_ENGINE_VERSION="0.158.0"
+ARG RUNTIME_INPUT_ROOT="downstream/runtime-install/current-host"
+ARG RUNTIME_CANDIDATE="downstream/runtime-install/candidate.json"
+ARG RUNTIME_PROFILE="paired-life"
 ARG OPENCLAW_SOURCE_COMMIT="13c9575fa34c1d8166223473f7446b9c3889ac64"
 ARG OPENCLAW_VERSION="2026.9.8"
 ARG QMD_TARBALL_SHA256="4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a"
@@ -29,8 +33,8 @@ RUN npm install --global npm@12.0.1 && \
     node -e "const version=require('/usr/local/lib/node_modules/npm/node_modules/tar/package.json').version;if(version!=='7.5.19')throw new Error('unexpected npm tar '+version)"
 
 WORKDIR /app
-COPY downstream/runtime-install/current-host/host.package.json /app/package.json
-COPY downstream/runtime-install/current-host/host.package-lock.json /app/package-lock.json
+COPY ${RUNTIME_INPUT_ROOT}/host.package.json /app/package.json
+COPY ${RUNTIME_INPUT_ROOT}/host.package-lock.json /app/package-lock.json
 COPY openclaw-current.tgz /tmp/openclaw-current.tgz
 
 RUN test -n "$OPENCLAW_TARBALL_SHA256" && \
@@ -42,13 +46,13 @@ RUN test -n "$OPENCLAW_TARBALL_SHA256" && \
     test ! -e /app/node_modules/openclaw/.openclaw-lifecycle-pending && \
     rm -f /tmp/openclaw-current.tgz
 
-FROM host-runtime AS runtime
+FROM host-runtime AS plugin-runtime
 COPY codex-current.tgz /tmp/codex-current.tgz
-COPY qmd-current.tgz /tmp/qmd-current.tgz
-COPY downstream/runtime-install/current-host/plugins.package.json /opt/openclaw-plugin-runtime/package.json
-COPY downstream/runtime-install/current-host/plugins.package-lock.json /opt/openclaw-plugin-runtime/package-lock.json
-COPY downstream/runtime-install/qmd.package.json /opt/qmd-runtime/package.json
+COPY ${RUNTIME_INPUT_ROOT}/plugins.package.json /opt/openclaw-plugin-runtime/package.json
+COPY ${RUNTIME_INPUT_ROOT}/plugins.package-lock.json /opt/openclaw-plugin-runtime/package-lock.json
 COPY downstream/scripts/validate-installed-plugin-runtime.mjs /opt/openclaw-runtime/validate-plugin-runtime.mjs
+COPY downstream/scripts/validate-packaged-candidate.mjs /opt/openclaw-runtime/validate-packaged-candidate.mjs
+COPY ${RUNTIME_CANDIDATE} /opt/openclaw-runtime/candidate.json
 
 # One locked install retains official bundled trees and Linux optional binaries.
 # The host peer is the already-verified installation, never another registry host.
@@ -61,24 +65,10 @@ RUN test -n "$CODEX_TARBALL_SHA256" && \
     test -L /opt/openclaw-plugin-runtime/node_modules/openclaw && \
     ln -sfn /app/node_modules/openclaw /opt/openclaw-plugin-runtime/node_modules/openclaw && \
     ln -s /app/node_modules/openclaw /opt/openclaw-plugin-runtime/node_modules/@openclaw/codex/node_modules/openclaw && \
-    node /opt/openclaw-runtime/validate-plugin-runtime.mjs && \
-    node /opt/openclaw-plugin-runtime/node_modules/@openclaw/codex/node_modules/@openai/codex/bin/codex.js --version | grep -Fx "codex-cli 0.158.0" && \
+    node /opt/openclaw-runtime/validate-plugin-runtime.mjs "$RUNTIME_PROFILE" && \
+    node /opt/openclaw-plugin-runtime/node_modules/@openclaw/codex/node_modules/@openai/codex/bin/codex.js --version | grep -Fx "codex-cli $CODEX_ENGINE_VERSION" && \
     chmod -R go-w /opt/openclaw-plugin-runtime && \
     rm -f /tmp/codex-current.tgz
-
-RUN test -n "$QMD_TARBALL_SHA256" && \
-    test -n "$QMD_VERSION" && \
-    printf '%s  %s\n' "$QMD_TARBALL_SHA256" /tmp/qmd-current.tgz | sha256sum -c - && \
-    npm install --prefix /opt/qmd-runtime \
-      --install-strategy=nested --omit=dev --ignore-scripts=false --strict-allow-scripts --no-audit --no-fund \
-      /tmp/qmd-current.tgz && \
-    test "$(node -p "require('/opt/qmd-runtime/node_modules/@tobilu/qmd/package.json').version")" = "$QMD_VERSION" && \
-    node -e "const fs=require('node:fs');const root='/opt/qmd-runtime/node_modules/@tobilu/qmd';const manifest=JSON.parse(fs.readFileSync(root+'/package.json','utf8'));const shrinkwrap=JSON.parse(fs.readFileSync(root+'/npm-shrinkwrap.json','utf8'));if(manifest.name!=='@tobilu/qmd'||manifest.version!==process.env.QMD_VERSION||shrinkwrap.name!==manifest.name||shrinkwrap.version!==manifest.version||shrinkwrap.packages?.['']?.version!==manifest.version)throw new Error('QMD runtime metadata mismatch')" && \
-    /opt/qmd-runtime/node_modules/.bin/qmd --version | grep -F "qmd $QMD_VERSION" && \
-    ln -s /opt/qmd-runtime/node_modules/.bin/qmd /usr/local/bin/qmd && \
-    chmod -R go-w /opt/qmd-runtime && \
-    rm -f /tmp/qmd-current.tgz && \
-    npm cache clean --force
 
 RUN install -d -m 0755 -o node -g node /home/node/.config && \
     install -d -m 0700 -o node -g node \
@@ -100,3 +90,31 @@ HEALTHCHECK --interval=3m --timeout=10s --start-period=15s --retries=3 \
 
 ENTRYPOINT ["tini", "-s", "--"]
 CMD ["node", "openclaw.mjs", "gateway"]
+
+FROM plugin-runtime AS code-runtime
+USER root
+RUN test "$RUNTIME_PROFILE" = code && node /opt/openclaw-runtime/validate-plugin-runtime.mjs code && npm cache clean --force
+USER node
+
+# The default target retains the paired Life/QMD contract. Code selects the
+# preceding code-runtime target only with its separately validated input set.
+FROM plugin-runtime AS runtime
+USER root
+RUN test "$RUNTIME_PROFILE" = paired-life
+COPY qmd-current.tgz /tmp/qmd-current.tgz
+COPY downstream/runtime-install/qmd.package.json /opt/qmd-runtime/package.json
+RUN test -n "$QMD_TARBALL_SHA256" && \
+    test -n "$QMD_VERSION" && \
+    printf '%s  %s\n' "$QMD_TARBALL_SHA256" /tmp/qmd-current.tgz | sha256sum -c - && \
+    npm install --prefix /opt/qmd-runtime \
+      --install-strategy=nested --omit=dev --ignore-scripts=false --strict-allow-scripts --no-audit --no-fund \
+      /tmp/qmd-current.tgz && \
+    test "$(node -p "require('/opt/qmd-runtime/node_modules/@tobilu/qmd/package.json').version")" = "$QMD_VERSION" && \
+    node -e "const fs=require('node:fs');const root='/opt/qmd-runtime/node_modules/@tobilu/qmd';const manifest=JSON.parse(fs.readFileSync(root+'/package.json','utf8'));const shrinkwrap=JSON.parse(fs.readFileSync(root+'/npm-shrinkwrap.json','utf8'));if(manifest.name!=='@tobilu/qmd'||manifest.version!==process.env.QMD_VERSION||shrinkwrap.name!==manifest.name||shrinkwrap.version!==manifest.version||shrinkwrap.packages?.['']?.version!==manifest.version)throw new Error('QMD runtime metadata mismatch')" && \
+    /opt/qmd-runtime/node_modules/.bin/qmd --version | grep -F "qmd $QMD_VERSION" && \
+    ln -s /opt/qmd-runtime/node_modules/.bin/qmd /usr/local/bin/qmd && \
+    chmod -R go-w /opt/qmd-runtime && \
+    rm -f /tmp/qmd-current.tgz && \
+    npm cache clean --force
+
+USER node

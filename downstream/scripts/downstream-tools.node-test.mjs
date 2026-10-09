@@ -308,7 +308,7 @@ test("packaged runtime binds the exact retained 9.8 host and Codex-only overlay"
   assert.match(dockerfile, /COPY codex-current\.tgz \/tmp\/codex-current\.tgz/u);
   assert.doesNotMatch(dockerfile, /DISCORD_TARBALL_SHA256|COPY discord-current/u);
   assert.match(dockerfile, /validate-plugin-runtime\.mjs/u);
-  assert.match(workflow, /EXPECTED_CODEX_VERSION=2026\.9\.8/u);
+  assert.match(workflow, /EXPECTED_CODEX_VERSION="\$\{\{ steps\.selection\.outputs\.codex_version \}\}"/u);
   assert.match(workflow, /EXPECTED_DISCORD_VERSION=absent/u);
   assert.match(workflow, /actionsArtifactReady !== true/u);
   assert.equal(candidate.qualification.releaseReady, false);

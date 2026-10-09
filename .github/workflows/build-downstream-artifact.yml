@@ -13,6 +13,14 @@ on:
           - offline-session-helper
           - runtime-package
           - runtime-image
+      runtime_profile:
+        description: Packaged image selection (Code has no Command Center carrier)
+        required: false
+        default: paired-life
+        type: choice
+        options:
+          - paired-life
+          - code
       runtime_source_sha:
         description: Reviewed full source commit for a candidate-only runtime package
         required: false
@@ -291,6 +299,8 @@ jobs:
       contents: read
       actions: read
       packages: write
+    env:
+      RUNTIME_PROFILE: ${{ inputs.runtime_profile || 'paired-life' }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -301,46 +311,82 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          node --input-type=module >> "$GITHUB_ENV" <<'NODE'
+          import { runtimeSelectionPaths } from './downstream/scripts/validate-packaged-candidate.mjs';
+          console.log(`RUNTIME_CANDIDATE=${runtimeSelectionPaths(process.env.RUNTIME_PROFILE).candidate}`);
+          NODE
+          # GITHUB_ENV becomes available at the next step; use the same closed resolver here.
+          export RUNTIME_CANDIDATE=$(node --input-type=module -e "import {runtimeSelectionPaths} from './downstream/scripts/validate-packaged-candidate.mjs'; console.log(runtimeSelectionPaths(process.env.RUNTIME_PROFILE).candidate)")
           node --input-type=module <<'NODE'
           import { readFile } from 'node:fs/promises';
-          const candidate = JSON.parse(await readFile('downstream/runtime-install/candidate.json', 'utf8'));
+          const candidate = JSON.parse(await readFile(process.env.RUNTIME_CANDIDATE, 'utf8'));
           if (candidate.provenance?.actionsArtifactReady !== true) {
-            throw new Error('Selected 9.8 package has no authenticated Actions artifact receipt. Root must use the reviewed external assembly packet; never fall back to historical 9.6 inputs.');
+            throw new Error('Selected package has no authenticated Actions artifact receipt; no historical fallback.');
           }
           NODE
-          run_id=$(node -p "require('./downstream/runtime-install/candidate.json').hostRunId")
-          artifact_id=$(node -p "require('./downstream/runtime-install/candidate.json').hostArtifactId")
+          run_id=$(node -p "require('./' + process.env.RUNTIME_CANDIDATE).hostRunId")
+          artifact_id=$(node -p "require('./' + process.env.RUNTIME_CANDIDATE).hostArtifactId")
           gh api "repos/AshleyHollis/openclaw/actions/runs/$run_id" > "$RUNNER_TEMP/host-run.json"
           gh api "repos/AshleyHollis/openclaw/actions/artifacts/$artifact_id" > "$RUNNER_TEMP/host-artifact.json"
           node --input-type=module <<'NODE'
           import { readFile } from 'node:fs/promises';
           import { validateRetainedPackageProvenance } from './downstream/scripts/validate-packaged-candidate.mjs';
           const json = async p => JSON.parse(await readFile(p, 'utf8'));
-          validateRetainedPackageProvenance(await json('downstream/runtime-install/candidate.json'),
+          validateRetainedPackageProvenance(await json(process.env.RUNTIME_CANDIDATE),
             await json(`${process.env.RUNNER_TEMP}/host-run.json`), await json(`${process.env.RUNNER_TEMP}/host-artifact.json`));
           NODE
           gh api "repos/AshleyHollis/openclaw/actions/artifacts/$artifact_id/zip" > "$RUNNER_TEMP/host.zip"
-          zip_hash=$(node -p "require('./downstream/runtime-install/candidate.json').hostArtifactDigest.slice(7)")
+          zip_hash=$(node -p "require('./' + process.env.RUNTIME_CANDIDATE).hostArtifactDigest.slice(7)")
           printf '%s  %s\n' "$zip_hash" "$RUNNER_TEMP/host.zip" | sha256sum -c -
           unzip -q "$RUNNER_TEMP/host.zip" -d "$RUNNER_TEMP/retained-host"
           cp "$RUNNER_TEMP/retained-host/openclaw-current.tgz" "$RUNNER_TEMP/retained-host/package-candidate.json" .
 
       - name: Fetch frozen components and verify complete package inputs
         id: selection
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
-          import { readFile, appendFile } from 'node:fs/promises';
+          import { readFile, appendFile, copyFile, mkdir } from 'node:fs/promises';
           import { execFileSync } from 'node:child_process';
-          import { validatePackagedCandidate } from './downstream/scripts/validate-packaged-candidate.mjs';
-          const c = JSON.parse(await readFile('downstream/runtime-install/candidate.json', 'utf8'));
-          for (const [name, component] of Object.entries(c.components)) {
+          import { validatePackagedCandidate, runtimeSelectionPaths, validateCodeSelection } from './downstream/scripts/validate-packaged-candidate.mjs';
+          const c = JSON.parse(await readFile(process.env.RUNTIME_CANDIDATE, 'utf8'));
+          const profile = process.env.RUNTIME_PROFILE;
+          const selection = runtimeSelectionPaths(profile);
+          if (profile === 'code') {
+            validateCodeSelection(c);
+            const a = c.companionArtifact;
+            const api = endpoint => JSON.parse(execFileSync('gh', ['api', `repos/AshleyHollis/openclaw/${endpoint}`], {encoding:'utf8'}));
+            const run = api(`actions/runs/${a.runId}`), artifact = api(`actions/artifacts/${a.id}`);
+            if (run.status !== 'completed' || run.conclusion !== 'success' || run.head_sha !== a.headSha ||
+                run.repository?.full_name !== 'AshleyHollis/openclaw' || run.head_repository?.full_name !== 'AshleyHollis/openclaw' ||
+                artifact.id !== a.id || artifact.name !== a.name || artifact.expired !== false || artifact.digest !== a.digest ||
+                artifact.workflow_run?.id !== a.runId || artifact.workflow_run?.head_sha !== a.headSha || artifact.size_in_bytes !== a.sizeBytes) throw new Error('companion producer identity differs');
+            const zip = execFileSync('gh', ['api', `repos/AshleyHollis/openclaw/actions/artifacts/${a.id}/zip`], {maxBuffer:64*1024*1024});
+            const {createHash} = await import('node:crypto');
+            if (`sha256:${createHash('sha256').update(zip).digest('hex')}` !== a.digest) throw new Error('companion artifact digest differs');
+            const {writeFile} = await import('node:fs/promises');
+            const dir = `${process.env.RUNNER_TEMP}/selected-companion`;
+            await mkdir(dir); await writeFile(`${dir}.zip`, zip);
+            execFileSync('unzip', ['-q', `${dir}.zip`, '-d', dir]);
+            const {validatePrepublishPluginRegistryArtifact} = await import('./scripts/prepublish-plugin-registry-artifact.mjs');
+            const manifest = validatePrepublishPluginRegistryArtifact({artifactDir:dir, expectedSourceSha:c.companionSourceSha,
+              expectedCandidateVersion:c.hostVersion, expectedManifestSha256:c.companionManifestSha256, requiredPackages:['@openclaw/codex']});
+            const entry = manifest.manifest.packages.find(p => p.name === '@openclaw/codex');
+            if (entry.sha256 !== c.components.codex.sha256) throw new Error('selected companion archive differs');
+            await copyFile(`${dir}/${entry.tarball}`, 'codex-current.tgz');
+          }
+          for (const [name, component] of Object.entries(profile === 'code' ? {} : c.components)) {
             execFileSync('curl', ['--fail', '--location', '--proto', '=https', '--tlsv1.2', component.url, '--output', `${name}-current.tgz`], { stdio: 'inherit' });
           }
-          await validatePackagedCandidate(process.cwd());
-          const args = [`OPENCLAW_SOURCE_COMMIT=${c.hostProducedFrom}`, `OPENCLAW_VERSION=${c.hostVersion}`, `OPENCLAW_TARBALL_SHA256=${c.hostArchiveSha256}`];
+          await validatePackagedCandidate(process.cwd(), profile);
+          const {validateCurrentHostImageInputs} = await import('./downstream/scripts/validate-current-host-image-inputs.mjs');
+          // Paired CC byte validation remains its separate existing owner gate.
+          if (profile === 'code') await validateCurrentHostImageInputs(process.cwd(), profile);
+          const args = [`RUNTIME_PROFILE=${profile}`, `RUNTIME_INPUT_ROOT=${selection.inputRoot}`, `RUNTIME_CANDIDATE=${selection.candidate}`, `CODEX_ENGINE_VERSION=${c.components.codex.engineVersion ?? "0.158.0"}`, `OPENCLAW_SOURCE_COMMIT=${c.hostProducedFrom}`, `OPENCLAW_VERSION=${c.hostVersion}`, `OPENCLAW_TARBALL_SHA256=${c.hostArchiveSha256}`];
           for (const [name, component] of Object.entries(c.components)) args.push(`${name.toUpperCase()}_VERSION=${component.version}`, `${name.toUpperCase()}_TARBALL_SHA256=${component.sha256}`);
-          await appendFile(process.env.GITHUB_OUTPUT, `args<<BUILD_ARGS\n${args.join('\n')}\nBUILD_ARGS\ntag=ghcr.io/ashleyhollis/openclaw:packaged-candidate-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}\n`);
+          await appendFile(process.env.GITHUB_OUTPUT, `target=${selection.target}\nhost_version=${c.hostVersion}\ncodex_version=${c.components.codex.version}\nqmd_version=${c.components.qmd?.version ?? "absent"}\nargs<<BUILD_ARGS\n${args.join('\n')}\nBUILD_ARGS\ntag=ghcr.io/ashleyhollis/openclaw:packaged-candidate-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}\n`);
           NODE
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
@@ -350,6 +396,7 @@ jobs:
         with:
           context: .
           file: downstream/Dockerfile.packaged-runtime
+          target: ${{ steps.selection.outputs.target }}
           platforms: linux/amd64
           build-args: ${{ steps.selection.outputs.args }}
           tags: ${{ steps.selection.outputs.tag }}
@@ -373,8 +420,8 @@ jobs:
           docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
             --tmpfs /tmp:rw,nosuid,nodev,size=4g \
             -v "$GITHUB_WORKSPACE/downstream/scripts/smoke-image-runtime.mjs:/smoke.mjs:ro" \
-            -e EXPECTED_OPENCLAW_VERSION=2026.9.8 -e EXPECTED_CODEX_VERSION=2026.9.8 \
-            -e EXPECTED_DISCORD_VERSION=absent -e EXPECTED_QMD_VERSION=2.1.0 \
+            -e RUNTIME_PROFILE="$RUNTIME_PROFILE" -e EXPECTED_OPENCLAW_VERSION="${{ steps.selection.outputs.host_version }}" -e EXPECTED_CODEX_VERSION="${{ steps.selection.outputs.codex_version }}" \
+            -e EXPECTED_DISCORD_VERSION=absent -e EXPECTED_QMD_VERSION="${{ steps.selection.outputs.qmd_version }}" \
             --entrypoint node "$IMAGE" /smoke.mjs
 
       - name: Scan before publication
@@ -402,6 +449,7 @@ jobs:
         with:
           context: .
           file: downstream/Dockerfile.packaged-runtime
+          target: ${{ steps.selection.outputs.target }}
           platforms: linux/amd64
           build-args: ${{ steps.selection.outputs.args }}
           tags: ${{ steps.selection.outputs.tag }}
@@ -426,7 +474,7 @@ jobs:
           DIGEST: ${{ steps.publish.outputs.digest }}
         run: |
           printf '%s\n' "Candidate: $IMAGE" "Published digest: $DIGEST" \
-            'No production alias or deployment changed. Matching Command Center artifact, real-data rehearsal, final acceptance and independent evaluation remain required.' >> "$GITHUB_STEP_SUMMARY"
+            'No production alias or deployment changed. Target-specific backup, real-data rehearsal, final acceptance and independent evaluation remain required; paired Life also retains its Command Center gates.' >> "$GITHUB_STEP_SUMMARY"
 
   runtime-package:
     if: github.actor == github.repository_owner && inputs.artifact_kind == 'runtime-package'

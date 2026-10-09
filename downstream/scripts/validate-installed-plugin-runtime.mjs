@@ -1,3 +1,6 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { validateCodeSelection } from "./validate-packaged-candidate.mjs";
 import { readFile, readlink } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -5,6 +8,7 @@ import { pathToFileURL } from "node:url";
 export async function validateInstalledPluginRuntime(
   root,
   hostRoot = "/app/node_modules/openclaw",
+  candidate = null,
 ) {
   const readJson = async (file) => JSON.parse(await readFile(path.join(root, file), "utf8"));
   const manifest = await readJson("package.json");
@@ -44,9 +48,36 @@ export async function validateInstalledPluginRuntime(
   }
   if ((await readlink(path.join(root, "node_modules/openclaw"))) !== hostRoot)
     throw new Error("image root host peer differs");
+  if (candidate) {
+    validateCodeSelection(candidate);
+    for (const [name, digest] of Object.entries(candidate.locks)) {
+      const file = name === "host.package-lock.json" ? path.join(hostRoot, "../../package-lock.json") : path.join(root, "package-lock.json");
+      assert.equal(createHash("sha256").update(await readFile(file)).digest("hex"), digest, "installed lock bytes differ");
+    }
+    const engineRoot = "node_modules/@openclaw/codex/node_modules/@openai/codex";
+    assert.equal((await readJson(`${engineRoot}/package.json`)).version, "0.160.0");
+    assert.equal(lock.packages?.[engineRoot]?.version, "0.160.0");
+    const platformRoot = `${engineRoot}/node_modules/@openai/codex-linux-x64`;
+    const rawManifest = await readFile(path.join(root, platformRoot, "package.json"));
+    assert.equal(createHash("sha256").update(rawManifest).digest("hex"), candidate.codexPlatform.manifestSha256);
+    const platform = JSON.parse(rawManifest);
+    assert.equal(platform.name, "@openai/codex");
+    assert.equal(platform.version, candidate.codexPlatform.packageVersion);
+    assert.deepEqual(platform.os, ["linux"]);
+    assert.deepEqual(platform.cpu, ["x64"]);
+    assert.equal(lock.packages?.[platformRoot]?.version, platform.version);
+    assert.equal(createHash("sha256").update(await readFile(path.join(root, platformRoot, candidate.codexPlatform.binaryRelativePath))).digest("hex"), candidate.codexPlatform.binarySha256);
+    const host = JSON.parse(await readFile(path.join(hostRoot, "dist/build-info.json"), "utf8"));
+    assert.equal(host.commit, candidate.hostProducedFrom);
+    assert.equal(host.version, candidate.hostVersion);
+  }
   return manifest;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  await validateInstalledPluginRuntime("/opt/openclaw-plugin-runtime");
+  const profile = process.argv[2] ?? "paired-life";
+  assert(["paired-life", "code"].includes(profile), "unknown runtime profile");
+  const selected = JSON.parse(await readFile("/opt/openclaw-runtime/candidate.json", "utf8"));
+  if (profile === "paired-life") assert(selected.role === undefined || selected.role === "paired-life");
+  await validateInstalledPluginRuntime("/opt/openclaw-plugin-runtime", undefined, profile === "code" ? selected : null);
 }
