@@ -97,6 +97,11 @@ on:
         required: false
         default: package-acceptance
         type: string
+      prepublish_plugin_registry_json:
+        description: Existing immutable complete registry tuple; authenticated artifact and all payload checks remain mandatory
+        required: false
+        default: ""
+        type: string
       suite_profile:
         description: "Acceptance profile: smoke, package, telegram, product, full, or custom"
         required: true

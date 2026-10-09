@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { compareReleaseVersions } from "../../../lib/release-version.mjs";
+import { validateInterruptedRestore } from "./first-hop-interruption.mjs";
 import {
   readSqliteTranscriptPayload,
   sqliteTranscriptPayloadColumns,
@@ -397,38 +398,44 @@ function capture(schemaFile, packageRoot, entry, runtimeRoot, resultFile) {
   return "captured";
 }
 
-function verify(resultFile, candidateSchemaFile) {
+function verify(resultFile, candidateSchemaFile, interrupted = false) {
   const proof = readJson(resultFile);
   if (proof.status === "not-applicable") {
     return "not-applicable";
   }
   assert.equal(proof.status, "captured", "baseline backup capture is incomplete");
-  const candidate = readJson(candidateSchemaFile);
-  assert.equal(
-    candidate.candidateVersion,
-    proof.candidateVersion,
-    "candidate schema evidence version changed",
-  );
-  assert.equal(candidate.stateDir, proof.sourceStateDir, "candidate schema evidence state changed");
-  assert.deepEqual(
-    candidate.candidateSchemaVersions,
-    proof.candidateSchemaVersions,
-    "candidate schema targets changed",
-  );
-  for (const database of proof.before.databases.filter((item) => item.present)) {
-    assert(
-      candidate.databases.some(
-        (item) => item.relative === database.relative && item.kind === database.kind,
-      ),
-      "candidate schema evidence is missing a baseline database",
-    );
-  }
-  for (const database of candidate.databases) {
+  if (interrupted) {
+    // Separate interrupted original-driver recovery from successful migration.
+    // All retained-runtime/archive/inventory/preflight/consumer checks below remain.
+    validateInterruptedRestore(proof, readJson(candidateSchemaFile), resultFile);
+  } else {
+    const candidate = readJson(candidateSchemaFile);
     assert.equal(
-      database.contentVersion,
-      proof.candidateSchemaVersions[database.kind],
-      "candidate migration was not verified",
+      candidate.candidateVersion,
+      proof.candidateVersion,
+      "candidate schema evidence version changed",
     );
+    assert.equal(candidate.stateDir, proof.sourceStateDir, "candidate schema evidence state changed");
+    assert.deepEqual(
+      candidate.candidateSchemaVersions,
+      proof.candidateSchemaVersions,
+      "candidate schema targets changed",
+    );
+    for (const database of proof.before.databases.filter((item) => item.present)) {
+      assert(
+        candidate.databases.some(
+          (item) => item.relative === database.relative && item.kind === database.kind,
+        ),
+        "candidate schema evidence is missing a baseline database",
+      );
+    }
+    for (const database of candidate.databases) {
+      assert.equal(
+        database.contentVersion,
+        proof.candidateSchemaVersions[database.kind],
+        "candidate migration was not verified",
+      );
+    }
   }
   assert.deepEqual(
     runtimeIdentity(proof.runtime.packageRoot, proof.runtime.entry),
@@ -472,6 +479,11 @@ function verify(resultFile, candidateSchemaFile) {
   );
   assert.equal(restored.archiveRoot, proof.archive.archiveRoot, "restored archive root changed");
   const stateDir = containedPath(staging, proof.archive.stateAsset);
+  if (interrupted) {
+    const fault = readJson(candidateSchemaFile);
+    assert.equal(hashFile(containedPath(stateDir, fault.configRelative)), fault.configSha256,
+      "restored original configuration changed");
+  }
   const specimens = proof.before.databases.map(({ kind, relative, agentId }) => ({
     kind,
     relative,
@@ -631,10 +643,40 @@ function verify(resultFile, candidateSchemaFile) {
   writeJson(resultFile, {
     ...proof,
     status: "passed",
+    ...(interrupted ? {interruptionSha256:hashFile(candidateSchemaFile)} : {}),
     restoredStateDir: stateDir,
     preflights,
     sessionReads,
   });
+  return "passed";
+}
+
+function verifyRestarted(resultFile, interruptionFile) {
+  const proof = readJson(resultFile);
+  const fault = readJson(interruptionFile);
+  assert.equal(proof.status, "passed", "interrupted restore was not verified");
+  assert.equal(fault.outcome, "interrupted-not-upgraded");
+  assert.equal(hashFile(interruptionFile), proof.interruptionSha256, "admitted interruption bytes changed after restore");
+  assert.equal(hashFile(fault.capturedProofPath), fault.backupProofSha256);
+  const captured = readJson(fault.capturedProofPath);
+  assert.equal(captured.status, "captured");
+  assert.equal(captured.baselineVersion, "2026.9.8");
+  assert.deepEqual(proof.before, captured.before);
+  assert.deepEqual(proof.runtime, captured.runtime);
+  assert.deepEqual(runtimeIdentity(proof.runtime.packageRoot, proof.runtime.entry), captured.runtime);
+  assert.equal(hashFile(proof.archive.path), captured.archive.sha256);
+  assert.equal(hashFile(containedPath(proof.restoredStateDir, fault.configRelative)), fault.configSha256);
+  const specimens = captured.before.databases.map(({ kind, relative, agentId }) => ({kind, relative, ...(agentId ? {agentId} : {})}));
+  const files = captured.before.files.map(({relative,kind})=>({relative,kind}));
+  // Same history-specific readonly observer as the established restore owner;
+  // not a broad physical-database/table/index equality or ownership claim.
+  assert.deepEqual(inventory(proof.restoredStateDir, specimens, files), captured.before,
+    "original baseline restart changed restored history/configuration");
+  const output = path.join(path.dirname(resultFile), "backup-rollback-restart.json");
+  fs.writeFileSync(output, JSON.stringify({status:"passed",baselineVersion:captured.baselineVersion,
+    runtime:captured.runtime,interruptionSha256:hashFile(interruptionFile),
+    capturedBackupSha256:fault.backupProofSha256,restoredStateDir:proof.restoredStateDir,
+    scope:"isolated native seeded history after original9.8 restart; not live Code history"},null,2)+"\n",{flag:"wx",mode:0o600});
   return "passed";
 }
 
@@ -643,14 +685,14 @@ try {
   assert(
     (command === "eligibility" && args.length === 2) ||
       (command === "capture" && args.length === 5) ||
-      (command === "verify" && args.length === 2),
-    "usage: backup-rollback.mjs eligibility <baseline-version> <result.json> | capture <schema-before.json> <baseline-package> <baseline-entry> <runtime-root> <result.json> | verify <result.json> <schema-after.json>",
+      (["verify", "verify-interrupted", "verify-restarted"].includes(command) && args.length === 2),
+    "usage: backup-rollback.mjs eligibility <baseline-version> <result.json> | capture <schema-before.json> <baseline-package> <baseline-entry> <runtime-root> <result.json> | verify <result.json> <schema-after.json> | verify-interrupted <captured.json> <actual-interruption.json> | verify-restarted <restored.json> <actual-interruption.json>",
   );
   process.stdout.write(
-    `${command === "eligibility" ? eligibility(...args) : command === "capture" ? capture(...args) : verify(...args)}\n`,
+    `${command === "eligibility" ? eligibility(...args) : command === "capture" ? capture(...args) : command === "verify-restarted" ? verifyRestarted(...args) : verify(...args, command === "verify-interrupted")}\n`,
   );
 } catch (error) {
-  const resultFile = command === "capture" ? args[4] : command === "verify" ? args[0] : undefined;
+  const resultFile = command === "capture" ? args[4] : ["verify", "verify-interrupted"].includes(command) ? args[0] : undefined;
   if (resultFile && fs.existsSync(resultFile)) {
     writeJson(resultFile, {
       ...readJson(resultFile),

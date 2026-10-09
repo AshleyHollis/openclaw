@@ -3,6 +3,7 @@
   "scenarios": [
     "base",
     "abandoned-update",
+    "first-hop-interruption",
     "legacy-operator-state",
     "workshop-doctor-recovery",
     "update-report-recovery",
