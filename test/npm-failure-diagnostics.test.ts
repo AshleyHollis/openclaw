@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
@@ -10,6 +11,70 @@ import {
 } from "../scripts/npm-failure-diagnostics.mjs";
 
 describe("npm failure diagnostics", () => {
+  it("compares actual helper subprocesses while retaining failure and filtering raw output", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "npm-probe-test-"));
+    try {
+      const scripts = path.join(dir, "scripts/lib");
+      fs.mkdirSync(scripts, { recursive: true });
+      fs.writeFileSync(
+        path.join(scripts, "plugin-npm-package-manifest.mjs"),
+        "process.title='npm pack PRIVATE_SECRET'; process.emit('time','start','npm'); console.log('PRIVATE_SECRET'); console.error('{\"npmPendingPublicPhases\":'); console.error(JSON.stringify({npmPendingPublicPhases:['PRIVATE_SECRET']})); console.error(JSON.stringify({npmPendingPublicPhases:['npm'], private:'PRIVATE_SECRET'})); console.error('Exit handler never called!'); console.error('packing patched runtime dependency failed: @openclaw/fs-safe@0.21.1'); process.exitCode=37;",
+      );
+      const result = spawnSync(
+        process.execPath,
+        [fileURLToPath(new URL("../scripts/npm-companion-pack-probe.mjs", import.meta.url))],
+        { cwd: dir, encoding: "utf8", timeout: 10000 },
+      );
+      expect(result.status).toBe(1);
+      expect(result.error).toBeUndefined();
+      expect(result.stderr).toBe("");
+      expect(result.stdout).not.toMatch(/PRIVATE_SECRET|npm-probe-test/);
+      const records = result.stdout
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(records).toHaveLength(2);
+      expect(records[0]).toMatchObject({
+        observed: false,
+        status: 37,
+        phaseRecords: [],
+        exitHandlerFailure: true,
+        patchedFsSafeFailure: true,
+      });
+      expect(records[1]).toMatchObject({
+        observed: true,
+        status: 37,
+        phaseRecords: [{ npmPendingPublicPhases: ["npm"] }],
+        exitHandlerFailure: true,
+        patchedFsSafeFailure: true,
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it("observes npm phases during premature exit without keeping the process alive or changing status", () => {
+    const observer = new URL("../scripts/npm-pack-phase-observer.mjs", import.meta.url).href;
+    const run = (body: string) =>
+      spawnSync(process.execPath, ["--import", observer, "--input-type=module", "-e", body], {
+        encoding: "utf8",
+        timeout: 5000,
+      });
+    const failure = run(
+      "process.title='npm pack PRIVATE_SECRET'; process.emit('time','start','npm'); process.emit('time','start','command:pack'); process.emit('time','start','arborist:loadActual'); process.emit('time','start','PRIVATE_SECRET'); process.emit('time','start','/private/SECRET'); process.emit('time','end','command:pack'); process.exitCode=37;",
+    );
+    expect(failure.status).toBe(37);
+    expect(failure.error).toBeUndefined();
+    expect(failure.stdout).toBe("");
+    expect(failure.stderr).toBe('{"npmPendingPublicPhases":["arborist:loadActual","npm"]}\n');
+    const success = run(
+      "process.title='npm'; process.emit('time','start','npm'); process.emit('time','end','npm');",
+    );
+    expect(success.status).toBe(0);
+    expect(success.stderr).toBe("");
+    const unrelated = run("process.title='other'; process.emit('time','start','npm');");
+    expect(unrelated.status).toBe(0);
+    expect(unrelated.stderr).toBe("");
+  });
   it("keeps the actual workflow command status even when diagnostics fail", () => {
     const workflow = parse(
       fs.readFileSync(

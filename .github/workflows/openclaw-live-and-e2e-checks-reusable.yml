@@ -3001,6 +3001,8 @@ jobs:
         run: |
           set -euo pipefail
           trap 'pack_status=$?; trap - ERR; node .release-harness/scripts/npm-failure-diagnostics.mjs --logs-dir "$NPM_CONFIG_LOGS_DIR" >&2 || true; exit "$pack_status"' ERR
+          observer_url="$(node --input-type=module -e 'import { pathToFileURL } from "node:url"; import path from "node:path"; process.stdout.write(pathToFileURL(path.resolve(".release-harness/scripts/npm-pack-phase-observer.mjs")).href)')"
+          export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--import=${observer_url}"
           prepared_args=()
           if [[ -n "$PREPARED_NPM_BUNDLE_JSON" ]]; then
             prepared_args+=(--prepared-bundle-dir .artifacts/prepared-npm-bundle)

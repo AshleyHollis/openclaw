@@ -12,6 +12,7 @@ on:
           - release
           - offline-session-helper
           - runtime-package
+          - companion-pack-probe
           - runtime-image
       runtime_source_sha:
         description: Reviewed full source commit for a candidate-only runtime package
@@ -496,6 +497,48 @@ jobs:
       - name: Record qualification boundary
         run: |
           printf '%s\n' 'Candidate package only. No registry publish, release qualification, deployment or promotion. Matching plugin, real-data rehearsal and final acceptance remain required.' >> "$GITHUB_STEP_SUMMARY"
+
+  # Diagnostic only: reproduce the held companion failure without rebuilding
+  # the root package or invoking acceptance, image, registry, or release jobs.
+  companion-pack-probe:
+    if: github.actor == github.repository_owner && inputs.artifact_kind == 'companion-pack-probe'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Validate held candidate and diagnostic boundary
+        env:
+          SOURCE_SHA: ${{ inputs.runtime_source_sha }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" == "542cb78a57f0ae13cc3a9ac6c650e1e877bc252e" ]]
+          [[ "$PUBLISH" == "false" ]]
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.runtime_source_sha }}
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.sha }}
+          path: .release-harness
+          persist-credentials: false
+      - name: Setup observed failing package toolchain
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.21.0"
+          install-bun: "true"
+          install-deps: "true"
+          cache-mode: "off"
+      - name: Build companion runtime using the held source owner
+        run: node scripts/lib/plugin-npm-runtime-build.mjs extensions/codex
+      - name: Compare actual helper with and without the phase observer
+        run: node .release-harness/scripts/npm-companion-pack-probe.mjs
+      - name: Record diagnostic boundary
+        if: always()
+        run: |
+          printf '%s\n' 'Diagnostic only. No package upload, registry publish, image build, release qualification or deployment. A passing reproduction is not acceptance evidence.' >> "$GITHUB_STEP_SUMMARY"
 
   offline-session-helper:
     if: github.actor == github.repository_owner && inputs.artifact_kind == 'offline-session-helper'
