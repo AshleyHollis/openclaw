@@ -2996,9 +2996,11 @@ jobs:
           REQUIRED_PACKAGES_JSON: ${{ steps.plan.outputs.required_prepublish_plugin_packages }}
           SELECTED_SHA: ${{ needs.validate_selected_ref.outputs.selected_sha }}
           PREPARED_NPM_BUNDLE_JSON: ${{ inputs.prepared_npm_bundle_json }}
+          NPM_CONFIG_LOGS_DIR: ${{ runner.temp }}/openclaw-companion-npm-logs
         shell: bash
         run: |
           set -euo pipefail
+          trap 'pack_status=$?; trap - ERR; node .release-harness/scripts/npm-failure-diagnostics.mjs --logs-dir "$NPM_CONFIG_LOGS_DIR" >&2 || true; exit "$pack_status"' ERR
           prepared_args=()
           if [[ -n "$PREPARED_NPM_BUNDLE_JSON" ]]; then
             prepared_args+=(--prepared-bundle-dir .artifacts/prepared-npm-bundle)
