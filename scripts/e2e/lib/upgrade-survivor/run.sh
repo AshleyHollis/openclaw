@@ -81,6 +81,47 @@ export NPM_CONFIG_CACHE="$npm_config_cache"
 export npm_config_tmp="$TMPDIR"
 mkdir -p "$npm_config_prefix" "$npm_config_cache"
 chmod 700 "$npm_config_cache" || true
+configure_recovery_compile_cache() {
+  [ "$SCENARIO" = "recovery-cleanup" ] || return 0
+  # Native bytecode is disposable derived data, not a protected recovery payload.
+  # Keep the existing product owner enabled and shared by every command in this lane.
+  NODE_COMPILE_CACHE="$(env -u NODE_COMPILE_CACHE node --input-type=module - "$RUNTIME_ROOT" "$STATE_HOME_ROOT" <<'NODE'
+import fs from "node:fs";
+import path from "node:path";
+const canonical = (input) => {
+  const absolute = path.resolve(input);
+  try {
+    fs.lstatSync(absolute);
+    return fs.realpathSync(absolute);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    // A dangling symlink must not be treated as a future directory.
+    try { fs.lstatSync(absolute); throw new Error("unresolved recovery cache path"); }
+    catch (probe) { if (probe.code !== "ENOENT") throw probe; }
+  }
+  const parent = path.dirname(absolute);
+  return path.join(parent === absolute ? absolute : canonical(parent), path.basename(absolute));
+};
+const contains = (root, target) => {
+  const relative = path.relative(root, target);
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+};
+const runtime = canonical(process.argv[2]);
+const cache = canonical(path.join(process.argv[2], "native-compile-cache"));
+const protectedRoots = [process.argv[3], process.env.HOME, process.env.OPENCLAW_STATE_DIR,
+  process.env.OPENCLAW_CONFIG_PATH, process.env.TMPDIR, process.env.npm_config_cache]
+  .filter(Boolean).map(canonical);
+if (!contains(runtime, cache) || cache === runtime || protectedRoots.some((root) => contains(root, cache) || contains(cache, root))) {
+  throw new Error("recovery native compile cache overlaps protected roots or escapes its runtime owner");
+}
+process.stdout.write(cache);
+NODE
+)" || return "$?"
+  export NODE_COMPILE_CACHE
+  mkdir -p "$NODE_COMPILE_CACHE"
+}
+configure_recovery_compile_cache
+
 export PATH="$BASELINE_BIN_DIR:$PATH"
 
 PHASE_LOG="$ARTIFACT_ROOT/phases.jsonl"
@@ -1024,6 +1065,7 @@ initialize_state() {
     export OPENCLAW_STATE_DIR="$account_home/.openclaw"
     export OPENCLAW_CONFIG_PATH="$OPENCLAW_STATE_DIR/openclaw.json"
   fi
+  configure_recovery_compile_cache
   export OPENCLAW_UPGRADE_SURVIVOR_BASELINE_VERSION="$baseline_version"
 }
 
