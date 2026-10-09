@@ -12,7 +12,7 @@ export function summarizeNpmFailureLog(text) {
       records.push({ kind: "version", tool: match[1], version: match[2] });
       continue;
     }
-    match = line.match(/^\d+ verbose unfinished npm timer ([A-Za-z0-9:_-]+) (\d+)$/);
+    match = line.match(/^\d+ (?:verbose|silly) unfinished npm timer ([A-Za-z0-9:_-]+) (\d+)$/);
     if (match) {
       records.push({ kind: "unfinished-timer", timer: match[1] });
       continue;

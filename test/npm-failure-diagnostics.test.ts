@@ -75,7 +75,8 @@ describe("npm failure diagnostics", () => {
         "3 verbose node v24.21.0",
         "4 verbose stack Error: https://user:SECRET@example.test/?token=SECRET",
         "5 verbose stack     at Pack.exec (/private/SECRET/npm/lib/commands/pack.js:42:7)",
-        "6 verbose unfinished npm timer command:pack 1780000000000",
+        "6 silly unfinished npm timer command:pack 1780000000000",
+        "6 verbose unfinished npm timer legacy:pack 1780000000000",
         "7 timing npm:load Completed in 12ms",
         "8 error code EINVALIDPACK",
         "9 error private message SECRET",
@@ -88,6 +89,7 @@ describe("npm failure diagnostics", () => {
       { kind: "version", tool: "node", version: "v24.21.0" },
       { kind: "stack-location", function: "Pack.exec", file: "pack.js", line: 42, column: 7 },
       { kind: "unfinished-timer", timer: "command:pack" },
+      { kind: "unfinished-timer", timer: "legacy:pack" },
       { kind: "timing", timer: "npm:load", milliseconds: 12 },
       { kind: "error-code", code: "EINVALIDPACK" },
     ]);
