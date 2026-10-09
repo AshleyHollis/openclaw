@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {spawn} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import {interruptDriver,prefixInventory,digest,validateInterruptedRestore} from './first-hop-interruption.mjs';
@@ -11,6 +11,7 @@ import {isTrustedHarnessOwnedUpgradeSurvivorScenario,supportsUpgradeSurvivorScen
 // Actual OS/process operations on fictional disposable data, not release proof.
 const helper=fileURLToPath(new URL('first-hop-interruption.mjs',import.meta.url));
 const preload=fileURLToPath(new URL('first-hop-interruption-preload.mjs',import.meta.url));
+const scenario=fileURLToPath(new URL('first-hop-interruption.sh',import.meta.url));
 function fixture(t) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'original-driver-boundary-'));
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
@@ -25,6 +26,42 @@ function fixture(t) {
   const driver=path.join(root,'original-driver.mjs');
   fs.writeFileSync(driver,`import fs from 'node:fs/promises';await fs.rename(${JSON.stringify(liveRoot)},${JSON.stringify(destination)});await fs.writeFile(${JSON.stringify(path.join(root,'candidate-publication'))},'must never execute');`);
   return {root,directory,destination,config,env,driver};
+}
+
+for (const seedStatus of [0, 61]) {
+  test(`native history seeding ${seedStatus === 0 ? 'precedes capture without legacy JSON injection' : 'failure stops before capture/interruption'}`, (t) => {
+    const root=fs.mkdtempSync(path.join(os.tmpdir(),'native-first-hop-seed-'));
+    t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+    // Exercise the actual scenario shell on owned fictional files. Exit73 is
+    // an explicit test checkpoint, not a claimed updater/rollback success.
+    const script=`set -eu
+source "$1"
+baseline_spec=openclaw@2026.9.8 CANDIDATE_KIND=tarball UPDATE_RESTART_MODE=manual ROOT_MANAGED_VPS=0 LIVE_ENABLED=0
+ARTIFACT_ROOT="$2" RUNTIME_ROOT="$2" CANDIDATE_SPEC="$2/fictional-candidate.tgz"
+phase() {
+  local name="$1"; shift
+  echo "$name" >> "$ARTIFACT_ROOT/phases"
+  if [ "$name" = interrupt-first-original-driver ]; then exit 73; fi
+  "$@"
+}
+seed_state() { echo legacy-injection >> "$ARTIFACT_ROOT/phases"; return 62; }
+seed_legacy_operator_gateway() {
+  [ ${seedStatus} = 0 ] || return ${seedStatus}
+  echo fictional-native-history > "$ARTIFACT_ROOT/native-history"
+}
+prepare_schema_expectation() { test -s "$ARTIFACT_ROOT/native-history"; }
+capture_backup_rollback() { test -s "$ARTIFACT_ROOT/native-history"; }
+package_root() { echo "$ARTIFACT_ROOT/original-prefix"; }
+openclaw_e2e_package_entrypoint() { echo "$ARTIFACT_ROOT/original-prefix/openclaw.mjs"; }
+run_first_hop_interruption
+`;
+    // Carry the test status as a shell variable, not fake native evidence.
+    const result=spawnSync('bash',['-c',script,'seed-test',scenario,root],{encoding:'utf8',timeout:5000});
+    assert.equal(result.status,seedStatus === 0 ? 73 : seedStatus,result.stderr);
+    const phases=fs.readFileSync(path.join(root,'phases'),'utf8').trim().split('\n');
+    assert.deepEqual(phases,seedStatus === 0 ? ['seed-first-hop-native-history','capture-first-hop-schema','capture-first-hop-backup','interrupt-first-original-driver'] : ['seed-first-hop-native-history']);
+    assert(!fs.existsSync(path.join(root,'sessions/sessions.json')));
+  });
 }
 test('real displacement then external SIGKILL; never candidate publication or fabricated ledger',async t=>{
   const f=fixture(t),before=prefixInventory(f.config.liveRoot);

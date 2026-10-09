@@ -6,7 +6,9 @@ run_first_hop_interruption() {
     echo "first-hop-interruption requires published9.8, frozen EA tar, isolated manual restart and no live provider" >&2
     return 2
   fi
-  phase seed-first-hop-state seed_state
+  # The original baseline CLI already authored config, and the native seeder
+  # below creates its history. Generic seed_state injects legacy session JSON
+  # for migration scenarios; published9.8 correctly refuses that at startup.
   phase seed-first-hop-native-history seed_legacy_operator_gateway
   phase capture-first-hop-schema prepare_schema_expectation
   phase capture-first-hop-backup capture_backup_rollback
