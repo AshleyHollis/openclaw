@@ -16,7 +16,7 @@ type Step = {
 const workflow = parse(readFileSync(resolve(".github/workflows/validate-downstream.yml"), "utf8"));
 const job = workflow.jobs["root-test-typecheck"];
 const steps = job.steps as Step[];
-const admitted = "d7d039c8ed935dce3b207f312307c439e2b9da31";
+const admitted = "1f55d478f380b1fde3c07c5a827a0758ff528244";
 const dirs = useAutoCleanupTempDirTracker(afterEach);
 function fixture() {
   const root = dirs.make("exact-root-typecheck-");

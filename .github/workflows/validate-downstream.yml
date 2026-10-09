@@ -70,7 +70,7 @@ jobs:
       contents: read
     env:
       # Frozen task qualification only; changing this admission requires source review.
-      ADMITTED_SOURCE_SHA: d7d039c8ed935dce3b207f312307c439e2b9da31
+      ADMITTED_SOURCE_SHA: 1f55d478f380b1fde3c07c5a827a0758ff528244
     steps:
       - name: Admit exact source
         id: admission
