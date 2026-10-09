@@ -25,7 +25,7 @@ on:
         default: main
         type: string
       package_spec:
-        description: Published package spec when source=npm
+        description: Published npm spec; for source=artifact only, optional strict six-field registry tuple JSON (dispatch input limit)
         required: false
         default: openclaw@beta
         type: string
@@ -96,11 +96,6 @@ on:
         description: Unique artifact namespace when shared_image_policy=no-push-artifact
         required: false
         default: package-acceptance
-        type: string
-      prepublish_plugin_registry_json:
-        description: Existing immutable complete registry tuple; authenticated artifact and all payload checks remain mandatory
-        required: false
-        default: ""
         type: string
       suite_profile:
         description: "Acceptance profile: smoke, package, telegram, product, full, or custom"
@@ -591,7 +586,10 @@ jobs:
         id: registry_input
         env:
           CANDIDATE_ARTIFACT_JSON: ${{ inputs.candidate_artifact_json || '' }}
-          PREPUBLISH_PLUGIN_REGISTRY_JSON: ${{ inputs.prepublish_plugin_registry_json || '' }}
+          # workflow_call retains its dedicated tuple; manual artifact dispatch may
+          # use the otherwise unused package_spec without adding a 26th input.
+          # Existing strict direct tuple normalization below remains the owner.
+          PREPUBLISH_PLUGIN_REGISTRY_JSON: ${{ inputs.prepublish_plugin_registry_json || (inputs.source == 'artifact' && startsWith(inputs.package_spec, '{') && inputs.package_spec) || '' }}
         shell: bash
         run: |
           set -euo pipefail

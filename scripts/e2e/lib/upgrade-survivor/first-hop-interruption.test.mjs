@@ -111,3 +111,15 @@ test('published interruption summary preserves original9.8 identity and refuses 
  const result=publishedBackupRollback(snapshot,io);assert.equal(result.interruption.candidateActivated,false);assert.equal(result.interruption.restoredOriginalRestart,'passed');assert.equal(result.candidateSchemaVersions,undefined);
  for(const mutate of [s=>s.installedVersion='2026.9.9',s=>s.updateOutcome='success',s=>delete s.backupRollbackRestart,s=>s.firstHopInterruption.parentJoined=false,s=>s.firstHopInterruption.liveProcessesAfter=[123],s=>s.firstHopInterruption.terminal.signal=null,s=>s.backupRollbackRestart.capturedBackupSha256='b'.repeat(64),s=>s.backupRollback.interruptionSha256='b'.repeat(64),s=>s.backupRollback.candidateVersion='2026.9.8',s=>s.backupRollback.preflights=[],s=>s.backupRollback.before.databases[1].tables=[]]){const bad=structuredClone(snapshot);mutate(bad);assert.throws(()=>publishedBackupRollback(bad,io));}
 });
+
+test('manual artifact dispatch stays within25inputs and strict existing registry owner; npm/paired contracts retained',()=>{
+ const workflow=fs.readFileSync(new URL('../../../../.github/workflows/package-acceptance.yml',import.meta.url),'utf8');
+ const dispatch=workflow.split('  workflow_dispatch:')[1].split('  workflow_call:')[0];
+ assert.equal((dispatch.match(/^      [a-z0-9_]+:$/gm)||[]).length,25);
+ assert(!dispatch.includes('      prepublish_plugin_registry_json:'));
+ assert(workflow.includes("inputs.prepublish_plugin_registry_json || (inputs.source == 'artifact' && startsWith(inputs.package_spec, '{') && inputs.package_spec) || ''"));
+ assert(workflow.includes('($source == "direct" and ((keys | sort) != (fields | sort)))'));
+ assert(workflow.includes('Prerelease plugin registry inputs disagree.'));
+ const call=workflow.split('  workflow_call:')[1];assert(call.includes('      prepublish_plugin_registry_json:'));
+ assert(dispatch.includes('      package_spec:'));assert(dispatch.includes('      allow_frozen_target_scenario_omissions:'));
+});
