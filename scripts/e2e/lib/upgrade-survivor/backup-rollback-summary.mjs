@@ -4,8 +4,10 @@ export function publishedBackupRollback(snapshot, { sanitize, boundedList, textF
   const invalid = () => {
     throw new Error("Invalid backup rollback evidence");
   };
+  const interrupted = snapshot.scenario === "first-hop-interruption";
   const proof = snapshot.backupRollback;
   if (proof === undefined || proof === null) {
+    if (interrupted) invalid();
     if (snapshot.scenario === "legacy-operator-state") {
       const comparison =
         typeof snapshot.baseline?.version === "string"
@@ -32,12 +34,13 @@ export function publishedBackupRollback(snapshot, { sanitize, boundedList, textF
       ? sanitize(value, "backup rollback")
       : invalid();
   if (
-    snapshot.scenario !== "legacy-operator-state" ||
+    (!interrupted && snapshot.scenario !== "legacy-operator-state") ||
     proof.baselineVersion !== snapshot.baseline.version
   ) {
     invalid();
   }
   if (proof.status === "not-applicable") {
+    if (interrupted) invalid();
     if (
       proof.minimumBaseline !== "2026.9.4" ||
       compareReleaseVersions(proof.baselineVersion, proof.minimumBaseline) >= 0
@@ -54,9 +57,37 @@ export function publishedBackupRollback(snapshot, { sanitize, boundedList, textF
     proof.status !== "passed" ||
     proof.runtime?.version !== proof.baselineVersion ||
     proof.candidateVersion !== snapshot.candidate.version ||
-    proof.candidateVersion !== snapshot.installedVersion
+    (interrupted ? snapshot.installedVersion !== "2026.9.8" :
+      proof.candidateVersion !== snapshot.candidate.version || proof.candidateVersion !== snapshot.installedVersion)
   ) {
     invalid();
+  }
+  let interruption;
+  if (interrupted) {
+    const fault = snapshot.firstHopInterruption;
+    const restart = snapshot.backupRollbackRestart;
+    if (proof.baselineVersion !== "2026.9.8" || snapshot.candidate.version !== "2026.9.9" ||
+        snapshot.baseline.spec !== "openclaw@2026.9.8" || snapshot.updateRestartMode !== "manual" ||
+        snapshot.updateOutcome !== "interrupted-baseline-restored" ||
+        fault?.schema !== "openclaw.first-hop-interruption.v1" || fault.outcome !== "interrupted-not-upgraded" ||
+        fault.baselineVersion !== "2026.9.8" || fault.baselineSource !== "fc23bc864e4553c2d215e479eeec47b67a0bf943" ||
+        fault.targetSource !== "ea4135dbeced9c393ab4f6ebde8bf3e751ea5fa2" ||
+        fault.targetSha256 !== "acf8cd1cedd1b64f6b855c7177fd3340a03208cd9cbf30aeaf5a511d2e2ef470" ||
+        fault.parentJoined !== true || !Array.isArray(fault.liveProcessesAfter) || fault.liveProcessesAfter.length !== 0 ||
+        fault.terminal?.signal !== "SIGKILL" ||
+        fault.marker?.boundary !== "after-original-prefix-rename-before-candidate-publication" ||
+        restart?.status !== "passed" || restart.nativeRecertification !== "passed" ||
+        typeof restart.recertificationSha256 !== "string" || !/^[a-f0-9]{64}$/.test(restart.recertificationSha256) || restart.baselineVersion !== proof.baselineVersion ||
+        restart.capturedBackupSha256 !== fault.backupProofSha256 ||
+        restart.interruptionSha256 !== proof.interruptionSha256 ||
+        restart.runtime?.manifestSha256 !== proof.runtime.manifestSha256 ||
+        restart.runtime?.entrySha256 !== proof.runtime.entrySha256) invalid();
+    interruption = {candidateActivated:false,originalDriverInterrupted:true,
+      baselineSource:fault.baselineSource,targetSource:fault.targetSource,
+      targetArchiveSha256:digest(fault.targetSha256),capturedBackupSha256:digest(fault.backupProofSha256),
+      markerSha256:digest(fault.markerSha256),intentSha256:digest(fault.intentSha256),
+      interruptionSha256:digest(restart.interruptionSha256),originalPrefixSha256:digest(fault.originalPrefixSha256),
+      restoredOriginalRestart:"passed",scope:"isolated seeded native history; not live Code or automatic service recovery"};
   }
   const baselineSchemaVersions = versions(proof.runtime.schemaVersions);
   const preflights = boundedList(proof.preflights);
@@ -156,6 +187,7 @@ export function publishedBackupRollback(snapshot, { sanitize, boundedList, textF
       canonicalEventCount: count(file.canonicalEventCount),
     });
   });
+  if (interrupted && omittedRawTranscripts.length) invalid();
   const rawTranscriptRestoration = omittedRawTranscripts.length
     ? "unsupported-by-published-backup"
     : "verified";
@@ -170,9 +202,10 @@ export function publishedBackupRollback(snapshot, { sanitize, boundedList, textF
   return {
     status: "passed",
     baselineVersion: releaseVersion(proof.baselineVersion),
-    candidateVersion: releaseVersion(proof.candidateVersion),
+    candidateVersion: releaseVersion(interrupted ? snapshot.candidate.version : proof.candidateVersion),
+    ...(interruption ? {interruption} : {}),
     baselineSchemaVersions,
-    candidateSchemaVersions: versions(proof.candidateSchemaVersions),
+    ...(interrupted ? {} : {candidateSchemaVersions: versions(proof.candidateSchemaVersions)}),
     archiveSha256: digest(proof.archive?.sha256),
     baselineRuntime: {
       manifestSha256: digest(proof.runtime.manifestSha256),

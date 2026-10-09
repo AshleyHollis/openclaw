@@ -248,6 +248,14 @@ if [ "$SCENARIO" = "abandoned-update" ] && {
   echo "abandoned-update requires the published baseline, auto-auth service fixture, and no live provider" >&2
   exit 1
 fi
+if [ "$SCENARIO" = "first-hop-interruption" ] && {
+  [ "${OPENCLAW_UPGRADE_SURVIVOR_PUBLISHED_BASELINE:-0}" != 1 ] ||
+  [ "$BASELINE_SPEC" != "openclaw@2026.9.8" ] || [ "$UPDATE_RESTART_MODE" != manual ] ||
+  [ "$ROOT_MANAGED_VPS" != 0 ] || [ "$LIVE_ENABLED" != 0 ];
+}; then
+  echo "first-hop-interruption requires exact published9.8, isolated manual restart and no live provider" >&2
+  exit 1
+fi
 
 if [ "$SCENARIO" = "projects-doctor" ] || [ "$SCENARIO" = "projects-startup-migration" ]; then
   if [ "${OPENCLAW_UPGRADE_SURVIVOR_PUBLISHED_BASELINE:-0}" != "1" ] ||

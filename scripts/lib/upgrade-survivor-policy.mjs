@@ -35,6 +35,7 @@ const scenarioMinimumBaselines = new Map([
 const TRUSTED_HARNESS_OWNED_SCENARIOS = new Set([
   "mobile-pairing-reconnect",
   "abandoned-update",
+  "first-hop-interruption",
   "projects-doctor",
   "channel-owner-policy",
   "projects-startup-migration",
@@ -54,6 +55,7 @@ export function isTrustedHarnessOwnedUpgradeSurvivorScenario(scenario) {
 const aggregateScenarios = UPGRADE_SURVIVOR_SCENARIOS.filter(
   (scenario) =>
     scenario !== "abandoned-update" &&
+    scenario !== "first-hop-interruption" &&
     scenario !== "missing-configured-plugin-migration" &&
     scenario !== "missing-load-path" &&
     scenario !== "projects-doctor" &&
@@ -218,6 +220,7 @@ function comparePublishedReleaseVersion(a, b) {
 }
 
 export function supportsUpgradeSurvivorScenarioAtBaseline(scenario, baselineSpec) {
+  if (scenario === "first-hop-interruption") return baselineSpec === "openclaw@2026.9.8";
   if (scenario === "missing-load-path") {
     const release = parseReleaseVersion((baselineSpec ?? "").replace(/^openclaw@/u, ""));
     // Floating tags are checked again against the installed baseline before seeding.

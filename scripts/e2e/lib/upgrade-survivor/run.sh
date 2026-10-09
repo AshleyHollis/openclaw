@@ -14,7 +14,11 @@ source scripts/e2e/lib/upgrade-survivor/plugin-dependency-fixtures.sh
 source scripts/e2e/lib/upgrade-survivor/backup-rollback.sh
 source scripts/e2e/lib/upgrade-survivor/legacy-operator-plugin-policy.sh
 source scripts/e2e/lib/upgrade-survivor/missing-load-path.sh
-source scripts/e2e/lib/upgrade-survivor/paths.sh
+if [ "${OPENCLAW_UPGRADE_SURVIVOR_SCENARIO:-base}" = first-hop-interruption ]; then
+  source /tmp/openclaw-release-harness/scripts/e2e/lib/upgrade-survivor/paths.sh
+else
+  source scripts/e2e/lib/upgrade-survivor/paths.sh
+fi
 
 SCENARIO="${OPENCLAW_UPGRADE_SURVIVOR_SCENARIO:-base}"
 WORKER_CELL=0
@@ -352,9 +356,13 @@ const summary = {
   restartFixture: readJsonOrNull(process.env.SUMMARY_RESTART_FIXTURE),
   restartRuntimeFixture: readJsonOrNull(process.env.SUMMARY_RESTART_RUNTIME_FIXTURE),
   restartInference: process.env.SUMMARY_RESTART_INFERENCE || null,
-  backupRollback: process.env.SUMMARY_SCENARIO === "legacy-operator-state"
+  backupRollback: ["legacy-operator-state", "first-hop-interruption"].includes(process.env.SUMMARY_SCENARIO)
     ? readJsonOrNull(process.env.SUMMARY_BACKUP_ROLLBACK)
     : undefined,
+  firstHopInterruption: process.env.SUMMARY_SCENARIO === "first-hop-interruption"
+    ? readJsonOrNull(path.join(path.dirname(process.env.SUMMARY_JSON), "first-hop-interruption", "result.json")) : undefined,
+  backupRollbackRestart: process.env.SUMMARY_SCENARIO === "first-hop-interruption"
+    ? readJsonOrNull(path.join(path.dirname(process.env.SUMMARY_JSON), "backup-rollback-restart.json")) : undefined,
   nativeAssignmentEligibility: readJsonOrNull(path.join(path.dirname(process.env.SUMMARY_JSON), "native-assignment-eligibility.json")),
   nativeAssignments: process.env.SUMMARY_SCENARIO === "legacy-operator-state"
     ? readJsonOrNull(path.join(path.dirname(process.env.SUMMARY_JSON), "native-assignment-proof.json"))
@@ -1032,7 +1040,7 @@ seed_state() {
 }
 
 apply_baseline_config_recipe() {
-  if [ "$SCENARIO" = "legacy-operator-state" ]; then
+  if [ "$SCENARIO" = "legacy-operator-state" ] || [ "$SCENARIO" = "first-hop-interruption" ]; then
     node scripts/e2e/lib/upgrade-survivor/assertions.mjs seed-legacy-operator
     return
   fi
@@ -2468,7 +2476,7 @@ if [ "$SCENARIO" = "abandoned-update" ]; then
   run_completed="1"
   exit 0
 fi
-if [ "$SCENARIO" = "legacy-operator-state" ]; then
+if [ "$SCENARIO" = "legacy-operator-state" ] || [ "$SCENARIO" = "first-hop-interruption" ]; then
   # The baseline CLI must author the endpoint already owned by the model mock.
   phase start-legacy-operator-mock start_legacy_operator_mock
 fi
@@ -2481,6 +2489,15 @@ phase validate-baseline-config validate_baseline_config
 run_missing_load_path_fixture baseline
 phase resolve-candidate resolve_candidate_version
 phase resolve-candidate-install-mode resolve_candidate_install_mode
+if [ "$SCENARIO" = "first-hop-interruption" ]; then
+  source /tmp/openclaw-release-harness/scripts/e2e/lib/upgrade-survivor/first-hop-interruption.sh
+  run_first_hop_interruption
+  installed_version="2026.9.8"
+  update_outcome="interrupted-baseline-restored"
+  run_completed="1"
+  echo "Original9.8 interruption and retained baseline rollback/restart passed; EA was not activated."
+  exit 0
+fi
 if [ "$SCENARIO" = "legacy-operator-state" ] && [ "$baseline_version" = "2026.9.4" ] &&
   [ "$UPDATE_RESTART_MODE" = "manual" ] && [ "$CANDIDATE_KIND" = "tarball" ]; then
   phase prepare-native-assignment-proof prepare_native_assignment_proof
