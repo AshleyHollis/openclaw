@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDoctorPrompter } from "../commands/doctor-prompter.js";
 import { readConfigFileSnapshot } from "../config/config.js";
 import { hashConfigRaw } from "../config/io.read-helpers.js";
@@ -15,11 +15,28 @@ import {
 } from "./doctor-health-contribution-runners.config.js";
 import type { DoctorHealthFlowContext } from "./doctor-health-contribution-types.js";
 
-afterEach(() => {
-  vi.useRealTimers();
+const wizardClock = vi.hoisted(() => ({ write: 0 }));
+
+vi.mock("../commands/onboard-helpers.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../commands/onboard-helpers.js")>();
+  return {
+    ...actual,
+    applyWizardMetadata: (...args: Parameters<typeof actual.applyWizardMetadata>) => {
+      const cfg = actual.applyWizardMetadata(...args);
+      // Advance only wizard provenance; SQLite lease clocks remain real.
+      cfg.wizard = {
+        ...cfg.wizard,
+        lastRunAt: new Date(Date.UTC(2026, 8, 14, 12, 0, wizardClock.write++)).toISOString(),
+      };
+      return cfg;
+    },
+  };
 });
 
 describe("Doctor config persistence after deferred migrations", () => {
+  beforeEach(() => {
+    wizardClock.write = 0;
+  });
   it.each([
     { deferred: false, include: false },
     { deferred: true, include: false },
@@ -28,8 +45,6 @@ describe("Doctor config persistence after deferred migrations", () => {
   ])(
     "finishes retired inputs in the same Doctor without redundant writes (deferred: $deferred, include: $include)",
     async ({ deferred, include }) => {
-      vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(new Date("2026-09-14T00:00:00Z"));
       await withOpenClawTestState(
         {
           label: "doctor-deferred-config-write",
@@ -140,7 +155,6 @@ describe("Doctor config persistence after deferred migrations", () => {
           }
           expect(ctx.cfg).toEqual(desired);
 
-          vi.setSystemTime(new Date("2026-09-14T00:00:01Z"));
           await runWriteConfigHealth(ctx, { runPostWriteRepairs: false });
           if (deferred) {
             expect(ctx.configResult.confirmedConfigSource?.hash).not.toBe(firstReceipt?.hash);
@@ -166,7 +180,6 @@ describe("Doctor config persistence after deferred migrations", () => {
             expect(finalRaw).toBe(firstRaw);
           }
 
-          vi.setSystemTime(new Date("2026-09-14T00:00:02Z"));
           await runWriteConfigHealth(ctx, { runPostWriteRepairs: false });
           expect(await fs.readFile(outputPath, "utf8")).toBe(finalRaw);
         },
