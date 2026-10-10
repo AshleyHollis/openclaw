@@ -84,7 +84,10 @@ try {
     failures.push(error);
   }
 }
-if (failures.length === 1) throw failures[0];
-if (failures.length > 1)
+if (failures.length === 1) {
+  throw failures[0];
+}
+if (failures.length > 1) {
   throw new AggregateError(failures, "Btrfs proof and cleanup failed", { cause: failures[0] });
+}
 process.stdout.write("Btrfs public SDK nested-subvolume/held-descriptor/refusal proof passed\n");

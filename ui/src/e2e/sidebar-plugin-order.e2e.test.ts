@@ -81,7 +81,9 @@ suite.define(() => {
       });
       await reorderWorkboard.focus();
       await page.keyboard.press("Enter");
-      await page.getByRole("menuitem", { name: "Move up", exact: true }).press("Enter");
+      await row("plugin:workboard/workboard")
+        .getByRole("menuitem", { name: "Move up", exact: true })
+        .press("Enter");
       const movedUp = [...expected];
       const workboardIndex = movedUp.indexOf("plugin:workboard/workboard");
       [movedUp[workboardIndex - 1], movedUp[workboardIndex]] = [
@@ -92,14 +94,18 @@ suite.define(() => {
       await expect
         .poll(() => reorderWorkboard.evaluate((element) => document.activeElement === element))
         .toBe(true);
+      await captureUiProof(page, "plugin-keyboard-focus.png");
       await reorderWorkboard.click();
-      await page.getByRole("menuitem", { name: "Move down", exact: true }).click();
+      await row("plugin:workboard/workboard")
+        .getByRole("menuitem", { name: "Move down", exact: true })
+        .click();
       await expect.poll(keys).toEqual(expected);
 
-      const reorderBeta = sidebar.getByRole("button", { name: "Reorder Beta", exact: true });
+      const betaSection = sidebar.locator('[data-session-section="category:Beta"]');
+      const reorderBeta = betaSection.getByRole("button", { name: "Reorder Beta", exact: true });
       await reorderBeta.focus();
       await page.keyboard.press("Enter");
-      await page.getByRole("menuitem", { name: "Move up", exact: true }).press("Enter");
+      await betaSection.getByRole("menuitem", { name: "Move up", exact: true }).press("Enter");
       const sectionOrder = () =>
         sidebar
           .locator('[data-session-section^="category:"]')
