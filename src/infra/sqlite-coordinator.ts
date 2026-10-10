@@ -25,12 +25,20 @@ export function tryAcquireExclusiveSqliteCoordinator(
   try {
     acquire(database, location, busyTimeoutMs);
   } catch (error) {
+    const acquisitionErrors: unknown[] = [error];
     try {
       database.close();
     } catch (closeError) {
-      throw new AggregateError([error, closeError], "SQLite coordinator acquisition and close failed", {
-        cause: error,
-      });
+      acquisitionErrors.push(closeError);
+    }
+    if (acquisitionErrors.length > 1) {
+      throw new AggregateError(
+        acquisitionErrors,
+        "SQLite coordinator acquisition and close failed",
+        {
+          cause: error,
+        },
+      );
     }
     if (isSqliteLockError(error)) {
       return null;
@@ -80,7 +88,9 @@ function acquire(database: DatabaseSync, location: string, busyTimeoutMs: number
       : busyTimeoutMs;
     try {
       // MEMORY avoids journal artifacts; apply the bounded timeout before any lock attempt.
-      database.exec(`PRAGMA busy_timeout = ${attemptTimeout}; PRAGMA journal_mode = MEMORY; BEGIN EXCLUSIVE;`);
+      database.exec(
+        `PRAGMA busy_timeout = ${attemptTimeout}; PRAGMA journal_mode = MEMORY; BEGIN EXCLUSIVE;`,
+      );
       return;
     } catch (error) {
       if (!services || !isSqliteLockError(error) || performance.now() >= deadline) {

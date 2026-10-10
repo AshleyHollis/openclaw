@@ -67,7 +67,10 @@ try {
         },
         plugins: {
           allow: includeDiscord ? ["codex", "discord"] : ["codex"],
-          entries: { codex: { enabled: true }, ...(includeDiscord ? { discord: { enabled: true } } : {}) },
+          entries: {
+            codex: { enabled: true },
+            ...(includeDiscord ? { discord: { enabled: true } } : {}),
+          },
         },
       },
       null,
@@ -170,25 +173,24 @@ try {
   }
 
   if (includeDiscord) {
-  const discordInspected = runOpenClaw(["plugins", "inspect", "discord", "--json"], environment);
-  const discordInspection = JSON.parse(discordInspected.stdout);
-  if (discordInspection.plugin?.status !== "loaded") {
-    throw new Error(`Discord plugin status is ${discordInspection.plugin?.status ?? "missing"}`);
-  }
-  if (discordInspection.plugin?.version !== expectedDiscordVersion) {
-    throw new Error(
-      `unexpected Discord version: ${discordInspection.plugin?.version ?? "missing"}`,
-    );
-  }
-  if (discordInspection.plugin?.rootDir !== managedDiscordPluginPath) {
-    throw new Error(
-      `Discord plugin loaded from unexpected path: ${discordInspection.plugin?.rootDir}`,
-    );
-  }
-  if (!discordInspection.plugin?.channelIds?.includes("discord")) {
-    throw new Error("Discord plugin did not register the Discord channel");
-  }
-
+    const discordInspected = runOpenClaw(["plugins", "inspect", "discord", "--json"], environment);
+    const discordInspection = JSON.parse(discordInspected.stdout);
+    if (discordInspection.plugin?.status !== "loaded") {
+      throw new Error(`Discord plugin status is ${discordInspection.plugin?.status ?? "missing"}`);
+    }
+    if (discordInspection.plugin?.version !== expectedDiscordVersion) {
+      throw new Error(
+        `unexpected Discord version: ${discordInspection.plugin?.version ?? "missing"}`,
+      );
+    }
+    if (discordInspection.plugin?.rootDir !== managedDiscordPluginPath) {
+      throw new Error(
+        `Discord plugin loaded from unexpected path: ${discordInspection.plugin?.rootDir}`,
+      );
+    }
+    if (!discordInspection.plugin?.channelIds?.includes("discord")) {
+      throw new Error("Discord plugin did not register the Discord channel");
+    }
   }
 
   const metadata = spawnSync("openclaw", ["export"], {
@@ -292,19 +294,31 @@ async function validateAndHydrateImagePluginRuntime() {
   const rootManifestPath = path.join(managedPluginRuntimeRoot, "package.json");
   const rootManifest = JSON.parse(await readFile(rootManifestPath, "utf8"));
   if (includeDiscord) {
-    const discordManifest = JSON.parse(await readFile(path.join(managedDiscordPluginPath, "package.json"), "utf8"));
-    if (discordManifest.name !== "@openclaw/discord" || discordManifest.version !== expectedDiscordVersion) {
+    const discordManifest = JSON.parse(
+      await readFile(path.join(managedDiscordPluginPath, "package.json"), "utf8"),
+    );
+    if (
+      discordManifest.name !== "@openclaw/discord" ||
+      discordManifest.version !== expectedDiscordVersion
+    ) {
       throw new Error("image Discord package metadata disagrees");
     }
-    rootManifest.dependencies = { ...(rootManifest.dependencies ?? {}), "@openclaw/discord": discordManifest.version };
+    rootManifest.dependencies = {
+      ...(rootManifest.dependencies ?? {}),
+      "@openclaw/discord": discordManifest.version,
+    };
   } else {
-    const discord = await lstat(managedDiscordPluginPath).catch(error => {
+    const discord = await lstat(managedDiscordPluginPath).catch((error) => {
       if (error.code === "ENOENT") return null;
       throw error;
     });
-    if (discord || rootManifest.dependencies?.["@openclaw/discord"]) throw new Error("unused Discord remains in the image-owned runtime");
+    if (discord || rootManifest.dependencies?.["@openclaw/discord"])
+      throw new Error("unused Discord remains in the image-owned runtime");
   }
-  rootManifest.dependencies = { ...(rootManifest.dependencies ?? {}), "@openclaw/codex": manifest.version };
+  rootManifest.dependencies = {
+    ...(rootManifest.dependencies ?? {}),
+    "@openclaw/codex": manifest.version,
+  };
   await writeFile(rootManifestPath, `${JSON.stringify(rootManifest, null, 2)}\n`, {
     mode: 0o600,
   });

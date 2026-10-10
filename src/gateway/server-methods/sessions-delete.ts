@@ -221,7 +221,10 @@ export async function deleteGatewaySession({
             ) {
               throw new SessionDeletionError(sessionChangedError());
             }
-            if (emptyHistoryExpectation && !(await inspectSessionEntryEmptyHistory(emptyHistoryExpectation))) {
+            if (
+              emptyHistoryExpectation &&
+              !(await inspectSessionEntryEmptyHistory(emptyHistoryExpectation))
+            ) {
               throw new SessionDeletionError(sessionChangedError());
             }
             assertCurrent();
