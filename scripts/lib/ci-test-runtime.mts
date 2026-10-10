@@ -123,7 +123,11 @@ const runtimePartitions = new Map<
     "test/vitest/vitest.unit-fast-isolated.config.ts",
     {
       files: () => getUnitFastIsolatedTestFiles(),
-      nodeRequired: new Set(nativeCompilerTestFiles),
+      nodeRequired: new Set([
+        ...nativeCompilerTestFiles,
+        // Actual role revocation requires the host-owned shared-state broker on Node.
+        "src/agents/openclaw-plugin-tools.operator.integration.test.ts",
+      ]),
     },
   ],
   [

@@ -59,7 +59,7 @@ export type SessionScopeHost = {
   hello: GatewayHelloOk | null;
 };
 
-export type SessionScopeHostWithKey = SessionScopeHost & {
+type SessionScopeHostWithKey = SessionScopeHost & {
   sessionKey: string;
 };
 

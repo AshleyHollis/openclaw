@@ -38,13 +38,17 @@ it("admits only the selected chat incarnation before retry, stop, or turn effect
       expect(loadTranscriptEventsSync(fixture.scope)).toEqual(before);
     };
 
-    fixture.params.expectedSessionId = original.sessionId;
+    Object.assign(fixture.params, { expectedSessionId: original.sessionId });
     await rejectWithoutEffects(); // Half of a precondition cannot authorize a send.
-    fixture.params.expectedSessionId = undefined;
-    fixture.params.expectedLifecycleRevision = "revision-one";
+    Object.assign(fixture.params, {
+      expectedSessionId: undefined,
+      expectedLifecycleRevision: "revision-one",
+    });
     await rejectWithoutEffects();
-    fixture.params.expectedSessionId = original.sessionId;
-    fixture.params.expectedLifecycleRevision = "revision-one";
+    Object.assign(fixture.params, {
+      expectedSessionId: original.sessionId,
+      expectedLifecycleRevision: "revision-one",
+    });
     await patchSessionEntryCore(fixture.scope, () => ({ lifecycleRevision: "revision-two" }));
     await rejectWithoutEffects(); // Same key and sessionId, different lifecycle.
     await patchSessionEntryCore(fixture.scope, () => ({
@@ -82,8 +86,8 @@ it("admits only the selected chat incarnation before retry, stop, or turn effect
 });
 it("rejects a pinned send whose incarnation changes while attachments are preparing", async () => {
   const fixture = await createFixture({ active: false, persistDuringDispatch: true });
-  const preparing = createDeferred<void>();
-  const releasePreparation = createDeferred<void>();
+  const preparing = createDeferred();
+  const releasePreparation = createDeferred();
   const originalPreparation = chatSendAttachments.prepareChatSendAttachments;
   const attachmentSpy = vi
     .spyOn(chatSendAttachments, "prepareChatSendAttachments")
@@ -100,8 +104,10 @@ it("rejects a pinned send whose incarnation changes while attachments are prepar
     if (!original) {
       throw new Error("Fixture session was not created");
     }
-    fixture.params.expectedSessionId = original.sessionId;
-    fixture.params.expectedLifecycleRevision = "revision-one";
+    Object.assign(fixture.params, {
+      expectedSessionId: original.sessionId,
+      expectedLifecycleRevision: "revision-one",
+    });
     const transcriptBefore = loadTranscriptEventsSync(fixture.scope);
     pending = fixture.send();
     await preparing.promise;

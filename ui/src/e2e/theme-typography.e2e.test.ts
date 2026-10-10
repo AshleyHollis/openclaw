@@ -3,6 +3,7 @@ import path from "node:path";
 import type WaTooltip from "@awesome.me/webawesome/dist/components/tooltip/tooltip.js";
 import type { Locator } from "playwright";
 import { expect, it } from "vitest";
+import type { SessionWorkspaceGetResult } from "../api/types.ts";
 import {
   controlUiBundledGatewayUrl,
   defaultControlUiFeatureMethods,
@@ -396,7 +397,8 @@ suite.define(() => {
                   workspacePath: "notes.txt",
                 },
                 root: "/workspace",
-              },
+                sessionKey: "agent:main:main",
+              } satisfies SessionWorkspaceGetResult,
             },
           ],
         },

@@ -36,7 +36,6 @@ import {
   setRuntimeConfigSnapshot,
   withRuntimeConfigSessionStoreSelectionAsync,
 } from "../config/runtime-snapshot.js";
-import { createDeferredCore } from "../shared/deferred.js";
 import {
   attachRuntimeConfigWriteApplication,
   createRuntimeConfigWriteApplication,
@@ -72,6 +71,7 @@ import {
   runWithGatewayIndependentRootWorkAdmission,
   tryBeginGatewayRootWorkAdmission,
 } from "../process/gateway-work-admission.js";
+import { createDeferredCore } from "../shared/deferred.js";
 import {
   getSkillsSnapshotVersion,
   resetSkillsRefreshStateForTest,
@@ -4135,10 +4135,10 @@ describe("session store selection reload deferral", () => {
     void application.result.then(() => {
       settled = true;
     });
-    const harness = createReloaderHarness(
-      async () => writtenSnapshot,
-      { initialConfig: initial, initialCompareConfig: initial },
-    );
+    const harness = createReloaderHarness(async () => writtenSnapshot, {
+      initialConfig: initial,
+      initialCompareConfig: initial,
+    });
     setRuntimeConfigSnapshot(initial);
     await harness.reloader.ready;
     const release = createDeferredCore();

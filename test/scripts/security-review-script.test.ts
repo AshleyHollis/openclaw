@@ -1,7 +1,15 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { parseDocument } from "yaml";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
@@ -33,6 +41,14 @@ const rollout = {
   merge_commit_sha: landed,
   base: { ref: "main", repo: { full_name: "openclaw/openclaw" } },
 };
+// Rollout scenarios own a synthetic policy; this fork correctly enforces by default.
+const rolloutPolicy = (() => {
+  const policy = parseDocument(
+    readFileSync(path.resolve(".github/security-review-policy.yml"), "utf8"),
+  );
+  policy.set("rollout", { "pull-request": rollout.number });
+  return policy.toString();
+})();
 const run = {
   id: 10,
   run_attempt: 1,
@@ -63,7 +79,12 @@ const otherReview = {
   creator: { login: "github-actions[bot]", type: "Bot" },
 };
 
-function evaluate(routes: Record<string, unknown> = {}, mode = "enforce", deadline?: number) {
+function evaluate(
+  routes: Record<string, unknown> = {},
+  mode = "enforce",
+  deadline?: number,
+  policy?: string,
+) {
   const root = tempDirs.make("security-review-");
   const logPath = path.join(root, "requests.jsonl");
   const fixturePath = path.join(root, "fixture.json");
@@ -96,13 +117,31 @@ function evaluate(routes: Record<string, unknown> = {}, mode = "enforce", deadli
       },
     }),
   );
+  let scriptPath = path.resolve("scripts/github/security-review.mjs");
+  if (policy !== undefined) {
+    // Match the standalone guard's isolated trusted policy fixture.
+    for (const source of [
+      "scripts/github/security-review.mjs",
+      "scripts/github/security-sensitive-guard.mjs",
+      "scripts/github/dependency-guard.mjs",
+      "scripts/github/security-review-policy.mjs",
+      "scripts/github/security-review-rollout.mjs",
+      "scripts/github/guard-review.mjs",
+      "scripts/github/guard-shared.mjs",
+      "scripts/lib/bounded-response.mjs",
+    ]) {
+      const target = path.join(root, source);
+      mkdirSync(path.dirname(target), { recursive: true });
+      copyFileSync(source, target);
+    }
+    mkdirSync(path.join(root, ".github"));
+    writeFileSync(path.join(root, ".github/security-review-policy.yml"), policy);
+    symlinkSync(path.resolve("node_modules"), path.join(root, "node_modules"), "junction");
+    scriptPath = realpathSync(path.join(root, "scripts/github/security-review.mjs"));
+  }
   const result = spawnSync(
     process.execPath,
-    [
-      "--import",
-      path.resolve("test/fixtures/github-guard-fetch.mjs"),
-      path.resolve("scripts/github/security-review.mjs"),
-    ],
+    ["--import", path.resolve("test/fixtures/github-guard-fetch.mjs"), scriptPath],
     {
       encoding: "utf8",
       env: {
@@ -1654,7 +1693,7 @@ describe("combined security review entry point", () => {
   };
 
   it("grandfathers an old branch without issuing reusable standalone successes or notices", () => {
-    const result = evaluate(exemptRoutes);
+    const result = evaluate(exemptRoutes, "enforce", undefined, rolloutPolicy);
     expect(result.status, result.stderr).toBe(0);
     expect(result.combined).toEqual(["pending", "success"]);
     expect(result.reviews).toEqual([]);
@@ -1663,14 +1702,19 @@ describe("combined security review entry point", () => {
   });
 
   it("still requires real CI for a grandfathered PR", () => {
-    const result = evaluate({ ...exemptRoutes, [runsPath]: { total_count: 0, workflow_runs: [] } });
+    const result = evaluate(
+      { ...exemptRoutes, [runsPath]: { total_count: 0, workflow_runs: [] } },
+      "enforce",
+      undefined,
+      rolloutPolicy,
+    );
     expect(result.status, result.stderr).toBe(0);
     expect(result.combined).toEqual(["pending", "pending"]);
     expect(result.reviews).toEqual([]);
   });
 
   it("does not autoscrub a grandfathered PR", () => {
-    const result = evaluate(exemptRoutes, "autoscrub");
+    const result = evaluate(exemptRoutes, "autoscrub", undefined, rolloutPolicy);
     expect(result.status, result.stderr).toBe(0);
     expect(
       result.requests
@@ -1680,22 +1724,32 @@ describe("combined security review entry point", () => {
   });
 
   it("activates both guards once an old head contains the rollout commit", () => {
-    const result = evaluate({
-      ...exemptRoutes,
-      [`GET /repos/openclaw/openclaw/compare/${landed}...${head}`]: {
-        base_commit: { sha: landed },
-        merge_base_commit: { sha: landed },
-        status: "ahead",
+    const result = evaluate(
+      {
+        ...exemptRoutes,
+        [`GET /repos/openclaw/openclaw/compare/${landed}...${head}`]: {
+          base_commit: { sha: landed },
+          merge_base_commit: { sha: landed },
+          status: "ahead",
+        },
+        [rolePath]: { role_name: "read" },
       },
-      [rolePath]: { role_name: "read" },
-    });
+      "enforce",
+      undefined,
+      rolloutPolicy,
+    );
     expect(result.status, result.stderr).toBe(0);
     expect(result.reviews.filter((entry) => entry.body?.state === "failure")).toHaveLength(4);
     expect(result.combined).not.toContain("success");
   });
 
   it("leaves the combined gate failed when rollout metadata cannot be read", () => {
-    const result = evaluate({ "GET /repos/openclaw/openclaw/pulls/152415": { httpError: 403 } });
+    const result = evaluate(
+      { "GET /repos/openclaw/openclaw/pulls/152415": { httpError: 403 } },
+      "enforce",
+      undefined,
+      rolloutPolicy,
+    );
     expect(result.status).toBe(1);
     expect(result.combined).toEqual(["pending", "failure"]);
     expect(result.reviews).toEqual([]);

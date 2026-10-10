@@ -170,6 +170,7 @@ it("refreshes previews after reconciliation without metadata mutation or clean-r
       });
       expect(respond).toHaveBeenCalledWith(true, {
         session: expect.objectContaining(expected),
+        lifecycleRevision: originalEntry?.lifecycleRevision ?? null,
       });
       expect(
         projection.snapshot({ agentId: scope.agentId, key: scope.sessionKey }, options).row,
