@@ -144,7 +144,10 @@ it("reuses placement after runtime events and entry writes and refreshes actual 
         true,
         expect.objectContaining({
           session: expect.objectContaining({
-            placement: expect.objectContaining({ state: "failed", recoveryError: "Worker stopped" }),
+            placement: expect.objectContaining({
+              state: "failed",
+              recoveryError: "Worker stopped",
+            }),
           }),
         }),
       );

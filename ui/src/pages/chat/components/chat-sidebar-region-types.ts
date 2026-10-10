@@ -1,6 +1,6 @@
 import { nothing, type TemplateResult } from "lit";
-import type { KeyboardShortcutCombo } from "../../../lib/keyboard-shortcut-contract.ts";
 import type { DirectiveResult } from "lit/directive.js";
+import type { KeyboardShortcutCombo } from "../../../lib/keyboard-shortcut-contract.ts";
 import type { SidebarSlotId } from "../sidebar-layout.ts";
 
 export type SidebarPanelTemplates = Partial<

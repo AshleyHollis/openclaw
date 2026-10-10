@@ -152,7 +152,9 @@ describe("narrow session read owners", () => {
         expect(respond).toHaveBeenCalledExactlyOnceWith(
           true,
           expect.objectContaining({
-            session: roles ? null : expect.objectContaining({ key: "agent:main:read-foreign-draft" }),
+            session: roles
+              ? null
+              : expect.objectContaining({ key: "agent:main:read-foreign-draft" }),
           }),
         );
       });
