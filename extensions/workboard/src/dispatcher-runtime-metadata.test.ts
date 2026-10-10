@@ -1,12 +1,11 @@
 // Workboard runtime metadata tests cover dispatcher persistence behavior.
 import { describe, expect, it, vi } from "vitest";
 import { dispatchAndStartWorkboardCards } from "./dispatcher.js";
-import { createMemoryStore } from "./dispatcher.test-support.js";
-import { WorkboardStore } from "./store.js";
+import { createWorkboardSqliteTestStore } from "./test/sqlite-store.js";
 
 describe("dispatchAndStartWorkboardCards runtime metadata", () => {
   it("persists the resolved subagent runtime on new executions", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Claude worker",
       status: "ready",
@@ -38,7 +37,7 @@ describe("dispatchAndStartWorkboardCards runtime metadata", () => {
   });
 
   it("omits unresolved runtime metadata instead of labeling it codex", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Unknown runtime worker",
       status: "ready",
