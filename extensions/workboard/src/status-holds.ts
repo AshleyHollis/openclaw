@@ -6,7 +6,8 @@ export function assertWorkboardStatusHolds(
   existing: WorkboardCard,
   next: WorkboardCard,
   now: number,
-  parentStatuses: ReadonlyArray<{ id: string; status: WorkboardCard["status"] }>,
+  // SQLite projects status as text; only an exact native Done releases a hold.
+  parentStatuses: ReadonlyArray<{ id: string; status: string }>,
 ): void {
   if (!["ready", "running", "review", "done"].includes(next.status)) return;
   const parents = cardParentIds(next);

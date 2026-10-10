@@ -80,6 +80,18 @@ of a deleted card return terminal receipts only. They are not execution approval
 a scheduler, or a general notification ledger. No request is created from
 ordinary progress or completion, an unrelated question, or generic Review status.
 
+Schema 4 databases gain an additive result-review table and indexes when the
+schema 5 owner opens them; existing cards are retained. The migration marker is
+recorded after the existing strict-schema migration and integrity check. There is
+no downmigration or rejection of a newer marker in the previous schema 4 binary.
+Reopening a schema 5 database with that older binary therefore does not qualify
+rollback: old lifecycle writes do not resolve or withdraw the new receipts.
+Before upgrade, recovery must retain a coherent database backup made while the
+owner is stopped. After result-review writes, rollback requires restoring that
+pre-upgrade state or a separately qualified forward recovery; changing the
+binary alone is insufficient. These are preparation requirements, not an
+instruction to modify a running installation.
+
 ## Enable it
 
 Workboard is bundled but disabled by default:

@@ -149,7 +149,7 @@ describe("native card result review", () => {
     f.button("Withdraw review request")!.click();
     await waitForFast(() => expect(f.state.cards[0]!.updatedAt).toBe(3));
     expect(f.state.cards[0]!.status).toBe("review");
-    expect(f.client.request.mock.calls[1][1]).toMatchObject({ decision: "withdrawn" });
+    expect(f.client.request.mock.calls[1]![1]).toMatchObject({ decision: "withdrawn" });
   });
 
   it("does not invent a review request from Review, proof, or completed run status", async () => {
