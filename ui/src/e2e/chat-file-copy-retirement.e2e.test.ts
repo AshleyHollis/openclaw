@@ -1,10 +1,12 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, it } from "vitest";
+import type { SessionWorkspaceGetResult } from "../api/types.ts";
 import { installMockGateway } from "../test-helpers/control-ui-e2e.ts";
 import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts";
 
 const suite = createControlUiE2eSuite({ name: "File copy retirement" });
+const sessionKey = "agent:main:main";
 
 declare global {
   interface Window {
@@ -54,6 +56,7 @@ suite.define(() => {
           };
         });
         await installMockGateway(page, {
+          sessionKey,
           historyMessages: [
             {
               role: "assistant",
@@ -63,6 +66,7 @@ suite.define(() => {
           ],
           methodResponses: {
             "sessions.files.get": {
+              sessionKey,
               root: "/workspace",
               file: {
                 content: "Synthetic file copy content",
@@ -72,7 +76,7 @@ suite.define(() => {
                 path: "notes.txt",
                 workspacePath: "notes.txt",
               },
-            },
+            } satisfies SessionWorkspaceGetResult,
           },
         });
         await page.goto(`${suite.server.baseUrl}chat`);
