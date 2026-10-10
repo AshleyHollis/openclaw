@@ -56,6 +56,7 @@ it("keeps version and injected instance surfaces independent of the broad runtim
     "nodes",
     "sandbox",
     "worktrees",
+    "fileAccess",
     "webSearch",
     "modelConfig",
   ]);
