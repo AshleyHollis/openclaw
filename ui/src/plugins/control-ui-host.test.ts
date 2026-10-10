@@ -3,7 +3,6 @@ import type { ControlUiSessionListSnapshot } from "../../../src/plugin-sdk/contr
 import { createDeferred } from "../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { AgentsListResult } from "../api/types.ts";
-import type { RouteId } from "../app-route-paths.ts";
 import { createAgentSelectionCapability } from "../app/agent-selection.ts";
 import type { ApplicationContext } from "../app/context.ts";
 import { i18n } from "../i18n/index.ts";
@@ -711,7 +710,7 @@ describe("declared authenticated plugin HTTP relay", () => {
     vi.stubGlobal("fetch", fetchMock);
     const context = {
       gateway: { connection: { token: "fixture-private-token" } },
-    } as unknown as ApplicationContext<RouteId>;
+    } as unknown as ApplicationContext;
     const abort = new AbortController();
     const owner = {
       abort,
@@ -762,7 +761,7 @@ describe("bootstrap credential relay", () => {
     vi.stubGlobal("fetch", fetchMock);
     const context = {
       gateway: { connection: { token: "", bootstrapToken: "fixture-bootstrap-token" } },
-    } as unknown as ApplicationContext<RouteId>;
+    } as unknown as ApplicationContext;
     const abort = new AbortController();
     const owner = {
       abort,
