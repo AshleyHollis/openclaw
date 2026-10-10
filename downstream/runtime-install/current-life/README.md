@@ -3,13 +3,13 @@
 This paired-Life selection retains frozen native EA from the reviewed Code assembly
 `0bbcb7121cb1f01c7ccf3e0468dd8b2478feea16`. Host/plugin manifests, locks and
 Codex platform bytes are unchanged from that qualified component closure. QMD
-retains its separate archive/shrinkwrap owner. Do not regenerate these locks
+uses the retained repaired archive and exact wrapper/root lock from the qualified QMD closure. npm 12 ignores dependency shrinkwraps; this recipe runs strict lifecycle-aware npm ci against that root lock. Do not regenerate these locks
 without a dependency change.
 
 The existing selection resolver maps `paired-life` to this directory and its
 candidate.json, target `runtime`. The existing runtime-image producer authenticates
 the retained native and complete Q8 companion artifacts, selects verified Codex
-bytes, fetches the unchanged QMD archive, and admits the exact successful CC package
+bytes, fetches the repaired QMD archive, and admits the exact successful CC package
 receipt/archive. Input and installed validators require the closed 9.9 selection,
 actual lock bytes and Codex platform/binary identities. Historical current-host
 records remain historical. Code selection and product EA bytes are unchanged.
@@ -34,3 +34,5 @@ actual paired image, installed EA descriptor and CC journeys, changed-host
 performance, mixed-state canonical/integrity/claims admission and baseline restore.
 No version override, schema25, authentication change or producer activation is
 introduced by this source packet.
+
+The base image installs official Debian openssh-client. Network-isolated smoke checks runtime UID/GID, physical /usr/bin/ssh identity and logs its SHA256 for the client owner's separate immutable approval. The config-only -G check contacts no server and reads no credentials; it does not qualify the real client or authorize a changed binary pin. QMD smoke also opens the actual database and retrieves a tiny fictional document with lexical search, without model downloads.

@@ -50,7 +50,8 @@ export async function validateInstalledPluginRuntime(
     throw new Error("image root host peer differs");
   if (candidate) {
     validateRuntimeSelection(candidate);
-    for (const [name, digest] of Object.entries(candidate.locks)) {
+    for (const name of ["host.package-lock.json", "plugins.package-lock.json"]) {
+      const digest = candidate.locks[name];
       const file =
         name === "host.package-lock.json"
           ? path.join(hostRoot, "../../package-lock.json")

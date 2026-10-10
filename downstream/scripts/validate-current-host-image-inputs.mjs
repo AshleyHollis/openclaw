@@ -4,7 +4,11 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { runtimeSelectionPaths, validateRuntimeSelection } from "./validate-packaged-candidate.mjs";
+import {
+  QMD_SELECTION,
+  runtimeSelectionPaths,
+  validateRuntimeSelection,
+} from "./validate-packaged-candidate.mjs";
 
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const integrity = (bytes) => `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
@@ -57,6 +61,54 @@ export function validateCurrentHostRecords(candidate, hostLock, pluginLock, actu
   return candidate;
 }
 
+export function validateQmdRuntimeRecords(
+  candidate,
+  manifestBytes,
+  lockBytes,
+  archiveIntegrity = QMD_SELECTION.integrity,
+) {
+  validateRuntimeSelection(candidate);
+  assert.equal(candidate.role, "paired-life");
+  assert.equal(sha(manifestBytes), QMD_SELECTION.manifestSha256, "QMD wrapper bytes differ");
+  assert.equal(sha(lockBytes), QMD_SELECTION.lockSha256, "QMD root lock bytes differ");
+  const manifest = JSON.parse(manifestBytes),
+    lock = JSON.parse(lockBytes);
+  assert.equal(lock.lockfileVersion, 3);
+  assert.deepEqual(lock.packages[""].dependencies, manifest.dependencies);
+  const qmd = lock.packages["node_modules/@tobilu/qmd"];
+  assert.equal(qmd.version, candidate.components.qmd.version);
+  assert.equal(qmd.resolved, "file:../../tmp/qmd-current.tgz");
+  assert.equal(qmd.integrity, archiveIntegrity);
+  for (const [name, version] of Object.entries(QMD_SELECTION.versions)) {
+    const entries = Object.entries(lock.packages).filter(
+      ([key]) => key.endsWith("/node_modules/" + name) || key === "node_modules/" + name,
+    );
+    assert(entries.length > 0, "QMD dependency absent: " + name);
+    for (const [, entry] of entries)
+      assert.equal(entry.version, version, "QMD dependency version differs: " + name);
+  }
+  return lock;
+}
+
+export async function validateInstalledQmdRuntime(root, candidate) {
+  const lock = validateQmdRuntimeRecords(
+    candidate,
+    await readFile(path.join(root, "package.json")),
+    await readFile(path.join(root, "package-lock.json")),
+  );
+  for (const [key, entry] of Object.entries(lock.packages)) {
+    if (
+      Object.keys(QMD_SELECTION.versions).some(
+        (name) => key.endsWith("/node_modules/" + name) || key === "node_modules/" + name,
+      )
+    ) {
+      const installed = JSON.parse(await readFile(path.join(root, key, "package.json"), "utf8"));
+      assert.equal(installed.version, entry.version, "installed QMD dependency version differs");
+    }
+  }
+  return lock;
+}
+
 export async function validateCurrentHostImageInputs(root, profile = "paired-life") {
   const selected = runtimeSelectionPaths(profile);
   const overlay = new URL(`../../${selected.inputRoot}/`, import.meta.url);
@@ -89,6 +141,13 @@ export async function validateCurrentHostImageInputs(root, profile = "paired-lif
   for (const [name, digest] of Object.entries(candidate.locks)) {
     assert.equal(sha(await readFile(new URL(name, overlay))), digest, `${name} bytes differ`);
   }
+  if (profile !== "code")
+    validateQmdRuntimeRecords(
+      candidate,
+      await readFile(new URL("qmd.package.json", overlay)),
+      await readFile(new URL("qmd.package-lock.json", overlay)),
+      integrity(await readFile(path.join(root, "qmd-current.tgz"))),
+    );
   return validateCurrentHostRecords(
     candidate,
     await readJson("host.package-lock.json"),
