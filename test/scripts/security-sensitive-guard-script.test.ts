@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { parseDocument } from "yaml";
 import { loadSecurityReviewPolicy } from "../../scripts/github/security-review-policy.mjs";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
@@ -26,6 +27,14 @@ const rollout = {
   merge_commit_sha: rolloutSha,
   base: { ref: "main", repo: { full_name: "openclaw/openclaw" } },
 };
+// Rollout scenarios own a synthetic policy; this fork correctly enforces by default.
+const rolloutPolicy = (() => {
+  const policy = parseDocument(
+    readFileSync(path.resolve(".github/security-review-policy.yml"), "utf8"),
+  );
+  policy.set("rollout", { "pull-request": rollout.number });
+  return policy.toString();
+})();
 const marker = "<!-- openclaw:security-sensitive-guard -->";
 const requestedAt = "2026-01-01T00:00:00Z";
 const notice = {
@@ -455,6 +464,7 @@ describe("security-sensitive guard entry point", () => {
       };
       const result = runGuard({
         script,
+        policy: rolloutPolicy,
         routes: {
           [`GET ${pullPath}`]: {
             responses: [
@@ -535,6 +545,7 @@ describe("security-sensitive guard entry point", () => {
         const result = runGuard({
           script,
           files,
+          policy: rolloutPolicy,
           createdAt: "2025-11-01T00:00:00Z",
           routes: {
             [`GET /repos/openclaw/openclaw/compare/${rolloutSha}...${headSha}`]: {
@@ -554,6 +565,7 @@ describe("security-sensitive guard entry point", () => {
         const result = runGuard({
           script,
           files,
+          policy: rolloutPolicy,
           createdAt: "2025-11-01T00:00:00Z",
           routes: {
             [`GET /repos/openclaw/openclaw/compare/${rolloutSha}...${headSha}`]: {
@@ -575,6 +587,7 @@ describe("security-sensitive guard entry point", () => {
         const result = runGuard({
           script,
           files,
+          policy: rolloutPolicy,
           routes: { "GET /repos/openclaw/openclaw/pulls/152415": response },
         });
         expect(result.status).toBe(1);
