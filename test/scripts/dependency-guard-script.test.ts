@@ -1,8 +1,16 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { parseDocument } from "yaml";
 import {
   GITHUB_ERROR_BODY_MAX_BYTES,
   GITHUB_RESPONSE_BODY_MAX_BYTES,
@@ -30,6 +38,14 @@ const rolloutSha = "c".repeat(40);
 const mergeBaseSha = "d".repeat(40);
 const comparisonPath = `/repos/openclaw/openclaw/compare/${staleSha}...${headSha}`;
 const { isDependencyFile, isDependencyManifest, isPackageLockfile } = loadSecurityReviewPolicy();
+// Rollout scenarios own a synthetic policy; this fork correctly enforces by default.
+const rolloutPolicy = (() => {
+  const policy = parseDocument(
+    readFileSync(path.resolve(".github/security-review-policy.yml"), "utf8"),
+  );
+  policy.set("rollout", { "pull-request": 152415 });
+  return policy.toString();
+})();
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 function interruptedJsonResponse(error: Error) {
@@ -80,6 +96,7 @@ function runDependencyGuard(
   routes: Record<string, unknown> = {},
   mode = "enforce",
   autoscrubToken: string | null = "fixture-autoscrub-token",
+  policy?: string,
 ) {
   const dir = tempDirs.make("openclaw-dependency-guard-");
   const eventPath = path.join(dir, "event.json");
@@ -122,12 +139,35 @@ function runDependencyGuard(
       },
     }),
   );
+  let scriptPath = fileURLToPath(
+    new URL("../../scripts/github/dependency-guard.mjs", import.meta.url),
+  );
+  if (policy !== undefined) {
+    // Match the standalone security guard's isolated trusted policy fixture.
+    for (const source of [
+      "scripts/github/security-sensitive-guard.mjs",
+      "scripts/github/dependency-guard.mjs",
+      "scripts/github/security-review-policy.mjs",
+      "scripts/github/security-review-rollout.mjs",
+      "scripts/github/guard-review.mjs",
+      "scripts/github/guard-shared.mjs",
+      "scripts/lib/bounded-response.mjs",
+    ]) {
+      const target = path.join(dir, source);
+      mkdirSync(path.dirname(target), { recursive: true });
+      copyFileSync(source, target);
+    }
+    mkdirSync(path.join(dir, ".github"));
+    writeFileSync(path.join(dir, ".github/security-review-policy.yml"), policy);
+    symlinkSync(path.resolve("node_modules"), path.join(dir, "node_modules"), "junction");
+    scriptPath = realpathSync(path.join(dir, "scripts/github/dependency-guard.mjs"));
+  }
   const result = spawnSync(
     process.execPath,
     [
       "--import",
       fileURLToPath(new URL("../fixtures/github-guard-fetch.mjs", import.meta.url)),
-      fileURLToPath(new URL("../../scripts/github/dependency-guard.mjs", import.meta.url)),
+      scriptPath,
     ],
     {
       encoding: "utf8",
@@ -569,6 +609,8 @@ describe("dependency guard script", () => {
           },
         },
         mode,
+        undefined,
+        rolloutPolicy,
       );
       expect(result.status, result.stderr).toBe(0);
       expect(result.stdout).toContain("grandfathered");

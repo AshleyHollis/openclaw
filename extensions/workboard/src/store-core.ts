@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import { stableStringify } from "@openclaw/normalization-core/stable-stringify";
 import type {
   WorkboardBoardMetadata,
   WorkboardCard,
@@ -10,6 +9,7 @@ import type {
 } from "@openclaw/workboard-contract";
 import { resolveNonNegativeIntegerOption } from "openclaw/plugin-sdk/number-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { stableStringify } from "openclaw/plugin-sdk/string-normalization-runtime";
 import type {
   PersistedWorkboardAttachment,
   PersistedWorkboardBoard,

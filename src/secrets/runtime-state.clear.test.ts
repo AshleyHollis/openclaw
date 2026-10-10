@@ -4,10 +4,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import * as diagnostics from "../agents/auth-profiles/legacy-source-diagnostic.js";
 import * as authSnapshots from "../agents/auth-profiles/runtime-snapshots.js";
-import {
-  getRuntimeConfigSnapshot,
-  withRuntimeConfigSessionStoreSelectionAsync,
-} from "../config/runtime-snapshot.js";
+import { getRuntimeConfigSnapshot } from "../config/runtime-snapshot.js";
+import { withRuntimeConfigSessionStoreSelectionAsync } from "../config/runtime-snapshot.test-support.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import * as state from "./runtime-state.js";
 

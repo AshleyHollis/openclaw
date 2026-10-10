@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { beforeEach, afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { SessionWorkspaceGetResult } from "../api/types.ts";
 import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-artifacts.ts";
 import {
   canRunPlaywrightChromium,
@@ -389,6 +390,7 @@ describeControlUiE2e("Control UI chat file links", () => {
               {
                 match: { path: "README.md" },
                 response: {
+                  sessionKey: "agent:main:main",
                   root: "/workspace",
                   file: {
                     content: initialText,
@@ -399,11 +401,12 @@ describeControlUiE2e("Control UI chat file links", () => {
                     path: "README.md",
                     workspacePath: "packages/app/README.md",
                   },
-                },
+                } satisfies SessionWorkspaceGetResult,
               },
               {
                 match: { path: "/workspace/packages/app/README.md" },
                 response: {
+                  sessionKey: "agent:main:main",
                   root: "/workspace",
                   file: {
                     content: initialText,
@@ -414,7 +417,7 @@ describeControlUiE2e("Control UI chat file links", () => {
                     path: "packages/app/README.md",
                     workspacePath: "packages/app/README.md",
                   },
-                },
+                } satisfies SessionWorkspaceGetResult,
               },
             ],
           },

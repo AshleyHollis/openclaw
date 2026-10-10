@@ -16,8 +16,8 @@ import {
   type SecretFileReadResult,
 } from "openclaw/plugin-sdk/secret-file-runtime";
 import { fileExists as fileExistsFromSecurity } from "openclaw/plugin-sdk/security-runtime";
-import { describe, expect, expectTypeOf, it } from "vitest";
 import { tryAcquireExclusiveSqliteCoordinator } from "openclaw/plugin-sdk/sqlite-runtime";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { withTestDir } from "../test-helpers/temp-dir.js";
 
 describe("plugin SDK fs-safe compatibility exports", () => {

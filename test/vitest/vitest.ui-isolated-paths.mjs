@@ -1,11 +1,12 @@
 // The shared UI runner reuses its module graph across fresh jsdom registries.
-// Tests in this list depend on module singletons or custom-element registration
+// Tests in this list own file-scoped module mocks, singletons, or custom-element registration
 // matching the current registry, so they need a fresh graph in the isolated lane.
 export const uiIsolatedTestFiles = [
   "ui/src/app/app-host.server-prefs.test.ts",
   "ui/src/app/bootstrap.gateway-credentials.test.ts",
   "ui/src/app/bootstrap.test.ts",
   "ui/src/app/router-outlet.test.ts",
+  "ui/src/app/update-failure-report-controller.test.ts",
   "ui/src/components/app-sidebar-native-gateways.test.ts",
   "ui/src/components/link-reader-title-tooltip.test.ts",
   "ui/src/components/markdown-tables.test.ts",

@@ -94,7 +94,7 @@ filesystem-package modules as a fallback.
   capability fail with `code: "capability-unavailable"`; path or inode-only
   observations are not a substitute.
 - `publishDurableDirectoryNoReplace({ stagedDir, targetDir, expectedIdentity,
-  assertBeforeMutation? })` synchronously publishes distinct sibling directories
+assertBeforeMutation? })` synchronously publishes distinct sibling directories
   without replacing any target. Persist the stage's exact bigint `dev`/`ino`
   before publication and protect the private parent from unrelated writers.
   The authority callback must be synchronous. The host's fs-safe dependency

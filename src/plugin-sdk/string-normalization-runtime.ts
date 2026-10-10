@@ -1,6 +1,7 @@
 /**
- * Runtime SDK subpath for shared slug and string-entry normalization helpers.
+ * Runtime SDK subpath for shared string normalization and deterministic serialization.
  */
+export { stableStringify } from "../../packages/normalization-core/src/stable-stringify.js";
 export {
   normalizeAtHashSlug,
   normalizeHyphenSlug,

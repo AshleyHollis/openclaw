@@ -373,6 +373,89 @@ describe("chat pane approval requester identity", () => {
       render(html``, container);
     }
   });
+  it("keeps global approval agent scope strict and excludes replay for another host", () => {
+    const pane = createRenderTestChatPane();
+    const context: ApplicationContext = {
+      ...createInitializationContext(),
+      overlays: {
+        snapshot: {
+          approvalQueue: [],
+          approvalBusy: false,
+          approvalCanGrant: true,
+          approvalErrors: new Map(),
+        },
+        decideApproval: vi.fn(),
+      } as unknown as ApplicationContext["overlays"],
+    };
+    const state = pane.initialize(context);
+    state.sessionKey = "agent:main:dashboard:approval-host";
+    const approval: ExecApprovalRequest = {
+      id: "plugin:foreign-approval",
+      kind: "plugin",
+      request: {
+        command: "Review requested action",
+        sessionKey: state.sessionKey,
+        agentId: "research",
+      },
+      createdAtMs: Date.now(),
+      expiresAtMs: Date.now() + 60_000,
+    };
+    context.overlays.snapshot.approvalQueue = [approval];
+    pane.render();
+    expect(pane.chatProps?.inlineApproval).toBeNull();
+
+    context.overlays.snapshot.approvalQueue = [];
+    state.chatSessionApprovalQueue = [
+      {
+        ...approval,
+        request: { ...approval.request, sessionKey: "agent:main:dashboard:another-host" },
+      },
+    ];
+    pane.render();
+    expect(pane.chatProps?.inlineApproval).toBeNull();
+
+    state.sessionKey = "global";
+    state.assistantAgentId = "research";
+    state.agentsList = { defaultId: "main", mainKey: "main", scope: "global", agents: [] };
+    const now = Date.now();
+    const replay = {
+      sessionKey: "agent:research:global",
+      updatedAtMs: now,
+      truncated: false,
+      approvals: [
+        {
+          id: "plugin:global-requester",
+          status: "pending",
+          sourceSessionKey: "agent:main:dashboard:child",
+          createdAtMs: now,
+          expiresAtMs: now + 60_000,
+          urlPath: "/approve/plugin%3Aglobal-requester",
+          presentation: {
+            kind: "plugin",
+            title: "Review requested action",
+            description: "A synthetic child-session request",
+            severity: "warning",
+            pluginId: "test-plugin",
+            toolName: null,
+            agentId: "main",
+            allowedDecisions: ["allow-once", "deny"],
+          },
+        },
+      ],
+    };
+    state.chatSessionApprovalQueue = projectSessionApprovalReplay(replay, "global", "research");
+    const globalApproval = state.chatSessionApprovalQueue[0]!;
+    expect(globalApproval).toMatchObject({
+      sourceSessionKey: "agent:main:dashboard:child",
+      request: { sessionKey: "global", agentId: "main" },
+    });
+    Object.freeze(globalApproval.request);
+    Object.freeze(globalApproval);
+    pane.render();
+    expect(pane.chatProps?.inlineApproval).toBe(globalApproval);
+    expect(projectSessionApprovalReplay(replay, "global", "main")).toEqual([]);
+    cancelChatStreamRenderFrame(state);
+  });
 });
 
 function createGlobalFeaturePane(

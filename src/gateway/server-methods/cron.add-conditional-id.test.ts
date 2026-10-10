@@ -1,5 +1,6 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { CronAddParams } from "../../../packages/gateway-protocol/src/index.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { CronService } from "../../cron/service.js";
 import {
@@ -18,7 +19,7 @@ vi.mock("../../cron/delivery-preview.js", () => ({
 import { cronHandlers } from "./cron.js";
 
 const id = "command-center:follow-up:123";
-const params: CronJobCreate = {
+const params: CronAddParams = {
   id,
   name: "Follow up",
   schedule: { kind: "every", everyMs: 60_000 },
@@ -61,7 +62,7 @@ async function setup() {
 
 async function invokeAdd(
   context: ReturnType<typeof createCronTestContext>,
-  input: CronJobCreate = params,
+  input: CronAddParams = params,
 ) {
   const respond = vi.fn();
   await expectDefined(
@@ -70,7 +71,9 @@ async function invokeAdd(
   )({
     req: {} as never,
     // Match the decoded JSON RPC boundary: undefined optional fields are absent.
-    params: JSON.parse(JSON.stringify(input)) as never,
+    params: structuredClone(
+      Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)),
+    ) as never,
     respond: respond as never,
     context: context as never,
     client: null,

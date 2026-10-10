@@ -337,10 +337,17 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
     }
     return {
       gatewayQuestionPrompts: this.questionProjection.prompts,
-      // Session replay already owns the parent's presentation scope for delegated approvals.
+      // Admitted replay owns the parent's presentation scope; request.agentId
+      // still identifies the requester, which can be a delegated child's agent.
       inlineApproval: visible
         ? (state.chatSessionApprovalQueue?.find((approval) =>
-            matchesConversation(approval.request),
+            uiConversationMatches(
+              state,
+              state.sessionKey,
+              approval.request.sessionKey,
+              agentId,
+              agentId,
+            ),
           ) ??
           this.context.overlays?.snapshot?.approvalQueue?.find((approval) =>
             matchesConversation(approval.request),

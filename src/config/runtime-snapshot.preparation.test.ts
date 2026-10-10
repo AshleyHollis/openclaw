@@ -17,8 +17,8 @@ import {
   setRuntimeConfigSnapshot,
   setRuntimeConfigSourceSnapshotIfCurrent,
   withRuntimeConfigSessionStoreSelection,
-  withRuntimeConfigSessionStoreSelectionAsync,
 } from "./runtime-snapshot.js";
+import { withRuntimeConfigSessionStoreSelectionAsync } from "./runtime-snapshot.test-support.js";
 import {
   captureRuntimeConfig,
   projectConfigOntoRuntimeSourceSnapshot,

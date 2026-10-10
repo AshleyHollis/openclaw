@@ -288,6 +288,7 @@ describe("plugin service scheduler ownership", () => {
         "rejected",
         "rejected",
         "rejected",
+        "rejected",
       ]);
       expect((await loadCronStore(original.storePath)).jobs).toMatchObject([
         { id: job.id, name: family.name },
