@@ -62,8 +62,9 @@ it("renders one disclosure outside tools, preserves sessions, navigation and col
     createGateway(createTestGatewayClient(async () => ({}))),
     sessions.sessions,
   );
+  const dashboard = navigation("example", "dashboard");
   const entries = [
-    navigation("example", "dashboard"),
+    dashboard,
     navigation("example", "planner"),
     navigation("example", "plain", false),
   ];
@@ -91,7 +92,7 @@ it("renders one disclosure outside tools, preserves sessions, navigation and col
   expect(group.querySelector(".sidebar-session-content")).toBeNull();
   expect(sidebar.querySelector(".sidebar-session-content")).not.toBeNull();
   group.querySelector<HTMLAnchorElement>("a")!.click();
-  expect(entries[0].host.navigation.openPage).toHaveBeenCalledWith({ id: "dashboard" });
+  expect(dashboard.host.navigation.openPage).toHaveBeenCalledWith({ id: "dashboard" });
   group.open = false;
   sidebar.requestUpdate();
   await sidebar.updateComplete;
