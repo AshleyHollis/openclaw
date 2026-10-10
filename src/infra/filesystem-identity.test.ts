@@ -40,18 +40,29 @@ describe("durable filesystem identity", () => {
   });
 
   it("rejects failure of the containing-subvolume lookup", () => {
-    expect(() => readBtrfsFilesystemIdentityWithIoctl(8, (_fd, request, argument) => {
-      if (request === 0x8400941f) {
-        Buffer.from("00112233445566778899aabbccddeeff", "hex").copy(argument, 16);
-        return 0;
-      }
-      return -1;
-    }, () => 5)).toThrow(expect.objectContaining({ message: "BTRFS_IOC_INO_LOOKUP failed", errno: 5 }));
+    expect(() =>
+      readBtrfsFilesystemIdentityWithIoctl(
+        8,
+        (_fd, request, argument) => {
+          if (request === 0x8400941f) {
+            Buffer.from("00112233445566778899aabbccddeeff", "hex").copy(argument, 16);
+            return 0;
+          }
+          return -1;
+        },
+        () => 5,
+      ),
+    ).toThrow(expect.objectContaining({ message: "BTRFS_IOC_INO_LOOKUP failed", errno: 5 }));
   });
 
   it("rejects a zero containing-subvolume identity", () => {
-    expect(() => readBtrfsFilesystemIdentityWithIoctl(8, () => 0, () => 0))
-      .toThrow("invalid durable filesystem identity");
+    expect(() =>
+      readBtrfsFilesystemIdentityWithIoctl(
+        8,
+        () => 0,
+        () => 0,
+      ),
+    ).toThrow("invalid durable filesystem identity");
   });
 
   it("rejects invalid descriptors through the public capability boundary", async () => {
