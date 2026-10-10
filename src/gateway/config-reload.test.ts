@@ -34,8 +34,8 @@ import {
   hashRuntimeConfigValue,
   resetConfigRuntimeState,
   setRuntimeConfigSnapshot,
-  withRuntimeConfigSessionStoreSelectionAsync,
 } from "../config/runtime-snapshot.js";
+import { withRuntimeConfigSessionStoreSelectionAsync } from "../config/runtime-snapshot.test-support.js";
 import {
   attachRuntimeConfigWriteApplication,
   createRuntimeConfigWriteApplication,

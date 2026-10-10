@@ -23,7 +23,20 @@ import {
   getRuntimeConfigCapture,
 } from "./runtime-config-capture-state.js";
 import { runtimeSessionChangeScope } from "./runtime-session-changes.js";
+import {
+  acquireRuntimeConfigSessionStoreSelection,
+  assertSessionStoreSelection,
+  isRuntimeConfigSessionStoreSelectionHeld,
+  runRuntimeConfigSessionStoreSelectionCallback,
+  RuntimeConfigSessionStoreSelectionHeldError,
+} from "./runtime-session-store-selection.js";
 import type { ConfigFileSnapshot, OpenClawConfig } from "./types.js";
+
+export {
+  isRuntimeConfigSessionStoreSelectionHeld,
+  onRuntimeConfigSessionStoreSelectionReleased,
+  RuntimeConfigSessionStoreSelectionHeldError,
+} from "./runtime-session-store-selection.js";
 
 export type RuntimeConfigSnapshotRefreshOptions = {
   includeAuthStoreRefs?: boolean;
@@ -124,46 +137,6 @@ let runtimeConfigSnapshotRevision = 0;
 let runtimeConfigSnapshotGeneration = 0;
 let runtimeConfigPreparerGeneration = 0;
 let runtimeConfigSnapshotRefreshHandler: RuntimeConfigSnapshotRefreshHandler | null = null;
-const admittedSessionStoreSelections = new Map<symbol, string | undefined>();
-const sessionStoreSelectionReleaseListeners = new Set<() => void>();
-
-export class RuntimeConfigSessionStoreSelectionHeldError extends Error {}
-
-export function isRuntimeConfigSessionStoreSelectionHeld(): boolean {
-  return admittedSessionStoreSelections.size > 0;
-}
-
-/** Called when the last admission settles, including a rejected async operation. */
-export function onRuntimeConfigSessionStoreSelectionReleased(listener: () => void): () => void {
-  sessionStoreSelectionReleaseListeners.add(listener);
-  return () => {
-    sessionStoreSelectionReleaseListeners.delete(listener);
-  };
-}
-
-function releaseSessionStoreSelection(owner: symbol): void {
-  admittedSessionStoreSelections.delete(owner);
-  if (admittedSessionStoreSelections.size === 0) {
-    for (const listener of sessionStoreSelectionReleaseListeners) {
-      try {
-        listener();
-      } catch {
-        // An observer cannot extend or revoke an already-settled admission.
-      }
-    }
-  }
-}
-
-function assertSessionStoreSelection(config: OpenClawConfig): void {
-  for (const selection of admittedSessionStoreSelections.values()) {
-    if (selection !== config.session?.store) {
-      throw new RuntimeConfigSessionStoreSelectionHeldError(
-        "Runtime session.store selection cannot change during admission",
-      );
-    }
-  }
-}
-
 function assertPreparerDoesNotReceiveAdmittedSelection(config: OpenClawConfig): void {
   const active = runtimeConfigSnapshot;
   if (
@@ -184,41 +157,11 @@ export function withRuntimeConfigSessionStoreSelection<T>(callback: () => T): T 
   if (!config) {
     throw new Error("Runtime session.store selection requires an active config snapshot");
   }
-  assertSessionStoreSelection(config);
-  const owner = Symbol("runtime-session-store-selection");
-  admittedSessionStoreSelections.set(owner, config.session?.store);
-  try {
-    const result = callback();
-    if (
-      result &&
-      (typeof result === "object" || typeof result === "function") &&
-      "then" in result &&
-      typeof result.then === "function"
-    ) {
-      throw new Error("Runtime session.store selection admission must be synchronous");
-    }
-    return result;
-  } finally {
-    releaseSessionStoreSelection(owner);
-  }
-}
-
-/** Retain the published selection until the operation actually settles; no timer releases it. */
-export async function withRuntimeConfigSessionStoreSelectionAsync<T>(
-  callback: () => Promise<T>,
-): Promise<T> {
-  const config = runtimeConfigSnapshot;
-  if (!config) {
-    throw new Error("Runtime session.store selection requires an active config snapshot");
-  }
-  assertSessionStoreSelection(config);
-  const owner = Symbol("runtime-session-store-selection-async");
-  admittedSessionStoreSelections.set(owner, config.session?.store);
-  try {
-    return await callback();
-  } finally {
-    releaseSessionStoreSelection(owner);
-  }
+  const release = acquireRuntimeConfigSessionStoreSelection(
+    config,
+    "runtime-session-store-selection",
+  );
+  return runRuntimeConfigSessionStoreSelectionCallback(callback, release);
 }
 
 type ManagedRuntimeConfigWritePreflight = (

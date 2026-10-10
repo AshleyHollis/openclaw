@@ -32,9 +32,9 @@ import {
   setRuntimeConfigSourceSnapshotIfCurrent,
   setRuntimeConfigSnapshotRefreshHandler,
   withRuntimeConfigSessionStoreSelection,
-  withRuntimeConfigSessionStoreSelectionAsync,
 } from "./runtime-snapshot.js";
 import { createProviderConfigFixture } from "./runtime-snapshot.test-fixtures.js";
+import { withRuntimeConfigSessionStoreSelectionAsync } from "./runtime-snapshot.test-support.js";
 import { captureRuntimeConfig } from "./runtime-source-projection.js";
 import type { OpenClawConfig } from "./types.js";
 
