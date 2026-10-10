@@ -3,12 +3,24 @@ import { getRuntimeConfig as getCurrentRuntimeConfig } from "../config/io.js";
 import type { AgentEventPayload, AgentEventStream } from "../infra/agent-events.js";
 import { trackAsyncWork } from "../shared/async-work-scope.js";
 import { ensureProfileForEmail } from "../state/user-profiles.js";
+import type { ChatAbortTrackedTerminalPersistence } from "./chat-abort-lifecycle-internal.js";
 import { createChatRunState } from "./server-chat-state.js";
 import type { ChatRunRegistration, ChatRunState } from "./server-chat-state.js";
 import type { GatewayRequestContext, RespondFn } from "./server-methods/shared-types.js";
 import { agentDiscoveryMock } from "./test-helpers.runtime-state.js";
 
 type AgentEventHandler = (event: AgentEventPayload) => void;
+
+export function expectTrackedTerminalPersistence(
+  callback: ReturnType<typeof vi.fn>,
+  run: Omit<ChatAbortTrackedTerminalPersistence, "persistence" | "ownerEvent">,
+): void {
+  expect(callback).toHaveBeenCalledWith({
+    ...run,
+    persistence: expect.any(Promise),
+    ownerEvent: expect.objectContaining({ runId: run.runId, stream: "lifecycle" }),
+  });
+}
 
 type AgentEventOverrideKey =
   | "agentId"

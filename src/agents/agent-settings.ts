@@ -156,11 +156,13 @@ function shouldDisableAgentAutoCompaction(params: {
   contextEngineInfo?: ContextEngineInfo;
   compactionMode?: AgentCompactionMode;
   silentOverflowProneProvider?: boolean;
+  compactionForbidden?: boolean;
 }): boolean {
   return (
     params.contextEngineInfo?.ownsCompaction === true ||
     params.compactionMode === "safeguard" ||
-    params.silentOverflowProneProvider === true
+    params.silentOverflowProneProvider === true ||
+    params.compactionForbidden === true
   );
 }
 
@@ -176,11 +178,13 @@ export function applyAgentAutoCompactionGuard(params: {
   contextEngineInfo?: ContextEngineInfo;
   compactionMode?: AgentCompactionMode;
   silentOverflowProneProvider?: boolean;
+  compactionForbidden?: boolean;
 }): { supported: boolean; disabled: boolean } {
   const disable = shouldDisableAgentAutoCompaction({
     contextEngineInfo: params.contextEngineInfo,
     compactionMode: params.compactionMode,
     silentOverflowProneProvider: params.silentOverflowProneProvider,
+    compactionForbidden: params.compactionForbidden,
   });
   const hasMethod = typeof params.settingsManager.setCompactionEnabled === "function";
   if (!disable || !hasMethod) {

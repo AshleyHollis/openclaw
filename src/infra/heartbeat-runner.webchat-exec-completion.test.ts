@@ -440,6 +440,12 @@ it.each([
       }),
     );
     await runProjectionWake(scenario, reply, "wake" in options ? options.wake : undefined);
+    expect(reply.mock.calls[0]?.[0]).toMatchObject({
+      From: "heartbeat",
+      To: undefined,
+      OriginatingChannel: undefined,
+      OriginatingTo: undefined,
+    });
     expect(await readProjectionMessages(scenario)).toHaveLength(1);
     expect(peekSystemEventEntries(scenario.sessionKey)).toEqual([]);
     expect(getLastHeartbeatEvent()?.status).toBe("sent");
