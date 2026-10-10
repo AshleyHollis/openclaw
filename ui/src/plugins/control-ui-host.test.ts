@@ -3,6 +3,7 @@ import type { ControlUiSessionListSnapshot } from "../../../src/plugin-sdk/contr
 import { createDeferred } from "../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { AgentsListResult } from "../api/types.ts";
+import type { RouteId } from "../app-route-paths.ts";
 import { createAgentSelectionCapability } from "../app/agent-selection.ts";
 import type { ApplicationContext } from "../app/context.ts";
 import { i18n } from "../i18n/index.ts";
@@ -108,7 +109,7 @@ describe("native UI roster refresh", () => {
         ? { sessionKey: "agent:writer:files", files: [] }
         : { artifacts: [] },
     );
-    const fixture = createRosterHost(request);
+    const fixture = createRosterHost(request as unknown as GatewayBrowserClient["request"]);
     onTestFinished(fixture.dispose);
     const navigate = vi.fn();
     Object.assign(fixture.context, { navigate });

@@ -7,6 +7,7 @@ import type {
   ControlUiViewContext,
 } from "../../../src/plugin-sdk/control-ui.js";
 import { createDeferred } from "../../../test/helpers/promise.js";
+import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationContext } from "../app/context.ts";
 import { createApplicationContextProvider } from "../test-helpers/application-context.ts";
 import { renderPluginSurface } from "./control-ui-view.ts";

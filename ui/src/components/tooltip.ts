@@ -291,6 +291,9 @@ class Tooltip extends OpenClawLitElement {
       tooltip.anchor = trigger;
       return;
     }
+    // Lit can clone an inert template before registration upgrades that instance.
+    // A registered tag alone does not establish this popup's Lit lifecycle.
+    customElements.upgrade(tooltip);
     // WaTooltip's initial `for` watcher clears a directly assigned anchor.
     // Reapply it after that update or an open tooltip has no popup geometry.
     void tooltip.updateComplete.then(() => {

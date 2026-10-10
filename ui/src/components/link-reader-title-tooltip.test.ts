@@ -155,6 +155,16 @@ it("reserves supported GitHub titles through cold loading, failures, recovery an
       await vi.advanceTimersByTimeAsync(200);
       expect(titleIsOpen()).toBe(true);
       expect(tooltip()?.content).toBe("Ordinary title hint");
+      const currentTooltip = tooltip()!;
+      await customElements.whenDefined("wa-tooltip");
+      await currentTooltip.updateComplete;
+      const popup = currentTooltip.shadowRoot!.querySelector<
+        HTMLElement & { anchor: Element | null; updateComplete: Promise<boolean> }
+      >("wa-tooltip")!;
+      expect(popup).toBeInstanceOf(customElements.get("wa-tooltip")!);
+      await popup.updateComplete;
+      await vi.advanceTimersByTimeAsync(0);
+      expect(popup.anchor).toBe(control);
       control.blur();
       expect(control.title).toBe("Ordinary title hint");
       expect(control.href).toBe(url);
