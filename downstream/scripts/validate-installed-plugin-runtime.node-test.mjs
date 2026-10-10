@@ -36,14 +36,24 @@ for (const failure of [null, "missing-plugin", "version", "declaration", "integr
       );
     }
     await symlink("/fictional-host", path.join(root, "node_modules/openclaw"));
-    if (failure === "missing-plugin")
+    if (failure === "missing-plugin") {
       await rm(path.join(root, "node_modules/@openclaw/discord/package.json"));
-    if (failure === "version") lock.packages["node_modules/@openclaw/codex"].version = "old";
-    if (failure === "integrity") delete lock.packages["node_modules/@openclaw/discord"].integrity;
-    if (failure === "declaration") lock.packages[""].dependencies["@openclaw/codex"] = "other";
+    }
+    if (failure === "version") {
+      lock.packages["node_modules/@openclaw/codex"].version = "old";
+    }
+    if (failure === "integrity") {
+      delete lock.packages["node_modules/@openclaw/discord"].integrity;
+    }
+    if (failure === "declaration") {
+      lock.packages[""].dependencies["@openclaw/codex"] = "other";
+    }
     await writeFile(path.join(root, "package.json"), JSON.stringify(manifest));
     await writeFile(path.join(root, "package-lock.json"), JSON.stringify(lock));
-    if (failure) await assert.rejects(validateInstalledPluginRuntime(root, "/fictional-host"));
-    else assert.deepEqual(await validateInstalledPluginRuntime(root, "/fictional-host"), manifest);
+    if (failure) {
+      await assert.rejects(validateInstalledPluginRuntime(root, "/fictional-host"));
+    } else {
+      assert.deepEqual(await validateInstalledPluginRuntime(root, "/fictional-host"), manifest);
+    }
   });
 }

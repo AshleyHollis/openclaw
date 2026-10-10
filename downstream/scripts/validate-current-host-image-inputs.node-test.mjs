@@ -36,16 +36,35 @@ for (const failure of [
     const a = structuredClone(actual),
       h = structuredClone(host),
       p = structuredClone(plugins);
-    if (failure === "public-version-only") a.build.commit = "f".repeat(40);
-    if (failure === "old-lock") h.packages["node_modules/openclaw"].version = "2026.9.6";
-    if (failure === "archive") a.hostIntegrity = "different";
-    if (failure === "codex-integrity") a.codexIntegrity = "different";
-    if (failure === "discord") p.packages["node_modules/@openclaw/discord"] = {};
-    if (failure === "peer") p.packages["node_modules/openclaw"].resolved = "/registry-host";
-    if (failure === "cc") a.ccSha256 = "0".repeat(64);
-    if (failure === "qmd") a.qmdSha256 = "0".repeat(64);
-    if (failure) assert.throws(() => validateCurrentHostRecords(candidate, h, p, a));
-    else assert.equal(validateCurrentHostRecords(candidate, h, p, a), candidate);
+    if (failure === "public-version-only") {
+      a.build.commit = "f".repeat(40);
+    }
+    if (failure === "old-lock") {
+      h.packages["node_modules/openclaw"].version = "2026.9.6";
+    }
+    if (failure === "archive") {
+      a.hostIntegrity = "different";
+    }
+    if (failure === "codex-integrity") {
+      a.codexIntegrity = "different";
+    }
+    if (failure === "discord") {
+      p.packages["node_modules/@openclaw/discord"] = {};
+    }
+    if (failure === "peer") {
+      p.packages["node_modules/openclaw"].resolved = "/registry-host";
+    }
+    if (failure === "cc") {
+      a.ccSha256 = "0".repeat(64);
+    }
+    if (failure === "qmd") {
+      a.qmdSha256 = "0".repeat(64);
+    }
+    if (failure) {
+      assert.throws(() => validateCurrentHostRecords(candidate, h, p, a));
+    } else {
+      assert.equal(validateCurrentHostRecords(candidate, h, p, a), candidate);
+    }
   });
 }
 test("Life recipe uses current locks, exact producer, Codex and QMD; no Discord", async () => {
