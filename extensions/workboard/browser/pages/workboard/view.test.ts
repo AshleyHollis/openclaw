@@ -152,9 +152,9 @@ function toast(container: Element) {
   );
 }
 
-function expectNoRequestsExceptResultReviewReads(
-  request: ReturnType<typeof createWorkboardTestClient>["request"],
-) {
+function expectNoRequestsExceptResultReviewReads(request: {
+  mock: { calls: readonly (readonly unknown[])[] };
+}) {
   expect(
     request.mock.calls.filter(([method]) => method !== "workboard.resultReviews.list"),
   ).toEqual([]);

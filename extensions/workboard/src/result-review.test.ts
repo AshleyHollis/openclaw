@@ -181,7 +181,8 @@ describe("explicit native completed-result review", () => {
       delivered.length = 0;
       current = true;
       // Model a malformed runtime callback without claiming it satisfies the void contract.
-      Reflect.set(request.sessionMutationAuthorization, "assertCurrent", () => Promise.resolve());
+      const malformedCurrent: unknown = () => Promise.resolve();
+      Reflect.set(request.sessionMutationAuthorization, "assertCurrent", malformedCurrent);
       await handlers.get("workboard.resultReviews.list")!(request as never);
       expect(delivered[0]![0]).toBe(false);
       expect(delivered[0]![1]).toBeUndefined();
