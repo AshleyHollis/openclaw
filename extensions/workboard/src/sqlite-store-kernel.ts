@@ -28,6 +28,7 @@ import type {
   WorkboardOwnerClaimResult,
   WorkboardSubscriptionStore,
 } from "./persistence-types.js";
+import { readResultReviewRecord } from "./result-review-record.js";
 import {
   asBlobContent,
   blobToBase64,
@@ -126,10 +127,7 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
         .selectAll()
         .where("id", "=", id),
     );
-    // Only this owner writes request_json; retained rows preserve the contract snapshot.
-    return row
-      ? (JSON.parse(requiredString(row, "request_json")) as WorkboardResultReviewRequest)
-      : undefined;
+    return row ? readResultReviewRecord(parseJson(requiredString(row, "request_json"))) : undefined;
   }
 
   listResultReviews(scope: {
@@ -148,10 +146,8 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
         .orderBy("created_at", "asc")
         .orderBy("id", "asc"),
     );
-    // See getResultReview: these are owner-written, immutable snapshots.
-    return Array.from(
-      rows,
-      (row) => JSON.parse(requiredString(row, "request_json")) as WorkboardResultReviewRequest,
+    return Array.from(rows, (row) =>
+      readResultReviewRecord(parseJson(requiredString(row, "request_json"))),
     );
   }
 
@@ -184,9 +180,8 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
         .where("status", "=", "pending"),
     );
     // Collect before updating the indexed selection.
-    const requests = Array.from(
-      rows,
-      (row) => JSON.parse(requiredString(row, "request_json")) as WorkboardResultReviewRequest,
+    const requests = Array.from(rows, (row) =>
+      readResultReviewRecord(parseJson(requiredString(row, "request_json"))),
     );
     for (const request of requests)
       this.saveResultReview({

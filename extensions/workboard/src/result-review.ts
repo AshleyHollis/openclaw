@@ -67,9 +67,12 @@ export function resultReviewCompletion(card: WorkboardCard, input: WorkboardComp
   if (Buffer.byteLength(stableStringify(intent)) > 64 * 1024)
     throw new Error("Result review completion exceeds the supported bound.");
   return {
-    ...scope,
-    id: `result-review:${digest({ tenant: scope.tenant, boardId: scope.boardId, cardId: scope.cardId, operationId })}`,
-    completionIntent: digest(intent),
+    expectedUpdatedAt: input.expectedUpdatedAt,
+    identity: {
+      ...scope,
+      id: `result-review:${digest({ tenant: scope.tenant, boardId: scope.boardId, cardId: scope.cardId, operationId })}`,
+      completionIntent: digest(intent),
+    },
   };
 }
 
@@ -79,7 +82,7 @@ export function createResultReviewRequest(
   result: WorkboardResultReviewRequest["result"],
   createdAt: number,
 ): WorkboardResultReviewRequest {
-  const identity = resultReviewCompletion(card, input);
+  const { identity } = resultReviewCompletion(card, input);
   if (!result.summary.trim())
     throw new Error("An explicit result review requires a concrete completion summary.");
   const snapshot = structuredClone(result);

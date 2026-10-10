@@ -58,6 +58,39 @@ function fixture() {
 }
 
 describe("durable Workboard result review owner", () => {
+  it.each(["get", "list", "withdraw"])(
+    "refuses malformed retained proof before %s exposes or changes the snapshot",
+    (operation) => {
+      const f = fixture();
+      try {
+        const k = f.open();
+        k.cards.register(card.id, { version: 1, card });
+        k.cards.registerWithResultReview(card.id, { version: 1, card: completed }, 2, request);
+        const malformed = {
+          ...request,
+          result: { ...request.result, proof: [{ id: "proof", status: "invented", createdAt: 3 }] },
+        };
+        const db = new DatabaseSync(f.dbPath);
+        try {
+          db.prepare("UPDATE workboard_result_reviews SET request_json = ? WHERE id = ?").run(
+            JSON.stringify(malformed),
+            request.id,
+          );
+        } finally {
+          db.close();
+        }
+        expect(() => {
+          if (operation === "get") k.cards.getResultReview(request.id);
+          else if (operation === "list")
+            k.cards.listResultReviews({ tenant: "", boardId: "default", cardId: card.id });
+          else k.cards.register(card.id, { version: 1, card: { ...completed, status: "done" } });
+        }).toThrow();
+        expect(k.cards.lookup(card.id)?.card).toEqual(completed);
+      } finally {
+        f.close();
+      }
+    },
+  );
   it("opens schema 4 with existing cards and installs the schema 5 request owner", () => {
     const f = fixture();
     try {

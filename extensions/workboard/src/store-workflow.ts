@@ -256,8 +256,10 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
     scope: WorkboardMutationScope | null | undefined = input,
   ): Promise<WorkboardCard> {
     const existing = await this.requireCard(id);
-    if (input.resultReview !== undefined) {
-      const identity = resultReviewCompletion(existing, input);
+    const reviewAdmission =
+      input.resultReview !== undefined ? resultReviewCompletion(existing, input) : undefined;
+    if (reviewAdmission) {
+      const { identity } = reviewAdmission;
       const retained = await this.store.getResultReview(identity.id);
       if (retained) {
         if (retained.completionIntent !== identity.completionIntent)
@@ -265,7 +267,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         return existing;
       }
       if (
-        existing.updatedAt !== input.expectedUpdatedAt ||
+        existing.updatedAt !== reviewAdmission.expectedUpdatedAt ||
         existing.status !== "running" ||
         !existing.metadata?.attempts?.some(
           (attempt) =>
@@ -376,8 +378,8 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       {
         enforceStatusHolds: true,
         preserveProofId: proofId ?? proof?.id,
-        ...(resultReview
-          ? { resultReview, expectedUpdatedAt: input.expectedUpdatedAt as number }
+        ...(resultReview && reviewAdmission
+          ? { resultReview, expectedUpdatedAt: reviewAdmission.expectedUpdatedAt }
           : {}),
       },
     );
