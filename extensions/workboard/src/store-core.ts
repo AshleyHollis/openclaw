@@ -18,6 +18,7 @@ import type {
   WorkboardSubscriptionStore,
   WorkboardWriteAuthority,
 } from "./persistence-types.js";
+import { assertWorkboardStatusHolds } from "./status-holds.js";
 import { normalizeAutomationPatch, normalizeCardAutomation } from "./store-automation.js";
 import {
   assertCanMutateClaimedCard,
@@ -883,6 +884,20 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
         await this.deleteDetachedAttachments(existing, next);
         return next;
       }
+    } else if (options.resultReview) {
+      const result = await this.store.registerWithResultReview(
+        next.id,
+        { version: 1, card: next },
+        expectedUpdatedAt,
+        options.resultReview,
+      );
+      if (result) {
+        if (result.inserted) {
+          this.recordCardMutation(existing, result.card);
+          await this.deleteDetachedAttachments(existing, result.card);
+        }
+        return result.card;
+      }
     } else if (
       await this.store.registerIfUpdatedAt(next.id, { version: 1, card: next }, expectedUpdatedAt)
     ) {
@@ -902,30 +917,10 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     next: WorkboardCard,
     now: number,
   ): Promise<void> {
-    if (
-      next.status !== "ready" &&
-      next.status !== "running" &&
-      next.status !== "review" &&
-      next.status !== "done"
-    ) {
-      return;
-    }
+    if (!["ready", "running", "review", "done"].includes(next.status)) return;
     const parents = cardParentIds(next);
-    if (parents.length > 0) {
-      const cards = new Map(
-        (await this.store.listCardStatuses(parents)).map((card) => [card.id, card]),
-      );
-      if (!parents.every((parentId) => cards.get(parentId)?.status === "done")) {
-        throw new Error("card dependencies are not done.");
-      }
-    }
-    if (next.status === "done") {
-      return;
-    }
-    const scheduledAt = next.metadata?.automation?.scheduledAt;
-    if ((scheduledAt && scheduledAt > now) || (existing.status === "scheduled" && !scheduledAt)) {
-      throw new Error("card is scheduled for later.");
-    }
+    const statuses = parents.length ? await this.store.listCardStatuses(parents) : [];
+    assertWorkboardStatusHolds(existing, next, now, statuses);
   }
 
   async delete(

@@ -14,6 +14,15 @@ export default {
     openWorkboardCard: "Open Workboard card",
   },
   workboard: {
+    resultReviewTitle: "Result review",
+    resultReviewPending: "Review requested for this completed result.",
+    resultReviewReviewed: "Result reviewed.",
+    resultReviewWithdrawn: "Review request withdrawn.",
+    resultReviewMarkReviewed: "Mark reviewed",
+    resultReviewWithdraw: "Withdraw review request",
+    resultReviewUnavailable: "Result review requests are unavailable. Retry to refresh them.",
+    resultReviewResolveFailed:
+      "The review decision could not be confirmed. Refresh the request before trying again.",
     cardDestinationUnavailable: "This Workboard card is unavailable. Refresh to try again.",
     cardDestinationDeferred: "Finish the current edit before opening this card.",
     discardCardTitle: "Discard this card?",

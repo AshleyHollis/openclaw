@@ -57,6 +57,7 @@ import {
   type WorkboardInlineText,
 } from "./view-inline-properties.ts";
 import { closeWorkboardPopoverOnAction, workboardPopoverRef } from "./view-popover.ts";
+import { renderResultReview } from "./view-result-review.ts";
 import { workboardScrollFadeRef } from "./view-scroll-fade.ts";
 import { getSessionStatus, renderSessionStatusBadge } from "./view-session-status.ts";
 
@@ -455,6 +456,7 @@ export function renderCardDetailsPanel(props: WorkboardProps) {
                 </aside>
                 <div class="workboard-detail__content">
                   ${renderInlineText(props, card, "notes", busy, !writable || archived)}
+                  ${renderResultReview(props, card)}
                   <section
                     class="workboard-detail__execution ${
                       sessionEmpty ? "workboard-detail__execution--empty" : ""

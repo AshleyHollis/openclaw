@@ -15,6 +15,10 @@ export type WorkboardSqliteOperations = {
   "connection.open": { input: undefined; output: { connection: number; dataVersion: number } };
   "connection.close": { input: { connection: number }; output: void };
   dataVersion: { input: { connection: number }; output: number };
+  "cards.registerWithResultReview": Operation<WorkboardCardStore["registerWithResultReview"]>;
+  "cards.getResultReview": Operation<WorkboardCardStore["getResultReview"]>;
+  "cards.listResultReviews": Operation<WorkboardCardStore["listResultReviews"]>;
+  "cards.resolveResultReview": Operation<WorkboardCardStore["resolveResultReview"]>;
   "cards.register": Operation<WorkboardCardStore["register"]>;
   "cards.registerIfAbsent": Operation<WorkboardCardStore["registerIfAbsent"]>;
   "cards.registerIdempotent": Operation<WorkboardCardStore["registerIdempotent"]>;

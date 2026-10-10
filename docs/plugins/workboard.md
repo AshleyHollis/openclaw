@@ -40,6 +40,46 @@ Existing edit drafts and pending saves defer navigation. Opening a card never
 starts, specifies or decomposes it. The target survives refresh and browser
 back/forward navigation through the native route owner.
 
+## Explicit completed-result review
+
+Routine `workboard_complete` calls still mark a card Done. A producing session
+can explicitly request a review of a concrete completed result by adding
+`resultReview: { logicalOperationId }` and the exact original `expectedUpdatedAt`
+card revision to that completion. This opt-in requires a current host-authorized
+version-2 tool invocation, the original host-projected `runId`, a matching running
+card session/run, and a concrete summary. It
+closes that attempt and holds the card in Review. It never starts another run.
+
+The native card details show the frozen summary, proof, and artifacts with
+**Mark reviewed** and **Withdraw review request** controls. Mark reviewed checks
+both card and request revisions and moves the card to Done. Withdrawal records
+that the request is no longer pending and leaves the card's lifecycle unchanged.
+Moving the card to Done, archiving it, or deleting it also withdraws a pending
+request. Review status by itself does not create a human request.
+
+Authenticated native clients can read `workboard.resultReviews.list` with exact
+`{ tenant, boardId, cardId }`, or `workboard.resultReviews.get` with that scope
+and `requestId`. Responses are `{ requests }` and `{ request }`. The resolve
+method adds `expectedRevision`, `expectedUpdatedAt`, and `decision` (`reviewed`
+or `withdrawn`) and returns `{ request, card }`. Reads require `operator.read`;
+resolution requires `operator.write`. Every operation rechecks the original
+current principal before publication, and writes recheck it at SQLite commit.
+
+Each schema-version-1 request has an immutable `id`, `requestRevision`,
+`resultDigest`, and original tenant/board/card/session/run binding. The three
+SHA-256 digests (`requestRevision`, `resultDigest`, `completionIntent`) use
+lowercase 64-character hexadecimal strings. The mutable integer `revision`
+increases on a terminal transition. `createdAt` and `resolvedAt` use epoch
+milliseconds; unresolved `resolvedAt` and `expiresAt` are null. Version 1 has no
+automatic expiry. Exact retries retain the accepted snapshot; changed completion
+intent is refused, and a terminal request never becomes pending again.
+
+Workboard SQLite schema 5 retains these result and terminal receipts separately
+from bounded card metadata. They survive card deletion and restart; scoped reads
+of a deleted card return terminal receipts only. They are not execution approval,
+a scheduler, or a general notification ledger. No request is created from
+ordinary progress or completion, an unrelated question, or generic Review status.
+
 ## Enable it
 
 Workboard is bundled but disabled by default:

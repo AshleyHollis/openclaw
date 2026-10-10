@@ -66,6 +66,10 @@ function createPausedCardStore(delegate: WorkboardCardStore) {
   };
   return {
     store: {
+      registerWithResultReview: (...args) => delegate.registerWithResultReview(...args),
+      getResultReview: (id) => delegate.getResultReview(id),
+      listResultReviews: (scope) => delegate.listResultReviews(scope),
+      resolveResultReview: (...args) => delegate.resolveResultReview(...args),
       async register(key, value) {
         await beforeWrite();
         await delegate.register(key, value);

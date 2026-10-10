@@ -98,6 +98,9 @@ describe("Workboard card execution actions", () => {
       const blocked = { ...card, status: "blocked", updatedAt: 2 };
       let aborts = 0;
       const client = createWorkboardTestClient((method) => {
+        if (method === "workboard.resultReviews.list") {
+          return { requests: [] };
+        }
         if (method === "chat.abort") {
           aborts += 1;
           return { aborted: !agentId || aborts > 1 };
@@ -118,13 +121,17 @@ describe("Workboard card execution actions", () => {
       ).click();
       await waitForFast(() => expect(state.cards[0]?.status).toBe("blocked"));
 
-      expect(client.request).toHaveBeenNthCalledWith(1, "chat.abort", {
-        sessionKey: session.key,
-        ...(agentId ? { agentId } : {}),
-        runId: "writer-run",
-      });
+      const abortCalls = client.request.mock.calls.filter(([method]) => method === "chat.abort");
+      expect(abortCalls[0]).toEqual([
+        "chat.abort",
+        {
+          sessionKey: session.key,
+          ...(agentId ? { agentId } : {}),
+          runId: "writer-run",
+        },
+      ]);
       if (agentId) {
-        expect(client.request).toHaveBeenNthCalledWith(2, "chat.abort", { sessionKey, agentId });
+        expect(abortCalls[1]).toEqual(["chat.abort", { sessionKey, agentId }]);
       }
       expect(state.error).toBeNull();
     },
@@ -137,7 +144,10 @@ describe("Workboard card execution actions", () => {
       const card = createWorkboardCard(
         action === "stop" ? { sessionKey: session.key, status: "running" } : {},
       );
-      const client = createWorkboardTestClient(() => {
+      const client = createWorkboardTestClient((method) => {
+        if (method === "workboard.resultReviews.list") {
+          return { requests: [] };
+        }
         throw new Error("A retained action cannot operate on the replacement card");
       });
       const { container, state } = renderDetails(card, { client, sessions: [session] });
@@ -158,7 +168,9 @@ describe("Workboard card execution actions", () => {
       button.click();
       await waitForFast(() => expect(state.error).toBeTruthy());
 
-      expect(client.request).not.toHaveBeenCalled();
+      expect(
+        client.request.mock.calls.filter(([method]) => method !== "workboard.resultReviews.list"),
+      ).toEqual([]);
       expect(state.cards).toEqual([successor]);
       expect(state.busyCardIds.size).toBe(0);
     },

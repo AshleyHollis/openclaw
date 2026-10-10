@@ -31,6 +31,8 @@ type OpenClawPluginToolContextBase = {
   agentDir?: string;
   agentId?: string;
   sessionKey?: string;
+  /** Original host-owned producing run identity; never derived from tool arguments. */
+  readonly runId?: string;
   /** Ephemeral session UUID - regenerated on /new and /reset. Use for per-conversation isolation. */
   sessionId?: string;
   /** Out-of-band plugin-owned bindings attached by the current run initiator. */

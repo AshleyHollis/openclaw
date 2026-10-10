@@ -12,6 +12,7 @@ import {
   WorkboardUploadsDisabledError,
   type GatewayMethodContext,
 } from "./gateway-helpers.js";
+import { registerWorkboardResultReviewMethods } from "./gateway-result-review.js";
 import {
   registerWorkboardWorkspaceBoardMethod,
   registerWorkboardWorkspaceBulkMethod,
@@ -106,6 +107,7 @@ export function registerWorkboardGatewayMethods(params: {
   ]);
 
   registerWorkboardWorkspaceCardMethods({ api, store, redactCard: redactClaimToken });
+  registerWorkboardResultReviewMethods(api, store);
 
   api.registerGatewayMethod(
     "workboard.cards.start",
@@ -167,7 +169,19 @@ export function registerWorkboardGatewayMethods(params: {
     cardMutation("promote", (id, input) => store.promote(id, input, null)),
     cardMutation("reassign", (id, input) => store.reassign(id, input, null)),
     cardMutation("reclaim", (id, input) => store.reclaim(id, input, null)),
-    cardMutation("complete", (id, input) => store.complete(id, input, null)),
+    [
+      "workboard.cards.complete",
+      WRITE_SCOPE,
+      (request) =>
+        redactCardResult(
+          store.complete(
+            readId(request.params),
+            request.params,
+            null,
+            request.sessionMutationAuthorization?.assertCurrent,
+          ),
+        ),
+    ],
     cardMutation("block", (id, input) => store.block(id, input, null)),
     cardMutation("unblock", (id) => store.unblock(id)),
   ]);

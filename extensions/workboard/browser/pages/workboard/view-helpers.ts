@@ -37,6 +37,7 @@ export type WorkboardProps = {
   host: object;
   client: GatewayBrowserClient | null;
   connected: boolean;
+  connectionGeneration?: number;
   canWrite?: boolean;
   canGrant?: boolean;
   canModelOverride?: boolean;

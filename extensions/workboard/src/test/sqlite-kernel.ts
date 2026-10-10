@@ -27,6 +27,11 @@ export function createKernelStores(
     close: async () => kernel.close(),
     cards: {
       ...asyncKeyedStore(kernel.cards),
+      registerWithResultReview: async (...args) => kernel.cards.registerWithResultReview(...args),
+      getResultReview: async (...args) => kernel.cards.getResultReview(...args),
+      listResultReviews: async (...args) => kernel.cards.listResultReviews(...args),
+      resolveResultReview: async (...args) => kernel.cards.resolveResultReview(...args),
+
       entries: async (scope) => kernel.cards.entries(scope),
       registerIfAbsent: async (...args) => kernel.cards.registerIfAbsent(...args),
       registerIdempotent: async (...args) => kernel.cards.registerIdempotent(...args),

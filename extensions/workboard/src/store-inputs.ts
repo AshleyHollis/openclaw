@@ -41,6 +41,7 @@ type WorkboardCardInput = {
 
 export type WorkboardCardPatch = WorkboardCardInput;
 export type WorkboardUpdateCardOptions = {
+  resultReview?: import("@openclaw/workboard-contract").WorkboardResultReviewRequest;
   allowAutomationLaunch?: boolean;
   allowMetadataDependencyLinks?: boolean;
   enforceStatusHolds?: boolean;
@@ -117,6 +118,8 @@ export type WorkboardBulkInput = {
   archived?: unknown;
 };
 export type WorkboardCompleteInput = {
+  expectedUpdatedAt?: unknown;
+  resultReview?: unknown;
   ownerId?: unknown;
   token?: unknown;
   summary?: unknown;
