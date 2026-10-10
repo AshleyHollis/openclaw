@@ -4547,6 +4547,8 @@ const createCronHost = (): PluginServiceCronHost => ({
   list: vi.fn<PluginServiceCronHost["list"]>(),
   add: vi.fn<PluginServiceCronHost["add"]>(),
   update: vi.fn<PluginServiceCronHost["update"]>(),
+  updateWithPrecondition: vi.fn<PluginServiceCronHost["updateWithPrecondition"]>(),
+  readJob: vi.fn<PluginServiceCronHost["readJob"]>(),
   remove: vi.fn<PluginServiceCronHost["remove"]>(),
   removeStaleJobFamily: vi.fn<PluginServiceCronHost["removeStaleJobFamily"]>(),
 });

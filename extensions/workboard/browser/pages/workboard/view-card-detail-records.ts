@@ -56,7 +56,7 @@ export function renderDetailRow(label: string, value: unknown) {
   `;
 }
 
-function renderDetailList(title: string, values: readonly string[]) {
+export function renderDetailList(title: string, values: readonly string[]) {
   const entries = values.map((value) => value.trim()).filter(Boolean);
   if (entries.length === 0) {
     return nothing;
@@ -119,7 +119,7 @@ function renderAttemptDetails(attempts: readonly WorkboardRunAttempt[]) {
   </section>`;
 }
 
-function renderProofDetails(proof: readonly WorkboardProof[]) {
+export function renderProofDetails(proof: readonly WorkboardProof[]) {
   if (!proof.length) {
     return nothing;
   }

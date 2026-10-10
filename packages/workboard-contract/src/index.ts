@@ -161,6 +161,26 @@ export type WorkboardProof = {
   note?: string;
 };
 
+/** Explicit human review of one immutable completed result; never execution permission. */
+export type WorkboardResultReviewRequest = {
+  schemaVersion: 1;
+  id: string;
+  requestRevision: string;
+  resultDigest: string;
+  completionIntent: string;
+  revision: number;
+  status: "pending" | "reviewed" | "withdrawn";
+  tenant: string;
+  boardId: string;
+  cardId: string;
+  sessionKey: string;
+  runId: string;
+  createdAt: number;
+  expiresAt: null;
+  resolvedAt: number | null;
+  result: { summary: string; proof: WorkboardProof[]; artifacts: WorkboardArtifact[] };
+};
+
 export type WorkboardArtifact = {
   id: string;
   createdAt: number;

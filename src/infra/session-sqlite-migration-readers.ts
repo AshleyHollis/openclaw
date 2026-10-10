@@ -229,7 +229,7 @@ export function createTranscriptEventReader(
         }
         event = recognizedEvent;
       }
-      append(event as TranscriptEvent);
+      append(event);
     }
     assertTranscriptFileUnchanged(transcriptPath, sourceFingerprint);
     return () => assertTranscriptFileUnchanged(transcriptPath, sourceFingerprint);
@@ -337,7 +337,7 @@ function* iterateTranscriptEvents(
         continue;
       }
       yield {
-        event: normalizeLoadedFileEntry(parsed as FileEntry),
+        event: normalizeLoadedFileEntry(parsed),
         originalIndex,
       };
       originalIndex += 1;

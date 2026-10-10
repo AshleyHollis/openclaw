@@ -98,6 +98,15 @@ export class WorkboardStoreRuntime {
   protected trackCardStore(store: WorkboardCardStore): WorkboardCardStore {
     return {
       ...this.track(store),
+      registerWithResultReview: (...args) =>
+        this.trackMutation(
+          () => store.registerWithResultReview(...args),
+          (result) => result !== false && result.inserted,
+        ),
+      getResultReview: (id) => this.runOperation(() => store.getResultReview(id)),
+      listResultReviews: (scope) => this.runOperation(() => store.listResultReviews(scope)),
+      resolveResultReview: (...args) =>
+        this.trackMutation(() => store.resolveResultReview(...args)),
       entries: (scope) => this.runOperation(() => store.entries(scope)),
       registerIfAbsent: (key, value) =>
         this.trackMutation(() => store.registerIfAbsent(key, value)),

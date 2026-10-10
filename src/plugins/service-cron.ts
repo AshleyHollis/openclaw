@@ -13,7 +13,15 @@ type PluginServiceCron = NonNullable<
 
 export type PluginServiceCronHost = Pick<
   GatewayCronServiceContract,
-  "list" | "add" | "update" | "remove" | "removeStaleJobFamily" | "status" | "enqueueRun" | "readJob" | "updateWithPrecondition"
+  | "list"
+  | "add"
+  | "update"
+  | "remove"
+  | "removeStaleJobFamily"
+  | "status"
+  | "enqueueRun"
+  | "readJob"
+  | "updateWithPrecondition"
 >;
 
 export function createPluginServiceCronGetter(params: {

@@ -126,13 +126,18 @@ patchedDependencies:
     const dir = makeRepo();
     mkdirSync(path.join(dir, "downstream", "patches"), { recursive: true });
     writeFileSync(path.join(dir, "downstream", "patches", "source-history.patch"), "diff\n");
-    writeFileSync(path.join(dir, "pnpm-workspace.yaml"),
-      'packages:\n  - .\npatchedDependencies:\n  "@openclaw/fs-safe@0.21.1": downstream/patches/source-history.patch\n');
+    writeFileSync(
+      path.join(dir, "pnpm-workspace.yaml"),
+      'packages:\n  - .\npatchedDependencies:\n  "@openclaw/fs-safe@0.21.1": downstream/patches/source-history.patch\n',
+    );
     git(dir, ["add", "downstream", "pnpm-workspace.yaml"]);
-    expect(collectPackagePatchViolations(dir)).toEqual([{
-      file: "pnpm-workspace.yaml", kind: "patchedDependency",
-      detail: "@openclaw/fs-safe@0.21.1 -> downstream/patches/source-history.patch",
-    }]);
+    expect(collectPackagePatchViolations(dir)).toEqual([
+      {
+        file: "pnpm-workspace.yaml",
+        kind: "patchedDependency",
+        detail: "@openclaw/fs-safe@0.21.1 -> downstream/patches/source-history.patch",
+      },
+    ]);
   });
 
   it("allows deleted legacy patch files during the commit that removes them", () => {

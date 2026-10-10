@@ -107,7 +107,10 @@ export const CARD_CHILD_TABLES = [
 ] as const;
 
 export type WorkboardCardDatabase = Record<
-  (typeof CARD_CHILD_TABLES)[number] | "workboard_cards" | "workboard_worker_protocol",
+  | (typeof CARD_CHILD_TABLES)[number]
+  | "workboard_cards"
+  | "workboard_worker_protocol"
+  | "workboard_result_reviews",
   Row
 >;
 

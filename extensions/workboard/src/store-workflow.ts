@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type {
+  WorkboardResultReviewRequest,
   WorkboardArtifact,
   WorkboardCard,
   WorkboardClaim,
@@ -11,6 +12,12 @@ import type {
 import { isFutureDateTimestampMs } from "openclaw/plugin-sdk/number-runtime";
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import {
+  createResultReviewRequest,
+  resultReviewCompletion,
+  synchronousResultReviewAuthority,
+  assertResultReviewScope,
+} from "./result-review.js";
 import { normalizeCardAutomation } from "./store-automation.js";
 import {
   assertCanMutateClaimedCard,
@@ -231,8 +238,18 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
     id: string,
     input: WorkboardCompleteInput = {},
     scope: WorkboardMutationScope | null | undefined = input,
+    assertCurrent?: () => void,
   ): Promise<WorkboardCard> {
-    return await this.enqueueMutation(async () => await this.completeDirect(id, input, scope));
+    const admittedCurrent =
+      input.resultReview !== undefined
+        ? synchronousResultReviewAuthority(assertCurrent)
+        : assertCurrent;
+    return await this.enqueueMutation(async () => {
+      admittedCurrent?.();
+      const card = await this.completeDirect(id, input, scope);
+      admittedCurrent?.();
+      return card;
+    }, admittedCurrent);
   }
 
   private async completeDirect(
@@ -241,6 +258,30 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
     scope: WorkboardMutationScope | null | undefined = input,
   ): Promise<WorkboardCard> {
     const existing = await this.requireCard(id);
+    const reviewAdmission =
+      input.resultReview !== undefined ? resultReviewCompletion(existing, input) : undefined;
+    if (reviewAdmission) {
+      const { identity } = reviewAdmission;
+      const retained = await this.store.getResultReview(identity.id);
+      if (retained) {
+        if (retained.completionIntent !== identity.completionIntent) {
+          throw new Error("The original result review completion intent changed.");
+        }
+        return existing;
+      }
+      if (
+        existing.updatedAt !== reviewAdmission.expectedUpdatedAt ||
+        existing.status !== "running" ||
+        !existing.metadata?.attempts?.some(
+          (attempt) =>
+            attempt.sessionKey === identity.sessionKey &&
+            attempt.runId === identity.runId &&
+            attempt.status === "running",
+        )
+      ) {
+        throw new Error("The exact producing card revision/run is no longer running.");
+      }
+    }
     assertCanMutateClaimedCard(existing, scope === null ? undefined : scope);
     const now = Date.now();
     const createdCardIds = normalizeStringList(input.createdCardIds, "created card ids", 120);
@@ -282,14 +323,35 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       ...(cardSessionKey(existing) ? { sessionKey: cardSessionKey(existing) } : {}),
       ...(cardRunId(existing) ? { runId: cardRunId(existing) } : {}),
     };
+    const requestedReview = input.resultReview !== undefined;
+    const completedProof = appendCompletionProof(metadata.proof, proof, proofId);
+    const completedArtifacts = artifacts.length
+      ? [...(metadata.artifacts ?? []), ...artifacts].slice(-MAX_CARD_ARTIFACTS)
+      : metadata.artifacts;
+    const resultReview = requestedReview
+      ? createResultReviewRequest(
+          existing,
+          input,
+          {
+            summary: summary ?? "",
+            proof: completedProof ?? [],
+            artifacts: completedArtifacts ?? [],
+          },
+          now,
+        )
+      : undefined;
     const execution =
       existing.execution?.status === "running"
-        ? { ...existing.execution, status: "done" as const, updatedAt: now }
+        ? {
+            ...existing.execution,
+            status: requestedReview ? ("review" as const) : ("done" as const),
+            updatedAt: now,
+          }
         : existing.execution;
     return await this.updateCard(
       id,
       {
-        status: "done",
+        status: requestedReview ? "review" : "done",
         ...(execution ? { execution } : {}),
         metadata: {
           ...metadata,
@@ -310,10 +372,8 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
                 { id: randomUUID(), body: summary, createdAt: now },
               ].slice(-MAX_CARD_COMMENTS)
             : metadata.comments,
-          proof: appendCompletionProof(metadata.proof, proof, proofId),
-          artifacts: artifacts.length
-            ? [...(metadata.artifacts ?? []), ...artifacts].slice(-MAX_CARD_ARTIFACTS)
-            : metadata.artifacts,
+          proof: completedProof,
+          artifacts: completedArtifacts,
           notifications: [...(metadata.notifications ?? []), notification].slice(
             -MAX_CARD_NOTIFICATIONS,
           ),
@@ -322,8 +382,95 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       {
         enforceStatusHolds: true,
         preserveProofId: proofId ?? proof?.id,
+        ...(resultReview && reviewAdmission
+          ? { resultReview, expectedUpdatedAt: reviewAdmission.expectedUpdatedAt }
+          : {}),
       },
     );
+  }
+
+  async listResultReviews(
+    scope: { tenant: string; boardId: string; cardId: string },
+    assertCurrent: () => void,
+  ): Promise<WorkboardResultReviewRequest[]> {
+    const admittedCurrent = synchronousResultReviewAuthority(assertCurrent);
+    return this.runOperation(async () => {
+      admittedCurrent();
+      const card = await this.get(scope.cardId);
+      if (card) {
+        assertResultReviewScope(card, scope);
+      }
+      const requests = await this.store.listResultReviews(scope);
+      admittedCurrent();
+      const current = await this.get(scope.cardId);
+      if (current) {
+        assertResultReviewScope(current, scope);
+      }
+      admittedCurrent();
+      // Deleted cards retain only terminal owner receipts, never actionable work.
+      return current ? requests : requests.filter((request) => request.status !== "pending");
+    });
+  }
+
+  async getResultReview(
+    scope: { tenant: string; boardId: string; cardId: string; requestId: string },
+    assertCurrent: () => void,
+  ): Promise<WorkboardResultReviewRequest> {
+    const requests = await this.listResultReviews(scope, assertCurrent);
+    const request = requests.find((entry) => entry.id === scope.requestId);
+    if (!request) {
+      throw new Error("The exact result review request is unavailable.");
+    }
+    return request;
+  }
+
+  async resolveResultReview(
+    scope: {
+      tenant: string;
+      boardId: string;
+      cardId: string;
+      requestId: string;
+      expectedRevision: number;
+      expectedUpdatedAt: number;
+      decision: "reviewed" | "withdrawn";
+    },
+    assertCurrent: () => void,
+  ) {
+    const admittedCurrent = synchronousResultReviewAuthority(assertCurrent);
+    return this.enqueueMutation(async () => {
+      admittedCurrent();
+      const card = await this.requireCard(scope.cardId);
+      assertResultReviewScope(card, scope);
+      const request = await this.store.getResultReview(scope.requestId);
+      if (
+        !request ||
+        request.cardId !== scope.cardId ||
+        request.tenant !== scope.tenant ||
+        request.boardId !== scope.boardId
+      ) {
+        throw new Error("The exact result review request is unavailable.");
+      }
+      if (
+        scope.decision === "reviewed" &&
+        (card.status !== "review" ||
+          cardSessionKey(card) !== request.sessionKey ||
+          cardRunId(card) !== request.runId)
+      ) {
+        throw new Error("The exact completed result is no longer current.");
+      }
+      const result = await this.store.resolveResultReview(
+        scope.requestId,
+        scope.expectedRevision,
+        scope.expectedUpdatedAt,
+        scope.decision,
+        Date.now(),
+      );
+      if (!result) {
+        throw new Error("The result review or card revision changed. Refresh the native card.");
+      }
+      admittedCurrent();
+      return result;
+    }, admittedCurrent);
   }
 
   protected buildBlockedCardPatch(

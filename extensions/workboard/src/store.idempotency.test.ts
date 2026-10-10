@@ -128,15 +128,39 @@ describe("Workboard immutable scoped create admission", () => {
       ]) {
         db.exec(`ALTER TABLE workboard_cards DROP COLUMN ${column}`);
       }
-      db.exec("DELETE FROM workboard_schema_migrations WHERE id = 'schema-4'");
+      db.exec("DELETE FROM workboard_schema_migrations WHERE id IN ('schema-4', 'schema-5')");
       db.prepare(
         "INSERT OR IGNORE INTO workboard_schema_migrations (id, applied_at) VALUES ('schema-3', ?)",
       ).run(Date.now());
+      expect(
+        db
+          .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = 'schema-5'")
+          .get(),
+      ).toBeUndefined();
+      const remainingColumns = db.prepare("PRAGMA table_info(workboard_cards)").all();
+      for (const column of [
+        "creation_idempotency_key",
+        "creation_tenant",
+        "creation_board_id",
+        "creation_intent_json",
+      ]) {
+        expect(remainingColumns.map((row) => row.name)).not.toContain(column);
+      }
     } finally {
       db.close();
     }
     const reopened = createKernelStores(harness.dbPath);
     try {
+      const migrated = openNodeSqliteDatabase(harness.dbPath);
+      try {
+        expect(
+          migrated
+            .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = 'schema-5'")
+            .get(),
+        ).toEqual({ found: 1 });
+      } finally {
+        migrated.close();
+      }
       expect((await reopened.cards.lookup(legacy.id))?.card).toEqual(legacy);
       const scoped = { ...legacy, metadata: { automation: { idempotencyKey: "new-admission" } } };
       await expect(

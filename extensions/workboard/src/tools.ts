@@ -3,6 +3,7 @@ import { jsonResult, readStringParam } from "openclaw/plugin-sdk/core";
 import type { AnyAgentTool, OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import { Type } from "typebox";
 import { redactClaimToken } from "./card-redaction.js";
+import { synchronousResultReviewAuthority } from "./result-review.js";
 import type { WorkboardStore } from "./store.js";
 import {
   cardIdField,
@@ -369,13 +370,65 @@ export function createWorkboardTools(params: {
             }),
           ),
         ),
+        expectedUpdatedAt: Type.Optional(
+          Type.Integer({
+            minimum: 1,
+            description: "Exact original card revision, required for an explicit result review.",
+          }),
+        ),
+        resultReview: Type.Optional(
+          strictObject({
+            logicalOperationId: Type.String({
+              minLength: 1,
+              maxLength: 120,
+              description:
+                "Stable caller operation id for one explicitly requested completed-result review.",
+            }),
+          }),
+        ),
         createdCardIds: Type.Optional(
           Type.Array(Type.String(), { description: "Cards created during this run." }),
         ),
       }),
       execute: async (_toolCallId, rawParams) => {
-        return runClaimedCardMutation(rawParams, (id, record, scope) =>
-          store.complete(id, record, scope),
+        const requestsReview =
+          rawParams &&
+          typeof rawParams === "object" &&
+          Reflect.get(rawParams, "resultReview") !== undefined;
+        if (requestsReview) {
+          if (
+            !params.context?.assertInvocationCurrent ||
+            !params.context.sessionKey ||
+            !params.context.runId
+          ) {
+            throw new Error("Explicit result review requires a current native session invocation.");
+          }
+          synchronousResultReviewAuthority(params.context.assertInvocationCurrent)();
+        }
+        const { record, id, scope } = await readScopedCardToolParams(rawParams);
+        if (record.resultReview !== undefined) {
+          const assertCurrent = synchronousResultReviewAuthority(
+            params.context?.assertInvocationCurrent,
+          );
+          if (!params.context?.sessionKey || !params.context.runId) {
+            throw new Error("Explicit result review requires a current native session invocation.");
+          }
+          assertCurrent();
+          const card = await store.get(id);
+          if (
+            !card ||
+            (card.execution?.sessionKey ?? card.sessionKey) !== params.context.sessionKey ||
+            (card.execution?.runId ?? card.runId) !== params.context.runId
+          ) {
+            throw new Error(
+              "Result review must come from the exact producing card session and run.",
+            );
+          }
+          assertCurrent();
+          return redactedCardResult(await store.complete(id, record, scope, assertCurrent));
+        }
+        return runClaimedCardMutation(rawParams, (cardId, input, claimScope) =>
+          store.complete(cardId, input, claimScope),
         );
       },
     },
