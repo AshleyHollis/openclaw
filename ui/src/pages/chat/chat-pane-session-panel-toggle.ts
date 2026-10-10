@@ -74,6 +74,7 @@ export class ChatPaneSessionPanelToggleController {
     });
     const handleFilesOpen = (event: Event) => {
       const owner = this.options.current();
+      // SAFETY: the Control UI host publishes this event as CustomEvent<FilesPanelOpenDetail>.
       const detail = (event as CustomEvent<FilesPanelOpenDetail>).detail;
       if (
         !owner ||
