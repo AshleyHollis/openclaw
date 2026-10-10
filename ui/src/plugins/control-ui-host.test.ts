@@ -3,6 +3,7 @@ import type { ControlUiSessionListSnapshot } from "../../../src/plugin-sdk/contr
 import { createDeferred } from "../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { AgentsListResult } from "../api/types.ts";
+import type { RouteId } from "../app-route-paths.ts";
 import { createAgentSelectionCapability } from "../app/agent-selection.ts";
 import type { ApplicationContext } from "../app/context.ts";
 import { i18n } from "../i18n/index.ts";
@@ -17,11 +18,12 @@ import { createInitializationContext } from "../pages/chat/chat-pane.test-suppor
 import { createPageState } from "../pages/chat/chat-state-page.ts";
 import { createSessionWorkspaceProps } from "../pages/chat/components/chat-session-workspace.ts";
 import { isSidebarSlotVisible, closeSlot } from "../pages/chat/sidebar-layout.ts";
+import type { GatewayRequestHandler } from "../test-helpers/gateway-client.ts";
 import { createControlUiPluginHost } from "./control-ui-host.ts";
 import { type ControlUiPluginOwner, ControlUiPluginRuntime } from "./control-ui-runtime.ts";
 import { scopeControlUiHost } from "./control-ui-scope.ts";
 
-function createRosterHost(request: GatewayBrowserClient["request"]) {
+function createRosterHost(request: GatewayRequestHandler) {
   const client = { request } as GatewayBrowserClient;
   const { gateway } = createGatewayHarness(client);
   const agents = createAgentCapability(gateway);
