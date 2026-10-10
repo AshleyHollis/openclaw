@@ -2,7 +2,7 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright";
+import { chromium, type Browser, type Locator, type Page } from "playwright";
 import { beforeEach, afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { CONTROL_UI_SESSION_PULL_REQUESTS_CHANGED_EVENT } from "../../../src/gateway/control-ui-contract.js";
 import type { ControlUiLinkReaderPreview } from "../../../src/shared/control-ui-link-reader.js";
@@ -22,9 +22,11 @@ import { TEST_LINK_READER } from "../test-helpers/link-reader.ts";
 import { waitForWatchedSessionKey } from "./chat-github-publication.test-support.ts";
 import {
   expectModifiedNavigation,
+  newBrowserContext,
   pullPreviewResponse,
   PULL_HREF,
   PULL_COMMENT_HREF,
+  type PreviewDisplayOptions,
 } from "./github-link-hovercard.test-support.ts";
 
 let artifactDir: string | undefined;
@@ -40,15 +42,6 @@ const describeControlUiE2e = chromiumAvailable || !allowMissingChromium ? descri
 
 let server: ControlUiE2eServer;
 let browser: Browser;
-
-async function newBrowserContext(): Promise<BrowserContext> {
-  return browser.newContext({
-    colorScheme: "light",
-    locale: "en-US",
-    serviceWorkers: "block",
-    viewport: { height: 800, width: 1180 },
-  });
-}
 
 async function closeContexts(): Promise<void> {
   const [first, ...remaining] = browser?.contexts() ?? [];
@@ -75,6 +68,7 @@ async function captureArtifact(target: Page | Locator, name: string): Promise<vo
 async function openPullPreviewPage(
   deferPreview = false,
   previewResponse: ControlUiLinkReaderPreview = pullPreviewResponse,
+  displayOptions: PreviewDisplayOptions = {},
 ): Promise<{
   card: Locator;
   commentLink: Locator;
@@ -82,7 +76,7 @@ async function openPullPreviewPage(
   page: Page;
   pullLink: Locator;
 }> {
-  const context = await newBrowserContext();
+  const context = await newBrowserContext(browser, displayOptions);
   await context.route("https://github.com/**", (route) =>
     route.fulfill({
       contentType: "text/html",
@@ -194,16 +188,22 @@ describeControlUiE2e("GitHub link hover cards", () => {
       { label: "", value: "+1077", tone: "positive" },
       { label: "", value: "−189", tone: "negative" },
     ];
-    const { card, page, pullLink } = await openPullPreviewPage(false, {
-      ...pullPreviewResponse,
-      author: scenario.longAuthor
-        ? "a-very-long-contributor-name-that-must-stay-readable"
-        : "steipete",
-      title: "fix(macos): show live status for connected saved gateways",
-      metadata,
-    });
-    await page.emulateMedia({ colorScheme: scenario.theme, reducedMotion: "reduce" });
-    await page.setViewportSize({ width: scenario.width, height: 800 });
+    const { card, page, pullLink } = await openPullPreviewPage(
+      false,
+      {
+        ...pullPreviewResponse,
+        author: scenario.longAuthor
+          ? "a-very-long-contributor-name-that-must-stay-readable"
+          : "steipete",
+        title: "fix(macos): show live status for connected saved gateways",
+        metadata,
+      },
+      {
+        colorScheme: scenario.theme,
+        reducedMotion: "reduce",
+        viewport: { width: scenario.width, height: 800 },
+      },
+    );
     await pullLink.focus();
     await card.waitFor({ state: "visible" });
     await captureArtifact(card, "metadata-" + scenario.width + "-" + scenario.theme);
@@ -260,7 +260,7 @@ describeControlUiE2e("GitHub link hover cards", () => {
   it.each([false, true])(
     "resolves named repository references through registered project context (late=%s)",
     async (late) => {
-      const context = await newBrowserContext();
+      const context = await newBrowserContext(browser);
       const page = await context.newPage();
       const repository = { owner: "openclaw", repo: "openclaw" };
       const namedRepository = { owner: "openclaw", repo: "clawsweeper" };
@@ -400,7 +400,7 @@ describeControlUiE2e("GitHub link hover cards", () => {
   );
 
   it("keeps formatted PR references and their hover targets consistent", async () => {
-    const context = await newBrowserContext();
+    const context = await newBrowserContext(browser);
     const page = await context.newPage();
     const repository = { owner: "synthetic", repo: "formatting-demo" };
     const href = "https://github.com/synthetic/formatting-demo/pull/1576";
@@ -746,7 +746,7 @@ describeControlUiE2e("GitHub link hover cards", () => {
   });
 
   it("previews issue and pull request links while preserving navigation", async () => {
-    const context = await newBrowserContext();
+    const context = await newBrowserContext(browser);
     await context.route("https://github.com/**", (route) =>
       route.fulfill({
         contentType: "text/html",
