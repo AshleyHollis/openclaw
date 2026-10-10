@@ -1,9 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { fileURLToPath } from "node:url";
 import { afterEach, expect, it, vi } from "vitest";
-import { registerWorkboardGatewayMethods } from "../../extensions/workboard/runtime-api.js";
 import { observeSqliteWorkerAdmissionForTest } from "../../test/helpers/sqlite-worker-admission-observer.js";
 import { createSessionTranscriptVisibleMessageDigest } from "../config/sessions/session-transcript-visible-message.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -29,6 +27,10 @@ import { closeOpenClawAgentDatabasesAsync } from "../state/openclaw-agent-db.js"
 import { resolveOpenClawAgentSqlitePath } from "../state/openclaw-agent-db.paths.js";
 import { closeOpenClawStateDatabaseAsync } from "../state/openclaw-state-db.js";
 import { ensureProfileForEmail, setUserProfileRole } from "../state/user-profiles.js";
+import {
+  loadBundledPluginFacade,
+  resolveBundledPluginPublicModulePath,
+} from "../test-utils/bundled-plugin-public-surface.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { createPluginGatewayMethodDescriptor } from "./methods/descriptor.js";
 import { createGatewayMethodRegistry } from "./methods/registry.js";
@@ -106,6 +108,11 @@ async function withSourceGateway(
   }) => Promise<void>,
 ) {
   await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+    const { registerWorkboardGatewayMethods } = await loadBundledPluginFacade<{
+      registerWorkboardGatewayMethods(params: {
+        api: ReturnType<typeof createTestPluginApi>;
+      }): void;
+    }>({ pluginId: "workboard", artifactBasename: "runtime-api.js" });
     const readPolicy: { others: "view" | "none" } = { others: "view" };
     const config: OpenClawConfig = {
       agents: { list: [{ id: "main", default: true }] },
@@ -182,7 +189,10 @@ async function withSourceGateway(
     assertSessionTranscriptGatewaySourceAdmissionAvailable(runtime.gateway);
     const api = createTestPluginApi({
       runtime,
-      runtimeSource: fileURLToPath(new URL("../../extensions/workboard/index.ts", import.meta.url)),
+      runtimeSource: resolveBundledPluginPublicModulePath({
+        pluginId: "workboard",
+        artifactBasename: "index.js",
+      }),
       registerGatewayMethod(name, handler, options) {
         descriptors.push(
           createPluginGatewayMethodDescriptor({

@@ -13,7 +13,7 @@ import type {
 } from "./chat-session-workspace-types.ts";
 import type { SidebarSelection } from "./chat-sidebar.ts";
 
-export function sessionWorkspaceKey(state: SessionWorkspaceHost): string {
+function sessionWorkspaceKey(state: SessionWorkspaceHost): string {
   return state.sessionWorkspaceTarget?.sessionKey ?? state.sessionKey;
 }
 
