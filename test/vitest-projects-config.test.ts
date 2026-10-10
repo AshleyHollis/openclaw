@@ -825,6 +825,7 @@ describe("projects vitest config", () => {
     "src/agents/embedded-agent-runner/run/runtime-preparation.thinking.test.ts",
     "src/agents/tools-effective-inventory.cold-provider.test.ts",
     "src/tts/tts-summary.static-catalog.test.ts",
+    "src/agents/openclaw-plugin-tools.operator.integration.test.ts",
   ])("routes host-owned SQLite caller %s through the infra process", (file) => {
     const project = "test/vitest/vitest.infra.config.ts";
     const testConfig = requireTestConfig(createInfraVitestConfig({}));
