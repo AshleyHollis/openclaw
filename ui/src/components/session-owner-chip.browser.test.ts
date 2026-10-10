@@ -84,14 +84,40 @@ async function applyTheme(theme: ThemeName, mode: "light" | "dark") {
   document.documentElement.dataset.themeMode = mode;
   const typefaces = resolveTypefaces(theme);
   syncTypefaceStylesheets(typefaces);
-  await expect
-    .poll(
-      () =>
-        document.querySelector<HTMLLinkElement>(`#openclaw-typeface-${typefaces.ui}`)?.sheet !=
-        null,
-    )
-    .toBe(true);
-  await document.fonts.load(`700 9px ${TYPEFACES[typefaces.ui].stack}`, "AB+241");
+  const typeface = TYPEFACES[typefaces.ui];
+  if (typeface.asset) {
+    const stylesheet = document.querySelector<HTMLLinkElement>(
+      `#openclaw-typeface-${typefaces.ui}`,
+    );
+    expect(stylesheet).not.toBeNull();
+    if (!stylesheet!.sheet) {
+      await new Promise<void>((resolve, reject) => {
+        const cleanup = () => {
+          stylesheet!.removeEventListener("load", loaded);
+          stylesheet!.removeEventListener("error", failed);
+        };
+        const loaded = () => {
+          cleanup();
+          resolve();
+        };
+        const failed = () => {
+          cleanup();
+          reject(new Error(`Typeface stylesheet failed to load: ${stylesheet!.href}`));
+        };
+        stylesheet!.addEventListener("load", loaded);
+        stylesheet!.addEventListener("error", failed);
+        if (stylesheet!.sheet) {
+          loaded();
+        }
+      });
+    }
+    expect(stylesheet!.sheet).not.toBeNull();
+  }
+  const loadedFaces = await document.fonts.load(`700 9px ${typeface.stack}`, "AB+241");
+  if (typeface.asset) {
+    expect(loadedFaces.length).toBeGreaterThan(0);
+    expect(loadedFaces.every((face) => face.status === "loaded")).toBe(true);
+  }
 }
 
 async function expectCenteredInk(face: HTMLElement) {

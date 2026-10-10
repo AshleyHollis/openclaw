@@ -68,8 +68,8 @@ describe("retained SDK native publication", () => {
         publication: { status: "indeterminate", basename: "final", overwrite: false },
       });
     }
-    expect(fs.readdirSync(directory).sort()).toEqual(
-      [staged.receipt.temporaryBasename, "final"].sort(),
+    expect(fs.readdirSync(directory).toSorted()).toEqual(
+      [staged.receipt.temporaryBasename, "final"].toSorted(),
     );
     const { dev, ino } = fs.lstatSync(temporary, { bigint: true });
     expect({ dev, ino }).toEqual({
@@ -133,9 +133,13 @@ describe("retained SDK native publication", () => {
 
   it.each(["directory", "file", "symlink"])("preserves an existing %s target", (kind) => {
     const fixture = directoryFixture();
-    if (kind === "directory") fs.mkdirSync(fixture.targetDir);
-    else if (kind === "file") fs.writeFileSync(fixture.targetDir, "existing");
-    else fs.symlinkSync(fixture.stagedDir, fixture.targetDir);
+    if (kind === "directory") {
+      fs.mkdirSync(fixture.targetDir);
+    } else if (kind === "file") {
+      fs.writeFileSync(fixture.targetDir, "existing");
+    } else {
+      fs.symlinkSync(fixture.stagedDir, fixture.targetDir);
+    }
     const before = fs.lstatSync(fixture.targetDir, { bigint: true });
     expect(() => publishDurableDirectoryNoReplace(fixture)).toThrow(
       expect.objectContaining({ code: "already-exists" }),
@@ -213,14 +217,23 @@ describe("retained SDK native publication", () => {
     { name: "rejected Promise", guard: () => Promise.reject(new Error("authority closed")) },
     {
       name: "rejecting thenable",
-      guard: () => ({
-        then: (_resolve: unknown, reject: (reason: Error) => void) =>
-          reject(new Error("authority closed")),
-      }),
+      // A foreign thenable exposes its Promise protocol dynamically.
+      guard: () =>
+        new Proxy(
+          {},
+          {
+            get: (_target, property) =>
+              property === "then"
+                ? (_resolve: unknown, reject: (reason: Error) => void) =>
+                    reject(new Error("authority closed"))
+                : undefined,
+          },
+        ),
     },
     {
       name: "generator callback",
-      guard: function* () {
+      guard: function* rejectedGeneratorGuard() {
+        yield* [];
         throw new Error("authority closed");
       },
     },
@@ -228,7 +241,10 @@ describe("retained SDK native publication", () => {
     const fixture = directoryFixture();
     const sync = vi.spyOn(fs, "fsyncSync");
     expect(() =>
-      publishDurableDirectoryNoReplace({ ...fixture, assertBeforeMutation: guard }),
+      // Deliberately violate the synchronous callback contract at the runtime boundary.
+      Reflect.apply(publishDurableDirectoryNoReplace, undefined, [
+        { ...fixture, assertBeforeMutation: guard },
+      ]),
     ).toThrow(new TypeError("assertBeforeMutation must be synchronous"));
     expect(fs.existsSync(fixture.targetDir)).toBe(false);
     const { dev, ino } = fs.lstatSync(fixture.stagedDir, { bigint: true });
@@ -236,7 +252,9 @@ describe("retained SDK native publication", () => {
     expect(fs.readFileSync(path.join(fixture.stagedDir, "content"), "utf8")).toBe("complete");
     expect(sync).not.toHaveBeenCalled();
     // Let rejection handling settle: Vitest must not observe an unhandled rejection.
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
     expect(fs.existsSync(fixture.targetDir)).toBe(false);
   });
 

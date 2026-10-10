@@ -20,9 +20,8 @@ function capabilityError(message: string, cause?: unknown): Error {
 
 type Ioctl = (descriptor: number, request: number, argument: Buffer) => number;
 
-// Kept below the public SDK seam so the ABI layout can be tested without
-// requiring a privileged or Btrfs-backed CI runner.
-export function readBtrfsFilesystemIdentityWithIoctl(
+// Decode the Linux ioctl ABI below the public capability boundary.
+function readBtrfsFilesystemIdentityWithIoctl(
   descriptor: number,
   ioctl: Ioctl,
   errno: () => number,

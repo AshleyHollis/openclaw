@@ -104,7 +104,7 @@ describe("resident session rows", () => {
         updatedAt: 400,
       };
       replaceSessionEntrySync(scope, original);
-      const describe = async (requestedKey = key, agentId = "main") => {
+      const describeSession = async (requestedKey = key, agentId = "main") => {
         const respond = vi.fn();
         await sessionByKeyReadHandlers["sessions.describe"]!({
           req: { type: "req", id: "lifecycle-read", method: "sessions.describe" },
@@ -118,7 +118,7 @@ describe("resident session rows", () => {
         return respond.mock.calls[0];
       };
       await listSessions({ context, client, request: {} });
-      expect(await describe()).toMatchObject([
+      expect(await describeSession()).toMatchObject([
         true,
         {
           session: { key, sessionId: original.sessionId },
@@ -131,20 +131,20 @@ describe("resident session rows", () => {
         ),
       ).not.toHaveProperty("lifecycleRevision");
       replaceSessionEntrySync(scope, { ...original, lifecycleRevision: "reset-in-place" });
-      expect(await describe()).toMatchObject([
+      expect(await describeSession()).toMatchObject([
         true,
         { session: { key, sessionId: original.sessionId }, lifecycleRevision: "reset-in-place" },
       ]);
       replaceSessionEntrySync(scope, { ...original, lifecycleRevision: undefined });
-      expect(await describe()).toMatchObject([
+      expect(await describeSession()).toMatchObject([
         true,
         { session: { key, sessionId: original.sessionId }, lifecycleRevision: null },
       ]);
-      expect(await describe("agent:main:missing")).toMatchObject([
+      expect(await describeSession("agent:main:missing")).toMatchObject([
         true,
         { session: null, lifecycleRevision: null },
       ]);
-      expect(await describe(key, "work")).toEqual([
+      expect(await describeSession(key, "work")).toEqual([
         false,
         undefined,
         expect.objectContaining({

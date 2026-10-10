@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { tryAcquireExclusiveSqliteCoordinator } from "../plugin-sdk/sqlite-runtime.js";
+import * as sqlite from "./node-sqlite.js";
 import { openNodeSqliteDatabase } from "./node-sqlite.js";
 import { captureCoordinatorDatabase } from "./sqlite-coordinator.test-support.js";
 
@@ -45,6 +46,53 @@ const acquirePeer = `
 
 describe("data-free SQLite coordinator", () => {
   afterEach(() => vi.restoreAllMocks());
+  it("retains the acquisition failure as cause when native close also fails", () => {
+    const pathname = path.join(
+      tempDirs.make("openclaw-coordinator-acquisition-failure-"),
+      "lock.sqlite",
+    );
+    const database = openNodeSqliteDatabase(pathname);
+    const closeNative = database.close.bind(database);
+    const acquisitionFailure = Object.assign(new Error("Fixture acquisition failed"), {
+      errcode: 5,
+    });
+    const closeFailure = new Error("Fixture close failed after close");
+    const opening = vi.spyOn(sqlite, "openNodeSqliteDatabase").mockReturnValueOnce(database);
+    const exec = vi.spyOn(database, "exec").mockImplementationOnce(() => {
+      throw acquisitionFailure;
+    });
+    const close = vi.spyOn(database, "close").mockImplementationOnce(() => {
+      closeNative();
+      throw closeFailure;
+    });
+    try {
+      let failure: unknown;
+      try {
+        tryAcquireExclusiveSqliteCoordinator(pathname);
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(AggregateError);
+      if (!(failure instanceof AggregateError)) {
+        throw new TypeError("Expected acquisition and close to fail together");
+      }
+      expect(failure.message).toBe("SQLite coordinator acquisition and close failed");
+      expect(failure.cause).toBe(acquisitionFailure);
+      expect(failure.errors).toHaveLength(2);
+      expect(failure.errors[0]).toBe(acquisitionFailure);
+      expect(failure.errors[1]).toBe(closeFailure);
+      expect(close).toHaveBeenCalledOnce();
+      expect(database.isOpen).toBe(false);
+    } finally {
+      opening.mockRestore();
+      exec.mockRestore();
+      close.mockRestore();
+      if (database.isOpen) {
+        closeNative();
+      }
+    }
+  });
+
   it.each([false, true])(
     "retries only unfinished native cleanup after a close error (physically closed: %s)",
     (physicallyClosed) => {

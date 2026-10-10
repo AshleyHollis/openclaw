@@ -25,11 +25,15 @@ export function tryAcquireExclusiveSqliteCoordinator(
   try {
     acquire(database, location, busyTimeoutMs);
   } catch (error) {
+    const acquisitionErrors: unknown[] = [error];
     try {
       database.close();
     } catch (closeError) {
+      acquisitionErrors.push(closeError);
+    }
+    if (acquisitionErrors.length > 1) {
       throw new AggregateError(
-        [error, closeError],
+        acquisitionErrors,
         "SQLite coordinator acquisition and close failed",
         {
           cause: error,
