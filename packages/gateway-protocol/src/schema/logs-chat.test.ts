@@ -229,8 +229,12 @@ describe("ChatSendParamsSchema", () => {
 
   it("requires both session incarnation fields or neither", () => {
     expect(Value.Check(ChatSendParamsSchema, send)).toBe(true);
-    expect(Value.Check(ChatSendParamsSchema, { ...send, expectedSessionId: "session-a" })).toBe(false);
-    expect(Value.Check(ChatSendParamsSchema, { ...send, expectedLifecycleRevision: "revision-a" })).toBe(false);
+    expect(Value.Check(ChatSendParamsSchema, { ...send, expectedSessionId: "session-a" })).toBe(
+      false,
+    );
+    expect(
+      Value.Check(ChatSendParamsSchema, { ...send, expectedLifecycleRevision: "revision-a" }),
+    ).toBe(false);
     expect(
       Value.Check(ChatSendParamsSchema, {
         ...send,

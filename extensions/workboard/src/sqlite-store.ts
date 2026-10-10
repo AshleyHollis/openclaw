@@ -180,7 +180,12 @@ export function createWorkboardSqliteStores(options: {
             ),
     );
     // A rejected comparison has accepted no mutation; a retry still needs authority.
-    if (result !== false && result !== "conflict" && result !== "owner_busy") {
+    if (
+      result !== undefined &&
+      result !== false &&
+      result !== "conflict" &&
+      result !== "owner_busy"
+    ) {
       authority.assertCurrent = undefined;
       authority.sourceAdmission = undefined;
     }
@@ -231,6 +236,19 @@ export function createWorkboardSqliteStores(options: {
     ready,
     dataVersion: () => run(undefined, (connection) => execute("dataVersion", { connection })),
     cards: {
+      registerWithResultReview: bindOperation((connection, args) =>
+        execute("cards.registerWithResultReview", { connection, args }, true),
+      ),
+      getResultReview: bindOperation((connection, args) =>
+        execute("cards.getResultReview", { connection, args }),
+      ),
+      listResultReviews: bindOperation((connection, args) =>
+        execute("cards.listResultReviews", { connection, args }),
+      ),
+      resolveResultReview: bindOperation((connection, args) =>
+        execute("cards.resolveResultReview", { connection, args }, true),
+      ),
+
       register: bindOperation((connection, args) =>
         execute("cards.register", { connection, args }, true),
       ),

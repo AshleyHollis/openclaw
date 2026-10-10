@@ -115,14 +115,30 @@ export default definePluginEntry({
     api.registerTool(
       (context) =>
         guardWorkboardToolsForWorkspaceAccess(
-          createWorkboardTools({ context, store }),
+          createWorkboardTools({ context, store }).filter(
+            (tool) => tool.name !== "workboard_complete",
+          ),
           context,
           api.runtime.sandbox.resolveWorkspaceAuthority,
         ),
       {
-        names: [...WORKBOARD_TOOL_NAMES],
+        names: WORKBOARD_TOOL_NAMES.filter((name) => name !== "workboard_complete"),
         optional: true,
       },
+    );
+    api.registerTool(
+      {
+        contextVersion: 2,
+        create: (context) =>
+          guardWorkboardToolsForWorkspaceAccess(
+            createWorkboardTools({ context, store }).filter(
+              (tool) => tool.name === "workboard_complete",
+            ),
+            context,
+            api.runtime.sandbox.resolveWorkspaceAuthority,
+          ),
+      },
+      { names: ["workboard_complete"], optional: true },
     );
   },
 });

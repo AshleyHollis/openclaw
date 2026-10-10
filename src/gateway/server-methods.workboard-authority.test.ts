@@ -1,10 +1,12 @@
-import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import workboard from "../../extensions/workboard/index.js";
 import { createTestPluginApi } from "../plugin-sdk/plugin-test-api.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../plugins/runtime.js";
 import { createDeferredCore } from "../shared/deferred.js";
+import {
+  loadBundledPluginFacade,
+  resolveBundledPluginPublicModulePath,
+} from "../test-utils/bundled-plugin-public-surface.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { createPluginGatewayMethodDescriptor } from "./methods/descriptor.js";
 import { createGatewayMethodRegistry } from "./methods/registry.js";
@@ -71,13 +73,17 @@ afterEach(() => {
 describe("authenticated Workboard SQLite mutation admission", () => {
   it("uses the original host authority and revision for create/update, preserving accepted response loss", async () => {
     await withOpenClawTestState({ label: "workboard-authority" }, async () => {
+      const { default: workboard } = await loadBundledPluginFacade<{
+        default: { register(api: ReturnType<typeof createTestPluginApi>): void };
+      }>({ pluginId: "workboard", artifactBasename: "index.js" });
       const descriptors: ReturnType<typeof createPluginGatewayMethodDescriptor>[] = [];
       const disposals: Array<() => void | Promise<void>> = [];
       const queuedHandlerEntered = createDeferredCore();
       const api = createTestPluginApi({
-        runtimeSource: fileURLToPath(
-          new URL("../../extensions/workboard/index.ts", import.meta.url),
-        ),
+        runtimeSource: resolveBundledPluginPublicModulePath({
+          pluginId: "workboard",
+          artifactBasename: "index.js",
+        }),
         registerGatewayMethod(name, handler, options) {
           descriptors.push(
             createPluginGatewayMethodDescriptor({

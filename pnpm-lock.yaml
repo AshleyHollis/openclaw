@@ -2472,9 +2472,6 @@ importers:
       '@openclaw/gateway-protocol':
         specifier: workspace:*
         version: link:../../packages/gateway-protocol
-      '@openclaw/normalization-core':
-        specifier: workspace:*
-        version: link:../../packages/normalization-core
       '@openclaw/workboard-contract':
         specifier: workspace:*
         version: link:../../packages/workboard-contract
@@ -2491,6 +2488,9 @@ importers:
       '@openclaw/gateway-client':
         specifier: workspace:*
         version: link:../../packages/gateway-client
+      '@openclaw/normalization-core':
+        specifier: workspace:*
+        version: link:../../packages/normalization-core
       '@openclaw/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk

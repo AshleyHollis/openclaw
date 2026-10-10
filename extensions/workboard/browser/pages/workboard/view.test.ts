@@ -152,6 +152,14 @@ function toast(container: Element) {
   );
 }
 
+function expectNoRequestsExceptResultReviewReads(request: {
+  mock: { calls: readonly (readonly unknown[])[] };
+}) {
+  expect(
+    request.mock.calls.filter(([method]) => method !== "workboard.resultReviews.list"),
+  ).toEqual([]);
+}
+
 describe("nextWorkboardCardPosition", () => {
   const opsCard = createWorkboardCard({
     metadata: { automation: { boardId: "ops" } },
@@ -982,7 +990,7 @@ describe("renderWorkboard", () => {
     expect(container.querySelector<HTMLElement>(".workboard-card")?.getAttribute("draggable")).toBe(
       "false",
     );
-    expect(request).not.toHaveBeenCalled();
+    expectNoRequestsExceptResultReviewReads(request);
 
     state.draftOpen = true;
     state.editingCardId = "card-1";
@@ -3327,7 +3335,7 @@ describe("renderWorkboard", () => {
     expect(drawer?.textContent).toContain(archivedCard.title);
     expect(drawer?.querySelector(".workboard-card__move-select")).toBeNull();
     expect(buttonByLabel(drawer!, "Restore from archive")).not.toBeNull();
-    expect(request).not.toHaveBeenCalled();
+    expectNoRequestsExceptResultReviewReads(request);
   });
 
   it("shows stale lifecycle on executed linked cards", async () => {
@@ -3539,7 +3547,7 @@ describe("renderWorkboard", () => {
         input.dispatchEvent(
           new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }),
         );
-        expect(client.request).not.toHaveBeenCalled();
+        expectNoRequestsExceptResultReviewReads(client.request);
       }
 
       renderView({ connected: true, client });
@@ -3619,7 +3627,7 @@ describe("renderWorkboard", () => {
       ).click();
       expect(state.detailCardId).toBeNull();
       expect(input.isConnected).toBe(false);
-      expect(client.request).not.toHaveBeenCalled();
+      expectNoRequestsExceptResultReviewReads(client.request);
     },
   );
 
@@ -3792,7 +3800,7 @@ describe("renderWorkboard", () => {
       input.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }),
       );
-      expect(client.request).not.toHaveBeenCalled();
+      expectNoRequestsExceptResultReviewReads(client.request);
       const close = expectDefined(
         container.querySelector<HTMLButtonElement>(".workboard-detail__close"),
         "close drawer",
@@ -3814,7 +3822,7 @@ describe("renderWorkboard", () => {
       ).click();
       expect(state.detailCardId).toBeNull();
       expect(input.isConnected).toBe(false);
-      expect(client.request).not.toHaveBeenCalled();
+      expectNoRequestsExceptResultReviewReads(client.request);
     },
   );
 
@@ -4296,13 +4304,20 @@ describe("renderWorkboard", () => {
   it("shows a failed note inside the active detail drawer and allows retry", async () => {
     const card = createWorkboardCard({ title: "Review this card" });
     const body = "Keep this note until it saves.";
-    const client = createWorkboardTestClient({
-      "workboard.cards.comment": {
+    let noteRequests = 0;
+    const client = createWorkboardTestClient((method) => {
+      if (method === "workboard.resultReviews.list") {
+        return { requests: [] };
+      }
+      if (method !== "workboard.cards.comment") {
+        throw new Error(`Unexpected request: ${method}`);
+      }
+      if (++noteRequests === 1) {
+        throw new Error("Note unavailable");
+      }
+      return {
         card: { ...card, metadata: { comments: [{ id: "note", body, createdAt: 2 }] } },
-      },
-    });
-    client.request.mockImplementationOnce(async () => {
-      throw new Error("Note unavailable");
+      };
     });
     const { state, container, renderView } = createWorkboardView({ client });
     state.cards = [card];
@@ -4333,7 +4348,12 @@ describe("renderWorkboard", () => {
     expectDefined(buttonByText(container, "Add note"), "retry note").click();
     await waitForFast(() => expect(state.busyCardIds.size).toBe(0));
     renderView();
-    expect(client.request).toHaveBeenCalledTimes(2);
+    expect(
+      client.request.mock.calls.filter(([method]) => method === "workboard.cards.comment"),
+    ).toEqual([
+      ["workboard.cards.comment", { id: card.id, body }],
+      ["workboard.cards.comment", { id: card.id, body }],
+    ]);
     expect(state.error).toBeNull();
     expect(container.querySelector(".workboard-detail__comments")?.textContent).toContain(body);
     expect(note.value).toBe("");

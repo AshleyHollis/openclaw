@@ -480,7 +480,7 @@ describe("native panel presentation contract", () => {
         },
         reportError: vi.fn(),
       },
-    } as unknown as ApplicationContext<RouteId>);
+    } as unknown as ApplicationContext);
     const view = document.createElement("openclaw-plugin-view") as LitElement & {
       kind: string;
       contributionKey: string;

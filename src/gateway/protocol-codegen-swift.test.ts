@@ -13,7 +13,7 @@ describe("Swift ChatSend field projection", () => {
     expect(fields.required).not.toContain("expectedSessionId");
     expect(fields.required).not.toContain("expectedLifecycleRevision");
     expect(JSON.stringify(schema)).toBe(before);
-    expect(fields.required).toEqual(schema.allOf?.[0].required);
+    expect(fields.required).toEqual(schema.allOf?.[0]?.required);
   });
 
   it("leaves unrelated and ordinary object schemas untouched", () => {

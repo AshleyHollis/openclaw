@@ -41,6 +41,13 @@ function withCardHooks(
   options: WorkboardSqliteTestOptions,
 ): WorkboardCardStore {
   return {
+    async registerWithResultReview(key, value, expectedUpdatedAt, request) {
+      await options.beforeCardWrite?.(key, value);
+      return cards.registerWithResultReview(key, value, expectedUpdatedAt, request);
+    },
+    getResultReview: (id) => cards.getResultReview(id),
+    listResultReviews: (scope) => cards.listResultReviews(scope),
+    resolveResultReview: (...args) => cards.resolveResultReview(...args),
     async register(key, value) {
       await options.beforeCardWrite?.(key, value);
       await cards.register(key, value);

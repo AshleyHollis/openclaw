@@ -112,6 +112,7 @@ it("serves describe during a 2,048-session drain without transcript reads in row
       }
       expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
         session: expect.objectContaining({ key: "agent:main:legacy-2047" }),
+        lifecycleRevision: null,
       });
       return { remainingAtResponse, materializedRows: describeMaterializations };
     };

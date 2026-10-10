@@ -108,7 +108,9 @@ describe("native UI roster refresh", () => {
         ? { sessionKey: "agent:writer:files", files: [] }
         : { artifacts: [] },
     );
-    const fixture = createRosterHost(request);
+    // SAFETY: This transport spy supplies the fixed responses for this fixture's RPCs;
+    // Vitest's mock signature cannot retain GatewayBrowserClient's generic result.
+    const fixture = createRosterHost(request as GatewayBrowserClient["request"]);
     onTestFinished(fixture.dispose);
     const navigate = vi.fn();
     Object.assign(fixture.context, { navigate });
@@ -709,7 +711,7 @@ describe("declared authenticated plugin HTTP relay", () => {
     vi.stubGlobal("fetch", fetchMock);
     const context = {
       gateway: { connection: { token: "fixture-private-token" } },
-    } as unknown as ApplicationContext<RouteId>;
+    } as unknown as ApplicationContext;
     const abort = new AbortController();
     const owner = {
       abort,
@@ -760,7 +762,7 @@ describe("bootstrap credential relay", () => {
     vi.stubGlobal("fetch", fetchMock);
     const context = {
       gateway: { connection: { token: "", bootstrapToken: "fixture-bootstrap-token" } },
-    } as unknown as ApplicationContext<RouteId>;
+    } as unknown as ApplicationContext;
     const abort = new AbortController();
     const owner = {
       abort,

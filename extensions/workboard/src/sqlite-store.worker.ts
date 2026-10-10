@@ -49,6 +49,14 @@ export function createSqliteWorkerBackend(
     switch (command.type) {
       case "dataVersion":
         return kernel.dataVersion();
+      case "cards.registerWithResultReview":
+        return kernel.cards.registerWithResultReview(...command.input.args);
+      case "cards.getResultReview":
+        return kernel.cards.getResultReview(...command.input.args);
+      case "cards.listResultReviews":
+        return kernel.cards.listResultReviews(...command.input.args);
+      case "cards.resolveResultReview":
+        return kernel.cards.resolveResultReview(...command.input.args);
       case "cards.register":
         return kernel.cards.register(...command.input.args);
       case "cards.registerIfAbsent":
