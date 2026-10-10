@@ -183,18 +183,20 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
     const requests = Array.from(rows, (row) =>
       readResultReviewRecord(parseJson(requiredString(row, "request_json"))),
     );
-    for (const request of requests)
+    for (const request of requests) {
       this.saveResultReview({
         ...request,
         status: "withdrawn",
         revision: request.revision + 1,
         resolvedAt: now,
       });
+    }
   }
 
   private replaceCard(card: WorkboardCard): void {
-    if (card.status === "done" || card.metadata?.archivedAt)
+    if (card.status === "done" || card.metadata?.archivedAt) {
       this.withdrawResultReviews(card.id, card.updatedAt);
+    }
     insertCard(this.db, card);
   }
 
@@ -222,8 +224,9 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
       ![request.completionIntent, request.requestRevision, request.resultDigest].every((digest) =>
         /^[a-f0-9]{64}$/.test(digest),
       )
-    )
+    ) {
       throw new Error("invalid result review registration");
+    }
     return this.write(() => {
       const existing = this.getResultReview(request.id);
       if (existing) {
@@ -234,18 +237,24 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
           existing.cardId !== request.cardId ||
           existing.sessionKey !== request.sessionKey ||
           existing.runId !== request.runId
-        )
+        ) {
           throw new Error("result review immutable intent changed");
+        }
         const card = this.lookup(key)?.card;
-        if (!card) throw new Error("result review card no longer exists");
+        if (!card) {
+          throw new Error("result review card no longer exists");
+        }
         if (
           (card.metadata?.automation?.tenant ?? "") !== existing.tenant ||
           (card.metadata?.automation?.boardId ?? "default") !== existing.boardId
-        )
+        ) {
           throw new Error("result review card scope changed");
+        }
         return { card, inserted: false };
       }
-      if (!this.matchesUpdatedAt(key, expectedUpdatedAt)) return false;
+      if (!this.matchesUpdatedAt(key, expectedUpdatedAt)) {
+        return false;
+      }
       const current = this.lookup(key)?.card;
       if (
         !current ||
@@ -254,8 +263,9 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
         (current.execution?.runId ?? current.runId) !== request.runId ||
         (current.metadata?.automation?.tenant ?? "") !== request.tenant ||
         (current.metadata?.automation?.boardId ?? "default") !== request.boardId
-      )
+      ) {
         throw new Error("result review card scope changed");
+      }
       assertWorkboardStatusHolds(
         current,
         value.card,
@@ -265,7 +275,9 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
       this.saveResultReview(request);
       insertCard(this.db, value.card);
       const accepted = this.lookup(key)?.card;
-      if (!accepted) throw new Error("result review card readback failed");
+      if (!accepted) {
+        throw new Error("result review card readback failed");
+      }
       return { card: accepted, inserted: true };
     });
   }
@@ -277,8 +289,9 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
     decision: "reviewed" | "withdrawn",
     now: number,
   ): { request: WorkboardResultReviewRequest; card: WorkboardCard } | undefined {
-    if (decision !== "reviewed" && decision !== "withdrawn")
+    if (decision !== "reviewed" && decision !== "withdrawn") {
       throw new Error("invalid result review decision");
+    }
     return this.write(() => {
       const request = this.getResultReview(id);
       if (
@@ -286,8 +299,9 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
         request.status !== "pending" ||
         request.revision !== expectedRevision ||
         !this.matchesUpdatedAt(request.cardId, expectedUpdatedAt)
-      )
+      ) {
         return undefined;
+      }
       const current = this.lookup(request.cardId)?.card;
       if (
         !current ||
@@ -298,8 +312,9 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
         current.metadata?.archivedAt ||
         (current.metadata?.automation?.tenant ?? "") !== request.tenant ||
         (current.metadata?.automation?.boardId ?? "default") !== request.boardId
-      )
+      ) {
         return undefined;
+      }
       const updatedAt = Math.max(now, current.updatedAt + 1);
       const card: WorkboardCard = {
         ...current,
@@ -326,13 +341,14 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
             }
           : {}),
       };
-      if (decision === "reviewed")
+      if (decision === "reviewed") {
         assertWorkboardStatusHolds(
           current,
           card,
           updatedAt,
           this.listCardStatuses(cardParentIds(card)),
         );
+      }
       const resolved: WorkboardResultReviewRequest = {
         ...request,
         status: decision,

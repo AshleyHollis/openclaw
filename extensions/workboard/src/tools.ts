@@ -400,8 +400,9 @@ export function createWorkboardTools(params: {
             !params.context?.assertInvocationCurrent ||
             !params.context.sessionKey ||
             !params.context.runId
-          )
+          ) {
             throw new Error("Explicit result review requires a current native session invocation.");
+          }
           synchronousResultReviewAuthority(params.context.assertInvocationCurrent)();
         }
         const { record, id, scope } = await readScopedCardToolParams(rawParams);
@@ -409,18 +410,20 @@ export function createWorkboardTools(params: {
           const assertCurrent = synchronousResultReviewAuthority(
             params.context?.assertInvocationCurrent,
           );
-          if (!params.context?.sessionKey || !params.context.runId)
+          if (!params.context?.sessionKey || !params.context.runId) {
             throw new Error("Explicit result review requires a current native session invocation.");
+          }
           assertCurrent();
           const card = await store.get(id);
           if (
             !card ||
             (card.execution?.sessionKey ?? card.sessionKey) !== params.context.sessionKey ||
             (card.execution?.runId ?? card.runId) !== params.context.runId
-          )
+          ) {
             throw new Error(
               "Result review must come from the exact producing card session and run.",
             );
+          }
           assertCurrent();
           return redactedCardResult(await store.complete(id, record, scope, assertCurrent));
         }

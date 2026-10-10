@@ -20,30 +20,34 @@ function readScope(params: Record<string, unknown>) {
 
 function currentAuthority(request: GatewayMethodContext): () => void {
   const assertCurrent = request.sessionMutationAuthorization?.assertCurrent;
-  if (!assertCurrent)
+  if (!assertCurrent) {
     throw new Error("Result review requires current authenticated native authority.");
+  }
   const assertSynchronous = () => {
     const result: unknown = assertCurrent();
     if (
       result &&
       (typeof result === "object" || typeof result === "function") &&
       typeof Reflect.get(result, "then") === "function"
-    )
+    ) {
       throw new Error("Result review authority must be synchronous.");
+    }
   };
   assertSynchronous();
   return assertSynchronous;
 }
 
 function requestId(params: Record<string, unknown>) {
-  if (typeof params.requestId !== "string" || !params.requestId.trim())
+  if (typeof params.requestId !== "string" || !params.requestId.trim()) {
     throw new Error("requestId is required.");
+  }
   return params.requestId;
 }
 
 function revision(value: unknown, name: string) {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1)
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
     throw new Error(`${name} must be a positive safe integer.`);
+  }
   return value;
 }
 
@@ -84,8 +88,9 @@ export function registerWorkboardResultReviewMethods(
       async (request) => {
         const assertCurrent = currentAuthority(request);
         const decision = request.params.decision;
-        if (decision !== "reviewed" && decision !== "withdrawn")
+        if (decision !== "reviewed" && decision !== "withdrawn") {
           throw new Error("decision must be reviewed or withdrawn.");
+        }
         const result = await store.resolveResultReview(
           {
             ...readScope(request.params),

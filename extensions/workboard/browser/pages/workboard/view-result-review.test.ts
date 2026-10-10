@@ -302,7 +302,7 @@ describe("native card result review", () => {
   });
   it("keeps an older run's proof visible but disables marking a different run reviewed", async () => {
     const f = fixture(() => ({ requests: [request()] }));
-    f.state.cards[0]! = { ...f.state.cards[0]!, runId: "later-run" };
+    f.state.cards[0] = { ...f.state.cards[0]!, runId: "later-run" };
     f.update();
     await waitForFast(() => expect(f.button("Mark reviewed")).toBeDefined());
     expect(f.button("Mark reviewed")?.disabled).toBe(true);

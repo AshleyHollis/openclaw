@@ -74,6 +74,11 @@ milliseconds; unresolved `resolvedAt` and `expiresAt` are null. Version 1 has no
 automatic expiry. Exact retries retain the accepted snapshot; changed completion
 intent is refused, and a terminal request never becomes pending again.
 
+Bundled Workboard uses `stableStringify` from the existing
+`openclaw/plugin-sdk/string-normalization-runtime` facade for deterministic
+digest inputs and creation intents. The facade reuses the normalization owner;
+changing the import path does not change persisted digest bytes.
+
 Workboard SQLite schema 5 retains these result and terminal receipts separately
 from bounded card metadata. They survive card deletion and restart; scoped reads
 of a deleted card return terminal receipts only. They are not execution approval,

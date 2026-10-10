@@ -51,7 +51,9 @@ function fixture() {
       return kernel;
     },
     close() {
-      for (const kernel of kernels) kernel.close();
+      for (const kernel of kernels) {
+        kernel.close();
+      }
       fs.rmSync(dir, { recursive: true, force: true });
     },
   };
@@ -80,10 +82,13 @@ describe("durable Workboard result review owner", () => {
           db.close();
         }
         expect(() => {
-          if (operation === "get") k.cards.getResultReview(request.id);
-          else if (operation === "list")
+          if (operation === "get") {
+            k.cards.getResultReview(request.id);
+          } else if (operation === "list") {
             k.cards.listResultReviews({ tenant: "", boardId: "default", cardId: card.id });
-          else k.cards.register(card.id, { version: 1, card: { ...completed, status: "done" } });
+          } else {
+            k.cards.register(card.id, { version: 1, card: { ...completed, status: "done" } });
+          }
         }).toThrow();
         expect(k.cards.lookup(card.id)?.card).toEqual(completed);
       } finally {
@@ -197,8 +202,9 @@ describe("durable Workboard result review owner", () => {
         const k = f.open();
         k.cards.register(card.id, { version: 1, card });
         k.cards.registerWithResultReview(card.id, { version: 1, card: completed }, 2, request);
-        if (action === "delete") k.cards.deleteIfUpdatedAt(card.id, 3);
-        else
+        if (action === "delete") {
+          k.cards.deleteIfUpdatedAt(card.id, 3);
+        } else {
           k.cards.registerIfUpdatedAt(
             card.id,
             {
@@ -213,6 +219,7 @@ describe("durable Workboard result review owner", () => {
             },
             3,
           );
+        }
         expect(f.open().cards.getResultReview(request.id)).toMatchObject({
           status: "withdrawn",
           revision: 2,
@@ -244,7 +251,9 @@ describe("durable Workboard result review owner", () => {
     let deny = false;
     try {
       const k = f.open((stage) => {
-        if (deny && stage === "commit") throw new Error("authority revoked");
+        if (deny && stage === "commit") {
+          throw new Error("authority revoked");
+        }
       });
       k.cards.register(card.id, { version: 1, card });
       deny = true;

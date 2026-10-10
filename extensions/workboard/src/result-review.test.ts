@@ -168,7 +168,9 @@ describe("explicit native completed-result review", () => {
         respond: (...args: unknown[]) => delivered.push(args),
         sessionMutationAuthorization: {
           assertCurrent: () => {
-            if (!current) throw new Error("Principal retired before publication");
+            if (!current) {
+              throw new Error("Principal retired before publication");
+            }
           },
         },
       };
@@ -178,7 +180,8 @@ describe("explicit native completed-result review", () => {
       expect(delivered[0]![1]).toBeUndefined();
       delivered.length = 0;
       current = true;
-      request.sessionMutationAuthorization.assertCurrent = () => Promise.resolve();
+      // Model a malformed runtime callback without claiming it satisfies the void contract.
+      Reflect.set(request.sessionMutationAuthorization, "assertCurrent", () => Promise.resolve());
       await handlers.get("workboard.resultReviews.list")!(request as never);
       expect(delivered[0]![0]).toBe(false);
       expect(delivered[0]![1]).toBeUndefined();

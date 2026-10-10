@@ -1,5 +1,5 @@
 /**
- * Runtime SDK subpath for shared slug and string-entry normalization helpers.
+ * Runtime SDK subpath for shared slug, string-entry, and stable serialization helpers.
  */
 export {
   normalizeAtHashSlug,
@@ -7,3 +7,4 @@ export {
   normalizeStringEntries,
   normalizeStringEntriesLower,
 } from "../../packages/normalization-core/src/string-normalization.js";
+export { stableStringify } from "../../packages/normalization-core/src/stable-stringify.js";

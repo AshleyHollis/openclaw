@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import type { WorkboardResultReviewRequest } from "@openclaw/workboard-contract";
 import type {
+  WorkboardResultReviewRequest,
   WorkboardArtifact,
   WorkboardCard,
   WorkboardClaim,
@@ -240,14 +240,16 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
     scope: WorkboardMutationScope | null | undefined = input,
     assertCurrent?: () => void,
   ): Promise<WorkboardCard> {
-    if (input.resultReview !== undefined)
-      assertCurrent = synchronousResultReviewAuthority(assertCurrent);
+    const admittedCurrent =
+      input.resultReview !== undefined
+        ? synchronousResultReviewAuthority(assertCurrent)
+        : assertCurrent;
     return await this.enqueueMutation(async () => {
-      assertCurrent?.();
+      admittedCurrent?.();
       const card = await this.completeDirect(id, input, scope);
-      assertCurrent?.();
+      admittedCurrent?.();
       return card;
-    }, assertCurrent);
+    }, admittedCurrent);
   }
 
   private async completeDirect(
@@ -262,8 +264,9 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       const { identity } = reviewAdmission;
       const retained = await this.store.getResultReview(identity.id);
       if (retained) {
-        if (retained.completionIntent !== identity.completionIntent)
+        if (retained.completionIntent !== identity.completionIntent) {
           throw new Error("The original result review completion intent changed.");
+        }
         return existing;
       }
       if (
@@ -275,8 +278,9 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
             attempt.runId === identity.runId &&
             attempt.status === "running",
         )
-      )
+      ) {
         throw new Error("The exact producing card revision/run is no longer running.");
+      }
     }
     assertCanMutateClaimedCard(existing, scope === null ? undefined : scope);
     const now = Date.now();
@@ -389,16 +393,20 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
     scope: { tenant: string; boardId: string; cardId: string },
     assertCurrent: () => void,
   ): Promise<WorkboardResultReviewRequest[]> {
-    assertCurrent = synchronousResultReviewAuthority(assertCurrent);
+    const admittedCurrent = synchronousResultReviewAuthority(assertCurrent);
     return this.runOperation(async () => {
-      assertCurrent();
+      admittedCurrent();
       const card = await this.get(scope.cardId);
-      if (card) assertResultReviewScope(card, scope);
+      if (card) {
+        assertResultReviewScope(card, scope);
+      }
       const requests = await this.store.listResultReviews(scope);
-      assertCurrent();
+      admittedCurrent();
       const current = await this.get(scope.cardId);
-      if (current) assertResultReviewScope(current, scope);
-      assertCurrent();
+      if (current) {
+        assertResultReviewScope(current, scope);
+      }
+      admittedCurrent();
       // Deleted cards retain only terminal owner receipts, never actionable work.
       return current ? requests : requests.filter((request) => request.status !== "pending");
     });
@@ -410,7 +418,9 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
   ): Promise<WorkboardResultReviewRequest> {
     const requests = await this.listResultReviews(scope, assertCurrent);
     const request = requests.find((entry) => entry.id === scope.requestId);
-    if (!request) throw new Error("The exact result review request is unavailable.");
+    if (!request) {
+      throw new Error("The exact result review request is unavailable.");
+    }
     return request;
   }
 
@@ -426,9 +436,9 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
     },
     assertCurrent: () => void,
   ) {
-    assertCurrent = synchronousResultReviewAuthority(assertCurrent);
+    const admittedCurrent = synchronousResultReviewAuthority(assertCurrent);
     return this.enqueueMutation(async () => {
-      assertCurrent();
+      admittedCurrent();
       const card = await this.requireCard(scope.cardId);
       assertResultReviewScope(card, scope);
       const request = await this.store.getResultReview(scope.requestId);
@@ -437,15 +447,17 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         request.cardId !== scope.cardId ||
         request.tenant !== scope.tenant ||
         request.boardId !== scope.boardId
-      )
+      ) {
         throw new Error("The exact result review request is unavailable.");
+      }
       if (
         scope.decision === "reviewed" &&
         (card.status !== "review" ||
           cardSessionKey(card) !== request.sessionKey ||
           cardRunId(card) !== request.runId)
-      )
+      ) {
         throw new Error("The exact completed result is no longer current.");
+      }
       const result = await this.store.resolveResultReview(
         scope.requestId,
         scope.expectedRevision,
@@ -453,11 +465,12 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         scope.decision,
         Date.now(),
       );
-      if (!result)
+      if (!result) {
         throw new Error("The result review or card revision changed. Refresh the native card.");
-      assertCurrent();
+      }
+      admittedCurrent();
       return result;
-    }, assertCurrent);
+    }, admittedCurrent);
   }
 
   protected buildBlockedCardPatch(
