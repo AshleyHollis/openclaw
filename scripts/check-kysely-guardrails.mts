@@ -82,7 +82,7 @@ const rawSqliteAllowPathGroups = {
     "src/state/sqlite-schema-shape.test-support.ts",
   ],
   "schema-less ownership token: lock only, no data queries; Kysely has no lock primitive": [
-    "src/infra/sqlite-snapshot-staging.ts",
+    "src/infra/sqlite-coordinator.ts",
   ],
   "backup snapshot maintenance": [
     "src/commands/backup-verify.ts",
@@ -362,7 +362,7 @@ function isPersistedStringCastType(typeText: string) {
   ].some((pattern) => pattern.test(typeText));
 }
 
-function collectKyselyGuardrailViolations(sourceFile: SourceFile, relativePath: string) {
+export function collectKyselyGuardrailViolations(sourceFile: SourceFile, relativePath: string) {
   const imports = collectImports(sourceFile);
   const violations: GuardViolation[] = [];
 
