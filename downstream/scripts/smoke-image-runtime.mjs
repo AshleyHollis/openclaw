@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { closeSync, openSync } from "node:fs";
-import { cp, lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, readlink, realpath, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -56,6 +56,7 @@ try {
     recursive: true,
   });
   await mkdir(stateDir, { recursive: true });
+  if (!includeDiscord) await verifySshRuntime();
   await validateAndHydrateImagePluginRuntime();
   const port = await reserveLoopbackPort();
   const token = randomBytes(32).toString("hex");
@@ -96,6 +97,16 @@ try {
       `QMD failed to open its database runtime: ${(qmdStatus.stdout || qmdStatus.stderr).trim()}`,
     );
   }
+  }
+  if (!codeProfile && !includeDiscord) {
+    const fixture = path.join(root, "qmd-lexical-fixture");
+    await mkdir(fixture);
+    await writeFile(path.join(fixture, "packaging-canary.md"), "Packagingcanary validates local lexical retrieval.\n");
+    for (const args of [["collection", "add", fixture, "--name", "packaging-smoke", "--mask", "*.md"], ["update"], ["search", "packagingcanary", "--json"]]) {
+      const result = spawnSync("qmd", args, { encoding: "utf8", env: environment, timeout: 60000, maxBuffer: 1024 * 1024 });
+      if (result.status !== 0) throw new Error("QMD lexical smoke command failed: " + args[0]);
+      if (args[0] === "search" && !JSON.stringify(JSON.parse(result.stdout)).includes("packaging-canary.md")) throw new Error("QMD lexical fixture not retrieved");
+    }
   }
   const pythonRequests = spawnSync("python3", ["-c", "import requests"], {
     encoding: "utf8",
@@ -147,6 +158,11 @@ try {
   }
   if (!codeProfile) {
   const qmdRoot = "/opt/qmd-runtime/node_modules/@tobilu/qmd";
+  if (!includeDiscord) {
+    const { validateInstalledQmdRuntime } = await import("/opt/openclaw-runtime/validate-current-host-image-inputs.mjs");
+    const candidate = JSON.parse(await readFile("/opt/openclaw-runtime/candidate.json", "utf8"));
+    await validateInstalledQmdRuntime("/opt/qmd-runtime", candidate);
+  }
   const qmdManifest = JSON.parse(await readFile(path.join(qmdRoot, "package.json"), "utf8"));
   const qmdShrinkwrap = JSON.parse(
     await readFile(path.join(qmdRoot, "npm-shrinkwrap.json"), "utf8"),
@@ -263,6 +279,111 @@ try {
   await rm(root, { recursive: true, force: true });
 }
 
+// SSH_PREFLIGHT_START
+async function verifySshRuntime() {
+  if (process.getuid?.() !== 1000 || process.getgid?.() !== 1000)
+    throw new Error("SSH smoke requires runtime UID/GID 1000");
+  const binary = "/usr/bin/ssh";
+  const stat = await lstat(binary);
+  if (
+    !stat.isFile() ||
+    stat.uid !== 0 ||
+    stat.nlink !== 1 ||
+    (stat.mode & 0o7777) !== 0o755 ||
+    stat.size > 16 * 1024 * 1024 ||
+    (await realpath(binary)) !== binary
+  )
+    throw new Error("SSH binary physical identity differs");
+  const env = { HOME: "/nonexistent", PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" };
+  const version = spawnSync(binary, ["-V"], {
+    encoding: "utf8",
+    env,
+    timeout: 10000,
+    maxBuffer: 65536,
+  });
+  if (
+    version.status !== 0 ||
+    !((version.stderr || "") + (version.stdout || "")).includes("OpenSSH_")
+  )
+    throw new Error("SSH version preflight failed");
+  const options = [
+    "-F",
+    "/dev/null",
+    "-G",
+    "-T",
+    "-n",
+    "-p",
+    "2222",
+    "-i",
+    "/dev/null",
+    "-oBatchMode=yes",
+    "-oIdentitiesOnly=yes",
+    "-oIdentityAgent=none",
+    "-oPreferredAuthentications=publickey",
+    "-oPasswordAuthentication=no",
+    "-oKbdInteractiveAuthentication=no",
+    "-oStrictHostKeyChecking=yes",
+    "-oHostKeyAlgorithms=ssh-ed25519",
+    "-oPubkeyAcceptedAlgorithms=ssh-ed25519",
+    "-oUserKnownHostsFile=/dev/null",
+    "-oGlobalKnownHostsFile=/dev/null",
+    "-oUpdateHostKeys=no",
+    "-oForwardAgent=no",
+    "-oClearAllForwardings=yes",
+    "-oRequestTTY=no",
+    "-oPermitLocalCommand=no",
+    "-oProxyCommand=none",
+    "-oProxyJump=none",
+    "-oControlMaster=no",
+    "-oControlPath=none",
+    "-oCanonicalizeHostname=no",
+    "-oConnectionAttempts=1",
+    "-oConnectTimeout=5",
+    "codex@127.0.0.1",
+  ];
+  const config = spawnSync(binary, options, {
+    encoding: "utf8",
+    env,
+    timeout: 10000,
+    maxBuffer: 65536,
+  });
+  if (config.status !== 0) throw new Error("SSH config-only preflight failed");
+  const fields = new Map(
+    config.stdout
+      .trim()
+      .split(/\r?\n/u)
+      .map((line) => {
+        const at = line.indexOf(" ");
+        return [line.slice(0, at), line.slice(at + 1)];
+      }),
+  );
+  for (const [name, expected] of [
+    ["batchmode", "yes"],
+    ["stricthostkeychecking", "true"],
+    ["identitiesonly", "yes"],
+    ["passwordauthentication", "no"],
+    ["kbdinteractiveauthentication", "no"],
+    ["forwardagent", "no"],
+    ["permitlocalcommand", "no"],
+    ["hostname", "127.0.0.1"],
+    ["port", "2222"],
+  ]) {
+    if (fields.get(name) !== expected) throw new Error("SSH effective config differs: " + name);
+  }
+  console.log(
+    JSON.stringify({
+      sshPhysicalVerified: true,
+      sshConfigOnlyVerified: true,
+      sshSha256: createHash("sha256")
+        .update(await readFile(binary))
+        .digest("hex"),
+      serverContacted: false,
+      credentialsUsed: false,
+    }),
+  );
+}
+// SSH_PREFLIGHT_END
+
 async function validateAndHydrateImagePluginRuntime() {
   const imagePluginPath = path.join(imagePluginRuntimeRoot, "node_modules/@openclaw/codex");
   const manifest = JSON.parse(await readFile(path.join(imagePluginPath, "package.json"), "utf8"));
@@ -279,7 +400,7 @@ async function validateAndHydrateImagePluginRuntime() {
     const candidate = JSON.parse(await readFile("/opt/openclaw-runtime/candidate.json", "utf8"));
     if (codeProfile && candidate.role !== "code") throw new Error("Code smoke requires Code image selection");
     if (!codeProfile && candidate.role === "code") throw new Error("paired smoke cannot validate Code image");
-    await validateInstalledPluginRuntime(imagePluginRuntimeRoot, undefined, codeProfile ? candidate : null);
+    await validateInstalledPluginRuntime(imagePluginRuntimeRoot, undefined, candidate);
   } else {
     const shrinkwrap = JSON.parse(
       await readFile(path.join(imagePluginPath, "npm-shrinkwrap.json"), "utf8"),

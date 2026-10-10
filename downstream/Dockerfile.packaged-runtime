@@ -11,7 +11,7 @@ ARG RUNTIME_CANDIDATE="downstream/runtime-install/candidate.json"
 ARG RUNTIME_PROFILE="paired-life"
 ARG OPENCLAW_SOURCE_COMMIT="13c9575fa34c1d8166223473f7446b9c3889ac64"
 ARG OPENCLAW_VERSION="2026.9.8"
-ARG QMD_TARBALL_SHA256="4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a"
+ARG QMD_TARBALL_SHA256="8ede318f7424ece8eefcb91ee4757d25c7ad2a6f6811c2e9ffbb6d8755228baf"
 ARG QMD_VERSION="2.1.0"
 
 LABEL org.opencontainers.image.source="https://github.com/AshleyHollis/openclaw" \
@@ -25,7 +25,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      ca-certificates chromium curl git hostname libgomp1 lsof openssl procps python3 python3-requests tini && \
+      ca-certificates chromium curl git hostname libgomp1 lsof openssh-client openssl procps python3 python3-requests tini && \
     update-ca-certificates
 
 RUN npm install --global npm@12.0.1 && \
@@ -102,13 +102,14 @@ FROM plugin-runtime AS runtime
 USER root
 RUN test "$RUNTIME_PROFILE" = paired-life
 COPY qmd-current.tgz /tmp/qmd-current.tgz
-COPY downstream/runtime-install/qmd.package.json /opt/qmd-runtime/package.json
+COPY ${RUNTIME_INPUT_ROOT}/qmd.package.json /opt/qmd-runtime/package.json
+COPY ${RUNTIME_INPUT_ROOT}/qmd.package-lock.json /opt/qmd-runtime/package-lock.json
+COPY downstream/scripts/validate-current-host-image-inputs.mjs /opt/openclaw-runtime/validate-current-host-image-inputs.mjs
 RUN test -n "$QMD_TARBALL_SHA256" && \
     test -n "$QMD_VERSION" && \
     printf '%s  %s\n' "$QMD_TARBALL_SHA256" /tmp/qmd-current.tgz | sha256sum -c - && \
-    npm install --prefix /opt/qmd-runtime \
-      --install-strategy=nested --omit=dev --ignore-scripts=false --strict-allow-scripts --no-audit --no-fund \
-      /tmp/qmd-current.tgz && \
+    npm ci --prefix /opt/qmd-runtime \
+      --install-strategy=nested --omit=dev --ignore-scripts=false --strict-allow-scripts --no-audit --no-fund && \
     test "$(node -p "require('/opt/qmd-runtime/node_modules/@tobilu/qmd/package.json').version")" = "$QMD_VERSION" && \
     node -e "const fs=require('node:fs');const root='/opt/qmd-runtime/node_modules/@tobilu/qmd';const manifest=JSON.parse(fs.readFileSync(root+'/package.json','utf8'));const shrinkwrap=JSON.parse(fs.readFileSync(root+'/npm-shrinkwrap.json','utf8'));if(manifest.name!=='@tobilu/qmd'||manifest.version!==process.env.QMD_VERSION||shrinkwrap.name!==manifest.name||shrinkwrap.version!==manifest.version||shrinkwrap.packages?.['']?.version!==manifest.version)throw new Error('QMD runtime metadata mismatch')" && \
     /opt/qmd-runtime/node_modules/.bin/qmd --version | grep -F "qmd $QMD_VERSION" && \

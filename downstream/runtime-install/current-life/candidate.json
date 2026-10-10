@@ -17,8 +17,8 @@
     },
     "qmd": {
       "version": "2.1.0",
-      "url": "https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-qmd-2.1.0-nas.6.tgz",
-      "sha256": "4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a"
+      "url": "https://github.com/AshleyHollis/openclaw/releases/download/qmd-2.1.0-retained-security-20261010/qmd-current.tgz",
+      "sha256": "8ede318f7424ece8eefcb91ee4757d25c7ad2a6f6811c2e9ffbb6d8755228baf"
     }
   },
   "companionManifestSha256": "1e52816586e4cf01d1d469228027b28e769e6eb6e53518a1e8ffc17b64bdbbee",
@@ -33,7 +33,8 @@
   },
   "locks": {
     "host.package-lock.json": "895595bf47269200f5f648b65b76f521c43aaaf4e4a6e133e5ad81e1510b3252",
-    "plugins.package-lock.json": "0d2b6109ed0d906811789c6d168138b9ba87192d6371d3b0f1b1d736362636ce"
+    "plugins.package-lock.json": "0d2b6109ed0d906811789c6d168138b9ba87192d6371d3b0f1b1d736362636ce",
+    "qmd.package-lock.json": "835f6032442952ac53994ef9bae80fffcc99740447bfc5a160983832657c57a3"
   },
   "codexPlatform": {
     "packageVersion": "0.160.0-linux-x64",

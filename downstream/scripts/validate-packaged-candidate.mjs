@@ -60,10 +60,6 @@ function validateNativeSelection(candidate) {
       candidate.companionArtifact.sizeBytes <= 64 * 1024 * 1024,
     "companion ZIP exceeds bounded transport",
   );
-  assert.deepEqual(Object.keys(candidate.locks).sort(), [
-    "host.package-lock.json",
-    "plugins.package-lock.json",
-  ]);
   for (const digest of Object.values(candidate.locks)) assert.match(digest, /^[0-9a-f]{64}$/u);
   for (const field of ["manifestSha256", "binarySha256"])
     assert.match(candidate.codexPlatform?.[field] ?? "", /^[0-9a-f]{64}$/u);
@@ -77,6 +73,10 @@ function validateNativeSelection(candidate) {
 
 export function validateCodeSelection(candidate) {
   assert.equal(candidate.role, "code");
+  assert.deepEqual(Object.keys(candidate.locks).sort(), [
+    "host.package-lock.json",
+    "plugins.package-lock.json",
+  ]);
   validateNativeSelection(candidate);
   assert.deepEqual(Object.keys(candidate.components).sort(), ["codex"]);
   assert.equal(candidate.commandCenter, undefined, "Code does not select a CC carrier");
@@ -101,14 +101,26 @@ export const PAIRED_LIFE_SELECTION = Object.freeze({
     "ghcr.io/ashleyhollis/openclaw-command-center-carrier@sha256:79a25ee724f9e39966e0c4f1b71f9feb85ce91322ed8485dc6c7a079d9018225",
 });
 
+export const QMD_SELECTION = Object.freeze({
+  manifestSha256: "6ffb5da02a1f36db319978e1616bda001986b352696f98793bd915bb1026eb84",
+  lockSha256: "835f6032442952ac53994ef9bae80fffcc99740447bfc5a160983832657c57a3",
+  integrity:
+    "sha512-jw7hHTt1HLlMpRNTkwWruMy4Xgxj/uxYB25EhIKGTwtZKdKAz22xMbG8oZPIydu4Ep7h1L5A9pJc9vkJdtuH2A==",
+  versions: Object.freeze({
+    "simple-git": "4.0.1",
+    "@simple-git/argv-parser": "2.0.1",
+    "@simple-git/args-pathspec": "1.0.4",
+    "proxy-addr": "2.0.8",
+  }),
+});
 export function validatePairedLifeSelection(candidate) {
   assert.equal(candidate.role, "paired-life");
   validateNativeSelection(candidate);
   assert.deepEqual(Object.keys(candidate.components).sort(), ["codex", "qmd"]);
   assert.deepEqual(candidate.components.qmd, {
     version: "2.1.0",
-    url: "https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-qmd-2.1.0-nas.6.tgz",
-    sha256: "4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a",
+    url: "https://github.com/AshleyHollis/openclaw/releases/download/qmd-2.1.0-retained-security-20261010/qmd-current.tgz",
+    sha256: "8ede318f7424ece8eefcb91ee4757d25c7ad2a6f6811c2e9ffbb6d8755228baf",
   });
   assert.equal(candidate.companionSourceSha, CODE_SELECTION.source);
   assert.deepEqual(candidate.companionArtifact, {
@@ -128,6 +140,7 @@ export function validatePairedLifeSelection(candidate) {
   assert.deepEqual(candidate.locks, {
     "host.package-lock.json": "895595bf47269200f5f648b65b76f521c43aaaf4e4a6e133e5ad81e1510b3252",
     "plugins.package-lock.json": "0d2b6109ed0d906811789c6d168138b9ba87192d6371d3b0f1b1d736362636ce",
+    "qmd.package-lock.json": QMD_SELECTION.lockSha256,
   });
   for (const field of ["archive", "build", "receipt"])
     assert.match(
