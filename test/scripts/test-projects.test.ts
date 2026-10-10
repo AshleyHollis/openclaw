@@ -103,6 +103,11 @@ describe("test runtime prerequisites", () => {
     ["config startup SDK", ["src/config/config-startup-corpus.test.ts"], "runtime"],
     ["runtime config project", ["test/vitest/vitest.runtime-config.config.ts"], "runtime"],
     ["native direct loader SDK", ["src/plugins/loader.test.ts"], "runtime"],
+    [
+      "stock container Doctor activation",
+      ["src/commands/doctor-container-upgrade.process.test.ts"],
+      "runtime",
+    ],
   ] as const)("prepares only the prerequisite selected by %s", (_name, args, expected) => {
     const plans = args.length ? buildVitestRunPlans([...args]) : buildFullSuiteVitestRunPlans([]);
     expect(

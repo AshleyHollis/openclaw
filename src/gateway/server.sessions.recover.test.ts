@@ -922,7 +922,7 @@ test("sessions.recover rejects continuation launch after runtime authority close
     payload: {
       continuation: {
         status: "rejected",
-        error: { message: "agent runtime authority is no longer active" },
+        error: { message: "TypeError: agent runtime authority is no longer active" },
       },
     },
   });

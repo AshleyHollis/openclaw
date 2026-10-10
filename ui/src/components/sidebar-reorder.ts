@@ -54,10 +54,37 @@ export function renderSidebarReorderMenu(params: {
         const target = adjacent(menu, position);
         if (target) {
           const trigger = menu.querySelector<HTMLButtonElement>("button[slot=trigger]");
+          const row = menu.closest(`[${attribute}]`);
+          const key = row?.getAttribute(attribute);
+          const parent = row?.parentElement;
+          // Native selection closes and focuses its trigger synchronously after
+          // dispatching wa-select. Let that finish before changing row ownership;
+          // its hide animation can be canceled and is not a completion barrier.
+          await Promise.resolve();
+          if (
+            !menu.isConnected ||
+            !parent?.isConnected ||
+            !key ||
+            row?.getAttribute(attribute) !== key
+          ) {
+            return;
+          }
           await params.onMove(target, position);
-          // Moving a keyed DOM row can drop focus; do not reclaim it from another control.
-          if (trigger?.isConnected && document.activeElement === document.body) {
-            trigger.focus({ preventScroll: true });
+          // Lit can reuse the old trigger for another row. Restore by stable
+          // row identity after dropdown dismissal, without taking newer outside focus.
+          const active = document.activeElement;
+          if (
+            active === document.body ||
+            active === trigger ||
+            active === menu ||
+            (active && menu.contains(active))
+          ) {
+            const movedRow = [...(parent?.children ?? [])].find(
+              (element) => element.getAttribute(attribute) === key,
+            );
+            movedRow
+              ?.querySelector<HTMLButtonElement>(".sidebar-reorder-trigger")
+              ?.focus({ preventScroll: true });
           }
         }
       }}

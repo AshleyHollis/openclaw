@@ -1,10 +1,12 @@
 import path from "node:path";
 import type { Page } from "playwright";
 import { expect, it } from "vitest";
+import type { SessionWorkspaceGetResult } from "../api/types.ts";
 import { installMockGateway } from "../test-helpers/control-ui-e2e.ts";
 import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts";
 
 const suite = createControlUiE2eSuite({ name: "File editor recovery" });
+const sessionKey = "agent:main:main";
 
 declare global {
   interface Window {
@@ -16,6 +18,7 @@ declare global {
 
 async function openFilePreview(page: Page) {
   await installMockGateway(page, {
+    sessionKey,
     historyMessages: [
       {
         role: "assistant",
@@ -28,6 +31,7 @@ async function openFilePreview(page: Page) {
         cases: ["notes.txt", "other.txt"].map((name) => ({
           match: { path: name },
           response: {
+            sessionKey,
             root: "/workspace",
             file: {
               content: `Synthetic ${name} content`,
@@ -37,7 +41,7 @@ async function openFilePreview(page: Page) {
               path: name,
               workspacePath: name,
             },
-          },
+          } satisfies SessionWorkspaceGetResult,
         })),
       },
     },

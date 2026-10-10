@@ -233,8 +233,12 @@ export function createSessionHistoryWorkerReaders(
         },
       ),
     readExactEntries: async (input, signal) => {
-      const captured = { ...input, env: captureSessionTranscriptStorageEnvironment(input.env),
-        ...(input.emptyHistoryExpectation ? { emptyHistoryExpectation: structuredClone(input.emptyHistoryExpectation) } : {}),
+      const captured = {
+        ...input,
+        env: captureSessionTranscriptStorageEnvironment(input.env),
+        ...(input.emptyHistoryExpectation
+          ? { emptyHistoryExpectation: structuredClone(input.emptyHistoryExpectation) }
+          : {}),
       };
       return runRequest(
         () => ({ kind: "session-exact-entries", ...captured }),

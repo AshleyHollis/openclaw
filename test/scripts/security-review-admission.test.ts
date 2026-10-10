@@ -1,5 +1,39 @@
-import { describe, expect, it } from "vitest";
-import { revalidatePublishedSecurityClearance } from "../../scripts/github/guard-review.mjs";
+import { copyFileSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import nodePath from "node:path";
+import { pathToFileURL } from "node:url";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { parseDocument } from "yaml";
+import { createFixtureLifetime } from "../helpers/fixture-lifetime.js";
+
+const fixtures = createFixtureLifetime();
+let revalidatePublishedSecurityClearance: typeof import("../../scripts/github/guard-review.mjs").revalidatePublishedSecurityClearance;
+beforeAll(async () => {
+  // Exercise actual rollout ownership with isolated synthetic policy, never a shared module mock.
+  const root = fixtures.createTempDir("security-review-admission-");
+  for (const source of [
+    "scripts/github/guard-review.mjs",
+    "scripts/github/guard-shared.mjs",
+    "scripts/github/security-review-policy.mjs",
+    "scripts/github/security-review-rollout.mjs",
+    "scripts/lib/bounded-response.mjs",
+  ]) {
+    const target = nodePath.join(root, source);
+    mkdirSync(nodePath.dirname(target), { recursive: true });
+    copyFileSync(source, target);
+  }
+  const policy = parseDocument(
+    readFileSync(nodePath.resolve(".github/security-review-policy.yml"), "utf8"),
+  );
+  policy.set("rollout", { "pull-request": 152415 });
+  mkdirSync(nodePath.join(root, ".github"));
+  writeFileSync(nodePath.join(root, ".github/security-review-policy.yml"), policy.toString());
+  symlinkSync(nodePath.resolve("node_modules"), nodePath.join(root, "node_modules"), "junction");
+  const guard: typeof import("../../scripts/github/guard-review.mjs") = await import(
+    pathToFileURL(nodePath.join(root, "scripts/github/guard-review.mjs")).href
+  );
+  revalidatePublishedSecurityClearance = guard.revalidatePublishedSecurityClearance;
+});
+afterAll(() => fixtures.cleanup());
 
 const head = "a".repeat(40);
 const rolloutCommit = "b".repeat(40);

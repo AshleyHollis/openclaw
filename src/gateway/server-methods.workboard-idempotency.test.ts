@@ -27,7 +27,9 @@ const children: ChildProcess[] = [];
 let nextId = 0;
 async function start() {
   const child = fork(
-    fileURLToPath(new URL("./test-fixtures/workboard-idempotency-child.ts", import.meta.url)),
+    fileURLToPath(
+      new URL("./test-fixtures/workboard-idempotency-child.test-support.ts", import.meta.url),
+    ),
     [],
     {
       execArgv: ["--import", new URL("../../scripts/tsx.mjs", import.meta.url).href],

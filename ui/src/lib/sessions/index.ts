@@ -51,11 +51,7 @@ export {
   scopedAgentParamsForSession,
   visibleSessionMatches,
 } from "./navigation.ts";
-export type {
-  SessionRefreshTarget,
-  SessionScopeHost,
-  SessionScopeHostWithKey,
-} from "./navigation.ts";
+export type { SessionRefreshTarget, SessionScopeHost } from "./navigation.ts";
 
 export function createSessionCapability(
   gateway: SessionGateway,
