@@ -60,12 +60,19 @@ describe("cron startup catch-up concurrency", () => {
       try {
         await started.promise;
         let reconciled = await add(state, {
-          ...deferred,
+          name: deferred.name,
+          declarationKey: deferred.declarationKey,
+          enabled: deferred.enabled,
+          deleteAfterRun: deferred.deleteAfterRun,
+          sessionTarget: deferred.sessionTarget,
+          wakeMode: deferred.wakeMode,
+          delivery: deferred.delivery,
           displayName: change === "display" ? "New label" : undefined,
           payload:
             change === "payload" ? { kind: "agentTurn", message: "New task" } : deferred.payload,
           schedule: change === "schedule" ? { kind: "every", everyMs: 120_000 } : deferred.schedule,
         });
+        expect(reconciled.id).toBe(deferred.id);
         if (change === "reactivated") {
           // The same future slot can belong to a newly enabled schedule; the
           // missed occurrence retired by this edit must not regain catch-up.
