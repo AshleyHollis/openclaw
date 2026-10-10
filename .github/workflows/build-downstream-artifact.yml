@@ -319,7 +319,10 @@ jobs:
           export RUNTIME_CANDIDATE=$(node --input-type=module -e "import {runtimeSelectionPaths} from './downstream/scripts/validate-packaged-candidate.mjs'; console.log(runtimeSelectionPaths(process.env.RUNTIME_PROFILE).candidate)")
           node --input-type=module <<'NODE'
           import { readFile } from 'node:fs/promises';
+          const {validateRuntimeSelection} = await import('./downstream/scripts/validate-packaged-candidate.mjs');
           const candidate = JSON.parse(await readFile(process.env.RUNTIME_CANDIDATE, 'utf8'));
+          if (candidate.role !== process.env.RUNTIME_PROFILE) throw new Error('selected runtime role differs');
+          validateRuntimeSelection(candidate);
           if (candidate.provenance?.actionsArtifactReady !== true) {
             throw new Error('Selected package has no authenticated Actions artifact receipt; no historical fallback.');
           }
@@ -350,19 +353,16 @@ jobs:
           node --input-type=module <<'NODE'
           import { readFile, appendFile, copyFile, mkdir } from 'node:fs/promises';
           import { execFileSync } from 'node:child_process';
-          import { validatePackagedCandidate, runtimeSelectionPaths, validateCodeSelection } from './downstream/scripts/validate-packaged-candidate.mjs';
+          import { validatePackagedCandidate, runtimeSelectionPaths, validateRuntimeSelection, validateRetainedComponentProvenance, validateCommandCenterReceipt } from './downstream/scripts/validate-packaged-candidate.mjs';
           const c = JSON.parse(await readFile(process.env.RUNTIME_CANDIDATE, 'utf8'));
           const profile = process.env.RUNTIME_PROFILE;
           const selection = runtimeSelectionPaths(profile);
-          if (profile === 'code') {
-            validateCodeSelection(c);
+          validateRuntimeSelection(c);
+          {
             const a = c.companionArtifact;
             const api = endpoint => JSON.parse(execFileSync('gh', ['api', `repos/AshleyHollis/openclaw/${endpoint}`], {encoding:'utf8'}));
             const run = api(`actions/runs/${a.runId}`), artifact = api(`actions/artifacts/${a.id}`);
-            if (run.status !== 'completed' || run.conclusion !== 'success' || run.head_sha !== a.headSha ||
-                run.repository?.full_name !== 'AshleyHollis/openclaw' || run.head_repository?.full_name !== 'AshleyHollis/openclaw' ||
-                artifact.id !== a.id || artifact.name !== a.name || artifact.expired !== false || artifact.digest !== a.digest ||
-                artifact.workflow_run?.id !== a.runId || artifact.workflow_run?.head_sha !== a.headSha || artifact.size_in_bytes !== a.sizeBytes) throw new Error('companion producer identity differs');
+            validateRetainedComponentProvenance(a, run, artifact, 'AshleyHollis/openclaw', '.github/workflows/package-acceptance.yml');
             const zip = execFileSync('gh', ['api', `repos/AshleyHollis/openclaw/actions/artifacts/${a.id}/zip`], {maxBuffer:64*1024*1024});
             const {createHash} = await import('node:crypto');
             if (`sha256:${createHash('sha256').update(zip).digest('hex')}` !== a.digest) throw new Error('companion artifact digest differs');
@@ -377,13 +377,27 @@ jobs:
             if (entry.sha256 !== c.components.codex.sha256) throw new Error('selected companion archive differs');
             await copyFile(`${dir}/${entry.tarball}`, 'codex-current.tgz');
           }
-          for (const [name, component] of Object.entries(profile === 'code' ? {} : c.components)) {
+          for (const [name, component] of Object.entries(profile === 'code' ? {} : {qmd:c.components.qmd})) {
             execFileSync('curl', ['--fail', '--location', '--proto', '=https', '--tlsv1.2', component.url, '--output', `${name}-current.tgz`], { stdio: 'inherit' });
+          }
+          if (profile === 'paired-life') {
+            const cc = c.commandCenter, a = cc.artifact;
+            const repo = 'AshleyHollis/openclaw-command-center';
+            const api = endpoint => JSON.parse(execFileSync('gh', ['api', `repos/${repo}/${endpoint}`], {encoding:'utf8'}));
+            validateRetainedComponentProvenance(a, api(`actions/runs/${a.runId}`), api(`actions/artifacts/${a.id}`), repo, '.github/workflows/package-candidate.yml');
+            const zip = execFileSync('gh', ['api', `repos/${repo}/actions/artifacts/${a.id}/zip`], {maxBuffer:128*1024*1024});
+            const {createHash} = await import('node:crypto');
+            if (`sha256:${createHash('sha256').update(zip).digest('hex')}` !== a.digest) throw new Error('CC artifact digest differs');
+            const {writeFile} = await import('node:fs/promises');
+            const dir = `${process.env.RUNNER_TEMP}/selected-command-center`;
+            await mkdir(dir); await writeFile(`${dir}.zip`, zip);
+            execFileSync('unzip', ['-q', `${dir}.zip`, '-d', dir]);
+            validateCommandCenterReceipt(cc, await readFile(`${dir}/receipt.json`), await readFile(`${dir}/command-center.tgz`));
+            await copyFile(`${dir}/command-center.tgz`, 'command-center.tgz');
           }
           await validatePackagedCandidate(process.cwd(), profile);
           const {validateCurrentHostImageInputs} = await import('./downstream/scripts/validate-current-host-image-inputs.mjs');
-          // Paired CC byte validation remains its separate existing owner gate.
-          if (profile === 'code') await validateCurrentHostImageInputs(process.cwd(), profile);
+          await validateCurrentHostImageInputs(process.cwd(), profile);
           const args = [`RUNTIME_PROFILE=${profile}`, `RUNTIME_INPUT_ROOT=${selection.inputRoot}`, `RUNTIME_CANDIDATE=${selection.candidate}`, `CODEX_ENGINE_VERSION=${c.components.codex.engineVersion ?? "0.158.0"}`, `OPENCLAW_SOURCE_COMMIT=${c.hostProducedFrom}`, `OPENCLAW_VERSION=${c.hostVersion}`, `OPENCLAW_TARBALL_SHA256=${c.hostArchiveSha256}`];
           for (const [name, component] of Object.entries(c.components)) args.push(`${name.toUpperCase()}_VERSION=${component.version}`, `${name.toUpperCase()}_TARBALL_SHA256=${component.sha256}`);
           await appendFile(process.env.GITHUB_OUTPUT, `target=${selection.target}\nhost_version=${c.hostVersion}\ncodex_version=${c.components.codex.version}\nqmd_version=${c.components.qmd?.version ?? "absent"}\nargs<<BUILD_ARGS\n${args.join('\n')}\nBUILD_ARGS\ntag=ghcr.io/ashleyhollis/openclaw:packaged-candidate-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}\n`);

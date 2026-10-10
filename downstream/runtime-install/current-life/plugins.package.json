@@ -1,0 +1,12 @@
+{
+  "name": "openclaw-nas-plugin-runtime",
+  "version": "2026.9.9",
+  "private": true,
+  "dependencies": {
+    "@openclaw/codex": "file:../../tmp/codex-current.tgz",
+    "openclaw": "file:/app/node_modules/openclaw"
+  },
+  "allowScripts": {
+    "file:/app/node_modules/openclaw": false
+  }
+}

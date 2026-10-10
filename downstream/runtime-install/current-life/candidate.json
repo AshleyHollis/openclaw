@@ -1,0 +1,73 @@
+{
+  "role": "paired-life",
+  "platform": "linux/amd64",
+  "hostVersion": "2026.9.9",
+  "hostProducedFrom": "ea4135dbeced9c393ab4f6ebde8bf3e751ea5fa2",
+  "hostArchiveSha256": "acf8cd1cedd1b64f6b855c7177fd3340a03208cd9cbf30aeaf5a511d2e2ef470",
+  "hostRunId": 37873292633,
+  "hostRunCommit": "6527403cfe201d0508450ad39c0a985599f2c8b3",
+  "hostArtifactId": 11591748081,
+  "hostArtifactName": "nas-runtime-package-ea4135dbeced9c393ab4f6ebde8bf3e751ea5fa2-37873292633-1",
+  "hostArtifactDigest": "sha256:ee26e271682091ca442d6caa2211adb89a03aeed3f9f34bb70bc8d9680f87559",
+  "components": {
+    "codex": {
+      "version": "2026.9.9",
+      "engineVersion": "0.160.0",
+      "sha256": "4dbfc268212996f43ce5ea6a42b281bf5358c065618185de3e4cc3f31d8dbf13"
+    },
+    "qmd": {
+      "version": "2.1.0",
+      "url": "https://github.com/AshleyHollis/openclaw/releases/download/nas-v2026.7.1-2.6/openclaw-qmd-2.1.0-nas.6.tgz",
+      "sha256": "4162fcc8812d44246065d121a339554419b55aeb4358fc61ca4acbda753bf28a"
+    }
+  },
+  "companionManifestSha256": "1e52816586e4cf01d1d469228027b28e769e6eb6e53518a1e8ffc17b64bdbbee",
+  "companionSourceSha": "ea4135dbeced9c393ab4f6ebde8bf3e751ea5fa2",
+  "companionArtifact": {
+    "id": 11600425043,
+    "runId": 37893579600,
+    "headSha": "d7d039c8ed935dce3b207f312307c439e2b9da31",
+    "digest": "sha256:ceeea7950c43fdbe2b7315220aa1b69783490ef17de4c5a31f5868c325996940",
+    "name": "docker-e2e-prepublish-plugin-registry-37893579600-1",
+    "sizeBytes": 15383940
+  },
+  "locks": {
+    "host.package-lock.json": "895595bf47269200f5f648b65b76f521c43aaaf4e4a6e133e5ad81e1510b3252",
+    "plugins.package-lock.json": "0d2b6109ed0d906811789c6d168138b9ba87192d6371d3b0f1b1d736362636ce"
+  },
+  "codexPlatform": {
+    "packageVersion": "0.160.0-linux-x64",
+    "manifestSha256": "10a2028f277b12091447fb8da260af8703686c9ae2cc52b2fd84a52c1e20883d",
+    "binarySha256": "12eb3e81114588aca3b7998f4f19e8997b056aca08e57a7ca7c8a3ec8c652aad",
+    "binaryRelativePath": "vendor/x86_64-unknown-linux-musl/bin/codex"
+  },
+  "provenance": {
+    "actionsArtifactReady": true
+  },
+  "hostArchiveBytes": 118102101,
+  "commandCenter": {
+    "sourceCommit": "d3f3295ffa736b3010b46986126034c0b8a6a812",
+    "archiveSha256": "95a0ce3e167f92d9e9b495ad3ce58186f968f53fe4cc476f229a56cc9b367320",
+    "archiveBytes": 3742217,
+    "buildDigest": "700d3849f212d84b4220c8b07b3ea278b187eabef41d99c47c641502a476f997",
+    "receiptSha256": "cd50659f05a8374f82527570889f2326756323c13776a5a667756fa4589cfb2f",
+    "fileCount": 223,
+    "carrierImage": "ghcr.io/ashleyhollis/openclaw-command-center-carrier@sha256:79a25ee724f9e39966e0c4f1b71f9feb85ce91322ed8485dc6c7a079d9018225",
+    "artifact": {
+      "id": 11651544411,
+      "runId": 38007690805,
+      "headSha": "d3f3295ffa736b3010b46986126034c0b8a6a812",
+      "digest": "sha256:fadbcb8570d12d8800d2f9cc6b25de079b23687f6d1a14de78a27285d86f29ab",
+      "name": "command-center-candidate-d3f3295ffa736b3010b46986126034c0b8a6a812",
+      "sizeBytes": 3753432
+    }
+  },
+  "qualification": {
+    "releaseReady": false,
+    "installed": false,
+    "currentCCNativeApiAdmitted": false,
+    "compiledLifeJourneys": false,
+    "Life26aRollback": false,
+    "copiedLifeState": false
+  }
+}
