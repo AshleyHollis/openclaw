@@ -38,7 +38,10 @@ import {
 import type { PreparedModelRuntimeSnapshot } from "./prepared-model-runtime.types.js";
 import { resolveAgentRuntimeToolConfig } from "./tool-runtime-config.js";
 import type { AnyAgentTool } from "./tools/common.js";
-import { captureGatewayToolCallerAssertion } from "./tools/gateway-caller-context.js";
+import {
+  captureGatewayToolCallerAssertion,
+  getGatewayToolCallerIdentity,
+} from "./tools/gateway-caller-context.js";
 import { hasProviderAuthForTool } from "./tools/model-config.helpers.js";
 
 type ResolveOpenClawPluginToolsOptions = OpenClawPluginToolOptions & {
@@ -329,6 +332,7 @@ export function resolveOpenClawPluginToolsForOptions(params: {
   const loadContext = getPluginRuntimeLoadContext(preparedRegistry);
   const metadataSnapshot = preparedModelRuntime?.metadataSnapshot ?? loadContext?.metadataSnapshot;
   const assertCallerCurrent = captureGatewayToolCallerAssertion();
+  const operatorAuthority = getGatewayToolCallerIdentity()?.operatorAuthority;
   const assertRequestCurrent = params.options?.assertInvocationCurrent;
   const pluginTools = resolvePluginTools({
     ...pluginToolInputs,
@@ -345,6 +349,7 @@ export function resolveOpenClawPluginToolsForOptions(params: {
           assertRequestCurrent();
         }
       : assertCallerCurrent,
+    operatorAuthority,
     ownerContinuation: requesterOwner,
     clientCaps: params.options?.clientCaps,
     toolAllowlist: params.options?.pluginToolAllowlist,

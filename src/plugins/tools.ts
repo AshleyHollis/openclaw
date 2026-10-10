@@ -1,5 +1,6 @@
 /** Builds agent tools registered by plugins, preserving plugin scope around callbacks and descriptors. */
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import type { AdmittedRunOperatorAuthority } from "../agents/admitted-run-context.js";
 import { compileGlobPatterns, matchesAnyGlobPattern } from "../agents/glob-pattern.js";
 import { normalizeToolPolicyName } from "../agents/tool-policy.js";
 import type { AnyAgentTool } from "../agents/tools/common.js";
@@ -275,6 +276,7 @@ type PluginToolResolutionParams = {
   context: OpenClawPluginToolContext;
   /** Host-owned turn fence for factories and retained tool callbacks. */
   assertInvocationCurrent?: () => void;
+  operatorAuthority?: AdmittedRunOperatorAuthority;
   ownerContinuation?: PluginToolOwnerContinuation;
   existingToolNames?: Set<string>;
   clientCaps?: string[];
@@ -599,6 +601,7 @@ function resolvePluginToolsFromRegistry(
         registry: owner.registry,
         context: params.context,
         assertInvocationCurrent: params.assertInvocationCurrent,
+        operatorAuthority: params.operatorAuthority,
         ownerContinuation: params.ownerContinuation,
       });
       // Catalog discovery may construct tools without an admitted run; their V2 execution stays fenced.
