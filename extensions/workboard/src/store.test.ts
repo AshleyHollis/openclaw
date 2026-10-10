@@ -1059,10 +1059,20 @@ describe("WorkboardStore", () => {
           created_at, updated_at, archived_at
         FROM workboard_boards_strict;
         DROP TABLE workboard_boards_strict;
-        DELETE FROM workboard_schema_migrations WHERE id IN ('schema-3', 'schema-4');
+        DELETE FROM workboard_schema_migrations WHERE id IN ('schema-3', 'schema-4', 'schema-5');
         INSERT OR IGNORE INTO workboard_schema_migrations (id, applied_at)
         VALUES ('schema-2', 1);
       `);
+      expect(
+        legacy
+          .prepare("SELECT strict FROM pragma_table_list WHERE name = 'workboard_boards'")
+          .get(),
+      ).toEqual({ strict: 0 });
+      expect(
+        legacy
+          .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = 'schema-5'")
+          .get(),
+      ).toBeUndefined();
     } finally {
       legacy.close();
     }
@@ -1085,7 +1095,7 @@ describe("WorkboardStore", () => {
         ).toEqual({ strict: 1 });
         expect(
           migrated
-            .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = 'schema-4'")
+            .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = 'schema-5'")
             .get(),
         ).toEqual({ found: 1 });
       } finally {
