@@ -1,4 +1,17 @@
+import type { AgentEventRuntimePayload } from "../infra/agent-events.js";
 import { settlesWithin } from "../shared/settle-within.js";
+
+export type ChatAbortTrackedTerminalRun = {
+  runId: string;
+  clientRunId: string;
+  sessionKey: string;
+  ownerEvent: AgentEventRuntimePayload;
+};
+
+export type ChatAbortTrackedTerminalPersistence = ChatAbortTrackedTerminalRun & {
+  sessionId?: string;
+  persistence: Promise<void>;
+};
 
 const terminalPersistenceErrorByEntry = new WeakMap<object, unknown>();
 export type ChatAbortTerminalDispatch = {
@@ -23,12 +36,44 @@ export function bindChatAbortTerminalDispatch(
   }
 }
 
+export function isCurrentChatAbortTerminalDispatch(
+  entry: object,
+  dispatch: Pick<ChatAbortTerminalDispatch, "failure">,
+): boolean {
+  return terminalDispatchByEntry.get(entry) === dispatch;
+}
+
 export function markChatAbortTerminalPersistenceError(entry: object, error: unknown): void {
   if (error === undefined) {
     terminalPersistenceErrorByEntry.delete(entry);
     return;
   }
   terminalPersistenceErrorByEntry.set(entry, error);
+}
+
+/** Settles captured custody and returns whether requested registration cleanup can proceed. */
+export function settleChatAbortTerminalPersistence(
+  entry: {
+    projectSessionTerminalPending?: boolean;
+    projectSessionTerminalPersistence?: Promise<void>;
+    projectSessionTerminalPersisted?: boolean;
+    registrationCleanupRequested?: boolean;
+  },
+  persisted?: boolean,
+  error?: unknown,
+  ownsPendingReservation = true,
+): boolean {
+  if (ownsPendingReservation) {
+    entry.projectSessionTerminalPending = false;
+  }
+  entry.projectSessionTerminalPersistence = undefined;
+  if (persisted !== undefined) {
+    entry.projectSessionTerminalPersisted = persisted;
+    markChatAbortTerminalPersistenceError(entry, error);
+  }
+  return (
+    entry.registrationCleanupRequested === true && entry.projectSessionTerminalPending !== true
+  );
 }
 
 export function notifyChatAbortControllerRemoved(entry: object): void {

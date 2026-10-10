@@ -42,8 +42,11 @@ import {
 import { onUserProfilesChanged } from "../state/user-profile-events.js";
 import {
   bindChatAbortTerminalDispatch,
+  isCurrentChatAbortTerminalDispatch,
   markChatAbortTerminalPersistenceError,
+  settleChatAbortTerminalPersistence,
   type ChatAbortTerminalDispatch,
+  type ChatAbortTrackedTerminalPersistence,
 } from "./chat-abort-lifecycle-internal.js";
 import {
   type ChatAbortControllerEntry,
@@ -190,6 +193,10 @@ export function startGatewayEventSubscriptions(params: {
   const unsubscribeToolAuditEvents = onTrustedToolExecutionEvent(auditRecorder.recordTool);
   const sessionLifecyclePersistence = createSessionLifecyclePersistenceOwner(params.scheduler);
   const agentEventDispatches = new Set<Promise<void>>();
+  const terminalEventReceipts = new WeakMap<
+    AgentEventRuntimePayload,
+    { dispatch: Pick<ChatAbortTerminalDispatch, "failure">; settle: () => void }
+  >();
   const eventRowOwners = new WeakMap<
     AgentEventRuntimePayload,
     { projection: SessionRowProjection; record: ReturnType<SessionRowProjection["capture"]> }
@@ -208,6 +215,7 @@ export function startGatewayEventSubscriptions(params: {
         if (
           current === entry &&
           entry.registrationCleanupRequested === true &&
+          entry.projectSessionTerminalPending !== true &&
           !entry.projectSessionTerminalPersistence
         ) {
           removeChatAbortControllerEntry(params.chatAbortControllers, candidateRunId, entry);
@@ -215,26 +223,24 @@ export function startGatewayEventSubscriptions(params: {
       });
     }
   };
-  const settleTrackedTerminal = (run: { runId: string; clientRunId: string }) => {
-    for (const candidateRunId of trackedRunIds(run.runId, run.clientRunId)) {
-      const entry = params.chatAbortControllers.get(candidateRunId);
-      if (!entry || entry.projectSessionTerminalPersistence) {
-        continue;
-      }
-      entry.projectSessionTerminalPending = false;
-      entry.projectSessionTerminalPersisted = false;
-      if (entry.registrationCleanupRequested === true) {
-        removeChatAbortControllerEntry(params.chatAbortControllers, candidateRunId, entry);
-      }
+  const settleTrackedTerminalEntry = (
+    runId: string,
+    entry: ChatAbortControllerEntry,
+    persisted?: boolean,
+    error?: unknown,
+    ownsPendingReservation = true,
+  ) => {
+    if (settleChatAbortTerminalPersistence(entry, persisted, error, ownsPendingReservation)) {
+      removeChatAbortControllerEntry(params.chatAbortControllers, runId, entry);
     }
   };
+  const settleTrackedTerminal = (run: { ownerEvent: AgentEventRuntimePayload }) => {
+    terminalEventReceipts.get(run.ownerEvent)?.settle();
+  };
   const trackedTerminalWrites = new WeakSet<Promise<void>>();
-  const trackTrackedRunTerminalPersistence = (run: {
-    runId: string;
-    clientRunId: string;
-    sessionId?: string;
-    persistence: Promise<void>;
-  }) => {
+  const trackTrackedRunTerminalPersistence = (
+    run: Omit<ChatAbortTrackedTerminalPersistence, "sessionKey">,
+  ) => {
     // Ingress and the lazy chat consumer adopt the same prepared write once.
     if (trackedTerminalWrites.has(run.persistence)) {
       return true;
@@ -258,34 +264,33 @@ export function startGatewayEventSubscriptions(params: {
         if (entry.projectSessionTerminalPersistence !== run.persistence) {
           return;
         }
-        // Maintenance can retire the registration before its write settles.
-        // Captured drain targets still need this exact owner's final facts.
-        entry.projectSessionTerminalPending = false;
-        entry.projectSessionTerminalPersistence = undefined;
-        entry.projectSessionTerminalPersisted = persisted;
-        markChatAbortTerminalPersistenceError(entry, error);
-        if (params.chatAbortControllers.get(candidateRunId) !== entry) {
-          return;
+        if (params.chatAbortControllers.get(candidateRunId) === entry) {
+          if (persisted) {
+            params.restartRecoveryCandidates.delete(candidateRunId);
+          } else if (
+            entry.controlUiVisible !== false &&
+            lifecycleGeneration &&
+            sessionKey &&
+            sessionId
+          ) {
+            params.restartRecoveryCandidates.set(candidateRunId, {
+              runId: candidateRunId,
+              lifecycleGeneration,
+              sessionKey,
+              sessionId,
+              observedAt,
+            });
+          }
         }
-        if (persisted) {
-          params.restartRecoveryCandidates.delete(candidateRunId);
-        } else if (
-          entry.controlUiVisible !== false &&
-          lifecycleGeneration &&
-          sessionKey &&
-          sessionId
-        ) {
-          params.restartRecoveryCandidates.set(candidateRunId, {
-            runId: candidateRunId,
-            lifecycleGeneration,
-            sessionKey,
-            sessionId,
-            observedAt,
-          });
-        }
-        if (entry.registrationCleanupRequested === true) {
-          removeChatAbortControllerEntry(params.chatAbortControllers, candidateRunId, entry);
-        }
+        // Captured drain targets still need final facts after registry retirement.
+        const receipt = terminalEventReceipts.get(run.ownerEvent);
+        settleTrackedTerminalEntry(
+          candidateRunId,
+          entry,
+          persisted,
+          error,
+          receipt !== undefined && isCurrentChatAbortTerminalDispatch(entry, receipt.dispatch),
+        );
       };
       void run.persistence.then(
         () => settle(true),
@@ -427,7 +432,7 @@ export function startGatewayEventSubscriptions(params: {
     }
     let failedDispatchCleanup: (() => void) | undefined;
     let terminalPreparation: Promise<void> | undefined;
-    let terminalEntries: ChatAbortControllerEntry[] | undefined;
+    let terminalEntries: Map<string, ChatAbortControllerEntry> | undefined;
     sessionObserver.handleEvent(evt);
     sessionActivitySummaries.handleEvent(evt);
     auditRecorder.record(evt);
@@ -456,7 +461,7 @@ export function startGatewayEventSubscriptions(params: {
         ) {
           entry.projectSessionTerminalPending = true;
           entry.projectSessionTerminalObservedAt = observedAt;
-          (terminalEntries ??= []).push(entry);
+          (terminalEntries ??= new Map()).set(candidateRunId, entry);
         }
       }
       const trackedEntry = candidateRunIds
@@ -522,6 +527,7 @@ export function startGatewayEventSubscriptions(params: {
           clientRunId,
           sessionId: evt.sessionId,
           persistence,
+          ownerEvent: evt,
         });
         if (!tracked) {
           void persistence.catch((error: unknown) => {
@@ -573,6 +579,22 @@ export function startGatewayEventSubscriptions(params: {
     const terminalDispatch: Pick<ChatAbortTerminalDispatch, "failure"> | undefined = terminalEntries
       ? {}
       : undefined;
+    if (terminalDispatch && terminalEntries) {
+      const capturedEntries = terminalEntries;
+      terminalEventReceipts.set(evt, {
+        dispatch: terminalDispatch,
+        settle: () => {
+          for (const [runId, entry] of capturedEntries) {
+            if (isCurrentChatAbortTerminalDispatch(entry, terminalDispatch)) {
+              entry.projectSessionTerminalPending = false;
+              if (!entry.projectSessionTerminalPersistence) {
+                settleTrackedTerminalEntry(runId, entry);
+              }
+            }
+          }
+        },
+      });
+    }
     const dispatch = dispatchEventHandler<AgentEventRuntimePayload>({
       loadHandler: dispatchPreparation
         ? async () => {
@@ -587,11 +609,28 @@ export function startGatewayEventSubscriptions(params: {
       onFailure: (error) => {
         if (terminalDispatch) {
           terminalDispatch.failure = { error };
+          for (const [runId, entry] of terminalEntries ?? []) {
+            if (
+              isCurrentChatAbortTerminalDispatch(entry, terminalDispatch) &&
+              entry.projectSessionTerminalPending === true
+            ) {
+              // Failed dispatch cannot adopt a write later. Its reservation ends,
+              // while any accepted write retains its separate persistence owner.
+              entry.projectSessionTerminalPending = false;
+              if (!entry.projectSessionTerminalPersistence) {
+                settleTrackedTerminalEntry(runId, entry);
+              }
+            }
+          }
         }
         failedDispatchCleanup?.();
       },
     });
-    bindChatAbortTerminalDispatch(terminalEntries, dispatch, terminalDispatch);
+    bindChatAbortTerminalDispatch(
+      terminalEntries ? [...terminalEntries.values()] : undefined,
+      dispatch,
+      terminalDispatch,
+    );
     agentEventDispatches.add(dispatch);
     void dispatch.then(() => agentEventDispatches.delete(dispatch));
   });

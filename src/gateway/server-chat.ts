@@ -37,6 +37,10 @@ import {
 import { resolveAssistantEventPhase } from "../shared/chat-message-content.js";
 import { setSafeTimeout } from "../utils/timer-delay.js";
 import { resolveAssistantTextInput } from "./agent-event-assistant-text.js";
+import type {
+  ChatAbortTrackedTerminalPersistence,
+  ChatAbortTrackedTerminalRun,
+} from "./chat-abort-lifecycle-internal.js";
 import {
   appendChatCanvasBlocks,
   appendChatCanvasBlocksToMessage,
@@ -252,18 +256,8 @@ export type AgentEventHandlerOptions = {
     clientRunId: string;
     sessionKey: string;
   }) => void;
-  settleTrackedTerminal?: (params: {
-    runId: string;
-    clientRunId: string;
-    sessionKey: string;
-  }) => void;
-  trackTrackedRunTerminalPersistence?: (params: {
-    runId: string;
-    clientRunId: string;
-    sessionKey: string;
-    sessionId?: string;
-    persistence: Promise<void>;
-  }) => void;
+  settleTrackedTerminal?: (params: ChatAbortTrackedTerminalRun) => void;
+  trackTrackedRunTerminalPersistence?: (params: ChatAbortTrackedTerminalPersistence) => void;
   resolveActiveLifecycleGenerationForRun?: (runId: string) => string | undefined;
   updateRunToolErrorSummary?: (params: {
     runId: string;
@@ -671,6 +665,7 @@ export function createAgentEventHandler({
           sessionKey,
           sessionId: evt.sessionId,
           persistence,
+          ownerEvent: evt,
         });
         const broadcastSessionChange = (snapshotEvent?: AgentEventPayload) => {
           if (parseCronRunScopeSuffix(sessionKey).runId) {
@@ -733,6 +728,7 @@ export function createAgentEventHandler({
           runId: evt.runId,
           clientRunId,
           sessionKey,
+          ownerEvent: evt,
         });
       }
     }

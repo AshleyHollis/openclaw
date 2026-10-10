@@ -84,6 +84,7 @@ import { createGatewayBroadcaster } from "./server-broadcast.js";
 import {
   emitAgentEvent,
   emitAgentEvents,
+  expectTrackedTerminalPersistence,
   registerChatRun,
   registerNamedChatRun,
 } from "./server-chat.agent-events.test-helpers.js";
@@ -3223,12 +3224,11 @@ describe("agent event handler", () => {
 
     expect(chatBroadcastCalls(broadcast)).toHaveLength(1);
     expect(persistGatewaySessionLifecycleEventMock).toHaveBeenCalledTimes(1);
-    expect(trackTrackedRunTerminalPersistence).toHaveBeenCalledWith({
+    expectTrackedTerminalPersistence(trackTrackedRunTerminalPersistence, {
       runId: "completed-during-marker-write",
       clientRunId: "completed-during-marker-write",
       sessionKey: "session-recovery",
       sessionId: "session-recovery",
-      persistence: expect.any(Promise),
     });
     await waitForFast(() => {
       expect(
@@ -3462,12 +3462,11 @@ describe("agent event handler", () => {
     expect(logErrorMock).toHaveBeenCalledWith(
       "gateway: terminal session persistence failed session=session-failed-write run=run-failed-write error=Error: disk full sk-abc…3456",
     );
-    expect(trackTrackedRunTerminalPersistence).toHaveBeenCalledWith({
+    expectTrackedTerminalPersistence(trackTrackedRunTerminalPersistence, {
       runId: "run-failed-write",
       clientRunId: "run-failed-write",
       sessionKey: "session-failed-write",
       sessionId: "session-failed-write",
-      persistence: expect.any(Promise),
     });
     expect(trackTrackedRunTerminalPersistence.mock.invocationCallOrder[0]).toBeLessThan(
       broadcastToConnIds.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
@@ -4960,12 +4959,11 @@ describe("agent event handler", () => {
       }
       expect(clearAgentRunContext).not.toHaveBeenCalled();
       expect(persistGatewaySessionLifecycleEventMock).toHaveBeenCalledOnce();
-      expect(trackTrackedRunTerminalPersistence).toHaveBeenCalledWith({
+      expectTrackedTerminalPersistence(trackTrackedRunTerminalPersistence, {
         runId,
         clientRunId: runId,
         sessionKey: "session-reply-dispatch",
         sessionId: undefined,
-        persistence: expect.any(Promise),
       });
     },
   );
@@ -5464,6 +5462,7 @@ describe("agent event handler", () => {
       runId: "run-maintenance-child",
       clientRunId: "run-maintenance-child",
       sessionKey: "session-maintenance-parent",
+      ownerEvent: expect.objectContaining({ runId: "run-maintenance-child", stream: "lifecycle" }),
     });
   });
 
