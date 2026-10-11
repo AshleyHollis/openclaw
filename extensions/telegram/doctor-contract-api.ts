@@ -105,4 +105,16 @@ export const stateMigrations: PluginDoctorStateMigration[] = [
       return telegramIngressSpoolMigration.migrateLegacyState(params);
     },
   },
+  {
+    id: "telegram-legacy-state",
+    label: "Retired Telegram JSON state",
+    async detectLegacyState(params) {
+      const { telegramRetiredStateMigration } = await import("./src/state-migrations.js");
+      return telegramRetiredStateMigration.detectLegacyState(params);
+    },
+    async migrateLegacyState(params) {
+      const { telegramRetiredStateMigration } = await import("./src/state-migrations.js");
+      return telegramRetiredStateMigration.migrateLegacyState(params);
+    },
+  },
 ];
