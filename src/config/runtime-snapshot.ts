@@ -85,7 +85,8 @@ let runtimeConfigAppliedHash: string | null = null;
 let runtimeConfigSnapshotRevision = 0;
 let runtimeConfigSnapshotGeneration = 0;
 let runtimeConfigPreparerGeneration = 0;
-let runtimeConfigSnapshotRefreshHandler: RuntimeSnapshotTypes.RuntimeConfigSnapshotRefreshHandler | null = null;
+let runtimeConfigSnapshotRefreshHandler: RuntimeSnapshotTypes.RuntimeConfigSnapshotRefreshHandler | null =
+  null;
 function assertPreparerDoesNotReceiveAdmittedSelection(config: OpenClawConfig): void {
   const active = runtimeConfigSnapshot;
   if (
