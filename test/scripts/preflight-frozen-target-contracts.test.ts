@@ -704,6 +704,62 @@ describe("frozen admission bootstrap repairs", () => {
   });
 });
 
+describe("frozen admission Command Center declarations", () => {
+  const paths = ["package.json", "src/plugin-sdk/control-ui.ts", "src/plugins/manifest-types.ts"];
+  const declarations = {
+    "src/plugin-sdk/control-ui.ts": 'throw new Error("selected declaration executed");',
+    "src/plugins/manifest-types.ts": 'throw new Error("selected manifest executed");',
+  };
+
+  it.each([true, false])("binds committed selected declarations with omissions=%s", (allow) => {
+    const f = fixture(declarations);
+    writeFileSync(join(f.selected.root, paths[1]), "dirty replacement");
+    const result = f.run(
+      { consumers: ["command-center"] },
+      { allowFrozenTargetScenarioOmissions: allow },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    const record = JSON.parse(result.stdout);
+    expect(record.contracts).toEqual([
+      {
+        consumer: "command-center",
+        status: "ADMITTED",
+        modes: { source: "declarations-only" },
+        files: paths.map((path) => ({ source: "selected", path })),
+      },
+    ]);
+    for (const path of paths) {
+      expect(record.sources.selected).toContainEqual({
+        path,
+        oid: f.selected.git("rev-parse", `${f.selected.sha}:${path}`),
+      });
+    }
+    expect(existsSync(join(f.selected.root, "node_modules"))).toBe(false);
+  });
+
+  it.each(paths)("rejects a missing committed declaration %s", (path) => {
+    const f = fixture(declarations);
+    f.selected.git("rm", "--", path);
+    f.selected.git("commit", "-qm", "remove declaration");
+    f.selected.sha = f.selected.git("rev-parse", "HEAD");
+    // An untracked replacement cannot satisfy the committed source contract.
+    mkdirSync(dirname(join(f.selected.root, path)), { recursive: true });
+    writeFileSync(join(f.selected.root, path), "untracked replacement");
+    expectRejected(
+      f.run(
+        { consumers: ["command-center"] },
+        { selected: { root: f.selected.root, sha: f.selected.sha } },
+      ),
+      "missing required contract file",
+    );
+  });
+
+  it("preserves refusal of unknown consumers", () => {
+    const f = fixture(declarations);
+    expectRejected(f.run({ consumers: ["command-center-unknown"] }), "unknown selected contract");
+  });
+});
+
 describe("frozen admission entry", () => {
   it.each<{
     name: string;

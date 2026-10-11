@@ -48,6 +48,15 @@ const workflowToolingClosure = [
   "scripts/lib/numeric-options.mjs",
 ];
 const maxRecordBytes = 256 * 1024;
+// Companion source qualification binds declarations only; it does not admit a
+// compiled SDK, plugin activation, or an installed host.
+const declarationFiles = {
+  "command-center": [
+    "package.json",
+    "src/plugin-sdk/control-ui.ts",
+    "src/plugins/manifest-types.ts",
+  ],
+};
 const prefix = "OPENCLAW_FROZEN_TARGET_";
 const shellOwners = {
   "release-typed-onboarding": [
@@ -887,7 +896,11 @@ async function preflightFrozenTargetContracts(input, workflow = false, verifiedT
   );
   const consumers = new Set(strings(selection.consumers ?? [], "consumers"));
   for (const consumer of consumers) {
-    if (!Object.hasOwn(shellOwners, consumer) && !Object.hasOwn(targetFiles, consumer)) {
+    if (
+      !Object.hasOwn(shellOwners, consumer) &&
+      !Object.hasOwn(targetFiles, consumer) &&
+      !Object.hasOwn(declarationFiles, consumer)
+    ) {
       throw new Error(`unknown selected contract: ${consumer}`);
     }
   }
@@ -1001,6 +1014,13 @@ async function preflightFrozenTargetContracts(input, workflow = false, verifiedT
   const contracts = [];
   for (const consumer of [...consumers].toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
     const contract = { consumer, status: "ADMITTED", modes: {}, files: [] };
+    if (Object.hasOwn(declarationFiles, consumer)) {
+      contract.modes.source = "declarations-only";
+      for (const path of declarationFiles[consumer]) {
+        required(sources.selected, path);
+        contract.files.push({ source: "selected", path });
+      }
+    }
     const owner = shellOwners[consumer === "kitchen-sink-plugin" ? "plugins" : consumer];
     if (owner) {
       const [fn, names] = owner;
