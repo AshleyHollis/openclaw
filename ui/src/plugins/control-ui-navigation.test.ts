@@ -22,7 +22,15 @@ it("shows the active plugin section's ordered children and leaves pinned childre
       pageHref: (page: ControlUiNavigationItem["page"]) =>
         page.id === "special"
           ? "/special"
-          : `/boards${page.params ? `?${new URLSearchParams(page.params)}` : ""}`,
+          : `/boards${
+              page.params
+                ? `?${new URLSearchParams(
+                    Object.entries(page.params).filter(
+                      (entry): entry is [string, string] => entry[1] !== null,
+                    ),
+                  )}`
+                : ""
+            }`,
     },
   } as unknown as ControlUiHost;
   const registration = (

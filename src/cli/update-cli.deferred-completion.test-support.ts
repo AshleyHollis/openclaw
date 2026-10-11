@@ -42,9 +42,8 @@ vi.mock("../process/exec.js", async (importOriginal) => {
     ...actual,
     runCommandWithTimeout: transport.run,
     runExec: transport.exec,
-    runUtf8CommandWithTimeout: await createUpdateUtf8CommandTransportFixture(
-      transport,
-      actual.runUtf8CommandWithTimeout,
+    runUtf8CommandWithTimeout: vi.fn(
+      await createUpdateUtf8CommandTransportFixture(transport, actual.runUtf8CommandWithTimeout),
     ),
   };
 });
@@ -162,8 +161,9 @@ const { createTempHomeEnv } = await import("../test-utils/temp-home.js");
 const existingHostUri = nodeSqlite.resolveExistingSqliteFileUri;
 const immutableHostUri = nodeSqlite.resolveImmutableSqliteFileUri;
 export const { updateGitCheckout } = await import("../infra/update-runner-git.js");
-const { runExec, runCommandWithTimeout } = await import("../process/exec.js");
-export { runExec };
+const { runExec, runCommandWithTimeout, runUtf8CommandWithTimeout } =
+  await import("../process/exec.js");
+export { runExec, runUtf8CommandWithTimeout };
 export const { defaultRuntime, ExitError } = await import("../runtime.js");
 export const { readConfigFileSnapshot, replaceConfigFile, mutateConfigFileWithRetry } =
   await import("../config/config.js");

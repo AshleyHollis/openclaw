@@ -264,9 +264,7 @@ describe("update-cli", () => {
     vi.mocked(updateGitCheckout).mockResolvedValue(
       runtimeRecovery.currentGitCoreFixture(process.cwd(), VERSION).outcome,
     );
-    vi.mocked(resolveGatewayInstallEntrypoint).mockResolvedValueOnce(
-      "/tmp/openclaw-updated-entry.mjs",
-    );
+    vi.mocked(resolveGatewayInstallEntrypoint).mockResolvedValueOnce(FRESH_POST_UPDATE_ENTRYPOINT);
     mockNpmPluginOutcomes([], true);
     let strictValidationEnv: string | undefined;
     vi.mocked(readConfigFileSnapshot).mockImplementation(async (options) => {

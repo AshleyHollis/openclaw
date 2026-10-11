@@ -429,7 +429,6 @@ export function createControlUiComponents(options: {
                 filter: "all",
                 browserPath: props.currentPath,
                 browserSearch: props.query,
-                collapsed: false,
                 sessionKey: "plugin:topic-files",
                 list: {
                   sessionKey: "plugin:topic-files",
@@ -448,10 +447,6 @@ export function createControlUiComponents(options: {
                 loading: props.loading,
                 error: props.error,
                 activeId: props.selectedPath ? `file:${props.selectedPath}` : null,
-                dock: "right",
-                narrowLayout: false,
-                onToggleCollapsed: () => {},
-                onSetDock: () => {},
                 onRefresh: () => props.onRefresh(),
                 onBrowsePath: (path) => props.onBrowsePath(path),
                 onOpenFile: (path) => props.onSelect(path),

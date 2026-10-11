@@ -1,4 +1,5 @@
 import { expectDefined } from "@openclaw/normalization-core";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CronService } from "../cron/service.js";
 import { createCronStoreHarness, createNoopLogger } from "../cron/service.test-harness.js";
@@ -23,6 +24,13 @@ const family = {
   name: "Plugin maintenance",
   ownerPluginTag: "[managed-by=test-plugin]",
 };
+
+function createdJobId(result: unknown): string {
+  if (!isRecord(result) || typeof result.id !== "string" || !result.id) {
+    throw new Error("Scheduler add did not return a job ID");
+  }
+  return result.id;
+}
 
 afterEach(async () => {
   await Promise.all([...handles].map((handle) => handle.stop()));

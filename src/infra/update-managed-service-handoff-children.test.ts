@@ -5,7 +5,11 @@ import type { ManagedHandoffLeasePayload } from "./update-managed-service-handof
 const commandKey = "/install/.openclaw-update-child-12345678-1234-1234-1234-123456789abc-command";
 const helper = { pid: 100, startIdentity: "helper-start" };
 
-function payload(bound = false): Extract<ManagedHandoffLeasePayload, { version: 2 }> {
+type UpdateLease = Extract<ManagedHandoffLeasePayload, { version: 2 }> & {
+  action: Extract<ManagedHandoffLeasePayload["action"], { kind: "update" }>;
+};
+
+function payload(bound = false): UpdateLease {
   return {
     version: 2,
     action: { kind: "update" },
@@ -39,7 +43,12 @@ describe("historical command custody", () => {
     lease.action.mutationProtocol = "original-cancellation-v1";
     expect(managedCommandCustody(lease, commandKey)).toBeUndefined();
     delete lease.action.mutationProtocol;
-    lease.mutationOriginal = { key: "/install", owner: "original", payload: "original-payload" };
+    lease.mutationOriginal = {
+      key: "/install",
+      owner: "original",
+      payload: "original-payload",
+      updatedAt: 1,
+    };
     expect(managedCommandCustody(lease, commandKey)).toBeUndefined();
   });
 
