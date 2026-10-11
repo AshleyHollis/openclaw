@@ -30,9 +30,11 @@ import {
   getActiveGatewayRootWorkCount,
   resetGatewayWorkAdmission,
 } from "../process/gateway-work-admission.js";
+import { annotateInterSessionPromptText } from "../sessions/input-provenance.js";
 import { runOpenClawAgentWriteAdmission } from "../state/openclaw-agent-write-admission.js";
 import { createTestRegistry } from "../test-utils/channel-plugins.js";
 import { useSessionStoreTempDirs } from "../test-utils/session-state-cleanup.js";
+import { INTERNAL_MESSAGE_CHANNEL } from "../utils/message-channel.js";
 import { resetAdjustedParamsByToolCallIdForTests } from "./agent-tools.before-tool-call.state.js";
 import * as embeddedRuns from "./embedded-agent-runner/runs.js";
 import {
@@ -322,14 +324,56 @@ describe("sessions tools", () => {
   });
 
   it.each(["SendMessage", "send_message", "content", "text"])(
-    "sessions_send requires canonical message instead of hidden alias %s",
+    "sessions_send normalizes hidden alias %s without forwarding it",
     async (alias) => {
-      await expect(
-        getSessionTool("sessions_send").execute("alias-body", {
+      mockGatewayResponses({ agent: { runId: "alias-run", status: "accepted" } });
+      const tool = getSessionTool("sessions_send");
+      const inputProvenance = {
+        kind: "inter_session" as const,
+        sourceSessionKey: undefined,
+        sourceChannel: undefined,
+        sourceTool: "sessions_send",
+      };
+      const assertNormalizedSend = (body: string) => {
+        const calls = callGatewayMock.mock.calls
+          .map(([request]) => request as GatewayCall)
+          .filter((request) => request.method === "agent");
+        expect(calls).toHaveLength(1);
+        expect(calls[0]?.params).toEqual({
+          message: annotateInterSessionPromptText(body, inputProvenance),
+          agentId: "main",
           sessionKey: "agent:main:main",
-          [alias]: "hidden message",
-          timeoutSeconds: 0,
-        }),
+          idempotencyKey: expect.any(String),
+          deliver: false,
+          sourceReplyDeliveryMode: "message_tool_only",
+          channel: INTERNAL_MESSAGE_CHANNEL,
+          lane: expect.stringMatching(/^nested(?::|$)/),
+          inputProvenance,
+        });
+        for (const hidden of ["SendMessage", "send_message", "content", "text"]) {
+          expect(calls[0]?.params).not.toHaveProperty(hidden);
+          expect(tool.parameters).not.toHaveProperty(`properties.${hidden}`);
+        }
+      };
+      const args = {
+        sessionKey: "agent:main:main",
+        [alias]: "Reasoning:\n_internal plan_\n\nVisible alias answer",
+        timeoutSeconds: 0,
+      };
+      expect(tool.prepareArguments?.(args)).toMatchObject({ message: "Visible alias answer" });
+      const result = await tool.execute("alias-body", args);
+      expect(result.details).toMatchObject({ status: "accepted" });
+      assertNormalizedSend("Visible alias answer");
+
+      callGatewayMock.mockClear();
+      const canonical = { ...args, message: "Canonical answer" };
+      expect(tool.prepareArguments?.(canonical)).toMatchObject({ message: "Canonical answer" });
+      await tool.execute("canonical-body", canonical);
+      assertNormalizedSend("Canonical answer");
+
+      callGatewayMock.mockClear();
+      await expect(
+        tool.execute("blank-body", { ...args, message: " \t", [alias]: " \n" }),
       ).rejects.toThrow("message required");
       expect(callGatewayMock).not.toHaveBeenCalled();
     },
