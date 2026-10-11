@@ -561,18 +561,17 @@ describe("Workboard gateway lifecycle sync", () => {
       execution: execution(sessionKey, "run-agent"),
     });
     let active = true;
-    const request = vi.fn().mockImplementation(async (method: string) =>
-      method === "sessions.list"
-        ? { sessions: [] }
-        : {
-            session: {
-              key: sessionKey,
-              status: active ? "running" : success ? "done" : "failed",
-              hasActiveRun: active,
-              updatedAt: card.updatedAt + 1,
-            },
-          },
-    );
+    const request = vi.fn().mockImplementation(async (method: string) => {
+      const session = {
+        key: sessionKey,
+        status: active ? "running" : success ? "done" : "failed",
+        hasActiveRun: active,
+        updatedAt: card.updatedAt + 1,
+      };
+      return method === "sessions.list"
+        ? { sessions: sessionKey.includes("incognito-") ? [] : [session] }
+        : { session };
+    });
     const gateway = { isAvailable: async () => true, request };
 
     const handler = vi.fn(async (...args: unknown[]) =>
