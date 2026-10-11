@@ -243,6 +243,7 @@ const BUILD_ALL_PROFILES: Record<string, string[]> = {
   // Smoke builds retain typed compilation and publication checks without the UI/metadata tail.
   strictSmoke: [...FULL_RUNTIME_STEP_LABELS, ...SDK_DECLARATION_STEP_LABELS],
   pluginSdkStrictSmoke: [
+    "plugins:assets:build",
     ...FULL_COMPILER_STEP_LABELS,
     ...RUNTIME_STEP_LABELS,
     ...SDK_DECLARATION_STEP_LABELS,

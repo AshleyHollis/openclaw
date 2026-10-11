@@ -152,7 +152,7 @@ describe("resolveFeishuMessageDedupeKey", () => {
   });
 
   it("keeps the shipped captioned-post replay identity when files[] are present", () => {
-    const event: FeishuMessageEvent = {
+    const messageEvent: FeishuMessageEvent = {
       sender: { sender_id: { open_id: "ou-user" } },
       message: {
         message_id: "om_post_files",
@@ -173,11 +173,11 @@ describe("resolveFeishuMessageDedupeKey", () => {
       },
     };
 
-    expect(resolveFeishuMessageDedupeKey(event)).toBe("om_post_files");
+    expect(resolveFeishuMessageDedupeKey(messageEvent)).toBe("om_post_files");
   });
 
   it("keeps inline-media post replay identity when extra top-level files[] are present", () => {
-    const event: FeishuMessageEvent = {
+    const messageEvent: FeishuMessageEvent = {
       sender: { sender_id: { open_id: "ou-user" } },
       message: {
         message_id: "om_post",
@@ -198,7 +198,7 @@ describe("resolveFeishuMessageDedupeKey", () => {
       },
     };
 
-    expect(resolveFeishuMessageDedupeKey(event)).toBe(
+    expect(resolveFeishuMessageDedupeKey(messageEvent)).toBe(
       JSON.stringify(["om_post", "image_key:img_inline"]),
     );
   });
