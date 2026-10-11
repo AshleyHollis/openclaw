@@ -30,6 +30,11 @@ import { SESSION_PULL_REQUESTS_SUBSCRIBE_METHOD } from "../lib/session-pull-requ
 import { takeControlUiViewportScreenshot } from "../test-helpers/control-ui-e2e-screenshot.ts";
 import { controlUiSessionUrl } from "../test-helpers/control-ui-e2e.ts";
 import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts";
+import {
+  pullRequest,
+  syntheticChecksResponse,
+  type SyntheticRepository,
+} from "./session-pr-reader-lifetime.test-support.ts";
 
 const sessionKey = "agent:main:pr-reader-lifetime";
 const checksMethod = "controlUi.sessionPullRequests.checks";
@@ -42,14 +47,8 @@ const suite = createControlUiE2eSuite({
   startServerBeforeBrowser: true,
 });
 
-type Repository = {
+type Repository = SyntheticRepository & {
   root: string;
-  repo: string;
-  branch: string;
-  headSha: string;
-  number: number;
-  additions: number;
-  checkName?: string;
 };
 type Delivery = { number: number; repo: string; branch: string; additions?: number };
 
@@ -82,22 +81,6 @@ async function createRepository(
   await git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
   await git("checkout", "-b", branch);
   return { root, repo, branch, number, additions: 4, headSha: await git("rev-parse", "HEAD") };
-}
-
-function pullRequest(repository: Repository) {
-  return {
-    number: repository.number,
-    title: `Review ${repository.repo}`,
-    html_url: `https://github.com/synthetic/${repository.repo}/pull/${repository.number}`,
-    state: "open",
-    draft: false,
-    merged_at: null,
-    head: { ref: repository.branch, sha: repository.headSha },
-    base: { ref: "main", repo: { name: repository.repo, owner: { login: "synthetic" } } },
-    additions: repository.additions,
-    deletions: 1,
-    changed_files: 1,
-  };
 }
 
 function deliveryFrom(payload: unknown): Delivery | undefined {
@@ -282,29 +265,22 @@ suite.define(() => {
             return json([pullRequest(repository)]);
           }
           if (url.pathname.includes("/pulls/")) {
+            return json(pullRequest(repository));
+          }
+          if (url.pathname.endsWith("/actions/runs")) {
+            if (
+              url.searchParams.get("head_sha") !== repository.headSha ||
+              url.searchParams.get("check_suite_id") !== String(repository.number)
+            ) {
+              throw new Error("Checks lookup did not use the admitted PR head and suite");
+            }
             if (repository === replacement && holdChecks) {
               holdChecks = false;
               checksEntered.resolve();
               await releaseIdentityReads.promise;
             }
-            return json(pullRequest(repository));
           }
-          if (url.pathname.endsWith("/check-runs")) {
-            return json({
-              total_count: 1,
-              check_runs: [
-                {
-                  id: repository.number,
-                  name: repository.checkName ?? `${repository.repo} check`,
-                  head_sha: repository.headSha,
-                  status: "completed",
-                  conclusion: "success",
-                  app: { slug: "synthetic-ci" },
-                },
-              ],
-            });
-          }
-          throw new Error(`Unexpected synthetic GitHub request: ${url.pathname}`);
+          return json(syntheticChecksResponse(repository, url));
         });
         restoreFetch = () => transport.mockRestore();
         const { startGatewayServer } = await import("../../../src/gateway/server.js");
