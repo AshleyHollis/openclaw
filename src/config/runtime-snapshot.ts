@@ -27,6 +27,7 @@ import {
   runRuntimeConfigSessionStoreSelectionCallback,
   RuntimeConfigSessionStoreSelectionHeldError,
 } from "./runtime-session-store-selection.js";
+import type * as RuntimeSnapshotTypes from "./runtime-snapshot.types.js";
 import type { OpenClawConfig } from "./types.js";
 
 export {
@@ -35,7 +36,6 @@ export {
   RuntimeConfigSessionStoreSelectionHeldError,
 } from "./runtime-session-store-selection.js";
 
-import type * as RuntimeSnapshotTypes from "./runtime-snapshot.types.js";
 export type {
   RuntimeConfigSnapshotRefreshOptions,
   RuntimeConfigSnapshotRefreshParams,
@@ -47,6 +47,7 @@ export type {
   RuntimeConfigWritePreparedCandidate,
   RuntimeConfigSnapshotMetadata,
 } from "./runtime-snapshot.types.js";
+
 export function resolveConfigWriteAfterWrite(
   afterWrite?: RuntimeSnapshotTypes.ConfigWriteAfterWrite,
 ): RuntimeSnapshotTypes.ConfigWriteAfterWrite {

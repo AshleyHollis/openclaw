@@ -4,7 +4,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { tryAcquireExclusiveSqliteCoordinator } from "../plugin-sdk/sqlite-runtime.js";
-import * as sqlite from "./node-sqlite.js";
 import { openNodeSqliteDatabase } from "./node-sqlite.js";
 import { captureCoordinatorDatabase } from "./sqlite-coordinator.test-support.js";
 
