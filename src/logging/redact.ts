@@ -49,6 +49,7 @@ import {
   FORM_AWARE_EQUALS_ASSIGNMENT_PATTERN_SOURCES,
   FORM_BODY_KEY_INVISIBLE_CHARS,
   IDENTIFIER_SAFE_TOKEN_BOUNDARY,
+  isDecodedScalarAssignmentMatcher,
   PAYMENT_CREDENTIAL_ENV_KEYS,
   PAYMENT_CREDENTIAL_JSON_KEYS,
   PAYMENT_CREDENTIAL_QUERY_KEYS,
@@ -1533,7 +1534,7 @@ function redactLogRecord<Result>(
         serialized,
         origins,
         [
-          [{ patterns: decodedPatterns }],
+          [{ patterns: decodedPatterns, scalarGrammar: isDecodedScalarAssignmentMatcher }],
           [
             { patterns: preparationPatterns },
             {

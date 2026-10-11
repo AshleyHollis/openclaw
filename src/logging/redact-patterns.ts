@@ -354,6 +354,11 @@ const BARE_PASS_ASSIGNMENT_MATCHER = Object.freeze({
   source: "bare-pass-assignment",
   exec: matchBarePassAssignments,
 });
+
+/** This assignment grammar uses decoded whitespace, not JSON escape sequences. */
+export function isDecodedScalarAssignmentMatcher(pattern: RedactPattern): boolean {
+  return pattern === BARE_PASS_ASSIGNMENT_MATCHER;
+}
 const TELEGRAM_BOT_TOKEN_REDACT_PATTERN = String.raw`\bbot(\d{6,}:[A-Za-z0-9_-]{20,})\b`;
 const TELEGRAM_TOKEN_REDACT_PATTERN = String.raw`\b(\d{6,}:[A-Za-z0-9_-]{20,})\b`;
 const CREDENTIAL_STYLE_HEADER_KEYS = "x-goog-api-key|api-key|apikey|x-api-token|x-access-token";
