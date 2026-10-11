@@ -82,6 +82,7 @@ function describeSession(
 
 function expectPlacementResponse(respond: ReturnType<typeof vi.fn>, row: PlacementRow) {
   expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
+    lifecycleRevision: null,
     session: expect.objectContaining({
       key: row.key,
       sessionId: row.sessionId,
@@ -286,6 +287,7 @@ it.for([
       pending.push(Promise.allSettled([afterDrain.completion]));
       await afterDrain.completion;
       expect(afterDrain.respond).toHaveBeenCalledExactlyOnceWith(true, {
+        lifecycleRevision: null,
         session: expect.objectContaining({ sessionId: afterDrain.row.sessionId }),
       });
     } finally {
@@ -501,6 +503,7 @@ it.for([false, true])("keeps exact reads independent of bulk %s", async (categor
         sql.restore();
       }
       expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
+        lifecycleRevision: null,
         session: expect.objectContaining({
           key: exactRow.key,
           sessionId: exactRow.sessionId,
@@ -548,6 +551,7 @@ it.each([false, true])(
         expect(projection.materializedCount).toBe(archived ? 0 : 1);
         await describeSession(context, target.sessionKey, "placement-spelling", respond).completion;
         expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
+          lifecycleRevision: null,
           session: expect.objectContaining({
             key: target.sessionKey,
             sessionId,
@@ -644,6 +648,7 @@ it.each([false, true])(
         await describeSession(context, query.key, "private-description", respond).completion;
         expect(prepared).toHaveBeenCalledOnce();
         expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
+          lifecycleRevision: "original",
           session: expect.objectContaining({
             key: query.key,
             sessionId: "private-description",

@@ -5861,7 +5861,7 @@ INSERT INTO macos_port_guardian_records VALUES (4242, 18789, '/usr/bin/ssh', 're
     expect(repairOpenClawStateDatabaseSchema(options)).toEqual({
       changes: [
         "Migrated cloud worker placements to execution modes",
-        "Migrated shared state session watch cursors ΓåÆ provenance column (0 ambient, 0 sentinels removed)",
+        "Migrated shared state session watch cursors → provenance column (0 ambient, 0 sentinels removed)",
         "Qualified historical cron creator attribution as unknown (v14)",
         "Migrated shared state tables to SQLite STRICT typing (1)",
       ],
@@ -6127,7 +6127,7 @@ INSERT INTO macos_port_guardian_records VALUES (4242, 18789, '/usr/bin/ssh', 're
 
     expect(repairOpenClawStateDatabaseSchema(options)).toEqual({
       changes: [
-        "Migrated shared state audit event ledger ΓåÆ versioned message lifecycle schema",
+        "Migrated shared state audit event ledger → versioned message lifecycle schema",
         "Migrated shared state tables to SQLite STRICT typing (3)",
       ],
       warnings: [],

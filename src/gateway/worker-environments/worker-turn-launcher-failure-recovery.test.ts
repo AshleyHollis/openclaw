@@ -290,6 +290,7 @@ describe("worker turn launcher failure recovery", () => {
       );
       await describeSession();
       expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
+        lifecycleRevision: null,
         session: expect.objectContaining({
           placement: expect.objectContaining({ state: "draining" }),
         }),
@@ -307,6 +308,7 @@ describe("worker turn launcher failure recovery", () => {
       expect(failed?.terminalReason).toBe(failed?.recoveryError);
       await describeSession();
       expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
+        lifecycleRevision: null,
         session: expect.objectContaining({
           placement: expect.objectContaining({
             state: "failed",
