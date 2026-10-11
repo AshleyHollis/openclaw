@@ -15,7 +15,7 @@ function packageScripts(files: string[]) {
 }
 
 describe("Windows CI whole-file placement", () => {
-  it("covers the package-owned native inventory exactly once within five budgeted jobs", () => {
+  it("covers the package-owned native inventory exactly once within six budgeted jobs", () => {
     const { scripts } = JSON.parse(
       readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
     );
@@ -23,12 +23,12 @@ describe("Windows CI whole-file placement", () => {
       scripts[`test:windows:ci:${part}`].slice(command.length + 1).split(" "),
     );
     const shards = createWindowsTestShards(scripts);
-    expect(shards).toHaveLength(5);
+    expect(shards).toHaveLength(6);
     const compareFiles = (a: string, b: string) => a.localeCompare(b);
     expect(shards.flatMap((shard) => shard.targets).toSorted(compareFiles)).toEqual(
       inventory.toSorted(compareFiles),
     );
-    // The Windows long-path identity regression (#162332) rounds every shard to 428s; retain the approved tiny budget bump.
+    // Preserve the approved ceiling; inventory growth uses another whole-file shard.
     expect(shards.every((shard) => shard.predicted_seconds < 429)).toBe(true);
     expect(
       shards.filter(

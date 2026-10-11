@@ -224,7 +224,7 @@ export function createWindowsTestShards(
       right.seconds - left.seconds || left.targets[0]!.localeCompare(right.targets[0]!, "en"),
   );
 
-  for (const count of [4, 5]) {
+  for (const count of [4, 5, 6]) {
     const shards = Array.from({ length: Math.min(count, envelopes.length) }, (_, index) => ({
       check_name: `checks-windows-node-test-${index + 1}`,
       targets: [] as string[],
@@ -238,9 +238,9 @@ export function createWindowsTestShards(
       shard.targets.push(...envelope.targets);
     }
     // Keep whole files: splitting a fixture file would repeat its prepared compiler.
-    // Growth may exceed the estimate, but must never remove coverage or exceed five jobs.
+    // Growth may exceed the estimate, but must never remove coverage or exceed six jobs.
     if (
-      count === 5 ||
+      count === 6 ||
       shards.every((shard) => Math.ceil(shard.predicted_seconds) < targetSeconds)
     ) {
       return shards.map((shard) => ({
