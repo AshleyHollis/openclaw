@@ -135,6 +135,12 @@ it("pauses offscreen session indicators and resumes them when their rows scroll 
 
   probe.reset();
   scroller.scrollTop += last.getBoundingClientRect().top - scroller.getBoundingClientRect().bottom;
+  // scrollTop rounds to whole pixels, but font layout can place the row on a subpixel.
+  // Align the root's edge to the actual row instead of assuming the rounded scroll touched it.
+  scroller.style.height = `${
+    last.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+  }px`;
+  expect(last.getBoundingClientRect().top).toBe(scroller.getBoundingClientRect().bottom);
   await probe.delivered;
   expect(intersections.get(last)?.isIntersecting).toBe(true);
   expect(intersections.get(last)?.intersectionRatio).toBe(0);
