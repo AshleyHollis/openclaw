@@ -1,22 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const isSha = (value) => /^[0-9a-f]{40}$/u.test(value ?? "");
 const NATIVE_MARKER =
   /\b(?:configureFsSafeNative|getFsSafeNativeConfig|getNativeBinding)\b|@openclaw\/fs-safe\/native/u;
-const LEGACY_PYTHON_ONLY_CONTRACTS = new Set([
-  // 2026.6.33 and earlier frozen lines selected the Python-only fs-safe 0.3 API.
-  "*:0.3.0",
-  // 2026.7.33 upgraded the package without adopting the native durability API.
-  "2026.7.33:0.4.1",
-  // 2026.7.34 retains the same Python-only dependency and runtime contract.
-  "2026.7.34:0.4.1",
-  // 2026.7.35 retains the same Python-only dependency and runtime contract.
-  "2026.7.35:0.4.1",
-]);
-
 function hasBundledNativeBinding(version) {
   const match = /^(\d+)\.(\d+)\.(\d+)$/u.exec(version ?? "");
   if (!match) {
@@ -69,12 +59,8 @@ export function resolveFsSafeNativeContract({
   }
   const packageJson = JSON.parse(packageSource);
   const fsSafeVersion = packageJson.dependencies?.["@openclaw/fs-safe"];
-  const contractKey = `${packageJson.version ?? ""}:${fsSafeVersion ?? ""}`;
-  const legacyPythonOnly =
-    LEGACY_PYTHON_ONLY_CONTRACTS.has(`*:${fsSafeVersion ?? ""}`) ||
-    LEGACY_PYTHON_ONLY_CONTRACTS.has(contractKey);
   const bundledNative = hasBundledNativeBinding(fsSafeVersion);
-  if (!legacyPythonOnly && !bundledNative) {
+  if (!bundledNative) {
     return "required";
   }
   const defaults = readSource("src/infra/fs-safe-defaults.ts");
@@ -84,13 +70,60 @@ export function resolveFsSafeNativeContract({
   if (bundledNative && NATIVE_MARKER.test(defaults)) {
     return "bundled";
   }
-  // fs-safe 0.3.0's public config module exports Python/lock controls only;
-  // a built package on this exact dependency cannot consume native controls.
-  return legacyPythonOnly &&
-    defaults.includes('import { configureFsSafePython } from "@openclaw/fs-safe/config";') &&
-    !NATIVE_MARKER.test(defaults)
-    ? "not-applicable"
-    : "required";
+  return "required";
+}
+
+export function resolveFsSafePublicationContract({
+  selectedSha,
+  workflowSha,
+  allowFrozenSource,
+  containingBranches,
+  readSource,
+}) {
+  assert.ok(isSha(selectedSha), "ref must be a full lowercase commit SHA");
+  assert.ok(isSha(workflowSha), "workflow SHA must be a full lowercase commit SHA");
+  const source = readSource("package.json");
+  if (source === null) {
+    throw new Error("missing fs-safe publication package source");
+  }
+  const manifest = JSON.parse(source);
+  const version = manifest.dependencies?.["@openclaw/fs-safe"];
+  if (version === "0.24.2") {
+    const bundles = manifest.bundleDependencies ?? manifest.bundledDependencies;
+    assert.ok(
+      bundles === true || (Array.isArray(bundles) && bundles.includes("@openclaw/fs-safe")),
+      "patched fs-safe publication must be bundled",
+    );
+    const patchPath = "patches/@openclaw__fs-safe@0.24.2.patch";
+    const workspace = readSource("pnpm-workspace.yaml") ?? "";
+    assert.match(
+      workspace,
+      /["']?@openclaw\/fs-safe@0\.24\.2["']?:\s*patches\/@openclaw__fs-safe@0\.24\.2\.patch/u,
+      "missing exact fs-safe publication patch registration",
+    );
+    const patch = readSource(patchPath);
+    assert.ok(patch !== null, "missing fs-safe publication patch source");
+    assert.equal(
+      createHash("sha256").update(patch).digest("hex"),
+      "c399b3eeebbcb7a5a99e958ad70ac6bb25d395365d91af3519bc75cca37e1dcd",
+      "changed fs-safe publication patch source",
+    );
+    return "required";
+  }
+  // Only a canonical historical target can omit an API it predates.
+  const historicalVersion = /^0\.(\d+)\.\d+$/u.exec(version ?? "");
+  if (
+    historicalVersion &&
+    Number(historicalVersion[1]) < 24 &&
+    allowFrozenSource &&
+    selectedSha !== workflowSha &&
+    containingBranches().some((branch) =>
+      /^origin\/extended-stable\/\d{4}\.(?:[1-9]|1[0-2])\.33$/u.test(branch),
+    )
+  ) {
+    return "not-applicable";
+  }
+  return "required";
 }
 
 let invokedAsMain = false;

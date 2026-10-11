@@ -397,7 +397,7 @@ export function resolveAgentRuntimePluginLoadPlan(params: {
         forceActivatedPluginIds.push(...owners);
       }
     }
-  } else {
+  } else if (includeAgentOwners) {
     const selection = resolveAgentRuntimePluginSelectionOwners(params);
     pluginIds.push(...selection.pluginIds);
     forceActivatedPluginIds.push(...selection.forceActivatedPluginIds);

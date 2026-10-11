@@ -23,6 +23,17 @@ export type LinkReaderPanelToggleDetail = {
   agentId?: string;
 };
 
+export const PLUGIN_PANEL_TOGGLE_EVENT = "openclaw:plugin-panel-toggle";
+
+export type PluginPanelToggleDetail = {
+  pluginId: string;
+  panelId: string;
+  sessionKey: string;
+  agentId?: string;
+  open: boolean;
+  dock?: "bottom" | "right";
+};
+
 /** Opens a Files target in the existing active pane, independently of Chat selection. */
 export const FILES_PANEL_OPEN_EVENT = "openclaw:files-panel-open";
 export type FilesPanelOpenDetail = {

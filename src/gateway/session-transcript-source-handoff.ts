@@ -29,7 +29,7 @@ export function assertSessionTranscriptGatewaySourceAdmissionAvailable(gateway: 
 /** Host-only sideband; neither the closure nor native custody belongs to RPC JSON. */
 export type SessionTranscriptGatewaySource = Readonly<{
   selection: SessionTranscriptSourceSelection;
-  assertCurrent: () => void;
+  assertCurrent: (this: void) => void;
 }>;
 
 function assertSessionTranscriptGatewaySource(

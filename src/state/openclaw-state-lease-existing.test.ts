@@ -11,10 +11,10 @@ import {
   AGENT_DATABASE_MAINTENANCE_LEASE,
   assertNoOpenClawAgentDatabaseLeases,
 } from "./openclaw-agent-db-lease.js";
+import { withAgentDatabaseMaintenanceLease } from "./openclaw-agent-db-maintenance-lease.js";
 import {
   closeOpenClawAgentDatabasesAsync,
   openOpenClawAgentDatabase,
-  withAgentDatabaseMaintenanceLease,
 } from "./openclaw-agent-db.js";
 import { OPENCLAW_STATE_SCHEMA_VERSION } from "./openclaw-state-db-contract.js";
 import {
@@ -78,32 +78,30 @@ it.each(["timer", "worker"] as const)(
   async (heartbeat) => {
     const f = source();
     const before = inspect(f.pathname);
-    let entered: ReturnType<typeof inspect> | undefined;
-    await withOpenClawStateLease(
+    const entered = await withOpenClawStateLease(
       { ...f.lease, ...(heartbeat === "worker" ? { heartbeat } : {}) },
       async (lease) => {
         lease.assertOwned();
         lease.renew?.();
-        entered = inspect(f.pathname);
+        return inspect(f.pathname);
       },
     );
-    expect(entered?.version).toEqual(before.version);
-    expect(entered?.schema).toEqual(before.schema);
-    expect(entered?.leases).toHaveLength(1);
+    expect(entered.version).toEqual(before.version);
+    expect(entered.schema).toEqual(before.schema);
+    expect(entered.leases).toHaveLength(1);
     expect(inspect(f.pathname)).toEqual(before);
   },
 );
 it("takes plugin and agent writer ownership before allowing the candidate migration", async () => {
   const f = source();
-  let atEntry: ReturnType<typeof inspect> | undefined;
-  await withPluginLifecycleLease(f.options, () =>
+  const atEntry = await withPluginLifecycleLease(f.options, () =>
     withAgentDatabaseMaintenanceLease(f.options, async (maintenance) => {
       maintenance.assertOwned();
-      atEntry = inspect(f.pathname);
+      return inspect(f.pathname);
     }),
   );
-  expect(atEntry?.version).toEqual({ user_version: 15 });
-  expect(atEntry?.leases).toHaveLength(2);
+  expect(atEntry.version).toEqual({ user_version: 15 });
+  expect(atEntry.leases).toHaveLength(2);
   expect(inspect(f.pathname).version).toEqual({ user_version: 15 });
   expect(inspect(f.pathname).leases).toEqual([]);
 });
@@ -161,23 +159,13 @@ it("does not create missing existing-only lease state", async () => {
 });
 it("keeps the maintenance lease live across an explicitly owned migration", async () => {
   const f = source();
-  const ready = createDeferred();
-  const release = createDeferred();
-  let beforeMigration: ReturnType<typeof inspect>["version"] | undefined;
-  const run = withOpenClawStateLease(f.lease, async (lease) => {
-    beforeMigration = inspect(f.pathname).version;
-    ready.resolve();
-    await release.promise;
+  const beforeMigration = await withOpenClawStateLease(f.lease, async (lease) => {
+    const version = inspect(f.pathname).version;
     lease.assertOwned();
     openOpenClawStateDatabase(f.options);
     lease.assertOwned();
+    return version;
   });
-  try {
-    await withTestTimeout(ready.promise, 10_000, "lease admission did not complete");
-  } finally {
-    release.resolve();
-  }
-  await run;
   expect(beforeMigration).toEqual({ user_version: 15 });
   expect(inspect(f.pathname).version).toEqual({ user_version: OPENCLAW_STATE_SCHEMA_VERSION });
   expect(inspect(f.pathname).leases).toEqual([]);
@@ -226,6 +214,7 @@ it("drains cached agent handles from another profile using their own lease datab
     entered = true;
     expect(target.agent?.db.isOpen).toBe(false);
     expect(otherAgent.db.isOpen).toBe(false);
+    expect(inspect(target.pathname).version).toEqual({ user_version: 15 });
   });
   expect(entered).toBe(true);
   expect(inspect(target.pathname).version).toEqual({ user_version: 15 });

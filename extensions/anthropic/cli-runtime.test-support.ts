@@ -262,9 +262,9 @@ for await (const line of createInterface({ input: process.stdin })) {
     }
     if (scenario === "large-split-record") {
       const record = JSON.stringify({ type: "assistant", message: { role: "assistant",
-        content: [{ type: "text", text: "🦞" + "x".repeat(300_000) + "🦞" }] } });
+        content: [{ type: "text", text: "\u{1F99E}" + "x".repeat(300_000) + "\u{1F99E}" }] } });
       const bytes = Buffer.from(record + "\n");
-      const crab = bytes.indexOf(Buffer.from("🦞"));
+      const crab = bytes.indexOf(Buffer.from("\u{1F99E}"));
       process.stdout.write(bytes.subarray(0, crab + 1));
       await new Promise((resolve) => setImmediate(resolve));
       process.stdout.write(bytes.subarray(crab + 1, crab + 3));

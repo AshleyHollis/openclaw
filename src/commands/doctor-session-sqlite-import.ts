@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { setImmediate } from "node:timers/promises";
 import { importSqliteSessionRowsBatch } from "../config/sessions/session-accessor.sqlite-import.js";
-import { normalizePersistedSessionEntryShape } from "../config/sessions/store-entry-shape.js";
 import type { SessionStoreTarget as ResolvedSessionStoreTarget } from "../config/sessions/targets.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { prepareLegacyAcpMigrationSource } from "../infra/legacy-acp-migration-source.js";
@@ -34,6 +33,7 @@ import { verifyCanonicalSessionTranscriptSources } from "../infra/session-sqlite
 import type { LegacySessionRecord } from "./doctor-session-sqlite-discovery.js";
 import type { collectRecoveryInventory } from "./doctor-session-sqlite-recovery-inventory.js";
 import type { DoctorSessionSqliteTargetReport } from "./doctor-session-sqlite-types.js";
+import { normalizePersistedSessionEntryShape } from "./doctor/shared/session-entry-shape.js";
 
 type SessionStoreTarget = ResolvedSessionStoreTarget & { sqlitePath?: string };
 const SESSION_IMPORT_BATCH_SIZE = 256;
@@ -268,23 +268,23 @@ function prepareLegacySessionImport(
   record.sourceFingerprint = transcriptFingerprint;
   const result = countTranscriptEventsForPath(record.transcriptPath);
   const transcriptMtimeMs = readLegacyTranscriptMtimeMs(record);
-  const acpEntry = !record.historical
-    ? normalizePersistedSessionEntryShape(record.entry, { sessionKey: record.sessionKey })
-    : undefined;
+  const normalizedEntry = normalizePersistedSessionEntryShape(record.entry, {
+    sessionKey: record.sessionKey,
+  });
   const params = {
-    historicalOnly: Boolean(record.historical),
+    historicalOnly: Boolean(record.historical || record.preserveCurrentSession),
     allowMalformedRowRepair: true,
     repairLegacyTranscript: true,
     agentId: target.agentId,
-    entry: record.entry,
-    ...(acpEntry?.acp
+    entry: { ...(normalizedEntry ?? record.entry), sessionId: record.entry.sessionId },
+    ...(!record.historical && normalizedEntry?.acp
       ? {
           legacyAcpMigrationSource: prepareLegacyAcpMigrationSource({
             sourcePath: target.storePath,
             sourceSessionKey: record.sessionKey,
-            sessionId: acpEntry.sessionId,
-            lifecycleRevision: acpEntry.lifecycleRevision,
-            meta: acpEntry.acp,
+            sessionId: normalizedEntry.sessionId,
+            lifecycleRevision: normalizedEntry.lifecycleRevision,
+            meta: normalizedEntry.acp,
           }),
         }
       : {}),

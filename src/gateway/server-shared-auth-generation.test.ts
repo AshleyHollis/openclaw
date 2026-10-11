@@ -205,6 +205,138 @@ describe("shared gateway generation publication", () => {
     release();
   });
 
+  it("revokes a rotated local proxy password without revoking the proxy identity", () => {
+    const proxy = proxyConfig();
+    const initial: OpenClawConfig = {
+      ...proxy,
+      gateway: {
+        ...proxy.gateway,
+        auth: { ...proxy.gateway?.auth, password: "old-local-fallback" },
+      },
+    };
+    const next: OpenClawConfig = {
+      ...initial,
+      gateway: {
+        ...initial.gateway,
+        auth: { ...initial.gateway?.auth, password: "new-local-fallback" },
+      },
+    };
+    const retained = proxyClient(initial);
+    const fallback: SharedGatewayAuthClient = {
+      usesSharedGatewayAuth: true,
+      sharedGatewaySessionGeneration: sharedGeneration(initial),
+      authPolicy: captureGatewayAuthPolicy(initial, { role: "operator", authMethod: "password" }),
+      socket: { close: vi.fn() },
+    };
+    const generation = sharedGeneration(next);
+    expect(generation).toBe(fallback.sharedGatewaySessionGeneration);
+    const state = new SharedGatewaySessionGenerationState({ current: generation, required: null });
+    const retainedSource = new AbortController();
+    const detachedFallbackSource = new AbortController();
+    const releaseRetained = state.onInvalidated(
+      generation,
+      () => retainedSource.abort(),
+      retained.authPolicy,
+    );
+    const releaseFallback = state.onInvalidated(
+      generation,
+      () => detachedFallbackSource.abort(),
+      fallback.authPolicy,
+    );
+    const fallbackInvalidated = vi.fn();
+    const releaseClient = onGatewayPolicyClientInvalidated(fallback, fallbackInvalidated);
+    const transition = { previous: initial, next };
+
+    expect(state.finalize(claimGeneration(state, generation), transition)).toBe(true);
+    expect(detachedFallbackSource.signal.aborted).toBe(true);
+    enforceSharedGatewaySessionGenerationForConfigWrite({
+      state,
+      nextConfig: next,
+      resolveRuntimeSnapshotGeneration: () => generation,
+      clients: [retained, fallback],
+      transition,
+    });
+    expect(fallback.sourceInvalidated).toBe(true);
+    expect(fallback.socket.close).toHaveBeenCalledWith(4001, "gateway auth changed");
+    expect(fallbackInvalidated).toHaveBeenCalledOnce();
+    expect(retained.socket.close).not.toHaveBeenCalled();
+    expect(retained.sourceInvalidated).toBeFalsy();
+    expect(retainedSource.signal.aborted).toBe(false);
+    releaseClient();
+    releaseFallback();
+    releaseRetained();
+  });
+
+  it.each([
+    { name: "same-generation refresh", claimed: "generation-a", newer: null, refresh: true },
+    { name: "credential rotation", claimed: "generation-b", newer: null, refresh: false },
+    {
+      name: "newer same-generation write",
+      claimed: "generation-a",
+      newer: "generation-a",
+      refresh: false,
+    },
+    {
+      name: "newer rotated generation",
+      claimed: "generation-a",
+      newer: "generation-b",
+      refresh: false,
+    },
+  ])("finalizes only the current owner after $name", ({ claimed, newer, refresh }) => {
+    const state = new SharedGatewaySessionGenerationState({
+      current: "generation-a",
+      required: "generation-a",
+    });
+    const ownership = claimGeneration(state, claimed);
+    if (refresh) {
+      const snapshot = {
+        sourceConfig: {},
+        config: {},
+        authStores: [],
+        authStoreCredentialsRevision: getRuntimeAuthProfileStoreCredentialsRevision(),
+        authStoreSnapshotsRevision: getRuntimeAuthProfileStoreSnapshotsRevision(),
+        warnings: [],
+        webTools: createEmptyRuntimeWebToolsMetadata(),
+      };
+      activateSecretsRuntimeSnapshot(snapshot);
+      const publishedRevision = getActiveSecretsRuntimeSnapshotRevision();
+      activateSecretsRuntimeSnapshot(snapshot);
+      expect(getActiveSecretsRuntimeSnapshotRevision()).toBeGreaterThan(publishedRevision);
+    }
+    if (newer) {
+      enforceSharedGatewaySessionGenerationForConfigWrite({
+        state,
+        nextConfig: { gateway: { reload: { mode: "off" } } },
+        resolveRuntimeSnapshotGeneration: () => newer,
+        clients: [],
+      });
+    }
+    expect(state.finalize(ownership)).toBe(newer === null);
+    expect({ current: state.current, required: state.required }).toEqual({
+      current: newer ?? claimed,
+      required: newer,
+    });
+  });
+
+  it("rejects a stale restart marker after a newer config write", () => {
+    const state = new SharedGatewaySessionGenerationState({
+      current: "generation-a",
+      required: null,
+    });
+    const restartOwnership = state.capture();
+    enforceSharedGatewaySessionGenerationForConfigWrite({
+      state,
+      nextConfig: { gateway: { reload: { mode: "off" } } },
+      resolveRuntimeSnapshotGeneration: () => "generation-b",
+      clients: [],
+    });
+
+    expect(state.setRequired(restartOwnership, "generation-a")).toBeNull();
+    expect({ current: state.current, required: state.required }).toEqual({
+      current: "generation-b",
+      required: "generation-b",
+    });
+  });
   it("uses the fixed startup auth mode when fencing proxy policy edits", () => {
     const initial = proxyConfig();
     initial.gateway!.auth!.mode = "token";
@@ -329,106 +461,4 @@ describe("shared gateway generation publication", () => {
       releaseRetained();
     },
   );
-
-  it("normalizes a matching required marker after a same-generation refresh", () => {
-    const state = new SharedGatewaySessionGenerationState({
-      current: "generation-a",
-      required: "generation-a",
-    });
-    const ownership = claimGeneration(state, "generation-a");
-    const snapshot = {
-      sourceConfig: {},
-      config: {},
-      authStores: [],
-      authStoreCredentialsRevision: getRuntimeAuthProfileStoreCredentialsRevision(),
-      authStoreSnapshotsRevision: getRuntimeAuthProfileStoreSnapshotsRevision(),
-      warnings: [],
-      webTools: createEmptyRuntimeWebToolsMetadata(),
-    };
-    activateSecretsRuntimeSnapshot(snapshot);
-    const publishedRevision = getActiveSecretsRuntimeSnapshotRevision();
-    activateSecretsRuntimeSnapshot(snapshot);
-
-    expect(getActiveSecretsRuntimeSnapshotRevision()).toBeGreaterThan(publishedRevision);
-
-    expect(state.finalize(ownership)).toBe(true);
-    expect({ current: state.current, required: state.required }).toEqual({
-      current: "generation-a",
-      required: null,
-    });
-  });
-
-  it("does not clear a same-generation required marker owned by a newer config write", () => {
-    const state = new SharedGatewaySessionGenerationState({
-      current: "generation-a",
-      required: "generation-a",
-    });
-    const ownership = claimGeneration(state, "generation-a");
-    enforceSharedGatewaySessionGenerationForConfigWrite({
-      state,
-      nextConfig: { gateway: { reload: { mode: "off" } } },
-      resolveRuntimeSnapshotGeneration: () => "generation-a",
-      clients: [],
-    });
-
-    expect(state.finalize(ownership)).toBe(false);
-    expect({ current: state.current, required: state.required }).toEqual({
-      current: "generation-a",
-      required: "generation-a",
-    });
-  });
-
-  it("clears the previous required generation after a credential rotation commits", () => {
-    const state = new SharedGatewaySessionGenerationState({
-      current: "generation-a",
-      required: "generation-a",
-    });
-    const ownership = claimGeneration(state, "generation-b");
-
-    expect(state.finalize(ownership)).toBe(true);
-    expect({ current: state.current, required: state.required }).toEqual({
-      current: "generation-b",
-      required: null,
-    });
-  });
-
-  it("does not overwrite a newer published generation", () => {
-    const state = new SharedGatewaySessionGenerationState({
-      current: "generation-a",
-      required: "generation-a",
-    });
-    const ownership = claimGeneration(state, "generation-a");
-    enforceSharedGatewaySessionGenerationForConfigWrite({
-      state,
-      nextConfig: { gateway: { reload: { mode: "off" } } },
-      resolveRuntimeSnapshotGeneration: () => "generation-b",
-      clients: [],
-    });
-
-    expect(state.finalize(ownership)).toBe(false);
-    expect({ current: state.current, required: state.required }).toEqual({
-      current: "generation-b",
-      required: "generation-b",
-    });
-  });
-
-  it("rejects a stale restart marker after a newer config write", () => {
-    const state = new SharedGatewaySessionGenerationState({
-      current: "generation-a",
-      required: null,
-    });
-    const restartOwnership = state.capture();
-    enforceSharedGatewaySessionGenerationForConfigWrite({
-      state,
-      nextConfig: { gateway: { reload: { mode: "off" } } },
-      resolveRuntimeSnapshotGeneration: () => "generation-b",
-      clients: [],
-    });
-
-    expect(state.setRequired(restartOwnership, "generation-a")).toBeNull();
-    expect({ current: state.current, required: state.required }).toEqual({
-      current: "generation-b",
-      required: "generation-b",
-    });
-  });
 });

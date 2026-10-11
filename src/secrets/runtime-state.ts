@@ -1,5 +1,6 @@
 /** Holds active secrets runtime snapshots and their refresh lifecycle. */
 import { isDeepStrictEqual } from "node:util";
+import { copyCanonicalAuthProfileCredentialObservations } from "../agents/auth-profiles/credential-observation.js";
 import {
   AuthProfileMigrationRequiredError,
   clearAuthProfileMigrationDiagnostics,
@@ -38,7 +39,7 @@ import {
   type RuntimeConfigSnapshotRefreshHandler,
 } from "../config/runtime-snapshot.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { coerceSecretRef, isSecretRef, type SecretRef } from "../config/types.secrets.js";
+import { parseSecretRef, isSecretRef, type SecretRef } from "../config/types.secrets.js";
 import type { PluginManifestRegistry } from "../plugins/manifest-registry.js";
 import type { PluginOrigin } from "../plugins/plugin-origin.types.js";
 import { isRecord } from "../utils.js";
@@ -74,7 +75,7 @@ type LocatedSecretRef = {
   ref: SecretRef;
 };
 
-type SecretDefaults = Parameters<typeof coerceSecretRef>[1];
+type SecretDefaults = Parameters<typeof parseSecretRef>[1];
 
 function listLocatedSecretRefs(
   value: unknown,
@@ -82,7 +83,7 @@ function listLocatedSecretRefs(
   path: Array<string | number> = [],
   refs: LocatedSecretRef[] = [],
 ): LocatedSecretRef[] {
-  const ref = coerceSecretRef(value, defaults);
+  const ref = parseSecretRef(value, defaults);
   if (ref) {
     refs.push({ path, ref });
     return refs;
@@ -215,11 +216,14 @@ function cloneSecretsRuntimeRefreshContext(
   return cloned;
 }
 
-function cloneSnapshot(snapshot: PreparedSecretsRuntimeSnapshot): PreparedSecretsRuntimeSnapshot {
+function cloneSnapshot(
+  snapshot: PreparedSecretsRuntimeSnapshot,
+  authStores: PreparedSecretsRuntimeSnapshot["authStores"],
+): PreparedSecretsRuntimeSnapshot {
   return {
     sourceConfig: cloneConfigWithResolutionFacts(snapshot.sourceConfig),
     config: cloneConfigWithResolutionFacts(snapshot.config),
-    authStores: structuredClone(snapshot.authStores),
+    authStores,
     authStoreCredentialsRevision: snapshot.authStoreCredentialsRevision,
     authStoreSnapshotsRevision: snapshot.authStoreSnapshotsRevision,
     warnings: snapshot.warnings.map((warning) => ({ ...warning })),
@@ -472,9 +476,9 @@ function preserveResolvedSecretRefValues(
   sourceConfig: OpenClawConfig,
   currentSourceConfig: OpenClawConfig,
 ): unknown {
-  const sourceRef = coerceSecretRef(source, sourceConfig.secrets?.defaults);
+  const sourceRef = parseSecretRef(source, sourceConfig.secrets?.defaults);
   if (sourceRef) {
-    const currentRef = coerceSecretRef(currentSource, currentSourceConfig.secrets?.defaults);
+    const currentRef = parseSecretRef(currentSource, currentSourceConfig.secrets?.defaults);
     return currentRef &&
       isDeepStrictEqual(sourceRef, currentRef) &&
       hasSameSecretProviderDefinition(sourceRef, [sourceConfig, currentSourceConfig])
@@ -515,13 +519,12 @@ function preserveResolvedSecretRefValues(
 function preserveResolvedAuthStoreSecretValues(
   previous: Record<string, AuthProfileStore>,
   candidate: Record<string, AuthProfileStore>,
-  restored: Record<string, AuthProfileStore>,
+  next: Record<string, AuthProfileStore>,
   current: Record<string, AuthProfileStore>,
   previousConfig: OpenClawConfig,
   candidateConfig: OpenClawConfig,
   currentConfig: OpenClawConfig,
 ): Record<string, AuthProfileStore> {
-  const next = structuredClone(restored);
   for (const [agentDir, store] of Object.entries(next)) {
     const previousStore = previous[agentDir];
     const candidateStore = candidate[agentDir];
@@ -665,12 +668,11 @@ function mergeRollbackAuthStoreCredentials(
   baseline: Record<string, AuthProfileStore>,
   candidate: Record<string, AuthProfileStore>,
   current: Record<string, AuthProfileStore>,
-  restored: Record<string, AuthProfileStore>,
+  next: Record<string, AuthProfileStore>,
   configs: [OpenClawConfig, OpenClawConfig, OpenClawConfig],
   mutationLineage: typeof activeSnapshotLineageAuthMutations,
   snapshotOwners: Record<string, RuntimeAuthProfileStoreMutationOwner>,
 ): Record<string, AuthProfileStore> {
-  const next = structuredClone(restored);
   const agentDirs = new Set([
     ...Object.keys(baseline),
     ...Object.keys(candidate),
@@ -732,6 +734,10 @@ function mergeRollbackAuthStoreCredentials(
         !profileOwnerMutated
       ) {
         next[agentDir] = structuredClone(baselineStore);
+        copyCanonicalAuthProfileCredentialObservations(
+          baselineStore.profiles,
+          next[agentDir]!.profiles,
+        );
       } else {
         delete next[agentDir];
       }
@@ -833,7 +839,12 @@ function mergeRollbackAuthStoreCredentials(
         selectedSource = undefined;
       }
       if (credential && selectedSource) {
-        profiles[profileId] = structuredClone(credential);
+        const clonedCredential = structuredClone(credential);
+        copyCanonicalAuthProfileCredentialObservations(
+          { [profileId]: credential },
+          { [profileId]: clonedCredential },
+        );
+        profiles[profileId] = clonedCredential;
         selectedSources.set(profileId, selectedSource);
       }
     }
@@ -889,7 +900,7 @@ export function graftActiveSecretsRuntimeAuthState(snapshot: PreparedSecretsRunt
   snapshot.authStores = getLiveSecretsRuntimeAuthStores();
   snapshot.authStoreCredentialsRevision = getRuntimeAuthProfileStoreCredentialsRevision();
   snapshot.authStoreSnapshotsRevision = getRuntimeAuthProfileStoreSnapshotsRevision();
-  setPreparedSecretsRuntimeSnapshotRefreshContext(snapshot, activeRefreshContext);
+  preparedSnapshotRefreshContext.set(snapshot, activeRefreshContext);
 }
 
 /**
@@ -917,7 +928,14 @@ export function activateSecretsRuntimeSnapshotState(params: {
       "Cannot activate stale secrets runtime snapshot: auth credentials changed during preparation.",
     );
   }
-  const next = cloneSnapshot(params.snapshot);
+  const authStores = structuredClone(params.snapshot.authStores);
+  for (const [index, entry] of authStores.entries()) {
+    copyCanonicalAuthProfileCredentialObservations(
+      params.snapshot.authStores[index]!.store.profiles,
+      entry.store.profiles,
+    );
+  }
+  const next = cloneSnapshot(params.snapshot, authStores);
   if (params.mergeLiveAuthBookkeeping !== false) {
     next.authStores = mergeLiveAuthStoreBookkeeping(
       next.authStores,
@@ -953,7 +971,7 @@ export function activateSecretsRuntimeSnapshotState(params: {
     : activationAuthMutations;
   activeRefreshContext = nextRefreshContext;
   if (nextRefreshContext) {
-    preparedSnapshotRefreshContext.set(next, cloneSecretsRuntimeRefreshContext(nextRefreshContext));
+    preparedSnapshotRefreshContext.set(next, nextRefreshContext);
   }
   setActiveRuntimeWebToolsMetadata(next.webTools);
   setActiveDegradedSecretOwners(next.degradedOwners ?? []);
@@ -1088,15 +1106,11 @@ export function getActiveSecretsRuntimeSnapshotState(): PreparedSecretsRuntimeSn
   if (!activeSnapshot) {
     return null;
   }
-  const snapshot = cloneSnapshot(activeSnapshot);
-  snapshot.authStores = listOwnedRuntimeAuthProfileStoreSnapshots();
+  const snapshot = cloneSnapshot(activeSnapshot, listOwnedRuntimeAuthProfileStoreSnapshots());
   snapshot.authStoreCredentialsRevision = getRuntimeAuthProfileStoreCredentialsRevision();
   snapshot.authStoreSnapshotsRevision = getRuntimeAuthProfileStoreSnapshotsRevision();
   if (activeRefreshContext) {
-    preparedSnapshotRefreshContext.set(
-      snapshot,
-      cloneSecretsRuntimeRefreshContext(activeRefreshContext),
-    );
+    preparedSnapshotRefreshContext.set(snapshot, activeRefreshContext);
   }
   return snapshot;
 }

@@ -1,5 +1,4 @@
 import { html, nothing } from "lit";
-import { repeat } from "lit/directives/repeat.js";
 import type { GatewayControlUiPluginTab } from "../api/gateway.ts";
 import { serializeSidebarEntry, titleForRoute, type SidebarZoneEntry } from "../app-navigation.ts";
 import { isRouteId, isSessionRouteId } from "../app-route-paths.ts";
@@ -29,7 +28,6 @@ import {
 } from "../lib/sessions/session-key.ts";
 import { pluginTabKey } from "../pages/plugin/route.ts";
 import { renderSidebarPluginTab } from "./app-sidebar-nav-menus.ts";
-import type { SidebarPluginNavigationGroup } from "./app-sidebar-plugin-navigation-groups.ts";
 import { renderSidebarSessionFilter } from "./app-sidebar-session-filter-summary.ts";
 import type { AppSidebarSessionNavigationElement } from "./app-sidebar-session-navigation.ts";
 import type { SidebarRecentSession } from "./app-sidebar-session-types.ts";
@@ -50,6 +48,7 @@ import { renderSidebarReorderMenu } from "./sidebar-reorder.ts";
 export type AppSidebarRenderHost = AppSidebarSessionNavigationElement & {
   activePluginTabId: string;
   teamOnlineExpanded: boolean;
+  readonly people: import("./sidebar-people-controller.ts").SidebarPeopleController;
   getRouteSessionKey(): string;
   renderPinnedSidebarSession(session: SidebarRecentSession): unknown;
   toggleSection(sectionId: string): void;
@@ -74,11 +73,14 @@ function renderSidebarAgentCard(host: AppSidebarRenderHost) {
     agents: cardAgents,
     identity: cardIdentity,
   } = host.activeChipAgent();
+  if (!cardAgent) {
+    return renderSidebarWorkspaceHeader(host);
+  }
   const menuUnread = cardAgents.some((entry) => {
     const agentId = normalizeAgentId(entry.id);
     return agentId !== cardAgentId && host.agentUnreadCount(agentId) > 0;
   });
-  const cardName = normalizeAgentLabel(cardAgent ?? { id: cardAgentId }, cardIdentity);
+  const cardName = normalizeAgentLabel(cardAgent, cardIdentity);
   const gateway = host.sessionDataContext?.gateway;
   const avatarAuthReady = Boolean(
     gateway &&
@@ -90,11 +92,9 @@ function renderSidebarAgentCard(host: AppSidebarRenderHost) {
     <openclaw-sidebar-agent-card
       .agentName=${cardName}
       .agentId=${cardAgentId}
-      .avatarUrl=${
-        cardAgent ? resolveAgentAvatarUrl(cardAgent, cardIdentity) : cardIdentity?.avatar
-      }
+      .avatarUrl=${resolveAgentAvatarUrl(cardAgent, cardIdentity)}
       .avatarAuthReady=${avatarAuthReady}
-      .avatarText=${resolveAgentTextAvatar(cardAgent ?? { identity: {} }, cardIdentity)}
+      .avatarText=${resolveAgentTextAvatar(cardAgent, cardIdentity)}
       .environment=${host.sessionDataContext?.config?.current?.environment ?? null}
       .menuOpen=${host.sidebarMenus.agentMenuPosition !== null}
       .menuUnread=${menuUnread}
@@ -255,11 +255,11 @@ export function renderAppSidebarHomeRow(host: AppSidebarRenderHost) {
   const session = mainRow ? host.projectHomeSession(mainRow, agentId) : null;
   const attention = session?.attention ?? host.resolveSessionAttention({ key: mainKey, agentId });
   const attentionLabel = sessionAttentionTooltipLabel(attention);
-  const outboxAttentionCount = host.outboxAttentionCountForSession(mainKey);
+  const outboxAttentionCount = host.storedOutboxes?.attentionCountForSession(mainKey) ?? 0;
   const active =
     isSessionRouteId(host.activeRouteId) &&
     areUiSessionKeysEquivalent(host.getRouteSessionKey(), mainKey);
-  const hasComposerDraft = host.hasSessionDraft(mainKey);
+  const hasComposerDraft = host.storedOutboxes?.hasSessionDraft(mainKey) ?? false;
   const ownRun = mainRow ? isSessionRunActive(mainRow) : false;
   const subagentsWorking = (session?.runningChildCount ?? 0) > 0;
   const running = ownRun || subagentsWorking;
@@ -332,9 +332,7 @@ export function renderAppSidebarHomeRow(host: AppSidebarRenderHost) {
 export function renderAppSidebarPagesHead(host: AppSidebarRenderHost) {
   return html`
     <div class="sidebar-nav__head">
-      <span class="sidebar-recent-sessions__label-text sr-only"
-        >${t("nav.toolsAndManagement")}</span
-      >
+      <span class="sidebar-recent-sessions__label-text sr-only">${t("nav.pages")}</span>
       <button
         type="button"
         class="sidebar-nav__head-action"
@@ -395,16 +393,12 @@ export function renderAppSidebarFooterBar(host: AppSidebarRenderHost) {
                   lastError: host.lastError,
                   announce: false,
                 })
-              : html`
-                  ${
-                    gateway
-                      ? html`<span class="sidebar-identity-card__gateway" aria-hidden="true">
-                          <span class="sidebar-gateway-name">${gateway.name}</span>
-                          ${gatewayPrimaryTag ? html`<span class="sidebar-gateway-primary">${gatewayPrimaryTag}</span>` : nothing}
-                        </span>`
-                      : nothing
-                  }
-                `
+              : gateway
+                ? html`<span class="sidebar-identity-card__gateway" aria-hidden="true">
+                    <span class="sidebar-gateway-name">${gateway.name}</span>
+                    ${gatewayPrimaryTag ? html`<span class="sidebar-gateway-primary">${gatewayPrimaryTag}</span>` : nothing}
+                  </span>`
+                : nothing
           }
         </span>
       </button>
@@ -443,7 +437,6 @@ export function renderAppSidebarZoneEntry(
   entry: SidebarZoneEntry,
   sessionRows: ReadonlyMap<string, SidebarRecentSession>,
   pluginTabs: ReadonlyMap<string, GatewayControlUiPluginTab>,
-  allowReorder = true,
 ) {
   if (entry.type === "route" && !host.sidebarMenus.isRouteEnabled(entry.route)) {
     return nothing;
@@ -454,6 +447,10 @@ export function renderAppSidebarZoneEntry(
       ? host.sessionOrganizer.sidebarZoneDropTarget.position
       : null;
   const pluginTab = entry.type === "plugin" ? pluginTabs.get(entry.key) : undefined;
+  const location = host.router?.getState().location;
+  const currentNavigationHref = location
+    ? `${location.pathname}${location.search}${location.hash}`
+    : window.location.href;
   const content =
     entry.type === "route"
       ? host.sidebarMenus.renderRoute(entry.route)
@@ -463,12 +460,12 @@ export function renderAppSidebarZoneEntry(
           ? html`<openclaw-plugin-contributions
               .kind=${"navigation"}
               .navigationKey=${entry.key}
-              .currentNavigationHref=${`${window.location.pathname}${window.location.search}`}
+              .currentNavigationHref=${currentNavigationHref}
             ></openclaw-plugin-contributions>`
           : sessionRows.has(entry.key)
             ? host.renderPinnedSidebarSession(sessionRows.get(entry.key)!)
             : nothing;
-  const draggable = allowReorder && (entry.type === "route" || entry.type === "plugin");
+  const draggable = entry.type === "route" || entry.type === "plugin";
   const label =
     entry.type === "route"
       ? titleForRoute(entry.route)
@@ -487,21 +484,16 @@ export function renderAppSidebarZoneEntry(
       data-sidebar-entry=${serialized}
       draggable=${draggable ? "true" : "false"}
       @dragstart=${
-        !draggable
-          ? nothing
-          : entry.type === "route"
-            ? (event: DragEvent) => host.sessionOrganizer.startSidebarRouteDrag(event, entry.route)
-            : entry.type === "plugin"
-              ? (event: DragEvent) => host.sessionOrganizer.startSidebarPluginDrag(event, entry.key)
-              : nothing
+        entry.type === "route"
+          ? (event: DragEvent) => host.sessionOrganizer.startSidebarRouteDrag(event, entry.route)
+          : entry.type === "plugin"
+            ? (event: DragEvent) => host.sessionOrganizer.startSidebarPluginDrag(event, entry.key)
+            : nothing
       }
       @dragend=${draggable ? () => host.sessionOrganizer.finishSidebarEntryDrag() : nothing}
-      @dragover=${
-        allowReorder
-          ? (event: DragEvent) => host.sessionOrganizer.handleSidebarZoneDragOver(event, serialized)
-          : nothing
-      }
-      @drop=${allowReorder ? (event: DragEvent) => host.sessionOrganizer.handleSidebarZoneDrop(event, serialized) : nothing}
+      @dragover=${(event: DragEvent) =>
+        host.sessionOrganizer.handleSidebarZoneDragOver(event, serialized)}
+      @drop=${(event: DragEvent) => host.sessionOrganizer.handleSidebarZoneDrop(event, serialized)}
     >
       ${content}
       ${renderSidebarReorderMenu({
@@ -515,34 +507,6 @@ export function renderAppSidebarZoneEntry(
       })}
     </div>
   `;
-}
-
-export function renderAppSidebarPluginNavigationGroups(
-  host: AppSidebarRenderHost,
-  groups: readonly SidebarPluginNavigationGroup[],
-  sessionRows: ReadonlyMap<string, SidebarRecentSession>,
-  pluginTabs: ReadonlyMap<string, GatewayControlUiPluginTab>,
-) {
-  return repeat(
-    groups,
-    (group) => group.key,
-    (group) => html`
-      <details
-        class="sidebar-nav__tools sidebar-nav__plugin-group"
-        open
-        data-plugin-navigation-group=${group.key}
-      >
-        <summary class="sidebar-nav__tools-summary">
-          <span class="sidebar-nav__tools-label">${group.label}</span>
-        </summary>
-        <div class="nav-section__items">
-          ${group.entries.map((entry) =>
-            renderAppSidebarZoneEntry(host, entry, sessionRows, pluginTabs, false),
-          )}
-        </div>
-      </details>
-    `,
-  );
 }
 
 function renderAppSidebarPluginTab(host: AppSidebarRenderHost, tab: GatewayControlUiPluginTab) {

@@ -69,6 +69,8 @@ suite.define(() => {
               sessionKey,
               root: "/workspace",
               file: {
+                previewKind: "text",
+                contentEncoding: "utf8",
                 content: "Synthetic file copy content",
                 kind: "read",
                 missing: false,

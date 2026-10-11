@@ -39,13 +39,13 @@ import {
 } from "./redact-pattern-runtime.js";
 import {
   AWS_SECRET_ACCESS_KEY_FIELD_KEYS,
+  AMBIGUOUS_ASSIGNMENT_MATCHERS,
   AWS_SECRET_ACCESS_KEY_MATCHER,
   BASE64_SAFE_TOKEN_BOUNDARY,
   BODY_SECRET_KEYS,
   CHUNK_UNSAFE_PATTERN_SOURCES,
   CREDENTIAL_HEADER_FIELD_RE,
   DEFAULT_REDACT_PATTERNS,
-  DEFAULT_REDACT_STRING_PATTERNS,
   FORM_AWARE_EQUALS_ASSIGNMENT_PATTERN_SOURCES,
   FORM_BODY_KEY_INVISIBLE_CHARS,
   IDENTIFIER_SAFE_TOKEN_BOUNDARY,
@@ -192,6 +192,9 @@ function parsePattern(raw: RedactPattern): ResolvedRedactPattern | null {
     }
   }
   if (typeof raw !== "string" && !(raw instanceof RegExp)) {
+    if (AMBIGUOUS_ASSIGNMENT_MATCHERS.has(raw)) {
+      sourceAssignmentPatterns.add(raw);
+    }
     return raw;
   }
   let pattern: RegExp | null = null;
@@ -221,9 +224,7 @@ function parsePattern(raw: RedactPattern): ResolvedRedactPattern | null {
   if (
     pattern &&
     typeof raw === "string" &&
-    (raw.startsWith(BASE64_SAFE_TOKEN_BOUNDARY) ||
-      raw.startsWith(IDENTIFIER_SAFE_TOKEN_BOUNDARY) ||
-      CHUNK_UNSAFE_PATTERN_SOURCES.has(raw))
+    (raw.startsWith(IDENTIFIER_SAFE_TOKEN_BOUNDARY) || CHUNK_UNSAFE_PATTERN_SOURCES.has(raw))
   ) {
     chunkUnsafePatterns.add(pattern);
   }
@@ -613,12 +614,8 @@ function maskSecretFieldValue(key: string, value: string): string {
   return "***";
 }
 
-function readEnvAssignmentKey(match: string): string | undefined {
-  return match.match(/\b([A-Z_][A-Z0-9_]*)\b\s*[=:]/)?.[1];
-}
-
 function shouldPreserveShellReferenceMatch(match: string, token: string): boolean {
-  const key = readEnvAssignmentKey(match);
+  const key = match.match(/\b([A-Z_][A-Z0-9_]*)\b\s*[=:]/)?.[1];
   return key ? isShellReferenceToKey(key, token) : false;
 }
 
@@ -1589,8 +1586,9 @@ export function redactModelVisibleSecrets<T>(value: T): T {
   return redactSecretsWithOptions(value, resolveModelVisibleToolPayloadRedaction());
 }
 
-export function getDefaultRedactPatterns(): string[] {
-  return [...DEFAULT_REDACT_STRING_PATTERNS];
+/** The full default policy, programmatic matchers included; keep only the strings for `logging.redactPatterns`. */
+export function getDefaultRedactPatterns(): RedactPattern[] {
+  return [...DEFAULT_REDACT_PATTERNS];
 }
 
 // Match the complete batch, preserving JSON syntax through the transport's scalar editor.

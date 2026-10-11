@@ -29,7 +29,7 @@ function parseArgs(argv) {
   return { mode, packageRoot: fs.realpathSync(packageRoot) };
 }
 
-const publicationContract = process.env.OPENCLAW_FS_SAFE_PUBLICATION_CONTRACT ?? "not-applicable";
+const publicationContract = process.env.OPENCLAW_FS_SAFE_PUBLICATION_CONTRACT ?? "required";
 assert.ok(
   ["required", "not-applicable"].includes(publicationContract),
   `unknown fs-safe publication contract: ${publicationContract}`,

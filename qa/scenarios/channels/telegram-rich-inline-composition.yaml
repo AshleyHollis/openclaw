@@ -13,7 +13,7 @@ scenario:
     - Transcript headers remain standalone fixed-width text outside HTML link and bold wrappers.
     - Escaped tags and image alternatives stay literal; tag-shaped Markdown links do not activate HTML.
     - Unsupported HTML ancestors stay literal across Markdown block boundaries.
-    - An edit replaces the same native message and preserves the same rich composition.
+    - Gateway and CLI edits replace the same native message and preserve the same rich composition.
   docsRefs:
     - docs/channels/telegram.md
     - docs/concepts/markdown-formatting.md
@@ -37,7 +37,7 @@ scenario:
     isolationReason: Rich-message account configuration and native message revisions belong to this leased DM.
     transportPolicy:
       directMessageOnly: true
-    summary: Send nine synthetic formatting cases through the Gateway and edit one through the normal CLI; inspect full TDLib trees from the leased Test Server DM. This proves direct operator delivery, not model generation. The CLI harness and package candidate must contain the same reviewed renderer.
+    summary: Send nine synthetic formatting cases and edit one through both the Gateway action boundary and the normal CLI; inspect full TDLib trees from the leased Test Server DM. This proves direct operator delivery, not model generation. The CLI harness and package candidate must contain the same reviewed renderer.
     config:
       requiredProviderMode: mock-openai
       requiredChannelDriver: live
@@ -125,9 +125,13 @@ flow:
           value: []
         - set: failures
           value: []
-        - set: editCliCompleted
+        - set: editCompleted
           value: false
         - set: editVerified
+          value: false
+        - set: editCliCompleted
+          value: false
+        - set: editCliVerified
           value: false
         - set: captureEvidence
           value:
@@ -153,7 +157,8 @@ flow:
                     const contentType = message.contentType?.slice(0, 64) ?? 'unknown';
                     const lines = message.text.split('\n');
                     const index = vars.receipts.findIndex(receipt => lines.includes(receipt.marker));
-                    const isEdit = Boolean(vars.editMarker && lines.includes(vars.editMarker));
+                    const isCliEdit = Boolean(vars.editCliMarker && lines.includes(vars.editCliMarker));
+                    const isEdit = isCliEdit || Boolean(vars.editMarker && lines.includes(vars.editMarker));
                     if (index < 0 && !isEdit) {
                       unmatchedCount++;
                       if (unmatchedTypes.size < 8) unmatchedTypes.add(contentType);
@@ -161,7 +166,7 @@ flow:
                     }
                     if (candidates.length < 12) candidates.push({
                       label: isEdit ? 'message-1' : `message-${index + 1}`,
-                      phase: isEdit ? 'edit' : 'send', kind: message.kind,
+                      phase: isCliEdit ? 'cli-edit' : isEdit ? 'edit' : 'send', kind: message.kind,
                       contentType,
                       ...(isEdit ? { observerIdStayedEqual: message.messageId === vars.editTarget?.observerMessageId } : { accountMessageIdsDiffer: message.botApiMessageId === undefined ? null : String(vars.receipts[index].botMessageId) !== String(message.botApiMessageId) }),
                       richMessage: tree(message.richMessage)
@@ -172,7 +177,7 @@ flow:
                     receipts: vars.receipts.slice(0, fixtures.length).map((receipt, index) => ({ case: receipt.case, label: `message-${index + 1}` })),
                     cases: vars.proofs.slice(0, fixtures.length).map(proof => ({ case: proof.case, label: proof.label, accountMessageIdsDiffer: proof.accountMessageIdsDiffer, richMessage: tree(proof.richMessage) })),
                     failures: vars.failures.map(failure => ({ case: failure.case, label: failure.label, contentType: failure.contentType, full: failure.full, matchesPattern: failure.matchesPattern, richMessage: tree(failure.richMessage) })),
-                    edit: { completedWithBotReceipt: vars.editCliCompleted, verified: vars.editVerified },
+                    edit: { completedWithBotReceipt: vars.editCompleted, verified: vars.editVerified, gatewayRichMessage: tree(vars.gatewayEditRichMessage), cliCompletedWithBotReceipt: vars.editCliCompleted, cliVerified: vars.editCliVerified, cliRichMessage: tree(vars.cliEditRichMessage) },
                     candidates, unmatched: { count: unmatchedCount, contentTypes: [...unmatchedTypes] }
                   };
                   const content = redactQaGatewayDebugText(JSON.stringify(artifact).replaceAll(runId, 'run'));
@@ -239,13 +244,23 @@ flow:
               - set: editMarker
                 value:
                   expr: "`QA-RICH-${runId}-edit-END`"
-              - call: runQaCli
+              - call: env.gateway.call
                 args:
-                  - ref: env
-                  - expr: "['message', 'edit', '--channel', 'telegram', '--account', transport.accountId, '--target', delivery.to, '--message-id', String(editTarget.botMessageId), '--message', `${fixtures[1].markdown}\n\n${editMarker}`, '--json']"
+                  - message.action
+                  - channel: telegram
+                    accountId: { ref: transport.accountId }
+                    action: edit
+                    conversationReadOrigin: direct-operator
+                    params:
+                      chatId: { ref: delivery.to }
+                      messageId:
+                        expr: "Number(editTarget.botMessageId)"
+                      content:
+                        expr: "`${fixtures[1].markdown}\n\n${editMarker}`"
+                    idempotencyKey:
+                      expr: "`${runId}:edit`"
                   - timeoutMs: 60000
-                    json: true
-              - set: editCliCompleted
+              - set: editCompleted
                 value: true
               - call: waitForCondition
                 saveAs: edited
@@ -255,6 +270,9 @@ flow:
                       expr: |
                         readTelegramMessages().find(message => message.kind === 'edit' && message.messageId === editTarget.observerMessageId && message.text.split('\n').includes(editMarker))
                   - 30000
+              - set: gatewayEditRichMessage
+                value:
+                  expr: "JSON.parse(JSON.stringify(edited.richMessage ?? null))"
               - set: editVerified
                 value:
                   expr: |
@@ -267,6 +285,39 @@ flow:
                   expr: "failures.length === 0 && proofs.length === fixtures.length && editVerified"
                   message:
                     expr: "`Native rich composition failed: ${failures.map(failure => failure.case).join(', ') || 'edit'}; editing must preserve the styled link on the same native message without a replacement bubble`"
+              - set: editCliMarker
+                value:
+                  expr: "`QA-RICH-${runId}-edit-cli-END`"
+              - call: runQaCli
+                args:
+                  - ref: env
+                  - expr: "['message', 'edit', '--channel', 'telegram', '--account', transport.accountId, '--target', delivery.to, '--message-id', String(editTarget.botMessageId), '--message', `${fixtures[1].markdown}\n\n${editCliMarker}`, '--json']"
+                  - timeoutMs: 60000
+                    json: true
+              - set: editCliCompleted
+                value: true
+              - call: waitForCondition
+                saveAs: editedCli
+                args:
+                  - lambda:
+                      params: []
+                      expr: |
+                        readTelegramMessages().find(message => message.kind === 'edit' && message.messageId === editTarget.observerMessageId && message.text.split('\n').includes(editCliMarker))
+                  - 30000
+              - set: cliEditRichMessage
+                value:
+                  expr: "JSON.parse(JSON.stringify(editedCli.richMessage ?? null))"
+              - set: editCliVerified
+                value:
+                  expr: |
+                    editedCli.kind === 'edit' && editedCli.contentType === 'messageRichMessage' && editedCli.richMessage?.is_full === true &&
+                    containsPattern(editedCli.richMessage.blocks, { '@type': 'pageBlockList' }) && containsPattern(editedCli.richMessage.blocks, fixtures[1].pattern) &&
+                    readTelegramMessages().filter(message => message.text.split('\n').some(line =>
+                      line === editCliMarker || receipts.some(receipt => receipt.marker === line)
+                    )).length === fixtures.length
+              - assert:
+                  expr: "editCliVerified"
+                  message: CLI editing must preserve rich composition on the same native message without a replacement bubble
             finally:
               - call: captureEvidence
                 saveAs: evidenceSummary

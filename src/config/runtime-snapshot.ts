@@ -1,24 +1,32 @@
 import { isDeepStrictEqual } from "node:util";
 import { sha256Base64Url } from "../infra/crypto-digest.js";
 import { clearExecutablePathCache } from "../infra/executable-path.js";
+import { prepareRuntimePluginsConfig } from "../plugins/config-state.js";
 import { sessionChanges } from "../sessions/session-row-changes.js";
 import { isDeeplyFrozenPlainData } from "../shared/immutable-data.js";
-import { resetPublishedConfigRuntimeEnv } from "./config-env-vars.js";
+import { notifyListeners, registerListener } from "../shared/listeners.js";
+import {
+  cloneEnvWithPlatformSemantics,
+  resetPublishedConfigRuntimeEnv,
+  type PreparedConfigRuntimeEnv,
+} from "./config-env-vars.js";
 import { getScopedConfigSnapshotPreparation } from "./io.snapshot-preparation-scope.js";
 import type {
   CapturedConfigSnapshotPreparation,
   ConfigSnapshotPreparation,
 } from "./io.snapshot-preparation.types.js";
 import {
+  cloneConfigWithResolutionFacts,
   copyConfigResolutionFacts,
   getConfigResolutionFacts,
   serializeConfigResolutionFacts,
 } from "./resolution-facts.js";
 import {
-  captureRuntimeConfigRead,
+  captureRuntimeConfigWithSource,
   type CapturedRuntimeConfigRead,
   getRuntimeConfigCapture,
 } from "./runtime-config-capture-state.js";
+import { configSnapshotsMatch, stableConfigStringify } from "./runtime-config-snapshot-match.js";
 import { runtimeSessionChangeScope } from "./runtime-session-changes.js";
 import {
   acquireRuntimeConfigSessionStoreSelection,
@@ -79,8 +87,10 @@ export function resolveConfigWriteFollowUp(
 }
 
 let runtimeConfigSnapshot: OpenClawConfig | null = null;
+let runtimeConfigCapturedSnapshot: OpenClawConfig | null = null;
 let runtimeConfigSourceSnapshot: OpenClawConfig | null = null;
 let runtimeConfigSnapshotMetadata: RuntimeSnapshotTypes.RuntimeConfigSnapshotMetadata | null = null;
+let runtimeConfigPublishedFacts: ReturnType<typeof serializeConfigResolutionFacts> = null;
 let runtimeConfigAppliedHash: string | null = null;
 let runtimeConfigSnapshotRevision = 0;
 let runtimeConfigSnapshotGeneration = 0;
@@ -116,48 +126,25 @@ export function withRuntimeConfigSessionStoreSelection<T>(callback: () => T): T 
 
 const managedRuntimeConfigWriteOwners = new Map<
   string,
-  Set<RuntimeSnapshotTypes.ManagedRuntimeConfigWriteOwner>
+  Set<{
+    id: symbol;
+    preflight?: RuntimeSnapshotTypes.ManagedRuntimeConfigWritePreflight;
+    prepareSnapshot?: ConfigSnapshotPreparation;
+  }>
 >();
 const runtimeConfigWriteListeners = new Set<
   (event: RuntimeSnapshotTypes.RuntimeConfigWriteNotification) => void
 >();
 const runtimeConfigSnapshotPreparers = new Map<
   (config: OpenClawConfig) => void,
-  RuntimeSnapshotTypes.RuntimeConfigSnapshotAsyncPreparer | undefined
+  | {
+      prepareAsync: (
+        config: OpenClawConfig,
+        context: RuntimeSnapshotTypes.RuntimeConfigSnapshotPreparationContext,
+      ) => Promise<() => void>;
+    }
+  | undefined
 >();
-
-function stableConfigStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value) ?? "null";
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map((entry) => stableConfigStringify(entry)).join(",")}]`;
-  }
-  const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).toSorted();
-  return `{${keys
-    .map((key) => `${JSON.stringify(key)}:${stableConfigStringify(record[key])}`)
-    .join(",")}}`;
-}
-
-function configSnapshotsMatch(left: OpenClawConfig, right: OpenClawConfig): boolean {
-  if (left === right) {
-    return true;
-  }
-  // Fresh reads allocate new facts. Compare their complete provenance, not object identity
-  // or just JSON config bytes: same-byte values can name different authored SecretRefs.
-  if (
-    getConfigResolutionFacts(left) !== getConfigResolutionFacts(right) &&
-    !isDeepStrictEqual(serializeConfigResolutionFacts(left), serializeConfigResolutionFacts(right))
-  ) {
-    return false;
-  }
-  try {
-    return stableConfigStringify(left) === stableConfigStringify(right);
-  } catch {
-    return false;
-  }
-}
 
 // Diagnostic callers stop at their raw revision; this owner accepts config objects.
 // Only immutable identities share hashes across reads.
@@ -176,43 +163,80 @@ export function hashRuntimeConfigValue(value: OpenClawConfig): string {
   return fingerprint;
 }
 
-function createRuntimeConfigSnapshotMetadata(
-  config: OpenClawConfig,
-  sourceConfig?: OpenClawConfig,
-): RuntimeSnapshotTypes.RuntimeConfigSnapshotMetadata {
-  runtimeConfigSnapshotRevision += 1;
-  return {
-    revision: runtimeConfigSnapshotRevision,
-    fingerprint: hashRuntimeConfigValue(config),
-    sourceFingerprint: sourceConfig ? hashRuntimeConfigValue(sourceConfig) : null,
-    updatedAtMs: Date.now(),
-  };
-}
-
 export function setRuntimeConfigSnapshot(
   config: OpenClawConfig,
   sourceConfig?: OpenClawConfig,
 ): void {
   assertSessionStoreSelection(config);
-  // A preparer can mutate its input before the publication assertion runs.
+  preparePublishedRuntimeConfigSnapshot(config, sourceConfig, false);
+}
+
+function preparePublishedRuntimeConfigSnapshot(
+  inputConfig: OpenClawConfig,
+  sourceConfig: OpenClawConfig | undefined,
+  valuesUnchanged: boolean,
+): void {
+  const config = getRuntimeConfigCapture(inputConfig)
+    ? cloneConfigWithResolutionFacts(inputConfig)
+    : inputConfig;
+  assertSessionStoreSelection(config);
   assertPreparerDoesNotReceiveAdmittedSelection(config);
   const factSource = getConfigResolutionFacts(config) !== null ? config : (sourceConfig ?? config);
   copyConfigResolutionFacts(factSource, config);
   for (const prepare of runtimeConfigSnapshotPreparers.keys()) {
     prepare(config);
   }
-  publishRuntimeConfigSnapshot(config, sourceConfig);
+  publishRuntimeConfigSnapshot(config, sourceConfig, valuesUnchanged);
 }
 
-function publishRuntimeConfigSnapshot(config: OpenClawConfig, sourceConfig?: OpenClawConfig): void {
+function publishRuntimeConfigSnapshot(
+  config: OpenClawConfig,
+  sourceConfig?: OpenClawConfig,
+  valuesUnchanged = false,
+): void {
   assertSessionStoreSelection(config);
-  const scope = runtimeSessionChangeScope(runtimeConfigSnapshot, config);
+  const metadata: RuntimeSnapshotTypes.RuntimeConfigSnapshotMetadata = {
+    revision: ++runtimeConfigSnapshotRevision,
+    fingerprint: hashRuntimeConfigValue(config),
+    sourceFingerprint: sourceConfig ? hashRuntimeConfigValue(sourceConfig) : null,
+    updatedAtMs: Date.now(),
+  };
+  const facts = serializeConfigResolutionFacts(config);
+  // The live previous object may have been edited in place since it was published, so it cannot
+  // classify the scope either: a narrow scope read from an edited object would leave rows built
+  // from the earlier publication stale. Compare both what the previous publication recorded as
+  // values and as resolution provenance, and fall back to the full `config` scope on either
+  // drift. A provenance-only in-place edit leaves the value hash unchanged, so checking values
+  // alone would let the edited object select a presentation-only scope against a distinct next
+  // object that carries the same facts.
+  const previousEditedInPlace =
+    runtimeConfigSnapshot !== null &&
+    runtimeConfigSnapshotMetadata !== null &&
+    (hashRuntimeConfigValue(runtimeConfigSnapshot) !== runtimeConfigSnapshotMetadata.fingerprint ||
+      !isDeepStrictEqual(
+        serializeConfigResolutionFacts(runtimeConfigSnapshot),
+        runtimeConfigPublishedFacts,
+      ));
+  const scope = previousEditedInPlace
+    ? "config"
+    : runtimeSessionChangeScope(runtimeConfigSnapshot, config);
+  // Compare with what the previous publication recorded, since its object may have been edited
+  // in place; withhold only a distinct object matching that record, or a proven no-op.
+  const matchesPublished =
+    runtimeConfigSnapshot !== config &&
+    runtimeConfigSnapshotMetadata?.fingerprint === metadata.fingerprint &&
+    isDeepStrictEqual(runtimeConfigPublishedFacts, facts);
+  prepareRuntimePluginsConfig(config);
   runtimeConfigSnapshotGeneration += 1;
   clearExecutablePathCache();
   runtimeConfigSnapshot = config;
+  runtimeConfigCapturedSnapshot = null;
   runtimeConfigSourceSnapshot = sourceConfig ?? null;
-  runtimeConfigSnapshotMetadata = createRuntimeConfigSnapshotMetadata(config, sourceConfig);
-  sessionChanges.emit({ all: true, scope });
+  runtimeConfigSnapshotMetadata = metadata;
+  runtimeConfigPublishedFacts = facts;
+  if (!valuesUnchanged && !matchesPublished) {
+    sessionChanges.emit({ all: true, scope });
+  }
 }
 
 export function registerRuntimeConfigSnapshotPreparer(
@@ -258,10 +282,13 @@ function preparationFingerprint(config: OpenClawConfig): string {
 
 /** Prepare off the publication path; a superseded candidate must be discarded by its owner. */
 async function prepareRuntimeConfigSnapshot(
-  config: OpenClawConfig,
+  inputConfig: OpenClawConfig,
   context: RuntimeSnapshotTypes.RuntimeConfigSnapshotPreparationContext = {},
   assertCurrent?: () => void,
 ): Promise<() => boolean> {
+  const config = getRuntimeConfigCapture(inputConfig)
+    ? cloneConfigWithResolutionFacts(inputConfig)
+    : inputConfig;
   const generation = runtimeConfigSnapshotGeneration;
   const preparerGeneration = runtimeConfigPreparerGeneration;
   const fingerprint = preparationFingerprint(config);
@@ -326,8 +353,15 @@ export function setRuntimeConfigSourceSnapshotIfCurrent(params: {
     return false;
   }
   assertPreparerDoesNotReceiveAdmittedSelection(runtimeConfigSnapshot);
-  copyConfigResolutionFacts(params.sourceConfig, runtimeConfigSnapshot);
-  setRuntimeConfigSnapshot(runtimeConfigSnapshot, params.sourceConfig);
+  const published = runtimeConfigSnapshot;
+  const sourceFacts = serializeConfigResolutionFacts(params.sourceConfig);
+  // Rows read only the runtime object: a newer source changes them only through an in-place
+  // edit since the last publication or through the provenance copied onto it here.
+  const valuesUnchanged =
+    hashRuntimeConfigValue(published) === runtimeConfigSnapshotMetadata.fingerprint &&
+    isDeepStrictEqual(runtimeConfigPublishedFacts, sourceFacts);
+  copyConfigResolutionFacts(params.sourceConfig, published);
+  preparePublishedRuntimeConfigSnapshot(published, params.sourceConfig, valuesUnchanged);
   return true;
 }
 
@@ -341,9 +375,12 @@ export function resetConfigRuntimeState(options: { preserveConfigEnv?: boolean }
   assertRuntimeConfigSessionStoreSelectionCanClear();
   runtimeConfigSnapshotGeneration += 1;
   clearExecutablePathCache();
+  prepareRuntimePluginsConfig(null);
   runtimeConfigSnapshot = null;
+  runtimeConfigCapturedSnapshot = null;
   runtimeConfigSourceSnapshot = null;
   runtimeConfigSnapshotMetadata = null;
+  runtimeConfigPublishedFacts = null;
   runtimeConfigAppliedHash = null;
   runtimeConfigSnapshotRevision = 0;
   resetPublishedConfigRuntimeEnv({ preserveOwnership: options.preserveConfigEnv });
@@ -355,7 +392,13 @@ export function clearRuntimeConfigSnapshot(): void {
   resetConfigRuntimeState({ preserveConfigEnv: true });
 }
 
-export function getRuntimeConfigSnapshot(): OpenClawConfig | null {
+export function getRuntimeConfigSnapshot(options?: { capture?: boolean }): OpenClawConfig | null {
+  if (options?.capture && runtimeConfigSnapshot) {
+    return (runtimeConfigCapturedSnapshot ??= captureRuntimeConfigWithSource(
+      runtimeConfigSnapshot,
+      runtimeConfigSourceSnapshot ?? runtimeConfigSnapshot,
+    ));
+  }
   return runtimeConfigSnapshot;
 }
 
@@ -432,10 +475,7 @@ export function getRuntimeConfigSnapshotRefreshHandler(): RuntimeSnapshotTypes.R
 export function registerRuntimeConfigWriteListener(
   listener: (event: RuntimeSnapshotTypes.RuntimeConfigWriteNotification) => void,
 ): () => void {
-  runtimeConfigWriteListeners.add(listener);
-  return () => {
-    runtimeConfigWriteListeners.delete(listener);
-  };
+  return registerListener(runtimeConfigWriteListeners, listener);
 }
 
 export function registerManagedRuntimeConfigWriteOwner(
@@ -449,9 +489,7 @@ export function registerManagedRuntimeConfigWriteOwner(
   managedRuntimeConfigWriteOwners.set(configPath, owners);
   let released = false;
   const unregister = () => {
-    if (released) {
-      return;
-    }
+    if (released) return;
     released = true;
     const currentOwners = managedRuntimeConfigWriteOwners.get(configPath);
     currentOwners?.delete(owner);
@@ -528,13 +566,7 @@ export function hasManagedRuntimeConfigWriteOwner(configPath: string): boolean {
 export function notifyRuntimeConfigWriteListeners(
   event: RuntimeSnapshotTypes.RuntimeConfigWriteNotification,
 ): void {
-  for (const listener of runtimeConfigWriteListeners) {
-    try {
-      listener(event);
-    } catch {
-      // Best-effort observer path only; successful writes must still complete.
-    }
-  }
+  notifyListeners(runtimeConfigWriteListeners, event);
 }
 
 export function loadPinnedRuntimeConfig(loadFresh: () => OpenClawConfig): OpenClawConfig {
@@ -546,22 +578,32 @@ export function loadPinnedRuntimeConfig(loadFresh: () => OpenClawConfig): OpenCl
   return getRuntimeConfigSnapshot() ?? config;
 }
 
+type RuntimeConfigAsyncLoader = (assertCurrent: () => void) => Promise<{
+  config: OpenClawConfig;
+  runtimeEnv?: PreparedConfigRuntimeEnv;
+}>;
 /** Pin a strict cold load, optionally capturing its source and env before yielding. */
 export function loadPinnedRuntimeConfigAsync(
-  loadFresh: RuntimeSnapshotTypes.RuntimeConfigAsyncLoader,
+  loadFresh: RuntimeConfigAsyncLoader,
   options: { assertCurrent?: () => void; capture: true },
 ): Promise<CapturedRuntimeConfigRead>;
 export function loadPinnedRuntimeConfigAsync(
-  loadFresh: RuntimeSnapshotTypes.RuntimeConfigAsyncLoader,
+  loadFresh: RuntimeConfigAsyncLoader,
   options?: { assertCurrent?: () => void; capture?: false },
 ): Promise<OpenClawConfig>;
 export async function loadPinnedRuntimeConfigAsync(
-  loadFresh: RuntimeSnapshotTypes.RuntimeConfigAsyncLoader,
+  loadFresh: RuntimeConfigAsyncLoader,
   options: { assertCurrent?: () => void; capture?: boolean } = {},
 ): Promise<OpenClawConfig | CapturedRuntimeConfigRead> {
   const result = (config: OpenClawConfig) =>
     options.capture
-      ? captureRuntimeConfigRead(config, runtimeConfigSourceSnapshot ?? config)
+      ? {
+          config:
+            config === runtimeConfigSnapshot
+              ? getRuntimeConfigSnapshot({ capture: true })!
+              : captureRuntimeConfigWithSource(config, runtimeConfigSourceSnapshot ?? config),
+          env: cloneEnvWithPlatformSemantics(process.env),
+        }
       : config;
   options.assertCurrent?.();
   if (runtimeConfigSnapshot) {
@@ -641,7 +683,7 @@ export async function finalizeRuntimeSnapshotWrite(params: {
   nextSourceConfig: OpenClawConfig;
   refreshOptions?: RuntimeSnapshotTypes.RuntimeConfigSnapshotRefreshOptions;
   hadBothSnapshots: boolean;
-  freshConfig: OpenClawConfig | RuntimeSnapshotTypes.RuntimeConfigAsyncLoader;
+  freshConfig: OpenClawConfig | RuntimeConfigAsyncLoader;
   notifyCommittedWrite: () => void;
   createRefreshError: (detail: string, cause: unknown) => Error;
   formatRefreshError: (error: unknown) => string;
