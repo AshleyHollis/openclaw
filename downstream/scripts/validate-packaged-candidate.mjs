@@ -5,7 +5,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 export function validateRetainedPackageProvenance(candidate, run, artifact) {
-  assert(Number.isSafeInteger(candidate.hostRunId) && candidate.hostRunId > 0, "No authenticated Actions package receipt for the selected candidate; use the reviewed external assembly packet until Root binds one.");
+  assert(
+    Number.isSafeInteger(candidate.hostRunId) && candidate.hostRunId > 0,
+    "No authenticated Actions package receipt for the selected candidate; use the reviewed external assembly packet until Root binds one.",
+  );
   assert(Number.isSafeInteger(candidate.hostArtifactId) && candidate.hostArtifactId > 0);
   assert.match(candidate.hostRunCommit ?? "", /^[0-9a-f]{40}$/u);
   assert.match(candidate.hostArtifactDigest ?? "", /^sha256:[0-9a-f]{64}$/u);

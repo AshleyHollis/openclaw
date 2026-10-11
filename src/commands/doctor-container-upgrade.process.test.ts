@@ -15,7 +15,11 @@ const fixtures = createFixtureLifetime();
 afterAll(() => fixtures.cleanup());
 
 async function candidate(name: string, activation: boolean) {
-  const runtimeRoot = createBuiltRuntime(fixtures.createTempDir(`container-upgrade-${name}-`), path.resolve("dist"), { copyDirectories: true });
+  const runtimeRoot = createBuiltRuntime(
+    fixtures.createTempDir(`container-upgrade-${name}-`),
+    path.resolve("dist"),
+    { copyDirectories: true },
+  );
   for (const file of ["openclaw.mjs", "docker-entrypoint.mjs"]) {
     fs.copyFileSync(path.resolve(file), path.join(runtimeRoot, file));
   }
@@ -24,15 +28,24 @@ async function candidate(name: string, activation: boolean) {
     cwd: runtimeRoot,
     // Exactly the stock image command, through its actual activation adapter.
     entrypoint: activation
-      ? [path.join(runtimeRoot, "docker-entrypoint.mjs"), process.execPath, path.join(runtimeRoot, "openclaw.mjs")]
+      ? [
+          path.join(runtimeRoot, "docker-entrypoint.mjs"),
+          process.execPath,
+          path.join(runtimeRoot, "openclaw.mjs"),
+        ]
       : [path.join(runtimeRoot, "openclaw.mjs")],
     startTimeoutMs: 60_000,
     stopTimeoutMs: 5_000,
     env: {
-      NODE_ENV: undefined, OPENCLAW_HOME: undefined, VITEST: undefined,
-      OPENCLAW_TEST_FAST: "1", OPENCLAW_NO_RESPAWN: "1",
-      OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1", OPENCLAW_SKIP_CHANNELS: "1",
-      OPENCLAW_SERVICE_REPAIR_POLICY: "external", NO_COLOR: "1",
+      NODE_ENV: undefined,
+      OPENCLAW_HOME: undefined,
+      VITEST: undefined,
+      OPENCLAW_TEST_FAST: "1",
+      OPENCLAW_NO_RESPAWN: "1",
+      OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1",
+      OPENCLAW_SKIP_CHANNELS: "1",
+      OPENCLAW_SERVICE_REPAIR_POLICY: "external",
+      NO_COLOR: "1",
     },
   });
 }
@@ -59,10 +72,18 @@ it("stock activation repairs retained config and historical SQLite, reopens with
     fs.writeFileSync(markerPath, marker);
     fs.writeFileSync(notePath, "Fictional retained note.\n");
     const readRows = () => {
-      const db = new DatabaseSync(path.join(instance.stateDir, "state", "openclaw.sqlite"), { readOnly: true });
+      const db = new DatabaseSync(path.join(instance.stateDir, "state", "openclaw.sqlite"), {
+        readOnly: true,
+      });
       try {
-        return db.prepare("SELECT value_json, created_at FROM plugin_state_entries WHERE plugin_id = 'discord' AND entry_key = 'interaction:1'").get();
-      } finally { db.close(); }
+        return db
+          .prepare(
+            "SELECT value_json, created_at FROM plugin_state_entries WHERE plugin_id = 'discord' AND entry_key = 'interaction:1'",
+          )
+          .get();
+      } finally {
+        db.close();
+      }
     };
     for (let pass = 0; pass < 2; pass++) {
       await instance.startGateway();
@@ -76,11 +97,19 @@ it("stock activation repairs retained config and historical SQLite, reopens with
       await instance.stopGateway();
     }
     const db = new DatabaseSync(agentPath, { readOnly: true });
-    try { expect(db.prepare("PRAGMA user_version").get()?.user_version).toBe(24); }
-    finally { db.close(); }
-    expect(JSON.parse(fs.readFileSync(instance.configPath, "utf8")).agents?.defaults?.heartbeat?.skipWhenBusy).toBeUndefined();
+    try {
+      expect(db.prepare("PRAGMA user_version").get()?.user_version).toBe(24);
+    } finally {
+      db.close();
+    }
+    expect(
+      JSON.parse(fs.readFileSync(instance.configPath, "utf8")).agents?.defaults?.heartbeat
+        ?.skipWhenBusy,
+    ).toBeUndefined();
     // Folder bytes/UUID conservation is not Btrfs re-binding or CC discoverability proof.
-  } finally { await instance.cleanup(); }
+  } finally {
+    await instance.cleanup();
+  }
 }, 180_000);
 
 it("bypassing activation does not silently perform Doctor's config repair", async () => {
@@ -95,23 +124,31 @@ it("bypassing activation does not silently perform Doctor's config repair", asyn
     expect(instance.logs()).toMatch(/skipWhenBusy/);
     expect(instance.logs()).toMatch(/invalid|unrecognized|unknown|unsupported/i);
     expect(fs.readFileSync(instance.configPath)).toEqual(original);
-  } finally { await instance.cleanup(); }
+  } finally {
+    await instance.cleanup();
+  }
 }, 90_000);
 
 it("failed SQLite admission prevents readiness and conserves unsupported database bytes", async () => {
   const instance = await candidate("migration-refusal", true);
   try {
-    await instance.state.writeConfig({ gateway: { mode: "local", port: instance.port, auth: { mode: "none" } } });
+    await instance.state.writeConfig({
+      gateway: { mode: "local", port: instance.port, auth: { mode: "none" } },
+    });
     const agentPath = seedV17AdditiveRepairDatabase(instance.stateDir);
     const db = new DatabaseSync(agentPath);
     try {
       db.exec("PRAGMA user_version = 999");
       db.prepare("UPDATE schema_meta SET schema_version = 999 WHERE meta_key = 'primary'").run();
-    } finally { db.close(); }
+    } finally {
+      db.close();
+    }
     const original = fs.readFileSync(agentPath);
     await expect(instance.startGateway()).rejects.toThrow();
     expect(instance.logs()).toMatch(/uses schema 999; this build supports 24/);
     expect(fs.readFileSync(agentPath)).toEqual(original);
-    expect(instance.readiness.some(item => item.outcome === "ready")).toBe(false);
-  } finally { await instance.cleanup(); }
+    expect(instance.readiness.some((item) => item.outcome === "ready")).toBe(false);
+  } finally {
+    await instance.cleanup();
+  }
 }, 90_000);

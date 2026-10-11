@@ -1,8 +1,8 @@
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type { ControlUiLinkReaderDescriptor } from "../../../../src/shared/control-ui-link-reader.js";
 import { resolveLinkReaderTarget } from "../../components/link-reader-target.ts";
 import {
   FILES_PANEL_OPEN_EVENT,
-  type FilesPanelOpenDetail,
   BROWSER_PANEL_TOGGLE_EVENT,
   LINK_READER_PANEL_TOGGLE_EVENT,
   DESKTOP_PANEL_TOGGLE_EVENT,
@@ -74,9 +74,12 @@ export class ChatPaneSessionPanelToggleController {
     });
     const handleFilesOpen = (event: Event) => {
       const owner = this.options.current();
-      const detail = (event as CustomEvent<FilesPanelOpenDetail>).detail;
+      const detail: unknown = event instanceof CustomEvent ? event.detail : null;
       if (
         !owner ||
+        !isRecord(detail) ||
+        typeof detail.sessionKey !== "string" ||
+        (detail.agentId !== undefined && typeof detail.agentId !== "string") ||
         event.defaultPrevented ||
         !owner.state.connected ||
         owner.state.client !== detail.client

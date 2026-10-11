@@ -102,7 +102,10 @@ export async function inspectSessionEntryEmptyHistory(params: {
       projection: "full",
       env: options.env ?? process.env,
       emptyHistoryExpectation: {
-        target: { canonicalKey: params.target.canonicalKey, storeKeys: [...params.target.storeKeys] },
+        target: {
+          canonicalKey: params.target.canonicalKey,
+          storeKeys: [...params.target.storeKeys],
+        },
         expectedSessionId: params.expectedSessionId,
         expectedLifecycleRevision: params.expectedLifecycleRevision,
         expectedUpdatedAt: params.expectedUpdatedAt,
