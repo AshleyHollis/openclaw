@@ -67,6 +67,7 @@ import type { NativeConversationBridge } from "./native-conversation-types.ts";
 import { startNativeLinkRouting } from "./native-link-routing.ts";
 import { createApplicationOverlays } from "./overlays.ts";
 import { isBrowserPanelAvailable } from "./panel-availability.ts";
+import { startPluginPageLinkRouting } from "./plugin-page-link-routing.ts";
 import { createApplicationPlacementStartup } from "./session-placement-startup.ts";
 import {
   loadGatewaySessionSelection,
@@ -528,6 +529,7 @@ export function bootstrapApplication(): ApplicationRuntime {
     revalidate: (routeId) => router.revalidate(context, routeId),
     preload: (routeId) => router.preloadLocation(locationForRoute(routeId, basePath), context),
   };
+  const pluginPageLinkRouting = startPluginPageLinkRouting(() => context);
   return {
     context,
     router,
@@ -665,6 +667,7 @@ export function bootstrapApplication(): ApplicationRuntime {
       theme.dispose();
       nativeChatDrafts.dispose();
       linkReaderRouting.dispose();
+      pluginPageLinkRouting.dispose();
       nativeLinkRouting.dispose();
       webPush.dispose();
       chatSubmissions.clear();

@@ -109,9 +109,12 @@ async function withSourceGateway(
 ) {
   await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
     const { registerWorkboardGatewayMethods } = await loadBundledPluginFacade<{
-      registerWorkboardGatewayMethods: (params: {
-        api: ReturnType<typeof createTestPluginApi>;
-      }) => void;
+      registerWorkboardGatewayMethods(
+        this: void,
+        params: {
+          api: ReturnType<typeof createTestPluginApi>;
+        },
+      ): void;
     }>({ pluginId: "workboard", artifactBasename: "runtime-api.js" });
     const readPolicy: { others: "view" | "none" } = { others: "view" };
     const config: OpenClawConfig = {
