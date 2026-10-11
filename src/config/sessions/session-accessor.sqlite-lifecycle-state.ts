@@ -25,6 +25,7 @@ import type {
   SessionLifecycleArchivedTranscript,
 } from "./session-accessor.sqlite-contract.js";
 import {
+  readSessionGenerationIdsForKeys,
   readSessionStateDeleteSnapshot,
   sqliteSessionStateDeleteSnapshotsEqual,
 } from "./session-accessor.sqlite-delete-snapshot.js";
@@ -324,23 +325,6 @@ export function planSessionStateAfterEntryRemoval(params: {
     });
     return plan ? [plan] : [];
   });
-}
-
-/** Ids of every persisted generation owned by the given logical session keys. */
-export function readSessionGenerationIdsForKeys(
-  database: Pick<OpenClawAgentDatabase, "db">,
-  keys: Iterable<string>,
-  options: { exactStoredKeys?: boolean } = {},
-): string[] {
-  const sessionKeys = [...keys].map((key) => (options.exactStoredKeys ? key : key.trim()));
-  const db = getSessionKysely(database.db);
-  return executeSqliteQuerySync(
-    database.db,
-    db
-      .selectFrom("session_windows")
-      .select("session_id")
-      .where("session_key", "in", sqliteStringSet(sessionKeys)),
-  ).rows.map((row) => row.session_id);
 }
 
 /** Raw Doctor removals also guard cold changes while the hot blob remains unchanged. */

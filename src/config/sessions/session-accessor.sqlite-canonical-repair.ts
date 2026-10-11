@@ -11,12 +11,12 @@ import {
   runOpenClawAgentWriteTransaction,
   type OpenClawAgentDatabase,
 } from "../../state/openclaw-agent-db.js";
+import { readSessionGenerationIdsForKeys } from "./session-accessor.sqlite-delete-snapshot.js";
 import {
   copySqliteSessionGenerationRows,
   readSqliteSessionGenerationWindows,
   rehomeSqliteSessionGenerationWindow,
 } from "./session-accessor.sqlite-generation-copy.js";
-import { readSessionGenerationIdsForKeys } from "./session-accessor.sqlite-lifecycle-state.js";
 import {
   copySessionNodeArtifactsForRepair,
   deleteSessionMembersForRepair,

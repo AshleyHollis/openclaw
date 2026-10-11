@@ -3,10 +3,8 @@ import {
   assertLifecycleTargetSnapshotUnchanged,
   sqliteSessionEntriesEqual,
 } from "./session-accessor.sqlite-entry-equality.js";
-import {
-  readLifecycleTargetSnapshot,
-  writeSessionEntry,
-} from "./session-accessor.sqlite-entry-store.js";
+import { readLifecycleTargetSnapshot } from "./session-accessor.sqlite-entry-read.js";
+import { writeSessionEntry } from "./session-accessor.sqlite-entry-store.js";
 import { appendSessionResetBoundary } from "./session-accessor.sqlite-reset-boundary.js";
 import type { SessionResetCommit } from "./session-reset.types.js";
 

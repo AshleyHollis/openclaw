@@ -18,10 +18,10 @@ import {
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { retainPreparedSessionGenerationFacts } from "./session-accessor.sqlite-entry-cache.js";
 import {
-  readExactSessionEntryRow,
   readSessionEntrySelectionSnapshot,
   readUnchangedLifecycleTargetSnapshot,
-} from "./session-accessor.sqlite-entry-store.js";
+} from "./session-accessor.sqlite-entry-read.js";
+import { readExactSessionEntryRow } from "./session-accessor.sqlite-entry-store.js";
 import {
   patchSessionEntryCore as patchInternalSessionEntry,
   replaceSessionEntrySync,

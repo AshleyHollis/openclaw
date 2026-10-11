@@ -4,9 +4,9 @@ import {
   assertLifecycleTargetSnapshotUnchanged,
   type SqliteLifecycleTargetSnapshot,
 } from "./session-accessor.sqlite-entry-equality.js";
+import { readUnchangedLifecycleTargetSnapshot } from "./session-accessor.sqlite-entry-read.js";
 import {
   readSessionIdentitySnapshot,
-  readUnchangedLifecycleTargetSnapshot,
   writeSessionEntry,
 } from "./session-accessor.sqlite-entry-store.js";
 import { assertCanonicalSqliteSessionKeysCurrent } from "./session-canonical-key.js";

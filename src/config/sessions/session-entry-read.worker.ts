@@ -30,8 +30,8 @@ import {
 import {
   readSessionEntryByIdInDatabase,
   readSessionEntryRow,
+  readLifecycleTargetSnapshot,
 } from "./session-accessor.sqlite-entry-read.js";
-import { readLifecycleTargetSnapshot } from "./session-accessor.sqlite-entry-store.js";
 import { participantRecordsBySessionKey } from "./session-accessor.sqlite-participant-projection.js";
 import { readSessionEntryReplacementState } from "./session-accessor.sqlite-replacement-read.js";
 import { resolveSqliteSessionKey } from "./session-accessor.sqlite-scope-helpers.js";

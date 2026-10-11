@@ -21,11 +21,9 @@ import {
 } from "../../state/openclaw-agent-db.js";
 import { closeStateDatabaseForTest } from "../../test-utils/database-cleanup.js";
 import { onSessionIdentityMutation } from "./session-accessor.js";
+import { readUnchangedLifecycleTargetSnapshot } from "./session-accessor.sqlite-entry-read.js";
 import { createSessionEntryRevisionGuard } from "./session-accessor.sqlite-entry-revision.js";
-import {
-  readUnchangedLifecycleTargetSnapshot,
-  writeSessionEntry,
-} from "./session-accessor.sqlite-entry-store.js";
+import { writeSessionEntry } from "./session-accessor.sqlite-entry-store.js";
 import {
   loadExactSessionEntry,
   patchSessionEntryCore,

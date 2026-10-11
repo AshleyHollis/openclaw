@@ -1,8 +1,10 @@
 import { executeSqliteQuerySync } from "../../infra/kysely-sync.js";
 import type { OpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
 import type { DeleteSessionEntryLifecycleParams } from "./session-accessor.sqlite-contract.js";
-import { readSessionStateDeleteSnapshot } from "./session-accessor.sqlite-delete-snapshot.js";
-import { readSessionGenerationIdsForKeys } from "./session-accessor.sqlite-lifecycle-state.js";
+import {
+  readSessionStateDeleteSnapshot,
+  readSessionGenerationIdsForKeys,
+} from "./session-accessor.sqlite-delete-snapshot.js";
 import { collectSessionStateIdsForEntry } from "./session-accessor.sqlite-references.js";
 import { getSessionKysely } from "./session-accessor.sqlite-scope.js";
 import { readSessionColdTranscript } from "./session-cold-storage-state.js";

@@ -3,8 +3,10 @@ import type { OpenClawAgentDatabase } from "../../state/openclaw-agent-db-contra
 import type { SessionEntryReplacementPublication } from "./session-accessor.sqlite-entry-cache.js";
 import {
   normalizeLifecycleTarget,
-  readSessionIdentitySnapshot,
   resolveLifecyclePrimaryEntry,
+} from "./session-accessor.sqlite-entry-read.js";
+import {
+  readSessionIdentitySnapshot,
   writeSessionEntry,
 } from "./session-accessor.sqlite-entry-store.js";
 import { loadTranscriptEventsFromDatabase } from "./session-accessor.sqlite-read.js";

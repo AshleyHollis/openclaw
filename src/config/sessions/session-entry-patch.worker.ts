@@ -6,7 +6,7 @@ import { applySessionEntryPatchInDatabase } from "./session-accessor.sqlite-entr
 import {
   readLifecycleTargetSnapshot,
   readSessionEntrySelectionSnapshot,
-} from "./session-accessor.sqlite-entry-store.js";
+} from "./session-accessor.sqlite-entry-read.js";
 import { prepareSessionEntryReplacementPublication } from "./session-accessor.sqlite-replacement-state.js";
 import { sessionEntryPatchPredicateMatches } from "./session-entry-patch-guard.js";
 import type {

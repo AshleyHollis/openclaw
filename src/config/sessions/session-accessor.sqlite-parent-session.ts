@@ -19,8 +19,10 @@ import type {
 import { sqliteSessionEntriesEqual } from "./session-accessor.sqlite-entry-equality.js";
 import {
   normalizeLifecycleTarget,
-  readSessionIdentitySnapshot,
   resolveLifecyclePrimaryEntry,
+} from "./session-accessor.sqlite-entry-read.js";
+import {
+  readSessionIdentitySnapshot,
   writeSessionEntry,
 } from "./session-accessor.sqlite-entry-store.js";
 import { prepareSessionIdentityPublication } from "./session-accessor.sqlite-identity.js";

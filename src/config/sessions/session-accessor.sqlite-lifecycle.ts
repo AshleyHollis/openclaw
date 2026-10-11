@@ -40,7 +40,7 @@ import {
   runSqliteSessionDeletionTransaction as runOpenClawAgentWriteTransaction,
   withSqliteSessionDeletions,
 } from "./session-accessor.sqlite-deletion.js";
-import { readLifecycleTargetSnapshot } from "./session-accessor.sqlite-entry-store.js";
+import { readLifecycleTargetSnapshot } from "./session-accessor.sqlite-entry-read.js";
 import { emitArchivedTranscriptUpdates } from "./session-accessor.sqlite-events.js";
 import { publishCommittedSessionEntryRemoval } from "./session-accessor.sqlite-identity.js";
 import {

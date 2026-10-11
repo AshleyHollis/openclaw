@@ -10,9 +10,10 @@ import {
 } from "../../state/openclaw-agent-db-identity.js";
 import type { OpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
 import type { DeleteSessionEntryLifecycleParams } from "./session-accessor.sqlite-contract.js";
+import { readSessionGenerationIdsForKeys } from "./session-accessor.sqlite-delete-snapshot.js";
 import { hasOnlyEmptyCurrentGeneration } from "./session-accessor.sqlite-empty-history.js";
 import { sqliteLifecycleTargetSnapshotsEqual } from "./session-accessor.sqlite-entry-equality.js";
-import { readLifecycleTargetSnapshot } from "./session-accessor.sqlite-entry-store.js";
+import { readLifecycleTargetSnapshot } from "./session-accessor.sqlite-entry-read.js";
 import {
   readSqliteSessionGenerationClaim,
   readSqliteSessionGenerationWindows,
@@ -21,7 +22,6 @@ import {
   collectSessionStateIdsForEntry,
   shouldRemoveSessionEntry,
   planSessionStateDeleteIfUnreferenced,
-  readSessionGenerationIdsForKeys,
   planSessionStateAfterEntryRemoval,
   readReferencedSessionIdsAfterTargetMutation,
 } from "./session-accessor.sqlite-lifecycle-state.js";

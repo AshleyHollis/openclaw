@@ -44,11 +44,13 @@ import {
   replaceSessionEntryInDatabase,
 } from "./session-accessor.sqlite-entry-mutation.js";
 import {
+  readLifecycleTargetSnapshot,
+  readSessionEntrySelectionSnapshot,
+} from "./session-accessor.sqlite-entry-read.js";
+import {
   parseReadableSqliteSessionEntryRows,
   readExactSessionEntryRowValidated,
   readSessionEntryRow,
-  readLifecycleTargetSnapshot,
-  readSessionEntrySelectionSnapshot,
 } from "./session-accessor.sqlite-entry-store.js";
 import {
   assertCapturedSessionEntryReadSource,

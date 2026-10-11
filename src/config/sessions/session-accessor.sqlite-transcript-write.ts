@@ -18,9 +18,9 @@ import type {
   TranscriptMessageAppendResult,
 } from "./session-accessor.sqlite-contract.js";
 import { assertLifecycleTargetSnapshotUnchanged } from "./session-accessor.sqlite-entry-equality.js";
+import { readSessionEntrySelectionSnapshot } from "./session-accessor.sqlite-entry-read.js";
 import {
   readSessionEntryRow,
-  readSessionEntrySelectionSnapshot,
   readSessionIdentitySnapshot,
   writeSessionEntry,
 } from "./session-accessor.sqlite-entry-store.js";
