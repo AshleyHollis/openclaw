@@ -278,6 +278,16 @@ describe("chat run registration lifecycle", () => {
         sessionKey: "session-reply-dispatch",
         sessionId: undefined,
         persistence: expect.any(Promise),
+        ownerEvent: expect.objectContaining({
+          runId,
+          stream: "lifecycle",
+          data: {
+            phase: "error",
+            error: "ACP turn failed",
+            completionSource: "reply-dispatch",
+            ...(executionSettled ? { executionSettled: true } : {}),
+          },
+        }),
       });
     },
   );

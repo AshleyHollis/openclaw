@@ -2976,7 +2976,7 @@ describe("agent event handler", () => {
       ownerEvent: expect.objectContaining({
         runId,
         stream: "lifecycle",
-        data: { phase: "end", endedAt: 2_000 },
+        data: { phase: "end", startedAt: 1_000, endedAt: 2_000 },
       }),
     });
   });
