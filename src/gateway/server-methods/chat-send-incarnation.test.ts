@@ -34,7 +34,7 @@ it("admits only the selected chat incarnation before retry, stop, or turn effect
       expect(
         fixture.context.dedupe.has(pendingChatSendDedupeKey(fixture.params.idempotencyKey)),
       ).toBe(false);
-      expect(listSessionPendingInputs(fixture.scope)).toEqual({ items: [], total: 0 });
+      expect(await listSessionPendingInputs(fixture.scope)).toEqual({ items: [], total: 0 });
       expect(loadTranscriptEventsSync(fixture.scope)).toEqual(before);
     };
 
@@ -138,11 +138,11 @@ it("rejects a pinned send whose incarnation changes while attachments are prepar
     expect(
       fixture.context.dedupe.has(pendingChatSendDedupeKey(fixture.params.idempotencyKey)),
     ).toBe(false);
-    expect(listSessionPendingInputs(fixture.scope)).toEqual({ items: [], total: 0 });
+    expect(await listSessionPendingInputs(fixture.scope)).toEqual({ items: [], total: 0 });
     expect(loadTranscriptEventsSync(fixture.scope)).toEqual(transcriptBefore);
     expect(cancelSuccessor).not.toHaveBeenCalled();
     expect(queueSuccessorMessage).not.toHaveBeenCalled();
-    expect(listSessionPendingInputs(successorScope)).toEqual({ items: [], total: 0 });
+    expect(await listSessionPendingInputs(successorScope)).toEqual({ items: [], total: 0 });
     expect(loadTranscriptEventsSync(successorScope)).toEqual(successorTranscriptBefore);
   } finally {
     releasePreparation.resolve();
