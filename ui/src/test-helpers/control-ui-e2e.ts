@@ -645,54 +645,12 @@ export async function startControlUiE2eServer(
   );
   // Shared browser fixtures import this helper; load filesystem-bound Vite
   // configuration only when its Node-owned development server actually starts.
-  const [
-    { createServer },
-    { controlUiLocaleModulesPlugin },
-    {
-      commonJsOptimizeDeps,
-      controlUiBrowserOnlySharedModuleAliases,
-      resolveExternalPackageAliasesForVite,
-      resolveSourcePackageAliasesForVite,
-      resolveTsconfigPathAliasesForVite,
-    },
-  ] = await Promise.all([
-    import("vite"),
-    import("../../config/control-ui-locales.ts"),
-    import("../../vite.config.ts"),
-  ]);
-  const repoRoot = resolveRepoRoot();
-  const uiRoot = path.join(repoRoot, "ui");
-  const port = await resolveAvailableLoopbackPort();
-  const server = await createServer({
-    base: "/",
-    cacheDir: path.join(repoRoot, ".artifacts", "control-ui-e2e-vite"),
-    clearScreen: false,
-    configFile: false,
-    define: {
-      "globalThis.OPENCLAW_CONTROL_UI_BUILD_INFO": JSON.stringify(resolvedBuildInfo),
-    },
-    logLevel: "error",
-    optimizeDeps: {
-      include: ["ipaddr.js", "lit/directives/repeat.js", ...commonJsOptimizeDeps],
-    },
-    publicDir: path.join(uiRoot, "public"),
-    plugins: [controlUiLocaleModulesPlugin(), controlUiBrowserOnlySharedModuleAliases()],
-    resolve: {
-      alias: [
-        { find: "json5", replacement: json5EsmPath },
-        ...resolveExternalPackageAliasesForVite(),
-        ...resolveSourcePackageAliasesForVite(),
-        ...resolveTsconfigPathAliasesForVite(),
-      ],
-    },
-    root: uiRoot,
-    server: {
-      host: "127.0.0.1",
-      port,
-      strictPort: true,
-    },
-  });
-  await server.listen(port);
+  const { startControlUiE2eSourceServer } = await import("./control-ui-e2e-source-server.ts");
+  const server = await startControlUiE2eSourceServer(
+    resolveRepoRoot(),
+    resolvedBuildInfo,
+    json5EsmPath,
+  );
   return {
     baseUrl: resolveServerBaseUrl(server),
     close: () => server.close(),
