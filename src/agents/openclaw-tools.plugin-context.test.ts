@@ -73,4 +73,21 @@ describe("openclaw plugin tool context", () => {
 
     expect(result.context.deliveryContext?.to).toBe("user:U123");
   });
+  it("projects only the original trusted host run identity", () => {
+    const options = {
+      agentSessionKey: "agent:main:review",
+      runId: "original-run",
+      toolBindings: { runId: "forged-tool-binding" },
+    };
+    const original = resolve(options);
+    options.runId = "later-run";
+    expect(original.context.runId).toBe("original-run");
+    expect(original.context.sessionKey).toBe("agent:main:review");
+    expect(
+      resolve({
+        agentSessionKey: "agent:main:review",
+        toolBindings: { runId: "forged-tool-binding" },
+      }).context.runId,
+    ).toBeUndefined();
+  });
 });

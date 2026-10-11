@@ -3,6 +3,7 @@ import type {
   WorkboardBoardMetadata,
   WorkboardCard,
   WorkboardNotificationSubscription,
+  WorkboardResultReviewRequest,
 } from "@openclaw/workboard-contract";
 import type { PreparedSessionTranscriptSourceAdmission } from "openclaw/plugin-sdk/session-transcript-runtime";
 
@@ -85,6 +86,25 @@ export type WorkboardCardReadScope =
     };
 
 export type WorkboardCardStore = Omit<WorkboardKeyedStore, "entries"> & {
+  registerWithResultReview(
+    key: string,
+    value: PersistedWorkboardCard,
+    expectedUpdatedAt: number,
+    request: WorkboardResultReviewRequest,
+  ): Promise<false | { card: WorkboardCard; inserted: boolean }>;
+  getResultReview(id: string): Promise<WorkboardResultReviewRequest | undefined>;
+  listResultReviews(scope: {
+    tenant: string;
+    boardId: string;
+    cardId: string;
+  }): Promise<WorkboardResultReviewRequest[]>;
+  resolveResultReview(
+    id: string,
+    expectedRevision: number,
+    expectedUpdatedAt: number,
+    decision: "reviewed" | "withdrawn",
+    now: number,
+  ): Promise<{ request: WorkboardResultReviewRequest; card: WorkboardCard } | undefined>;
   entries(
     scope?: WorkboardCardReadScope,
   ): Promise<Array<{ key: string; value: PersistedWorkboardCard }>>;

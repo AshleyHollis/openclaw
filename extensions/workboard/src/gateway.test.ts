@@ -223,6 +223,9 @@ describe("workboard gateway methods", () => {
       "workboard.cards.create",
       "workboard.cards.captureSession",
       "workboard.cards.update",
+      "workboard.resultReviews.list",
+      "workboard.resultReviews.get",
+      "workboard.resultReviews.resolve",
       "workboard.cards.start",
       "workboard.cards.move",
       "workboard.cards.delete",
@@ -268,6 +271,11 @@ describe("workboard gateway methods", () => {
       "workboard.cards.export",
     ]);
     expect(methods.get("workboard.cards.list")?.opts).toEqual({ scope: "operator.read" });
+    expect(methods.get("workboard.resultReviews.list")?.opts).toEqual({ scope: "operator.read" });
+    expect(methods.get("workboard.resultReviews.get")?.opts).toEqual({ scope: "operator.read" });
+    expect(methods.get("workboard.resultReviews.resolve")?.opts).toEqual({
+      scope: "operator.write",
+    });
     expect(methods.get("workboard.cards.diagnostics")?.opts).toEqual({ scope: "operator.read" });
     expect(methods.get("workboard.cards.diagnostics.refresh")?.opts).toEqual({
       scope: "operator.write",
