@@ -765,6 +765,11 @@ describe("scripts/ci-run-node-test-shard.mts", () => {
       const captureFile = "src/proxy-capture/proxy-server.test.ts";
       for (const captureSelection of [
         { targets: [captureFile] },
+        { targets: ["src/agents/openclaw-plugin-tools.operator.integration.test.ts"] },
+        {
+          configs: ["test/vitest/vitest.infra.config.ts"],
+          includePatterns: ["src/agents/openclaw-plugin-tools.operator.integration.test.ts"],
+        },
         { configs: ["test/vitest/vitest.infra.config.ts"], includePatterns: [captureFile] },
       ]) {
         expect(resolveCiTestRuntimeSelections(captureSelection, policy)).toEqual([

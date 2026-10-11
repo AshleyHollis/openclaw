@@ -630,8 +630,10 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                     @drop=${(event: DragEvent) => this.sessionOrganizer.handleSidebarZoneDrop(event)}
                   >
                     ${sidebarZone.entries
-                      .filter((entry) =>
-                        isUngroupedSidebarEntry(entry, sidebarZone.groupedNavigationKeys),
+                      .filter(
+                        (entry) =>
+                          (this.sidebarAgentsMode === "roster" && entry.type === "session") ||
+                          isUngroupedSidebarEntry(entry, sidebarZone.groupedNavigationKeys),
                       )
                       .map((entry) =>
                         renderAppSidebarZoneEntry(

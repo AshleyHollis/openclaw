@@ -198,7 +198,18 @@ api.registerTool(
 ```
 
 The `OpenClawPluginToolContext<2>` type requires `assertInvocationCurrent`.
-Carry it through awaited work and invoke it in the final synchronous write or
+For an admitted operator run, V2 factories may also receive
+`authenticatedOperator`, a frozen `{ profileId, scopes }` projection of the
+original canonical operator and scope ceiling. The copied scopes do not grant
+access: require the applicable original scope and call `assertInvocationCurrent`
+after awaited work and in the final synchronous effect guard. Role/profile
+revocation invalidates that guard; the projection does not renew authority.
+It is absent from V1 factories, metadata-only discovery, and runs without an
+admitted operator. Generic sender IDs, device IDs, `senderIsOwner`, tool arguments,
+and `toolBindings` cannot supply this projection. No credential, display profile,
+or new grant is exposed.
+
+Carry `assertInvocationCurrent` through awaited work and invoke it in the final synchronous write or
 request guard, before effects—not only before starting work or after returning.
 It checks the captured plugin lifetime and admitted run/worker authority; a
 continuation also checks the original owner's live exact-parent binding. Standalone

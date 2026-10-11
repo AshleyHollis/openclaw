@@ -1,6 +1,24 @@
-import type { Page } from "playwright";
+import type { Browser, BrowserContext, BrowserContextOptions, Page } from "playwright";
 import { expect } from "vitest";
 import type { ControlUiLinkReaderPreview } from "../../../src/shared/control-ui-link-reader.js";
+
+export type PreviewDisplayOptions = Pick<
+  BrowserContextOptions,
+  "colorScheme" | "reducedMotion" | "viewport"
+>;
+
+export async function newBrowserContext(
+  browser: Browser,
+  options: PreviewDisplayOptions = {},
+): Promise<BrowserContext> {
+  return browser.newContext({
+    colorScheme: "light",
+    locale: "en-US",
+    serviceWorkers: "block",
+    viewport: { height: 800, width: 1180 },
+    ...options,
+  });
+}
 
 export const pullPreviewResponse = {
   url: "https://github.com/openclaw/openclaw/pull/99816",
