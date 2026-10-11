@@ -116,7 +116,7 @@ it("bypassing activation does not silently perform Doctor's config repair", asyn
   const instance = await candidate("custom-command-bypass", false);
   try {
     await instance.state.writeConfig({
-      agents: { defaults: { heartbeat: { skipWhenBusy: true } }, list: [{ id: "main" }] },
+      agents: { defaults: { heartbeat: { skipWhenBusy: true } }, entries: { main: {} } },
       gateway: { mode: "local", port: instance.port, auth: { mode: "none" } },
     });
     const original = fs.readFileSync(instance.configPath);

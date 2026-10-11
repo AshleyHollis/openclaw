@@ -523,6 +523,10 @@ export const LEGACY_CONFIG_MIGRATIONS_RUNTIME_RETIRED: LegacyConfigMigrationSpec
     id: "runtime.doctor-tier-eval-tranche",
     describe: "Consolidate approved tier-eval configuration surfaces",
     legacyRules: [
+      rule(
+        ["agents", "defaults", "heartbeat", "skipWhenBusy"],
+        "agents.defaults.heartbeat.skipWhenBusy is retired.",
+      ),
       rule([], "Approved tier-eval configuration surfaces were consolidated.", (_value, root) => {
         const changes: string[] = [];
         migrateTierEvalTranche(structuredClone(root), changes);

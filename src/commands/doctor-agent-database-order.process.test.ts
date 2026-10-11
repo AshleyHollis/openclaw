@@ -246,6 +246,15 @@ it.concurrent.for(["current", "historical-v1", "lost-journal"] as const)(
         }),
       );
       const agentDatabaseBytes = databasePaths.map((pathname) => fs.readFileSync(pathname));
+      const agentDatabaseInodes = databasePaths.map((pathname) => fs.statSync(pathname).ino);
+      const retainedInputPaths = [
+        ...agentDatabasePaths.map((pathname) =>
+          path.join(path.dirname(pathname), "auth-profiles.json"),
+        ),
+        path.join(sessionDir, "sessions.json"),
+        path.join(sessionDir, `${sessionId}.jsonl`),
+      ];
+      const retainedInputBytes = retainedInputPaths.map((pathname) => fs.readFileSync(pathname));
       const args = [
         "doctor",
         "--fix",
@@ -258,23 +267,37 @@ it.concurrent.for(["current", "historical-v1", "lost-journal"] as const)(
       );
       const output = stripVTControlCharacters(`${first.stdout}\n${first.stderr}`);
       if (sharedState === "lost-journal") {
-        expect(first.code, output).toBe(0);
+        expect(first.code, output).toBe(1);
         expect(doctorResultPath).toBeDefined();
         const result = await consumeUpdatePostInstallDoctorResult(
           doctorResultPath!,
           doctorResultOptions,
         );
         expect(result, output).toMatchObject({
-          status: "ok",
-          warnings: expect.arrayContaining([expect.stringContaining("held back")]),
+          status: "error",
+          maintenanceRefusal: { kind: "data-at-risk", reason: "incomplete-migration" },
+          failureFacts: [
+            {
+              check: "agent-deletion-journal",
+              code: "unverified-agent-databases",
+              message: expect.stringContaining("3 stores held back"),
+            },
+          ],
         });
         expect(output).toContain("Agent deletion journal reconstructed");
         expect(output).toContain("held back");
         expect(output).toContain("openclaw agents add");
         expect(output).toContain("--non-interactive");
+        expect(output).toContain("agent-deletion-journal (unverified-agent-databases)");
+        expect(output).not.toContain("Migrated auth profile JSON");
+        expect(output).not.toContain("Transcript events: imported=");
         for (const [index, pathname] of databasePaths.entries()) {
           expect(output).toContain(pathname);
           expect(fs.readFileSync(pathname)).toEqual(agentDatabaseBytes[index]);
+          expect(fs.statSync(pathname).ino).toBe(agentDatabaseInodes[index]);
+        }
+        for (const [index, pathname] of retainedInputPaths.entries()) {
+          expect(fs.readFileSync(pathname)).toEqual(retainedInputBytes[index]);
         }
         return;
       }
