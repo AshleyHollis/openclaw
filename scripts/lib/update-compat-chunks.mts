@@ -438,6 +438,20 @@ function currentOrigin(
   if (info.imports.has(origin.symbol) || info.exports.has(origin.symbol)) {
     throw new Error(`Cannot resolve current source binding ${origin.module}:${origin.symbol}`);
   }
+  // Published 2026.9.7/9.8 updaters retain this storage-module origin. The
+  // admitted operation moved to its own owner without a legacy source export.
+  if (
+    origin.module === "src/state/openclaw-state-lease-worker-storage.ts" &&
+    origin.symbol === "runWithOpenClawStateLeaseWorker"
+  ) {
+    const module = "src/state/openclaw-state-lease-worker-operation.ts";
+    const target = path.join(sourceDir, module);
+    const relocated = fs.existsSync(target) && graph.origin(target, origin.symbol);
+    if (!relocated) {
+      throw new Error(`Cannot resolve current source binding ${module}:${origin.symbol}`);
+    }
+    return relocated;
+  }
   return origin;
 }
 

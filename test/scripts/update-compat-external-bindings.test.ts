@@ -25,6 +25,82 @@ const namespaceImport = {
   source: 'import * as NAME from "external-package"; export { NAME };',
 };
 
+it.each(["present", "missing", "external", "wrong symbol", "unmapped historical symbol"] as const)(
+  "bridges shipped lease-worker paths only to the admitted current operation (%s)",
+  async (target) => {
+    const root = createTempDir("update-compat-lease-worker-move-");
+    const oldModule = "src/state/openclaw-state-lease-worker-storage.ts";
+    const currentModule = "src/state/openclaw-state-lease-worker-operation.ts";
+    const symbol = "runWithOpenClawStateLeaseWorker";
+    const inventory = {
+      schemaVersion: 1 as const,
+      releases: previousReleaseInventory.releases
+        .map((release) => ({
+          ...release,
+          chunks: release.chunks
+            .filter((entry) => entry.exports.some((binding) => binding.origin.module === oldModule))
+            .map((entry) => ({
+              ...entry,
+              exports: entry.exports.map((binding) => ({
+                ...binding,
+                origin: {
+                  ...binding.origin,
+                  symbol:
+                    target === "unmapped historical symbol"
+                      ? "otherOperation"
+                      : binding.origin.symbol,
+                },
+              })),
+            })),
+        }))
+        .filter((release) => release.chunks.length > 0),
+    };
+    expect(inventory.releases.length).toBeGreaterThan(0);
+    const historicalInventory = JSON.stringify(inventory);
+    fs.writeFileSync(path.join(root, "package.json"), '{"type":"module"}');
+    fs.mkdirSync(path.join(root, "src/state"), { recursive: true });
+    fs.mkdirSync(path.join(root, "dist"));
+    fs.writeFileSync(path.join(root, oldModule), 'export const storageOwner = "storage";\n');
+    if (target !== "missing") {
+      fs.writeFileSync(
+        path.join(root, currentModule),
+        target === "external"
+          ? `export { ${symbol} } from "external-package";\n`
+          : `export function ${target === "wrong symbol" ? "otherOperation" : symbol}() {}\n`,
+      );
+    }
+    fs.writeFileSync(
+      path.join(root, "dist/current.mjs"),
+      `//#region ${currentModule}\nfunction ${symbol}() { return "admitted current operation"; } export { ${symbol} as n };\n`,
+    );
+    const options = { distDir: path.join(root, "dist"), sourceDir: root, inventory };
+    if (target !== "present") {
+      expect(() => writeUpdateCompatibilityChunks(options)).toThrow(
+        target === "unmapped historical symbol"
+          ? "no equivalent current export"
+          : `Cannot resolve current source binding ${currentModule}:${symbol}`,
+      );
+      expect(fs.existsSync(path.join(root, "dist/update-compat-inventory.json"))).toBe(false);
+      for (const release of inventory.releases) {
+        for (const entry of release.chunks) {
+          expect(fs.existsSync(path.join(root, "dist", entry.path))).toBe(false);
+        }
+      }
+    } else {
+      writeUpdateCompatibilityChunks(options);
+      const current = await import(pathToFileURL(path.join(root, "dist/current.mjs")).href);
+      for (const release of inventory.releases) {
+        for (const entry of release.chunks) {
+          const bridge = await import(pathToFileURL(path.join(root, "dist", entry.path)).href);
+          expect(bridge[symbol]).toBe(current.n);
+          expect(bridge[symbol]()).toBe("admitted current operation");
+        }
+      }
+    }
+    expect(JSON.stringify(inventory)).toBe(historicalInventory);
+  },
+);
+
 it.each([
   'import { safePath as helper } from "@openclaw/fs-safe/path"; export { helper };',
   'import helper from "external-package"; export { helper };',

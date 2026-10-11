@@ -26,7 +26,8 @@ import type { RuntimeGatewayRequestOptions } from "../plugins/runtime/types.js";
 import { closeOpenClawAgentDatabasesAsync } from "../state/openclaw-agent-db.js";
 import { resolveOpenClawAgentSqlitePath } from "../state/openclaw-agent-db.paths.js";
 import { closeOpenClawStateDatabaseAsync } from "../state/openclaw-state-db.js";
-import { ensureProfileForEmail, setUserProfileRole } from "../state/user-profiles.js";
+import { setUserProfileRole } from "../state/user-profile-writes.worker.js";
+import { ensureProfileForEmail } from "../state/user-profiles.js";
 import {
   loadBundledPluginFacade,
   resolveBundledPluginPublicModulePath,
@@ -118,7 +119,7 @@ async function withSourceGateway(
     }>({ pluginId: "workboard", artifactBasename: "runtime-api.js" });
     const readPolicy: { others: "view" | "none" } = { others: "view" };
     const config: OpenClawConfig = {
-      agents: { list: [{ id: "main", default: true }] },
+      agents: { entries: { main: {} } },
       gateway: {
         roles: {
           default: "reader",
