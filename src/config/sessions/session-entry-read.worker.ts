@@ -21,15 +21,15 @@ import { hasPendingSessionTranscriptArchives } from "./session-accessor.sqlite-a
 import { readSessionCreationSnapshotInDatabase } from "./session-accessor.sqlite-creation-read.js";
 import { readExactSessionEntryCandidatesInDatabase } from "./session-accessor.sqlite-entry-cache.js";
 import { readSelectedSessionEntriesInDatabase } from "./session-accessor.sqlite-entry-list.read.js";
-import { hasOnlyEmptyCurrentGeneration } from "./session-accessor.sqlite-reclamation.js";
-import { readLifecycleTargetSnapshot } from "./session-accessor.sqlite-entry-store.js";
 import { readSessionEntryRow } from "./session-accessor.sqlite-entry-read.js";
+import { readLifecycleTargetSnapshot } from "./session-accessor.sqlite-entry-store.js";
 import { readSessionEntryByIdInDatabase } from "./session-accessor.sqlite-exact-read.js";
 import { participantRecordsBySessionKey } from "./session-accessor.sqlite-participant-projection.js";
 import {
   readLatestAssistantTextFromDatabase,
   readTranscriptHeaderFromDatabase,
 } from "./session-accessor.sqlite-read.js";
+import { hasOnlyEmptyCurrentGeneration } from "./session-accessor.sqlite-reclamation.js";
 import { readSessionEntryReplacementState } from "./session-accessor.sqlite-replacement-read.js";
 import { resolveSqliteSessionKey } from "./session-accessor.sqlite-scope.js";
 import { readSessionTranscriptWatermarkInDatabase } from "./session-accessor.sqlite-transcript-watermark.js";
@@ -277,16 +277,23 @@ export function readExactSessionEntriesWithLifecycle(
                       ),
                     }
                   : {}),
-                ...(request.emptyHistoryExpectation ? {
-                  emptyHistoryMatches: (() => {
-                    const expected = request.emptyHistoryExpectation;
-                    const targetEntry = readLifecycleTargetSnapshot(database, expected.target)[0]?.entry;
-                    return targetEntry?.sessionId === expected.expectedSessionId &&
-                      targetEntry.lifecycleRevision === expected.expectedLifecycleRevision &&
-                      targetEntry.updatedAt === expected.expectedUpdatedAt &&
-                      hasOnlyEmptyCurrentGeneration(database, targetEntry, expected.target);
-                  })(),
-                } : {}),
+                ...(request.emptyHistoryExpectation
+                  ? {
+                      emptyHistoryMatches: (() => {
+                        const expected = request.emptyHistoryExpectation;
+                        const targetEntry = readLifecycleTargetSnapshot(
+                          database,
+                          expected.target,
+                        )[0]?.entry;
+                        return (
+                          targetEntry?.sessionId === expected.expectedSessionId &&
+                          targetEntry.lifecycleRevision === expected.expectedLifecycleRevision &&
+                          targetEntry.updatedAt === expected.expectedUpdatedAt &&
+                          hasOnlyEmptyCurrentGeneration(database, targetEntry, expected.target)
+                        );
+                      })(),
+                    }
+                  : {}),
                 kind: "session-exact-entries" as const,
                 entries: selected.value,
                 ...(request.projection === "lifecycle"

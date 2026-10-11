@@ -9,7 +9,10 @@ import {
   stubScreenshotMedia,
   createBrowserPanelTestMetrics,
 } from "../../components/browser/browser-panel-controller-test-support.ts";
-import { LINK_READER_PANEL_TOGGLE_EVENT } from "../../components/panel-toggle-contract.ts";
+import {
+  FILES_PANEL_OPEN_EVENT,
+  LINK_READER_PANEL_TOGGLE_EVENT,
+} from "../../components/panel-toggle-contract.ts";
 import {
   rememberSessionPanelToggle,
   type SessionPanelToggleSlot,
@@ -348,4 +351,41 @@ it("delivers a browser card after the pane's scheduled render commits", async ()
     vi.unstubAllGlobals();
     vi.useRealTimers();
   }
+});
+
+describe("Files panel event admission", () => {
+  it("rejects malformed and foreign-client events while accepting the active client", () => {
+    const f = fixture();
+    const unsubscribe = f.controller.subscribe();
+    try {
+      for (const event of [
+        new Event(FILES_PANEL_OPEN_EVENT, { cancelable: true }),
+        ...[
+          null,
+          {},
+          { client: f.state.client, sessionKey: 1 },
+          { client: f.state.client, sessionKey: "session-a", agentId: 1 },
+          { client: {}, sessionKey: "session-a" },
+        ].map((detail) => new CustomEvent(FILES_PANEL_OPEN_EVENT, { cancelable: true, detail })),
+      ]) {
+        window.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(false);
+      }
+      expect(f.updateSidebarLayout).not.toHaveBeenCalled();
+      const event = new CustomEvent(FILES_PANEL_OPEN_EVENT, {
+        cancelable: true,
+        detail: { client: f.state.client, sessionKey: "session-a", agentId: "agent-a" },
+      });
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+      expect(f.state.sessionWorkspaceTarget).toEqual({
+        sessionKey: "session-a",
+        agentId: "agent-a",
+      });
+      expect(isSidebarSlotVisible(f.state.sidebarLayout, "workspace")).toBe(true);
+      expect(isSidebarSlotVisible(f.state.sidebarLayout, "conversation")).toBe(true);
+    } finally {
+      unsubscribe();
+    }
+  });
 });

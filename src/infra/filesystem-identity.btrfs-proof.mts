@@ -17,11 +17,17 @@ const displaced = path.join(fixture, "displaced");
 const subvolumes = new Set<string>();
 const descriptors = new Set<number>();
 const failures: unknown[] = [];
-const btrfs = (...args: string[]) => execFileSync("btrfs", args, {
-  encoding: "utf8", timeout: 15_000, stdio: ["ignore", "pipe", "pipe"],
-}).trim();
+const btrfs = (...args: string[]) =>
+  execFileSync("btrfs", args, {
+    encoding: "utf8",
+    timeout: 15_000,
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 const openDirectory = (directory: string) => {
-  const fd = fs.openSync(directory, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+  const fd = fs.openSync(
+    directory,
+    fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW,
+  );
   descriptors.add(fd);
   return fd;
 };
@@ -31,7 +37,9 @@ const createSubvolume = (directory: string) => {
 };
 try {
   const outer = await readDurableFilesystemIdentity(openDirectory(fixture));
-  const filesystemId = btrfs("filesystem", "show", "--raw", fixture).match(/uuid:\s*([0-9a-f-]{36})/iu)?.[1];
+  const filesystemId = btrfs("filesystem", "show", "--raw", fixture).match(
+    /uuid:\s*([0-9a-f-]{36})/iu,
+  )?.[1];
   assert.ok(filesystemId, "Btrfs CLI did not return a filesystem UUID");
   assert.equal(outer.filesystemId, filesystemId.toLowerCase());
   assert.equal(outer.subvolumeId, btrfs("inspect-internal", "rootid", fixture));
@@ -56,14 +64,27 @@ try {
   failures.push(error);
 } finally {
   for (const fd of descriptors) {
-    try { fs.closeSync(fd); } catch (error) { failures.push(error); }
+    try {
+      fs.closeSync(fd);
+    } catch (error) {
+      failures.push(error);
+    }
   }
   for (const directory of subvolumes) {
-    try { btrfs("subvolume", "delete", directory); } catch (error) { failures.push(error); }
+    try {
+      btrfs("subvolume", "delete", directory);
+    } catch (error) {
+      failures.push(error);
+    }
   }
   // Never recursively remove an unconfirmed live subvolume after cleanup refusal.
-  try { fs.rmdirSync(fixture); } catch (error) { failures.push(error); }
+  try {
+    fs.rmdirSync(fixture);
+  } catch (error) {
+    failures.push(error);
+  }
 }
 if (failures.length === 1) throw failures[0];
-if (failures.length > 1) throw new AggregateError(failures, "Btrfs proof and cleanup failed", { cause: failures[0] });
+if (failures.length > 1)
+  throw new AggregateError(failures, "Btrfs proof and cleanup failed", { cause: failures[0] });
 process.stdout.write("Btrfs public SDK nested-subvolume/held-descriptor/refusal proof passed\n");

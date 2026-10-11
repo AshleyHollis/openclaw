@@ -120,7 +120,10 @@ describe("resident session rows", () => {
       await listSessions({ context, client, request: {} });
       expect(await describe()).toMatchObject([
         true,
-        { session: { key, sessionId: original.sessionId }, lifecycleRevision: original.lifecycleRevision },
+        {
+          session: { key, sessionId: original.sessionId },
+          lifecycleRevision: original.lifecycleRevision,
+        },
       ]);
       expect(
         (await listSessions({ context, client, request: {} })).sessions.find(

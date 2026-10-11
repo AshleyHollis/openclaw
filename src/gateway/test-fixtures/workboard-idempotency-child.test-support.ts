@@ -1,8 +1,10 @@
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { openNodeSqliteDatabase } from "openclaw/plugin-sdk/sqlite-worker-runtime";
-import workboard from "../../../extensions/workboard/index.js";
+import { openNodeSqliteDatabase } from "../../infra/node-sqlite.js";
 import { createTestPluginApi } from "../../plugin-sdk/plugin-test-api.js";
+import {
+  loadBundledPluginFacade,
+  resolveBundledPluginPublicModulePath,
+} from "../../test-utils/bundled-plugin-public-surface.js";
 import type {
   GatewayRequestHandler,
   GatewayRequestHandlerOptions,
@@ -12,11 +14,15 @@ const methods = new Map<string, GatewayRequestHandler>();
 const disposals: Array<() => void | Promise<void>> = [];
 let current = true;
 let lockDatabase: ReturnType<typeof openNodeSqliteDatabase> | undefined;
+const { default: workboard } = await loadBundledPluginFacade<{
+  default: { register(api: ReturnType<typeof createTestPluginApi>): void };
+}>({ pluginId: "workboard", artifactBasename: "index.js" });
 workboard.register(
   createTestPluginApi({
-    runtimeSource: fileURLToPath(
-      new URL("../../../extensions/workboard/index.ts", import.meta.url),
-    ),
+    runtimeSource: resolveBundledPluginPublicModulePath({
+      pluginId: "workboard",
+      artifactBasename: "index.js",
+    }),
     registerGatewayMethod(name, handler) {
       methods.set(name, handler);
     },
