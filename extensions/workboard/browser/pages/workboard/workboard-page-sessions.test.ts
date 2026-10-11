@@ -479,7 +479,12 @@ it.each(["cards", "sessions"] as const)(
     refreshed.resolve({ cards: [], boards: [page.board] });
     await vi.advanceTimersByTimeAsync(0);
     expect(page.fixture.host.navigation.openPage).toHaveBeenCalledWith(
-      { id: "workboard", path: [savedBoard.id] },
+      {
+        pluginId: "workboard",
+        id: "workboard",
+        path: [savedBoard.id],
+        params: { cardId: null, tenant: null },
+      },
       { replace: true, preserveSearch: true },
     );
   },

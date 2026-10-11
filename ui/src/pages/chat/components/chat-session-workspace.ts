@@ -373,9 +373,6 @@ export function openSessionWorkspaceFile(
   state: SessionWorkspaceHost,
   target: MarkdownFileLinkTarget,
 ) {
-  if (target.sessionKey) {
-    state.sessionWorkspaceTarget = { sessionKey: target.sessionKey };
-  }
   openFile(state, getSessionWorkspace(state), target.path, {
     line: target.line,
     sessionKey: target.sessionKey,

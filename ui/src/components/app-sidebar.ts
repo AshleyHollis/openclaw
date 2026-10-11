@@ -30,11 +30,13 @@ import { SETTINGS_ROUTE_TARGETS } from "../pages/config/route-data.ts";
 import { renderPluginSurface } from "../plugins/control-ui-view.ts";
 import { renderAppSidebarOnline } from "./app-sidebar-online.ts";
 import "../styles/app-sidebar.css";
+import { isUngroupedSidebarEntry } from "./app-sidebar-plugin-navigation-groups.ts";
 import {
   renderAppSidebarBrand,
   renderAppSidebarFooterBar,
   renderAppSidebarHomeRow,
   renderAppSidebarPagesHead,
+  renderAppSidebarPluginNavigationGroups,
   renderAppSidebarZoneEntry,
 } from "./app-sidebar-render.ts";
 import type { SessionCatalogGroupsRenderer } from "./app-sidebar-session-catalog-render.ts";
@@ -575,14 +577,43 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                 >
                   ${renderAppSidebarHomeRow(this)}
                   <openclaw-mcp-app-catalog surface="sidebar"></openclaw-mcp-app-catalog>
-                  ${repeat(sidebarZone.entries, serializeSidebarEntry, (entry) =>
-                    renderAppSidebarZoneEntry(
-                      this,
-                      entry,
-                      sidebarZone.sessionRows,
-                      sidebarZone.pluginTabs,
-                    ),
+                  ${repeat(
+                    sidebarZone.entries.filter((entry) => entry.type === "session"),
+                    serializeSidebarEntry,
+                    (entry) =>
+                      renderAppSidebarZoneEntry(
+                        this,
+                        entry,
+                        sidebarZone.sessionRows,
+                        sidebarZone.pluginTabs,
+                      ),
                   )}
+                  ${renderAppSidebarPluginNavigationGroups(
+                    this,
+                    sidebarZone.navigationGroups,
+                    sidebarZone.sessionRows,
+                    sidebarZone.pluginTabs,
+                  )}
+                  <details class="sidebar-nav__tools" open>
+                    <summary class="sidebar-nav__tools-summary">
+                      <span class="sidebar-nav__tools-label">${t("nav.toolsAndManagement")}</span>
+                    </summary>
+                    <div class="nav-section__items">
+                      ${repeat(
+                        sidebarZone.entries.filter((entry) =>
+                          isUngroupedSidebarEntry(entry, sidebarZone.groupedNavigationKeys),
+                        ),
+                        serializeSidebarEntry,
+                        (entry) =>
+                          renderAppSidebarZoneEntry(
+                            this,
+                            entry,
+                            sidebarZone.sessionRows,
+                            sidebarZone.pluginTabs,
+                          ),
+                      )}
+                    </div>
+                  </details>
                 </div>
               </nav>
               <div class="sidebar-session-content" ?hidden=${Boolean(this.contextualSidebar)}>
