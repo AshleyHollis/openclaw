@@ -2451,8 +2451,9 @@ function createCoreRuntimeMediaUiSplitShards(): NodeTestSplitShard[] {
   ];
 }
 
-function partitionRuntimeTestFiles(configs: string[], files: string[]) {
-  const runtimeFiles = new Set(listVitestRuntimeConsumerFiles(configs));
+function partitionRuntimeTestFiles(files: string[]) {
+  // File ownership can move between projects; its prepared-runtime contract stays with the file.
+  const runtimeFiles = new Set(listVitestRuntimeConsumerFiles(["vitest.config.ts"]));
   return {
     runtimeFiles: files.filter((file) => runtimeFiles.has(file)),
     otherFiles: files.filter((file) => !runtimeFiles.has(file)),
@@ -2487,7 +2488,7 @@ function createAgenticGatewayCoreSplitShards(): NodeTestSplitShard[] {
   // these files pays it for the whole stripe. Striping spreads them, which made
   // every gateway-core job pay a 275s build to run ~120s of tests. Keep them in
   // one shard so exactly one job builds.
-  const { runtimeFiles, otherFiles } = partitionRuntimeTestFiles(configs, [
+  const { runtimeFiles, otherFiles } = partitionRuntimeTestFiles([
     ...gatewayFiles,
     ...packageFiles,
   ]);
@@ -4766,9 +4767,7 @@ function createCompactNodeTestShardBundles(
     const partitionFiles = group.pretestBuildMode
       ? (group.includePatterns ?? listWholeConfigSplitFiles(group.shard_name))
       : undefined;
-    const partition = partitionFiles
-      ? partitionRuntimeTestFiles(group.configs, partitionFiles)
-      : undefined;
+    const partition = partitionFiles ? partitionRuntimeTestFiles(partitionFiles) : undefined;
     const runtimePartition =
       partition?.runtimeFiles.length && partition.otherFiles.length ? partition : undefined;
     // Resolve whole-config ownership before splitting so ordinary files do not
