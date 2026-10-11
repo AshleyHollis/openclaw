@@ -120,6 +120,8 @@ async function withSourceGateway(
     const readPolicy: { others: "view" | "none" } = { others: "view" };
     const config: OpenClawConfig = {
       agents: { entries: { main: {} } },
+      // Keep automatic retention writers from racing the exact source-custody lock assertions.
+      session: { maintenance: { mode: "warn" } },
       gateway: {
         roles: {
           default: "reader",
