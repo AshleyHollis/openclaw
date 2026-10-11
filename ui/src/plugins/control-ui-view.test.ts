@@ -583,7 +583,7 @@ it("retains native roster pagination only within its presented replacement lifet
   await vi.waitFor(() => expect(captured?.loadMoreNativeSessions).toBeDefined());
   await captured!.loadMoreNativeSessions!();
   expect(host.loadMore).toHaveBeenCalledOnce();
-  const page = createDeferred<void>();
+  const page = createDeferred();
   host.loadMore.mockReturnValueOnce(page.promise);
   const loading = captured!.loadMoreNativeSessions!();
   void loading.catch(() => {});

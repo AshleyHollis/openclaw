@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, matchesGlob } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createChangedNodeTestShards } from "../../scripts/lib/ci-changed-node-test-plan.mts";
@@ -14,6 +15,7 @@ import {
   createUiTestShardGroups,
   createVitestCacheWarmGroups,
   hasCompleteStartupCorpusCoverage,
+  isExclusiveCompactShardName,
   resolveCanonicalNodeTestConfig,
   resolveStartupCorpusTestFiles,
 } from "../../scripts/lib/ci-node-test-plan.mts";
@@ -93,6 +95,7 @@ import {
   listMatchedTestFiles,
   listTestFiles,
   nonToolingPlacement,
+  usesParallelPacking,
 } from "./ci-node-test-plan.test-support.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
@@ -268,6 +271,16 @@ const MEASURED_STORAGE_RECOVERY_TEST =
 const DEFAULT_NODE_TEST_RUNNER = "blacksmith-8vcpu-ubuntu-2404";
 const BUNDLED_NODE_TEST_RUNNER = "blacksmith-4vcpu-ubuntu-2404";
 const EXTRA_LARGE_NODE_TEST_RUNNER = "blacksmith-32vcpu-ubuntu-2404";
+// Original process-proof allocation inputs from runs 33360253877 and 33388762505.
+const historicalProcessProofSeconds = {
+  "test/scripts/ci-git-owner.test.ts": 367,
+  "test/scripts/managed-child-process.test.ts": 52,
+  "test/scripts/vitest-worker-artifacts.test.ts": 181,
+  "test/scripts/vitest-worker-artifacts.transforms.test.ts": 70,
+  "test/scripts/openclaw-performance-git-lifecycle.test.ts": 305,
+  "test/scripts/ci-linux-git.test.ts": 204,
+  "test/scripts/pr-merge-outcome.test.ts": 159,
+};
 function isCombinedUnbuiltCliJob(job: CompactNodeTestShard) {
   return (
     job.groups.length > 1 &&
@@ -2350,9 +2363,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       "src/commands/doctor-config-preflight.process.test.ts",
       "src/commands/doctor-config-preflight.refusal.process.test.ts",
       "src/commands/doctor-config-preflight.test.ts",
-      "src/commands/doctor-config-preflight.v17-atomicity.process.test.ts",
       "src/commands/doctor-container-upgrade.process.test.ts",
-      "src/commands/doctor-plugin-install-config.process.test.ts",
     ]);
     // Retain native floors only while the executed child contract still matches.
     // The immutable pair above exercises the positive path when live selectors drift.
@@ -3153,14 +3164,12 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       "src/commands/doctor-config-preflight.process.test.ts",
       "src/commands/doctor-config-preflight.refusal.process.test.ts",
       "src/commands/doctor-config-preflight.test.ts",
-      "src/commands/doctor-config-preflight.v17-atomicity.process.test.ts",
       "src/commands/doctor-container-upgrade.process.test.ts",
     ];
     const runtimeTargets = [
       "test/e2e/qa-lab/runtime/gateway-support-export-runtime.test.ts",
       "src/infra/update-managed-service-handoff-lifecycle.test.ts",
       ...doctorRuntimeTargets,
-      "src/commands/doctor-plugin-install-config.process.test.ts",
       "src/gateway/gateway-active-memory.test.ts",
       "src/gateway/gateway-auth-recovery.test.ts",
       "src/gateway/gateway-concurrent-streams.test.ts",
@@ -3233,9 +3242,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     expect(commandRuntime).toHaveLength(1);
     expect(commandRuntime[0]?.pretestBuildMode).toBe("runtime");
     expect(commandRuntime[0]?.includePatterns?.toSorted()).toEqual(
-      [...doctorRuntimeTargets, "src/commands/doctor-plugin-install-config.process.test.ts"]
-        .filter((file) => !isCiProofTestFile(file))
-        .toSorted(),
+      doctorRuntimeTargets.filter((file) => !isCiProofTestFile(file)).toSorted(),
     );
     expect(placements.every(({ group }) => group.pretestBuildMode === undefined)).toBe(true);
     expect(placements.flatMap(({ group }) => group.includePatterns ?? []).toSorted()).toEqual(

@@ -8,7 +8,6 @@ import { notifyListeners, registerListener } from "../shared/listeners.js";
 import {
   cloneEnvWithPlatformSemantics,
   resetPublishedConfigRuntimeEnv,
-  type PreparedConfigRuntimeEnv,
 } from "./config-env-vars.js";
 import { getScopedConfigSnapshotPreparation } from "./io.snapshot-preparation-scope.js";
 import type {
@@ -126,24 +125,14 @@ export function withRuntimeConfigSessionStoreSelection<T>(callback: () => T): T 
 
 const managedRuntimeConfigWriteOwners = new Map<
   string,
-  Set<{
-    id: symbol;
-    preflight?: RuntimeSnapshotTypes.ManagedRuntimeConfigWritePreflight;
-    prepareSnapshot?: ConfigSnapshotPreparation;
-  }>
+  Set<RuntimeSnapshotTypes.ManagedRuntimeConfigWriteOwner>
 >();
 const runtimeConfigWriteListeners = new Set<
   (event: RuntimeSnapshotTypes.RuntimeConfigWriteNotification) => void
 >();
 const runtimeConfigSnapshotPreparers = new Map<
   (config: OpenClawConfig) => void,
-  | {
-      prepareAsync: (
-        config: OpenClawConfig,
-        context: RuntimeSnapshotTypes.RuntimeConfigSnapshotPreparationContext,
-      ) => Promise<() => void>;
-    }
-  | undefined
+  RuntimeSnapshotTypes.RuntimeConfigSnapshotAsyncPreparer | undefined
 >();
 
 // Diagnostic callers stop at their raw revision; this owner accepts config objects.
@@ -489,7 +478,9 @@ export function registerManagedRuntimeConfigWriteOwner(
   managedRuntimeConfigWriteOwners.set(configPath, owners);
   let released = false;
   const unregister = () => {
-    if (released) return;
+    if (released) {
+      return;
+    }
     released = true;
     const currentOwners = managedRuntimeConfigWriteOwners.get(configPath);
     currentOwners?.delete(owner);
@@ -578,21 +569,17 @@ export function loadPinnedRuntimeConfig(loadFresh: () => OpenClawConfig): OpenCl
   return getRuntimeConfigSnapshot() ?? config;
 }
 
-type RuntimeConfigAsyncLoader = (assertCurrent: () => void) => Promise<{
-  config: OpenClawConfig;
-  runtimeEnv?: PreparedConfigRuntimeEnv;
-}>;
 /** Pin a strict cold load, optionally capturing its source and env before yielding. */
 export function loadPinnedRuntimeConfigAsync(
-  loadFresh: RuntimeConfigAsyncLoader,
+  loadFresh: RuntimeSnapshotTypes.RuntimeConfigAsyncLoader,
   options: { assertCurrent?: () => void; capture: true },
 ): Promise<CapturedRuntimeConfigRead>;
 export function loadPinnedRuntimeConfigAsync(
-  loadFresh: RuntimeConfigAsyncLoader,
+  loadFresh: RuntimeSnapshotTypes.RuntimeConfigAsyncLoader,
   options?: { assertCurrent?: () => void; capture?: false },
 ): Promise<OpenClawConfig>;
 export async function loadPinnedRuntimeConfigAsync(
-  loadFresh: RuntimeConfigAsyncLoader,
+  loadFresh: RuntimeSnapshotTypes.RuntimeConfigAsyncLoader,
   options: { assertCurrent?: () => void; capture?: boolean } = {},
 ): Promise<OpenClawConfig | CapturedRuntimeConfigRead> {
   const result = (config: OpenClawConfig) =>
@@ -683,7 +670,7 @@ export async function finalizeRuntimeSnapshotWrite(params: {
   nextSourceConfig: OpenClawConfig;
   refreshOptions?: RuntimeSnapshotTypes.RuntimeConfigSnapshotRefreshOptions;
   hadBothSnapshots: boolean;
-  freshConfig: OpenClawConfig | RuntimeConfigAsyncLoader;
+  freshConfig: OpenClawConfig | RuntimeSnapshotTypes.RuntimeConfigAsyncLoader;
   notifyCommittedWrite: () => void;
   createRefreshError: (detail: string, cause: unknown) => Error;
   formatRefreshError: (error: unknown) => string;

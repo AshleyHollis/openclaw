@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { createNativeTypeScriptParser } from "../../scripts/lib/native-typescript.mts";
+import { parseReleaseVersion } from "../../scripts/lib/release-version.mjs";
 import {
   copyStaticExtensionAssets,
   copyStaticExtensionAssetsToRuntimeOverlay,
@@ -45,6 +46,14 @@ import {
 
 const { createTempDir } = createScriptTestHarness();
 const MODULE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const targetVersion: string = JSON.parse(
+  fsSync.readFileSync(path.join(MODULE_ROOT, "package.json"), "utf8"),
+).version;
+const targetRelease = parseReleaseVersion(targetVersion);
+if (!targetRelease) {
+  throw new Error(`Invalid candidate target version: ${targetVersion}`);
+}
+const newerBetaVersion = `${targetRelease.year}.${targetRelease.month}.${targetRelease.patch + 1}-beta.2`;
 const nodeRunnerFixture = `export { resolveNodeRunner } from ${JSON.stringify(new URL("../../src/cli/update-cli/node-runner.ts", import.meta.url).href)};\n`;
 
 async function expectPathMissing(targetPath: string): Promise<void> {
@@ -1804,7 +1813,7 @@ describe("previous release update compatibility", () => {
     const npmArgs = ["view", "openclaw", "dist-tags", "--json"];
     const { result, calls } = runInventoryCli(
       ["--check", "--output", output],
-      [{ args: npmArgs, value: { latest: "2026.9.3", beta: "2026.10.1-beta.2" } }],
+      [{ args: npmArgs, value: { latest: "2026.9.3", beta: newerBetaVersion } }],
     );
     expect(result.status, result.stderr).toBe(0);
     expect(calls).toEqual([npmArgs]);
@@ -1814,7 +1823,7 @@ describe("previous release update compatibility", () => {
     const root = createTempDir("update-compat-newer-source-");
     const output = writeWindowInventory(root);
     const original = fsSync.readFileSync(output, "utf8");
-    const version = "2026.10.1-beta.2";
+    const version = newerBetaVersion;
     let args: string[];
     if (mode === "generate") {
       const packageDir = path.join(root, version);
@@ -1835,7 +1844,7 @@ describe("previous release update compatibility", () => {
     const before = fsSync.readFileSync(output, "utf8");
     const { result, calls } = runInventoryCli(args);
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("source 2026.10.1-beta.2 is newer than target 2026.9.9");
+    expect(result.stderr).toContain(`source ${version} is newer than target ${targetVersion}`);
     expect(fsSync.readFileSync(output, "utf8")).toBe(before);
     expect(calls).toEqual([]);
   });

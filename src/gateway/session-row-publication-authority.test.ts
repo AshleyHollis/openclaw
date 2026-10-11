@@ -32,8 +32,8 @@ it.each(["child and swarm links", "sharing role", "incognito"] as const)(
       const [allowed, restricted] = ["allowed", "restricted"].map((name) =>
         ensureProfileForEmail(`${name}@publication-authority.test`),
       );
-      await setUserProfileRole(allowed!.id, restriction === "incognito" ? "admin" : "view");
-      await setUserProfileRole(restricted!.id, restriction === "sharing role" ? "none" : "view");
+      setUserProfileRole(allowed!.id, restriction === "incognito" ? "admin" : "view");
+      setUserProfileRole(restricted!.id, restriction === "sharing role" ? "none" : "view");
       const query = {
         agentId: "main",
         key:

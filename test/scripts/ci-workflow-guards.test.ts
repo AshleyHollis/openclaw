@@ -2488,7 +2488,9 @@ require("node:fs").writeFileSync("scheduler-restart", process.env.OPENCLAW_UPGRA
           headRepository: "contributor/openclaw",
         }),
         `${jobName}: untrusted fork first attempt`,
-      ).toBe(evaluateWorkflowExpression(expression, context));
+      ).toBe(
+        jobName === "ci-gate" ? "ubuntu-24.04" : evaluateWorkflowExpression(expression, context),
+      );
       for (const override of [
         { runAttempt: 0 },
         { runAttempt: 2 },
@@ -4391,7 +4393,7 @@ ${step.run}`,
       const steps = workflow.jobs[jobName].steps as WorkflowStep[];
       const setupIndex = steps.findIndex((step) => step.uses?.endsWith("/setup-node-env"));
       const installIndex = steps.findIndex(
-        (step) => step.name === "Install Mermaid renderer dependencies",
+        (step) => step.name === "Install native asset dependencies",
       );
       const prepareIndex = steps.findIndex((step) =>
         step.run?.includes("node scripts/prepare-apple-mermaid.mjs"),
@@ -4412,6 +4414,8 @@ ${step.run}`,
         "--optional",
         "--filter",
         "'@openclaw/mermaid-renderer...'",
+        "--filter",
+        "'@openclaw/gateway-protocol...'",
         "--config.ignore-scripts=false",
         "--config.engine-strict=false",
         "--config.enable-pre-post-scripts=true",
@@ -5886,7 +5890,16 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
           .toSorted(),
       );
       if (releaseTier === false) {
-        expect(selectedFiles).toHaveLength(uiE2eRealGatewayTestFiles.length - 12);
+        const excludedRealGatewayFiles = uiE2eRealGatewayTestFiles.filter(
+          (file) =>
+            file === desktop ||
+            !groups?.some(
+              (group) => !group.includePatterns || group.includePatterns.includes(file),
+            ),
+        );
+        expect(selectedFiles).toHaveLength(
+          uiE2eRealGatewayTestFiles.length - excludedRealGatewayFiles.length,
+        );
         expect(selectedFiles).not.toContain(
           "ui/src/e2e/cron-duration-save.real-gateway.e2e.test.ts",
         );

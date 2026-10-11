@@ -1,4 +1,3 @@
-import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { prepareCliPromptImagePayload } from "../../agents/cli-runner/helpers.js";
 import type { RunCliAgentParams } from "../../agents/cli-runner/types.js";
@@ -103,86 +102,6 @@ describe("executeAgentTurn: CLI session routing", () => {
       });
     },
   );
-
-  async function runSlackCliTurn(sessionCtx: Record<string, unknown>) {
-    // Mirrors Slack's adapter contract: a thread-originated turn requires its
-    // thread and upgrades the reply mode; standalone turns anchor on the message.
-    setActivePluginRegistry(
-      createTestRegistry([
-        {
-          pluginId: "slack",
-          plugin: {
-            ...createChannelTestPluginBase({ id: "slack" }),
-            threading: {
-              buildToolContext: ({
-                context,
-              }: {
-                context: {
-                  To?: string;
-                  CurrentMessageId?: string | number;
-                  MessageThreadId?: string | number;
-                  ReplyToMode?: string;
-                };
-              }) => {
-                const threadTs =
-                  context.MessageThreadId != null ? String(context.MessageThreadId) : undefined;
-                return {
-                  currentChannelId: context.To,
-                  currentThreadTs: threadTs ?? String(context.CurrentMessageId),
-                  replyToMode: threadTs ? "all" : context.ReplyToMode,
-                  sameChannelThreadRequired: threadTs !== undefined,
-                };
-              },
-            },
-          },
-          source: "test",
-        },
-      ]),
-    );
-    try {
-      const followupRun = createCliRun("claude-cli", "claude-opus-4-7");
-      state.runCliAgentMock.mockResolvedValueOnce({
-        payloads: [{ text: "done" }],
-        meta: {},
-      });
-      const executeAgentTurn = await getExecuteAgentTurnForTest();
-      const result = await executeAgentTurn(
-        createMinimalRunAgentTurnParams({
-          followupRun,
-          sessionCtx: {
-            Provider: "slack",
-            OriginatingChannel: "slack",
-            OriginatingTo: "channel:C123",
-            ChatType: "channel",
-            MessageSid: "1700000000.000200",
-            ReplyToMode: "off",
-            ...sessionCtx,
-          } as unknown as TemplateContext,
-        }),
-      );
-      expect(result.kind).toBe("success");
-    } finally {
-      resetPluginRuntimeStateForTest();
-    }
-  }
-
-  it("keeps untargeted message-tool sends from a thread turn in that thread", async () => {
-    await runSlackCliTurn({ MessageThreadId: "1700000000.000100" });
-
-    expectMockCallArgFields(state.runCliAgentMock, 0, "CLI run params", {
-      currentThreadTs: "1700000000.000100",
-      replyToMode: "all",
-    });
-  });
-
-  it("keeps standalone turn route facts when the adapter requires no thread", async () => {
-    await runSlackCliTurn({});
-
-    expectMockCallArgFields(state.runCliAgentMock, 0, "CLI run params", {
-      currentThreadTs: undefined,
-      replyToMode: "off",
-    });
-  });
 
   async function runSlackCliTurn(sessionCtx: Record<string, unknown>) {
     // Mirrors Slack's adapter contract: a thread-originated turn requires its
@@ -459,7 +378,6 @@ describe("executeAgentTurn: CLI session routing", () => {
     const storePath = makeTestSessionStorePath();
     const sessionEntry: SessionEntry = {
       sessionId: "session",
-      sessionFile: path.join(path.dirname(storePath), "session.jsonl"),
       updatedAt: 1,
     };
     await replaceSessionEntry({ sessionKey: "agent:main:main", storePath }, sessionEntry);

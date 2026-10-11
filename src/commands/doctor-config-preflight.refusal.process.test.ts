@@ -10,6 +10,11 @@ import { getCliProcessTestTimeout } from "../cli/cli-process-child.test-helpers.
 import { writeExecApprovalsConfigRow } from "../infra/exec-approvals-sqlite.js";
 import { resolveRuntimeWorkerUrl } from "../infra/runtime-worker-url.js";
 import { createUpdateRun } from "../infra/update-run-ledger.js";
+import {
+  clearLoadInstalledPluginIndexInstallRecordsCache,
+  readPersistedInstalledPluginIndexInstallRecords,
+} from "../plugins/installed-plugin-index-records.js";
+import { seedInstalledPluginIndex } from "../plugins/test-helpers/installed-plugin-index.js";
 import { OPENCLAW_STATE_SCHEMA_VERSION } from "../state/openclaw-state-db-contract.js";
 import {
   closeOpenClawStateDatabaseForTest,
@@ -28,6 +33,185 @@ import { doctorConfigRuntimeEntrypoints } from "./doctor-config-runtime.test-sup
 const tempDirs = createFixtureLifetime();
 afterAll(() => tempDirs.cleanup());
 const DOCTOR_CHILD_TIMEOUT_MS = 60_000;
+
+async function createRetiredPluginConfigFixture() {
+  const root = fs.realpathSync(tempDirs.createTempDir("doctor-retired-plugin-config-"));
+  const stateDir = path.join(root, "state");
+  const configPath = path.join(stateDir, "openclaw.json");
+  fs.mkdirSync(stateDir);
+  const env = {
+    PATH: process.env.PATH,
+    SystemRoot: process.env.SystemRoot,
+    WINDIR: process.env.WINDIR,
+    ComSpec: process.env.ComSpec,
+    HOME: root,
+    USERPROFILE: root,
+    TMPDIR: root,
+    OPENCLAW_STATE_DIR: stateDir,
+    OPENCLAW_CONFIG_PATH: configPath,
+    OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1",
+    OPENCLAW_SERVICE_REPAIR_POLICY: "external",
+    NO_COLOR: "1",
+    CI: "1",
+  };
+  const config = {
+    gateway: { mode: "local" as const, auth: { mode: "none" as const } },
+    agents: { entries: { main: {} } },
+    plugins: { enabled: false },
+  };
+  const canonical = { source: "path" as const, installPath: path.join(root, "canonical-plugin") };
+  await seedInstalledPluginIndex({ existing: canonical }, { stateDir, env, config });
+  closeOpenClawStateDatabaseForTest();
+  return { root, stateDir, configPath, env, config, canonical };
+}
+
+describe("Doctor retired plugin install refusal", () => {
+  it.each([
+    { source: "root", records: "empty" },
+    { source: "root", records: "populated" },
+    { source: "include", records: "empty" },
+    { source: "include", records: "populated" },
+    { source: "root", records: "malformed" },
+    { source: "include", records: "malformed" },
+  ])(
+    "preserves $source $records records and never replays them after canonical cleanup",
+    async ({ source, records }) => {
+      const fixture = await createRetiredPluginConfigFixture();
+      const { root, stateDir, configPath, env, config, canonical } = fixture;
+      const legacy = { source: "path", installPath: path.join(root, "legacy-plugin") };
+      const installs =
+        records === "empty"
+          ? {}
+          : records === "malformed"
+            ? { imported: { source: "invalid" } }
+            : { existing: legacy, imported: legacy };
+      const plugins = { ...config.plugins, installs };
+      const includePath = path.join(stateDir, "plugins.json");
+      if (source === "include") {
+        fs.writeFileSync(includePath, JSON.stringify(plugins));
+      }
+      fs.writeFileSync(
+        configPath,
+        JSON.stringify({
+          ...config,
+          unknownKey: "must survive refusal",
+          plugins: source === "include" ? { $include: "./plugins.json" } : plugins,
+        }),
+      );
+      fs.writeFileSync(`${configPath}.bak`, JSON.stringify(config));
+      const files = [
+        configPath,
+        `${configPath}.bak`,
+        ...(source === "include" ? [includePath] : []),
+      ];
+      const before = files.map((file) => fs.readFileSync(file));
+      const runtimeRoot = createBuiltRuntime(root);
+      for (const pass of ["initial", "after canonical cleanup"]) {
+        const result = await tempDirs.track(
+          runBuiltRuntime(
+            runtimeRoot,
+            env,
+            ["doctor", "--fix", "--yes", "--non-interactive", "--no-workspace-suggestions"],
+            DOCTOR_CHILD_TIMEOUT_MS,
+          ),
+        );
+        const output = `${pass}: ${result.stdout}\n${result.stderr}`;
+        expect(result.code, output).toBe(1);
+        expect(output).toContain("plugins.installs");
+        expect(output).toContain("Doctor cannot remove these settings safely");
+        expect(
+          files.map((file) => fs.readFileSync(file)),
+          output,
+        ).toEqual(before);
+        expect(fs.existsSync(`${configPath}.last-good`)).toBe(false);
+        clearLoadInstalledPluginIndexInstallRecordsCache();
+        expect(readPersistedInstalledPluginIndexInstallRecords({ stateDir, env }), output).toEqual(
+          pass === "initial" ? { existing: canonical } : {},
+        );
+        if (pass === "initial") {
+          await seedInstalledPluginIndex({}, { stateDir, env, config });
+        }
+        closeOpenClawStateDatabaseForTest();
+      }
+    },
+    getCliProcessTestTimeout(DOCTOR_CHILD_TIMEOUT_MS, DOCTOR_CHILD_TIMEOUT_MS),
+  );
+
+  it.each([false, true])(
+    "refuses startup and plain Doctor before consent or cleanup, invalid plugin config=%s",
+    async (invalid) => {
+      const { stateDir, configPath, env, config, canonical } =
+        await createRetiredPluginConfigFixture();
+      fs.mkdirSync(canonical.installPath);
+      fs.writeFileSync(
+        path.join(canonical.installPath, "package.json"),
+        JSON.stringify({
+          name: "retired-install-refusal-plugin",
+          version: "1.0.0",
+          type: "module",
+          openclaw: { extensions: ["./index.js"] },
+        }),
+      );
+      fs.writeFileSync(
+        path.join(canonical.installPath, "openclaw.plugin.json"),
+        JSON.stringify({
+          id: "existing",
+          configSchema: {
+            type: "object",
+            properties: { sentinel: { type: "string" } },
+            additionalProperties: false,
+          },
+        }),
+      );
+      const pluginPath = path.join(canonical.installPath, "index.js");
+      const pluginSource = 'export default { id: "existing", register() {} };\n';
+      fs.writeFileSync(pluginPath, pluginSource);
+      const raw = JSON.stringify({
+        ...config,
+        unknownKey: "must survive refusal",
+        plugins: {
+          ...config.plugins,
+          enabled: true,
+          entries: {
+            existing: { enabled: true, config: { sentinel: invalid ? 42 : "preserved" } },
+          },
+          installs: { imported: canonical },
+        },
+      });
+      fs.writeFileSync(configPath, raw);
+      const configFlowUrl = resolveRuntimeWorkerUrl(doctorConfigRuntimeEntrypoints.configFlow).href;
+      const startupUrl = resolveRuntimeWorkerUrl(doctorConfigRuntimeEntrypoints.startup).href;
+      const result = await runIsolatedModuleScript(
+        env,
+        `
+          import assert from "node:assert/strict";
+          const { runStartupConfigPreflight } = await import(${JSON.stringify(startupUrl)});
+          const startup = await runStartupConfigPreflight({ gateway: true });
+          assert.equal(startup.snapshot.valid, false);
+          const { loadAndMaybeMigrateDoctorConfig } = await import(${JSON.stringify(configFlowUrl)});
+          let confirmations = 0;
+          await assert.rejects(loadAndMaybeMigrateDoctorConfig({
+            options: {},
+            confirm: async () => { confirmations += 1; return true; },
+            runtime: { log() {}, error() {}, exit(code) { throw new Error(String(code)); } },
+          }), /plugins\\.installs/);
+          assert.equal(confirmations, 0);
+        `,
+        { timeoutMs: DOCTOR_CHILD_TIMEOUT_MS },
+      );
+      expect(fs.readFileSync(configPath, "utf8"), result.stderr).toBe(raw);
+      expect(fs.readFileSync(pluginPath, "utf8")).toBe(pluginSource);
+      expect(fs.existsSync(`${configPath}.bak`)).toBe(false);
+      expect(fs.existsSync(`${configPath}.last-good`)).toBe(false);
+      clearLoadInstalledPluginIndexInstallRecordsCache();
+      expect(readPersistedInstalledPluginIndexInstallRecords({ stateDir, env })).toEqual({
+        existing: canonical,
+      });
+      closeOpenClawStateDatabaseForTest();
+    },
+    getCliProcessTestTimeout(DOCTOR_CHILD_TIMEOUT_MS),
+  );
+});
 
 describe("Doctor CLI migration refusal", () => {
   it("refuses missing deferral metadata with the 2026.9.2 row only in WAL", () => {

@@ -40,6 +40,7 @@ import { isTargetedNonSafeGatewayRestartRequest } from "./server-methods/restart
 import {
   bindGatewayRequestHandlerMutationAuthority,
   captureGatewayRequestOperatorGuard,
+  createSessionMutationAuthorizedResponse,
   readGatewayRequestMutationAuthority,
   withSessionMutationCommitGuard,
 } from "./server-methods/session-mutation-guards.js";
@@ -413,21 +414,11 @@ export async function handleGatewayRequest(
             }
           : undefined,
       );
-      const respondAuthorized: GatewayRequestOptions["respond"] =
-        authorization.sessionScope === "operator.sessions.read"
-          ? (...response) => {
-              try {
-                sessionMutationAuthorization?.assertCurrent();
-              } catch (error) {
-                if (!(error instanceof SessionMutationAuthorizationChangedError)) {
-                  throw error;
-                }
-                respond(false, undefined, error.error);
-                return;
-              }
-              respond(...response);
-            }
-          : respond;
+      const respondAuthorized = createSessionMutationAuthorizedResponse(
+        authorization.sessionScope,
+        sessionMutationAuthorization,
+        respond,
+      );
       const invokeHandler = async () => {
         retainRoot?.();
         subscribeDiagnostics?.mark("handlerPreparation");

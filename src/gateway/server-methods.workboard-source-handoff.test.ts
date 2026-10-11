@@ -52,7 +52,21 @@ it("refuses an independently injected legacy host before invoking its transport"
   const request = vi.fn(async () => {
     throw new Error("Legacy transport must not be invoked");
   });
-  const runtime = createPluginRuntime({ gateway: { isAvailable: async () => true, request } });
+  const runtime = createPluginRuntime({
+    gateway: {
+      isAvailable: async () => true,
+      request,
+      openPluginPanel: async () => {
+        throw new Error("Legacy panel broker must not be invoked");
+      },
+      readSessionFacts: async () => {
+        throw new Error("Legacy session facts broker must not be invoked");
+      },
+      subscribeSessionChanges: () => {
+        throw new Error("Legacy session changes broker must not be invoked");
+      },
+    },
+  });
   expect(SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION).toBe(1);
   expect(runtime.gateway.sessionTranscriptSourceAdmissionVersion).toBeUndefined();
   expect(() => assertSessionTranscriptGatewaySourceAdmissionAvailable(runtime.gateway)).toThrow(

@@ -1676,6 +1676,7 @@ describe("gateway server chat", () => {
             },
             talk: { agentId: "main" },
           };
+          const expectedAuthOrder = [...config.auth.order.openai];
           await state.writeConfig(config);
           setRuntimeConfigSnapshot({ ...config, session: { store: storePath } });
           const pluginMetadataSnapshot = createGatewayPluginMetadataSnapshot(config);
@@ -1684,13 +1685,11 @@ describe("gateway server chat", () => {
             pluginMetadataSnapshot,
             async () => {
               const initialConfig = getRuntimeConfig();
-              expect(initialConfig.auth?.order?.openai).toEqual([
-                "openai:api",
-                "openai:chatgpt",
-                "openai:expired",
-              ]);
+              expect(initialConfig.auth?.order?.openai).toEqual(expectedAuthOrder);
               testState.agentsConfig = initialConfig.agents;
               testState.agentConfig = initialConfig.agents?.defaults;
+              // Admit the empty main store without creating the neutral-route session.
+              await writeSessionStore({ entries: {}, agentId: "main", storePath });
               await writeSessionStore({
                 entries: {
                   "agent:work:main": {

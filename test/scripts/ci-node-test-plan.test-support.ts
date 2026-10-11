@@ -6,6 +6,7 @@ import {
   isReleaseOnlyRuntimeTestFile,
   RELEASE_ONLY_RUNTIME_TEST_FILES,
 } from "../../scripts/lib/ci-proof-test-inventory.mts";
+import { isExclusiveCiTestConfig } from "../../scripts/lib/local-check-runtime.mts";
 import { parseCompactSplitTimingKey } from "../../scripts/lib/vitest-shard-metadata.mts";
 import { listGitTrackedFiles, sortRepoPaths, toRepoPath } from "../../src/test-utils/repo-files.js";
 import { createCliVitestConfig } from "../vitest/vitest.cli.config.ts";
@@ -23,6 +24,32 @@ type VitestConfig = {
 export function isNumberedToolingGroup(group: { shard_name: string }) {
   return /^core-tooling-\d+(?:-hosted-\d+)?$/u.test(group.shard_name);
 }
+
+// Retained capacity assertions include file-level overlap inside a serial job.
+const fileParallelAgentGroupNames = new Set([
+  "agentic-agents-embedded-base-1",
+  "agentic-agents-embedded-base-2",
+  "agentic-agents-embedded-base-3",
+  "agentic-agents-embedded-run",
+  "agentic-agents-tools",
+]);
+export function usesParallelPacking(job: CompactNodeTestShard | undefined) {
+  return (
+    job?.planConcurrency === 2 ||
+    job?.env?.OPENCLAW_VITEST_MAX_WORKERS === "2" ||
+    (job?.planConcurrency === 1 &&
+      job.runner === "blacksmith-32vcpu-ubuntu-2404" &&
+      job.groups.length > 1 &&
+      job.groups.some(
+        (group) =>
+          (group.fallbackMaxWorkers === 2 &&
+            (group.configs.some(isExclusiveCiTestConfig) ||
+              fileParallelAgentGroupNames.has(group.shard_name.replace(/-hosted-\d+$/u, "")))) ||
+          group.configs.includes("test/vitest/vitest.commands.config.ts"),
+      ))
+  );
+}
+
 export function nonToolingPlacement(plan: CompactNodeTestShard[]) {
   return plan
     .flatMap((job) => {

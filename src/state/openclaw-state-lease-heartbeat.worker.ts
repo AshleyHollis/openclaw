@@ -64,7 +64,6 @@ function openHeartbeatDatabase() {
   throw new Error("state lease heartbeat startup deadline expired or owner stopped");
 }
 const db = openHeartbeatDatabase();
-const CONTENTION_RETRY_MS = 25;
 Atomics.store(shared, state.startupPhase, startupPhase["open-complete"]);
 let processOwner = params.processOwner;
 let heartbeat: ReturnType<typeof setTimeout> | undefined;

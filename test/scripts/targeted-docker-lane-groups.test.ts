@@ -342,32 +342,6 @@ describe("scripts/plan-targeted-docker-lane-groups", () => {
         upgradeSurvivorScenarios: "base plugin-deps-cleanup",
       }),
     ).toEqual([
-      { docker_lanes: "doctor-switch", label: "doctor-switch" },
-      {
-        docker_lanes: "published-upgrade-survivor",
-        label: "published-upgrade-survivor-scenarios-1",
-        published_upgrade_survivor_scenarios: "base",
-        timeout_minutes: 90,
-      },
-      {
-        docker_lanes: "published-upgrade-survivor",
-        label: "published-upgrade-survivor-scenarios-2",
-        published_upgrade_survivor_scenarios: "plugin-deps-cleanup",
-        timeout_minutes: 90,
-      },
-      { docker_lanes: "plugins-offline", label: "plugins-offline" },
-      {
-        docker_lanes: "update-migration",
-        label: "update-migration-scenarios-1",
-        published_upgrade_survivor_scenarios: "base",
-        timeout_minutes: 90,
-      },
-      {
-        docker_lanes: "update-migration",
-        label: "update-migration-scenarios-2",
-        published_upgrade_survivor_scenarios: "plugin-deps-cleanup",
-        timeout_minutes: 90,
-      },
       { docker_lanes: "plugin-update", label: "plugin-update" },
       { docker_lanes: "doctor-switch", label: "doctor-switch" },
       {

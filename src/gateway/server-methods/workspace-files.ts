@@ -487,7 +487,7 @@ export async function getSessionWorkspaceFile(
   params: LoadedSessionFiles & { path: string; assertCurrent?: () => void },
 ): Promise<{ root?: string; file?: SessionFileEntry; reason?: "outside_session_boundary" }> {
   if (!isWorkspaceFileReference(params.path)) {
-    return { ...(params.root ? { root: params.root } : {}) };
+    return params.root ? { root: params.root } : {};
   }
   let outsideBoundary = false;
   const options = {

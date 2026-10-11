@@ -5177,7 +5177,7 @@ SH
     expect(dockerfile.indexOf(copy)).toBeLessThan(dockerfile.indexOf(chmod));
   });
 
-  it("verifies fs-safe through a pnpm-style linked package root", () => {
+  it("refuses required native publication from fallback-only pnpm linked package roots", () => {
     const root = realpathSync(tempDirs.make("openclaw-linked-package-proof-"));
     const modules = join(root, "node_modules");
     const virtualModules = join(modules, ".pnpm/openclaw@fixture/node_modules");
@@ -5233,9 +5233,19 @@ export async function sha256File(file) {
           "--mode",
           "fallback",
         ],
-        { encoding: "utf8", timeout: 10_000 },
+        {
+          encoding: "utf8",
+          timeout: 10_000,
+          env: {
+            ...process.env,
+            OPENCLAW_FS_SAFE_PUBLICATION_CONTRACT: "required",
+            OPENCLAW_FS_SAFE_NATIVE_CONTRACT: "required",
+          },
+        },
       );
-      expect(result.status, result.stdout + result.stderr).toBe(0);
+      expect(result.status, result.stdout + result.stderr).toBe(1);
+      expect(result.stderr).toContain("durable publication proof requires native mode");
+      expect(result.stdout).not.toContain("Installed SDK durable staging/publication");
     }
   });
 

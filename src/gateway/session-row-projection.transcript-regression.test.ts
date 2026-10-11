@@ -22,6 +22,12 @@ it("serves describe during a 2,048-session drain without transcript reads in row
     const cfg = { agents: { entries: { main: {} } } };
     setRuntimeConfigSnapshot(cfg);
     const count = seedSessionRowProjectionTranscriptFixture();
+    const describedEntry = transcripts.loadSessionEntryReadOnly({
+      agentId: "main",
+      sessionKey: "agent:main:legacy-2047",
+    });
+    expect(describedEntry?.sessionId).toBe("legacy-2047");
+    const lifecycleRevision = describedEntry?.lifecycleRevision ?? null;
     for (const index of [0, count - 1]) {
       expect(
         transcripts.readSessionTranscriptMessageEventPage(
@@ -107,6 +113,7 @@ it("serves describe during a 2,048-session drain without transcript reads in row
       }
       expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
         session: expect.objectContaining({ key: "agent:main:legacy-2047" }),
+        lifecycleRevision,
       });
       return { remainingAtResponse, materializedRows: describeMaterializations };
     };

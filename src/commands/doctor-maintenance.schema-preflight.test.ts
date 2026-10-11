@@ -336,17 +336,38 @@ it.each(["present", "missing"] as const)(
       expect(snapshotPath && fs.existsSync(snapshotPath)).toBe(false);
 
       const output = [...runtime.log.mock.calls, ...runtime.error.mock.calls].flat().join("\n");
-      expect(runtime.exit, output).not.toHaveBeenCalled();
-      expect(mocks.outro).toHaveBeenCalledWith("Doctor complete.");
-      expect(mocks.writeUpdatePostInstallDoctorResult).toHaveBeenCalledWith({
-        resultPath,
-        result: expect.objectContaining({
-          status: "ok",
-          ...(heldPath
-            ? { warnings: expect.arrayContaining([expect.stringContaining(heldPath)]) }
-            : {}),
-        }),
-      });
+      const assertDoctorOutcome = () => {
+        if (heldPath) {
+          expect(runtime.exit).toHaveBeenCalledTimes(1);
+          expect(runtime.exit).toHaveBeenCalledWith(1);
+          expect(mocks.outro).not.toHaveBeenCalledWith("Doctor complete.");
+          expect(mocks.writeUpdatePostInstallDoctorResult).toHaveBeenCalledWith({
+            resultPath,
+            result: expect.objectContaining({
+              status: "error",
+              maintenanceRefusal: { kind: "data-at-risk", reason: "incomplete-migration" },
+              failureFacts: [
+                {
+                  check: "agent-deletion-journal",
+                  code: "unverified-agent-databases",
+                  message: expect.stringContaining("1 store held back"),
+                },
+              ],
+            }),
+          });
+          expect(runtime.error.mock.calls.flat().join("\n")).toContain(
+            "agent-deletion-journal (unverified-agent-databases)",
+          );
+        } else {
+          expect(runtime.exit).not.toHaveBeenCalled();
+          expect(mocks.outro).toHaveBeenCalledWith("Doctor complete.");
+          expect(mocks.writeUpdatePostInstallDoctorResult).toHaveBeenCalledWith({
+            resultPath,
+            result: expect.objectContaining({ status: "ok" }),
+          });
+        }
+      };
+      assertDoctorOutcome();
       expect(output).toContain(`Warning: Rebuilt corrupt shared-state SQLite indexes: ${index}`);
       const backupLine = runtime.log.mock.calls
         .flat()
@@ -371,6 +392,7 @@ it.each(["present", "missing"] as const)(
         ]);
         expect(fs.readFileSync(heldPath)).toEqual(heldBytes);
         expect(output).toContain("recorded a Doctor receipt");
+        expect(output).toContain(heldPath);
       }
 
       // Model a committed REINDEX whose quarantine finalization was interrupted.
@@ -385,10 +407,12 @@ it.each(["present", "missing"] as const)(
       ).toBe(true);
       runtime.exit.mockClear();
       runtime.error.mockClear();
+      mocks.outro.mockClear();
+      mocks.writeUpdatePostInstallDoctorResult.mockClear();
       await runCommandWithRuntime(runtime, () =>
         runDoctorHealthFlow(runtime, { repair: true, nonInteractive: true }),
       );
-      expect(runtime.exit, runtime.error.mock.calls.flat().join("\n")).not.toHaveBeenCalled();
+      assertDoctorOutcome();
       expect(
         openOpenClawStateDatabase({ env: state.env })
           .db.prepare("SELECT * FROM audit_events NOT INDEXED")

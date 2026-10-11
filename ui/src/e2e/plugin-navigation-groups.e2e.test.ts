@@ -1,6 +1,7 @@
 import path from "node:path";
 import { expect, it } from "vitest";
 import {
+  createControlUiMockSameOriginGatewayScript,
   defaultControlUiFeatureMethods,
   installMockGateway,
 } from "../test-helpers/control-ui-e2e.ts";
@@ -29,6 +30,7 @@ suite.define(() => {
     await suite.withPage(
       { viewport: { width: 1440, height: 1000 }, serviceWorkers: "block" },
       async ({ page }) => {
+        await page.addInitScript({ content: createControlUiMockSameOriginGatewayScript() });
         await installMockGateway(page, {
           featureMethods: [
             ...defaultControlUiFeatureMethods,

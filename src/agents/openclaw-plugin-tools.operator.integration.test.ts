@@ -23,7 +23,8 @@ import { setPluginRuntimeLoadContext } from "../plugins/runtime/load-context.js"
 import { createPluginRecord } from "../plugins/status.test-helpers.js";
 import type { OpenClawPluginToolContext } from "../plugins/tool-types.js";
 import { setCanonicalUserProfileRole } from "../state/user-profile-writes.js";
-import { ensureProfileForEmail, linkEmail, setUserProfileRole } from "../state/user-profiles.js";
+import { linkEmail, setUserProfileRole } from "../state/user-profile-writes.worker.js";
+import { ensureProfileForEmail } from "../state/user-profiles.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { withPreparedEmbeddedGatewayTools } from "./embedded-agent-runner/run/attempt-gateway-tools.js";
 import { resolveOpenClawPluginToolsForOptions } from "./openclaw-plugin-tools.js";

@@ -1667,8 +1667,6 @@ src/state/openclaw-state-lease.ts
 src/state/openclaw-state-maintenance-context.ts
 src/state/openclaw-state-ownership-worker.ts
 src/state/openclaw-state-ownership.ts
-src/state/openclaw-state-ownership-worker.ts
-src/state/openclaw-state-read-error.ts
 src/state/openclaw-state-read-operation.ts
 src/state/openclaw-state-read-request.ts
 src/state/openclaw-state-read-scope.ts

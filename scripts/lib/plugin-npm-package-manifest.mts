@@ -740,7 +740,21 @@ function shouldBundleDependencies(
 ) {
   if (packageJson?.openclaw?.release?.bundleRuntimeDependencies === false) {
     if (patchedDependencies.length > 0) {
-      throw new Error("patched runtime dependencies conflict with bundleRuntimeDependencies=false");
+      // Opt-out forbids broad runtime bundling. An explicit exact patch closure
+      // still preserves the installed workspace patch in the published artifact.
+      const configured = packageJson.bundleDependencies ?? packageJson.bundledDependencies;
+      const patchedNames = new Set(patchedDependencies.map(({ name }) => name));
+      if (
+        !Array.isArray(configured) ||
+        configured.length !== patchedNames.size ||
+        new Set(configured).size !== configured.length ||
+        !configured.every((name) => typeof name === "string" && patchedNames.has(name))
+      ) {
+        throw new Error(
+          "patched runtime dependencies conflict with bundleRuntimeDependencies=false",
+        );
+      }
+      return true;
     }
     return false;
   }

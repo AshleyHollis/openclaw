@@ -116,7 +116,7 @@ function projectHistoryTransports(message: Record<string, unknown>) {
 
 it("projects recorded cron input as an attributed automation turn", () => {
   const sourcePromptPrefix = "[cron:daily-report Daily report]";
-  const provenance = {
+  const recordedProvenance = {
     kind: "internal_system" as const,
     sourceTool: "cron",
     sourcePromptPrefix,
@@ -126,7 +126,7 @@ it("projects recorded cron input as an attributed automation turn", () => {
   };
   const message = {
     role: "user",
-    provenance,
+    provenance: recordedProvenance,
     content: `${sourcePromptPrefix} Check the queue.`,
   };
 
@@ -134,11 +134,11 @@ it("projects recorded cron input as an attributed automation turn", () => {
     expect(messages).toStrictEqual([
       {
         role: "assistant",
-        provenance,
+        provenance: recordedProvenance,
         content: "Check the queue.",
         senderLabel: "Forwarded from Automation",
         senderSession: {
-          sessionKey: provenance.sourceSessionKey,
+          sessionKey: recordedProvenance.sourceSessionKey,
           agentId: "main",
           label: "Automation",
         },

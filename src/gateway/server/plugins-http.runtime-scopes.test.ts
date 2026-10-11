@@ -11,7 +11,8 @@ import { setActivePluginRegistry } from "../../plugins/runtime.js";
 import { getPluginRuntimeGatewayRequestScope } from "../../plugins/runtime/gateway-request-scope.js";
 import { sessionChanges } from "../../sessions/session-row-changes.js";
 import { trackAsyncWork } from "../../shared/async-work-scope.js";
-import { ensureProfileForEmail, linkEmail, setUserProfileRole } from "../../state/user-profiles.js";
+import { linkEmail, setUserProfileRole } from "../../state/user-profile-writes.worker.js";
+import { ensureProfileForEmail } from "../../state/user-profiles.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { setControlUiPluginAuthCookie } from "../control-ui-plugin-auth-cookie.js";
 import { createTestApprovalManager } from "../exec-approval-manager.test-support.js";
@@ -38,7 +39,6 @@ import {
 const SECURE_HOOK_PATH = "/secure-hook";
 const SECURE_ADMIN_HOOK_PATH = "/secure-admin-hook";
 
-type PluginHttpRoute = ReturnType<typeof createRoute>;
 type PluginRequestHandler = ReturnType<typeof createGatewayPluginRequestHandler>;
 type PluginRequestAuthContext = NonNullable<Parameters<PluginRequestHandler>[3]>;
 
@@ -97,7 +97,7 @@ function assertAdminHelperAllowed() {
 }
 
 function createPluginRequestHandler(params: {
-  routes: PluginHttpRoute[];
+  routes: ReturnType<typeof createRoute>[];
   log?: SubsystemLogger;
   getRouteRegistry?: () => ReturnType<typeof createGatewayTestRegistry>;
   getGatewayRequestContext?: () => GatewayRequestContext;

@@ -18,6 +18,7 @@ import {
   runSessionSweep,
 } from "./lifecycle-sync.test-support.js";
 import { workboardSessionKeyForCard } from "./session-link.js";
+import type { WorkboardStore } from "./store.js";
 import { createWorkboardSqliteTestStore } from "./test/sqlite-store.js";
 
 type ServiceContext = Parameters<OpenClawPluginService["start"]>[0];

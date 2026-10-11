@@ -10820,7 +10820,9 @@ describe("package artifact reuse", () => {
     expect(workflow).toContain(
       "OPENCLAW_LIVE_GATEWAY_MODELS=google/gemini-3.1-pro-preview node .release-harness/scripts/test-live-shard.mjs native-live-src-gateway-profiles",
     );
-    expect(workflow).not.toContain("suite_id: native-live-src-gateway-profiles-minimax");
+    expect(workflow).toMatch(
+      /suite_id: native-live-src-gateway-profiles-minimax\n\s+label: Native live gateway profiles MiniMax\n\s+command: OPENCLAW_LIVE_GATEWAY_PROVIDERS=minimax,minimax-portal OPENCLAW_LIVE_GATEWAY_MODELS=minimax\/MiniMax-M3,minimax-portal\/MiniMax-M3 OPENCLAW_LIVE_GATEWAY_MAX_MODELS=2 node \.release-harness\/scripts\/test-live-shard\.mjs native-live-src-gateway-profiles\n\s+timeout_minutes: 60\n\s+profile_env_only: false\n\s+profiles: stable full/u,
+    );
     expect(workflow).toMatch(
       /suite_id: native-live-src-gateway-profiles-fireworks[\s\S]*?timeout_minutes: 30/u,
     );

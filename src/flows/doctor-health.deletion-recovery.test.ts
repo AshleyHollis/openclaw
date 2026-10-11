@@ -6,6 +6,7 @@ import { prepareDoctorDatabasePreflight } from "../commands/doctor-database-pref
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
 import { createLegacyDatabaseFixture } from "../infra/state-migrations.media-persistence.test-support.js";
+import { DoctorMaintenanceRefusalError } from "../infra/update-doctor-result.js";
 import { readAgentDeletionRecoveryHolds } from "../state/agent-deletion-journal-recovery.kernel.js";
 import { beginAgentDeletionJournal } from "../state/agent-deletion-journal.js";
 import { closeOpenClawAgentDatabasesAsync } from "../state/openclaw-agent-db-lifecycle.js";
@@ -63,12 +64,23 @@ it("refreshes supplied missing-history discovery after maintenance admits a newe
     mocks.emulateNativeInstall = false;
     const runtime = { log: vi.fn(), error: vi.fn(), exit: vi.fn() };
     try {
-      await runDoctorHealthFlow(
+      const outcome = runDoctorHealthFlow(
         runtime,
         { repair: true, nonInteractive: true },
         undefined,
         prepared,
       );
+      await expect(outcome).rejects.toBeInstanceOf(DoctorMaintenanceRefusalError);
+      await expect(outcome).rejects.toMatchObject({
+        refusal: { kind: "data-at-risk", reason: "incomplete-migration" },
+        failureFacts: [
+          {
+            check: "agent-deletion-journal",
+            code: "unverified-agent-databases",
+            message: expect.stringContaining("reconstructed; 2 stores held back"),
+          },
+        ],
+      });
       expect(runtime.exit).not.toHaveBeenCalled();
       expect(
         readAgentDeletionRecoveryHolds(openOpenClawStateDatabase({ env: state.env }))
@@ -76,6 +88,10 @@ it("refreshes supplied missing-history discovery after maintenance admits a newe
           .toSorted(),
       ).toEqual([mainPath, latePath].toSorted());
       expect([mainPath, latePath].map((file) => fs.readFileSync(file))).toEqual(bytes);
+      const output = runtime.log.mock.calls.flat().join("\n");
+      expect(output).toContain("recorded a Doctor receipt");
+      expect(output).toContain(mainPath);
+      expect(output).toContain(latePath);
     } finally {
       mocks.emulateNativeInstall = true;
       closeOpenClawStateDatabaseForTest();
@@ -129,13 +145,25 @@ it("keeps a newly quarantined pending deletion out of update reclamation", async
       mocks.runContributions.mockReset();
       const runtime = { log: vi.fn(), error: vi.fn(), exit: vi.fn() };
 
-      await runDoctorHealthFlow(runtime, { repair: true, nonInteractive: true });
+      const outcome = runDoctorHealthFlow(runtime, { repair: true, nonInteractive: true });
+      await expect(outcome).rejects.toBeInstanceOf(DoctorMaintenanceRefusalError);
+      await expect(outcome).rejects.toMatchObject({
+        refusal: { kind: "data-at-risk", reason: "incomplete-migration" },
+        failureFacts: [
+          {
+            check: "agent-deletion-journal",
+            code: "unverified-agent-databases",
+            message: expect.stringContaining("quarantined; 1 store held back"),
+          },
+        ],
+      });
 
       expect(runtime.exit).not.toHaveBeenCalled();
       expect(readAgentDeletionRecoveryHolds(openOpenClawStateDatabase({ env: state.env }))).toEqual(
         [{ agentId: "main", path: agentPath }],
       );
       expect(runtime.log.mock.calls.flat().join("\n")).toContain(agentPath);
+      expect(runtime.log.mock.calls.flat().join("\n")).toContain("recorded a Doctor receipt");
       expect(fs.readFileSync(agentPath)).toEqual(bytes);
       expect(fs.statSync(agentPath).ino).toBe(inode);
     },

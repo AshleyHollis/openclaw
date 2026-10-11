@@ -524,7 +524,12 @@ class Tooltip extends OpenClawLitElement {
 
   #syncDescription() {
     const richText = this.#richContentText;
-    this.webAwesomeTooltip?.style.setProperty("pointer-events", richText ? "auto" : "none");
+    const pointerEvents = richText ? "auto" : "none";
+    this.webAwesomeTooltip?.style.setProperty("pointer-events", pointerEvents);
+    this.webAwesomeTooltip?.style.setProperty(
+      "--openclaw-tooltip-body-pointer-events",
+      pointerEvents,
+    );
     if (!this.describe) {
       this.#restoreDescription();
       return;

@@ -425,43 +425,40 @@ export function createControlUiComponents(options: {
         render(
           treeMode
             ? renderTree()
-            : renderSessionWorkspaceRail(
-                {
-                  filter: "all",
-                  browserPath: props.currentPath,
-                  browserSearch: props.query,
-                  collapsed: false,
+            : renderSessionWorkspaceRail({
+                filter: "all",
+                browserPath: props.currentPath,
+                browserSearch: props.query,
+                collapsed: false,
+                sessionKey: "plugin:topic-files",
+                list: {
                   sessionKey: "plugin:topic-files",
-                  list: {
-                    sessionKey: "plugin:topic-files",
-                    root: props.rootLabel,
-                    files: [],
-                    artifacts: [],
-                    browser: {
-                      path: props.currentPath,
-                      parentPath: props.currentPath
-                        ? props.currentPath.split("/").slice(0, -1).join("/")
-                        : undefined,
-                      entries: [...props.entries],
-                      search: props.query || undefined,
-                    },
+                  root: props.rootLabel,
+                  files: [],
+                  artifacts: [],
+                  browser: {
+                    path: props.currentPath,
+                    parentPath: props.currentPath
+                      ? props.currentPath.split("/").slice(0, -1).join("/")
+                      : undefined,
+                    entries: [...props.entries],
+                    search: props.query || undefined,
                   },
-                  loading: props.loading,
-                  error: props.error,
-                  activeId: props.selectedPath ? `file:${props.selectedPath}` : null,
-                  dock: "right",
-                  narrowLayout: false,
-                  onToggleCollapsed: () => {},
-                  onSetDock: () => {},
-                  onRefresh: () => props.onRefresh(),
-                  onBrowsePath: (path) => props.onBrowsePath(path),
-                  onOpenFile: (path) => props.onSelect(path),
-                  onSearch: (query) => props.onQueryChange(query),
-                  onSetFilter: () => {},
-                  onOpenArtifact: () => {},
                 },
-                { embedded: true },
-              ),
+                loading: props.loading,
+                error: props.error,
+                activeId: props.selectedPath ? `file:${props.selectedPath}` : null,
+                dock: "right",
+                narrowLayout: false,
+                onToggleCollapsed: () => {},
+                onSetDock: () => {},
+                onRefresh: () => props.onRefresh(),
+                onBrowsePath: (path) => props.onBrowsePath(path),
+                onOpenFile: (path) => props.onSelect(path),
+                onSearch: (query) => props.onQueryChange(query),
+                onSetFilter: () => {},
+                onOpenArtifact: () => {},
+              }),
           root,
         );
         if (previousScroll !== undefined) {

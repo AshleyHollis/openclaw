@@ -350,7 +350,9 @@ describe("full release child evidence producer", () => {
         workloadConclusion: "success",
         effectiveRunAttempt: runAttempt,
       });
-      expect(evidence.observedRunAttempts).toEqual([1, 2, 3]);
+      expect(evidence.observedRunAttempts).toEqual(
+        Array.from({ length: runAttempt }, (_, index) => index + 1),
+      );
       expect(
         evidence.jobs.map((job: { name: string; acceptedRunAttempt: number }) => [
           job.name,

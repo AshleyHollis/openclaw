@@ -22,6 +22,37 @@ Use `Package Acceptance` when the question is "does this installable OpenClaw pa
 5. `package_telegram` optionally calls `NPM Telegram Beta E2E`. It runs when `telegram_mode` is not `none` and installs the same `package-under-test` artifact when Package Acceptance resolved one; standalone Telegram dispatch can still install a published npm spec.
 6. `summary` fails the workflow if package resolution, integrity, npm 12 installer acceptance, Docker acceptance, or the optional Telegram lane failed. Selected lanes keep their first failure; callers cannot downgrade a failing test to a warning.
 
+### Windows native skill watcher qualification
+
+The Windows repository lane runs the current skill watcher consumer owners:
+`refresh.recovery.test.ts`, `refresh.registration-gap.integration.test.ts`,
+`refresh.subscriptions.test.ts`, `refresh.missing-root.integration.test.ts`,
+`refresh-watch-path.test.ts`, and `refresh.windows.test.ts` under
+`src/skills/runtime/`. These cover consumer retirement, admission, source changes,
+and Windows path boundaries. The missing-root integration adapter forces polling;
+the other consumer mocks do not qualify native notifications.
+
+The installed `@openclaw/fs-safe/watch` implementation now owns directory pins
+and the shared native hub. Retiring the old internal watcher test selectors
+does not qualify that external boundary. Windows native watcher qualification
+remains required and pending until retained evidence covers all of these contracts:
+
+| Retained contract           | Required installed-library evidence                                                                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Physical retirement         | First close failure remains sticky, late scan failures cannot replace it, and a retiring owner cannot admit replacement work.                     |
+| Symbolic sources            | Shared missing ancestors and admitted symbolic targets retain logical and physical ownership without following unadmitted paths.                  |
+| Content admission           | Native registration precedes listing; inode replacement and ABA cannot borrow old admission; peer observations keep independent ownership.        |
+| Entry and ancestor coverage | Parent replacement, probe/scan errors, permission recovery, inaccessible versus missing paths, and nameless events preserve fences and readiness. |
+| Windows notifications       | Case aliases, short-name aliases, delete-pending paths, and callbacks delivered during closure cannot bypass the installed owner's authority.     |
+
+Bind that evidence to the actual combined source SHA, candidate package/archive
+digest, build identity, installed fs-safe version and patch identity, matching
+native binding package and digest, Windows host/OS/architecture, and executed
+case identities with their results. Preserve predecessor evidence as historical.
+Consumer test passes, a hash/native-binding smoke, polling tests, or an absent
+retired test path cannot mark these contracts successful. Missing or failed native
+watch evidence blocks claiming Windows watcher qualification for the candidate.
+
 ### Installed package tree budget
 
 `scripts/check-openclaw-installed-package-budget.mts` measures the npm-installed

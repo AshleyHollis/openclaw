@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { expect, vi } from "vitest";
+import { afterEach, beforeEach, expect, vi } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import type { GatewayRequestHandlerOptions, GatewayRequestHandlers, RespondFn } from "./types.js";
 
 type SessionFilesMethod =
@@ -194,4 +195,86 @@ export function useSqliteSession(
     },
   });
   return storePath;
+}
+
+export function useSessionFilesTestFixture(
+  handlers: GatewayRequestHandlers,
+  mocks: Omit<
+    Parameters<typeof prepareSessionFilesTest>[0],
+    "readSessionTranscriptVisibleMessageDeltaCore"
+  > & {
+    readDelta: Parameters<
+      typeof prepareSessionFilesTest
+    >[0]["readSessionTranscriptVisibleMessageDeltaCore"];
+  },
+  sessionKey: string,
+) {
+  const outsideDirs = useAutoCleanupTempDirTracker(afterEach);
+  const outsideFile = () => path.join(outsideDirs.make("session-files-outside-"), "outside.txt");
+  const mockVisibleMessages = createVisibleMessagesMock(mocks.readDelta);
+
+  let workspaceRoot: string;
+  beforeEach(() => {
+    workspaceRoot = prepareSessionFilesTest(
+      { ...mocks, readSessionTranscriptVisibleMessageDeltaCore: mocks.readDelta },
+      mockVisibleMessages,
+    );
+  });
+
+  afterEach(() => {
+    removeWorkspaceFixture(workspaceRoot);
+  });
+
+  const invoke = createSessionFilesHandlerInvoker(handlers);
+  function listFiles(params: Record<string, unknown> = {}) {
+    return invoke("sessions.files.list", { sessionKey, ...params });
+  }
+
+  function getFile(filePath: string) {
+    return invoke("sessions.files.get", { sessionKey, path: filePath });
+  }
+
+  function saveFile(params: Record<string, unknown>) {
+    return invoke("sessions.files.set", { sessionKey, ...params });
+  }
+
+  function mockSession(
+    entry: Record<string, unknown>,
+    agentId = "main",
+    storePath = path.join(workspaceRoot, ".sessions.json"),
+  ) {
+    mocks.loadSessionEntry.mockReturnValue({
+      agentId,
+      canonicalKey: `agent:${agentId}:main`,
+      cfg: {},
+      storePath,
+      entry,
+    });
+  }
+
+  function fixedStoreConfig() {
+    return {
+      session: { store: path.join(workspaceRoot, "shared.sqlite"), scope: "global" },
+      agents: {
+        ownership: "explicit",
+        defaults: { sessionStore: { agentId: "ops" } },
+        entries: { ops: {}, research: {} },
+      },
+    } as const;
+  }
+
+  return {
+    get workspaceRoot() {
+      return workspaceRoot;
+    },
+    outsideDirs,
+    outsideFile,
+    invoke,
+    listFiles,
+    getFile,
+    saveFile,
+    mockSession,
+    fixedStoreConfig,
+    mockVisibleMessages,
+  };
 }

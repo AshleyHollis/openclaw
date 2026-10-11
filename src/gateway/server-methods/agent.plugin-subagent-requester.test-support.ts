@@ -23,7 +23,8 @@ export function registerPluginSubagentRequesterLineageTest(): void {
         cfg: {
           session: { mainKey: "main", scope: "per-sender" },
           agents: {
-            list: [{ id: "main", default: true }, { id: "work" }],
+            ownership: "explicit",
+            entries: { main: {}, work: {} },
           },
         },
         runId: "plugin-subagent-current-requester",

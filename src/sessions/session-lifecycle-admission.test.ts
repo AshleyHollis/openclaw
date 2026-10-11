@@ -733,7 +733,7 @@ it("releases lifecycle locks when admission aborts behind the store writer barri
     await expect(admission).rejects.toBe(abortError);
     expect(isSessionWorkAdmissionActive(storePath, ["session-writer-abort"])).toBe(false);
 
-    mutation = runExclusiveSessionLifecycleMutation({
+    mutation = runExclusiveSessionLifecycleMutation("compact", {
       kind: "compaction",
       scope: storePath,
       identities: ["session-writer-abort"],

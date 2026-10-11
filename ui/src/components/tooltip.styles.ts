@@ -47,7 +47,7 @@ export const tooltipStyles = css`
       pointer-events: none;
     }
     wa-tooltip::part(body) {
-      pointer-events: auto;
+      pointer-events: var(--openclaw-tooltip-body-pointer-events, none);
     }
   }
 

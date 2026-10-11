@@ -86,9 +86,9 @@ describe.runIf("__vitest_browser__" in globalThis)("tooltip pointer ownership", 
     },
   );
 
-  it("keeps rich tooltip links pointer-accessible", async () => {
+  it("keeps rich tooltip padding and links pointer-accessible", async () => {
     const { page } = await import("vitest/browser");
-    const { link } = await openTooltip(true);
+    const { tooltip, body, link } = await openTooltip(true);
     let activated = false;
     link!.addEventListener("click", (event) => {
       event.preventDefault();
@@ -96,6 +96,16 @@ describe.runIf("__vitest_browser__" in globalThis)("tooltip pointer ownership", 
     });
     await page.elementLocator(link!).click();
     expect(activated).toBe(true);
+    const bounds = body.getBoundingClientRect();
+    expect(document.elementFromPoint(bounds.left + 1, bounds.top + bounds.height / 2)).toBe(
+      tooltip,
+    );
+    let paddingReached = false;
+    body.addEventListener("pointerdown", () => {
+      paddingReached = true;
+    });
+    await page.elementLocator(body).click({ position: { x: 1, y: bounds.height / 2 } });
+    expect(paddingReached).toBe(true);
   });
 });
 

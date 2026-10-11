@@ -1390,6 +1390,9 @@ process.stdout.write("PACKED_PLUGIN_CHANNEL_STATE_OK\\n");
       );
       sourceManifest.openclaw.release = codex.openclaw.release;
       sourceManifest.openclaw.install = codex.openclaw.install;
+      // Exercise the selected patch-only policy with this fixture's patched owner.
+      expect(codex.bundledDependencies).toEqual(["@openclaw/fs-safe"]);
+      sourceManifest.bundledDependencies = ["local-runtime-dep"];
       writeJsonFile(join(packageDir, "package.json"), sourceManifest);
     }
     if (bundling === "unchanged") {
@@ -1610,6 +1613,48 @@ console.log(JSON.stringify({ path: path.join(destination, packed.filename) }));
       });
     }
   });
+
+  it.each([
+    { selection: ["local-runtime-dep"], accepted: true },
+    { selection: [], accepted: false },
+    { selection: ["unpatched-sibling"], accepted: false },
+    { selection: ["local-runtime-dep", "unpatched-sibling"], accepted: false },
+    { selection: ["local-runtime-dep", "local-runtime-dep"], accepted: false },
+    { selection: true, accepted: false },
+  ])(
+    "limits opted-out packaging to its explicit patched closure: $selection",
+    ({ selection, accepted }) => {
+      const repoDir = makeTempRepoRoot(tempDirs, "openclaw-plugin-patch-only-policy-");
+      const packageDir = writePublishablePluginPackage(repoDir);
+      writeFileText(join(packageDir, "dist", "index.js"), "export {};\n");
+      writeFileText(join(packageDir, "dist", "setup-entry.js"), "export {};\n");
+      const source = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8"));
+      source.dependencies = { "local-runtime-dep": "1.0.0", "unpatched-sibling": "1.0.0" };
+      source.bundledDependencies = selection;
+      source.openclaw.release.bundleRuntimeDependencies = false;
+      writeJsonFile(join(packageDir, "package.json"), source);
+      const original = readFileSync(join(packageDir, "package.json"), "utf8");
+      const resolve = () =>
+        resolveAugmentedPluginNpmPackageJson({
+          repoRoot: repoDir,
+          packageDir,
+          bundleDependencies: true,
+          patchedDependencies: [{ name: "local-runtime-dep", version: "1.0.0", packageDir }],
+        });
+      if (accepted) {
+        const result = resolve();
+        expect(result.bundleDependencies).toBe(true);
+        expect(result.packageJson?.bundledDependencies).toEqual(["local-runtime-dep"]);
+        expect(result.packageJson?.openclaw?.release?.bundleRuntimeDependencies).toBe(false);
+        expect(result.packageJson?.dependencies).toEqual(source.dependencies);
+      } else {
+        expect(resolve).toThrow(
+          "patched runtime dependencies conflict with bundleRuntimeDependencies=false",
+        );
+      }
+      expect(readFileSync(join(packageDir, "package.json"), "utf8")).toBe(original);
+    },
+  );
 
   it.each(["bundle opt-out", "stale install", "stale importer spec", "wrong package identity"])(
     "rejects a patched artifact when its packaging precondition fails (%s)",

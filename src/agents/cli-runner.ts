@@ -1,4 +1,3 @@
-import { isSilentReplyPayloadText } from "../auto-reply/tokens.js";
 import { runWithCliHistoryWriter } from "../config/sessions/cli-history-boundary.js";
 import { prepareCronRootSessionGeneration } from "../config/sessions/session-delivery-generation.js";
 import { buildGenericCliContextEngineHostSupport } from "../context-engine/host-compat.js";
@@ -17,10 +16,7 @@ import {
 } from "../plugins/hook-agent-context.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import { sleep } from "../utils/sleep.js";
-import {
-  hasAcceptedSessionSpawn,
-  hasCompletionMessageSessionSpawn,
-} from "./accepted-session-spawn.js";
+import { hasAcceptedSessionSpawn } from "./accepted-session-spawn.js";
 import { bindOperatorModelExecution, readRunOperatorAuthority } from "./admitted-run-context.js";
 import { runCliBeforeAgentReply } from "./cli-runner/before-agent-reply.js";
 import { runCliCleanup } from "./cli-runner/cleanup.js";
@@ -55,6 +51,7 @@ import {
 import {
   attachCliMessagingDeliveryEvidence,
   getCliMessagingDeliveryEvidence,
+  isMissingRequiredCliReply,
 } from "./cli-runner/delivery-evidence.js";
 import { createCliFailoverError } from "./cli-runner/exit-error.js";
 import { cliBackendLog } from "./cli-runner/log.js";
@@ -69,7 +66,6 @@ import {
 import type { PreparedCliRunContext, RunCliAgentParams } from "./cli-runner/types.js";
 import { claudeCliSessionTranscriptHasContent } from "./command/attempt-execution.helpers.js";
 import type { EmbeddedAgentRunResult } from "./embedded-agent-runner.js";
-import { resolveSourceReplyDelivery } from "./embedded-agent-runner/delivery-evidence.js";
 import { recordModelFallbackStop } from "./failover-error.js";
 import { runBeforeAgentRunGate } from "./harness/before-agent-run.js";
 import { bootstrapHarnessContextEngine } from "./harness/context-engine-lifecycle.js";
@@ -79,7 +75,6 @@ import {
   runAgentHarnessLlmInputHook,
   runAgentHarnessLlmOutputHook,
 } from "./harness/lifecycle-hook-helpers.js";
-import { resolveReplyExpectation } from "./reply-completion.js";
 
 const log = createSubsystemLogger("agents/cli-runner");
 
@@ -377,17 +372,7 @@ async function runPreparedCliAgentOwned(
     const assistantText = sourceReplyMirror.delivered
       ? (sourceReplyMirror.visibleText ?? "")
       : output.text.trim();
-    if (
-      (!output.text.trim() || isSilentReplyPayloadText(output.text)) &&
-      resolveSourceReplyDelivery(output) === "missing" &&
-      !output.toolMediaUrls?.length &&
-      !output.yielded &&
-      !hasCompletionMessageSessionSpawn(output.acceptedSessionSpawns) &&
-      !output.terminalInterruption &&
-      resolveReplyExpectation(params) === "required" &&
-      // Strict isolated completion owns valid-empty output after reasoning is removed.
-      !(isolatedCompletion && params.outputTextPolicy === "strict-visible")
-    ) {
+    if (isMissingRequiredCliReply({ output, runParams: params, isolatedCompletion })) {
       const process = output.diagnostics?.process;
       if (process) {
         const diagnostics = [

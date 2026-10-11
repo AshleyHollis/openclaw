@@ -122,7 +122,7 @@ export function removeChatAbortControllerEntry(
 }
 
 const terminalPersistenceErrorByEntry = new WeakMap<object, unknown>();
-export type ChatAbortTrackedTerminalRun = {
+type ChatAbortTrackedTerminalRun = {
   runId: string;
   clientRunId: string;
   sessionKey: string;

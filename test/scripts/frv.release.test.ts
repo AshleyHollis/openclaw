@@ -35,13 +35,13 @@ describe("FRV protected gh evidence reads", () => {
       "getAttemptJobs",
       ["101", 2],
       "actions/runs/101/attempts/2/jobs?per_page=25",
-      [{ id: 1 }, { id: 2 }],
+      Array.from({ length: 26 }, (_, index) => ({ id: index + 1 })),
     ],
     [
       "getParentJobs",
       ["77"],
       "actions/runs/77/jobs?filter=all&per_page=25",
-      [{ id: 1 }, { id: 2 }],
+      Array.from({ length: 26 }, (_, index) => ({ id: index + 1 })),
     ],
     ["getJobLog", [1], "actions/jobs/1/logs", "job evidence"],
   ])("revalidates %s through the default protected route", (method, args, endpoint, expected) => {
@@ -461,7 +461,7 @@ if (legacy && args[0] === "run" && args[1] === "download" && args[2] === "77" &&
 if (args[0] !== "api" || (!legacy && (!args.includes("GET") || !args.includes("github.com"))) || !args.includes("Cache-Control: max-age=0")) reject();
 if (args.includes("--include") || (!legacy && args.includes("--paginate"))) reject();
 let path = args.find(a => a.startsWith("repos/"));
-if (legacy && path.endsWith("/jobs?per_page=25")) path = path.replace("per_page=25", "per_page=100&page=1");
+if (legacy && path.endsWith("/jobs?per_page=25")) path += "&page=1";
 const table = JSON.parse(fs.readFileSync("responses.json", "utf8"));
 if (!Object.hasOwn(table, path)) reject();
 let value = table[path];
@@ -844,11 +844,17 @@ describe("publication status real CLI", () => {
       ],
       packagesTruncated: true,
     });
+    const result = await runPublicationCli(fixture);
     expect(result.status).toBe(1);
     expect(JSON.parse(result.stdout).publication.collection).toEqual({
       complete: false,
-      error: "transport",
+      error: "incomplete",
     });
+    const publication = JSON.parse(result.stdout).publication;
+    expect(publication.diagnostics.truncated).toBe(true);
+    expect(publication.surfaces.pluginNpm.packages).toHaveLength(2);
+    expect(publication.surfaces.pluginNpm.packages[0].publication).toBe("observed");
+    expect(publication.surfaces.pluginNpm.packages[1].error.class).toBe("registry-not-visible");
     expect(result.stdout + result.stderr).not.toMatch(
       /synthetic-secret|private\/fixture|quota|404 unavailable/u,
     );
@@ -1130,12 +1136,9 @@ describe("publication status real CLI", () => {
       });
       expect(result.status, result.stderr).toBe(0);
       const publication = JSON.parse(result.stdout).publication;
-      expect(result.status).toBe(kind === "active" ? 1 : 0);
+      expect(publication.collection).toEqual({ complete: true, error: null });
       expect(publication.relationship.status).toBe("verified");
       expect(publication.surfaces.coreNpm.registryObservation.state).toBe("observed");
-      if (kind === "active") {
-        expect(publication.collection.error).toBe("limits");
-      }
       expect(result.calls.flat().join(" ")).not.toContain("123456789012345");
     },
   );

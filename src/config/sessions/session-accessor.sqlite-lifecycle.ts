@@ -66,10 +66,7 @@ import {
   toDatabaseOptions,
   type ResolvedSqliteScope,
 } from "./session-accessor.sqlite-scope.js";
-import {
-  collectAdmissionProtectedSessionIds,
-  kickSessionHistoryDiskBudgetMaintenance,
-} from "./session-history-eviction.js";
+import { kickSessionHistoryDiskBudgetMaintenance } from "./session-history-eviction.js";
 import { resetSessionEntryInWorker } from "./session-reset.js";
 import { applySessionResetInDatabase } from "./session-reset.kernel.js";
 import { withSessionHistoryWorkerDatabase } from "./session-transcript-worker-runtime.js";
