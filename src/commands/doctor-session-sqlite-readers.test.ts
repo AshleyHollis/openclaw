@@ -156,6 +156,10 @@ describe("legacy transcript row classification", () => {
     const unindexedHook = { type: "message", message: { role: "custom", content: "context" } };
     const legacyMetadata = { type: "thinking_level_change", thinkingLevel: "low" };
     const opaqueRows = [
+      "opaque string",
+      7,
+      true,
+      ["opaque", { keep: "exact" }],
       { type: "session", id: "later-header", version: 1 },
       { type: "plugin_state", id: "opaque", payload: { keep: "exact" } },
       { type: "message", id: "malformed", message: { role: "user" } },

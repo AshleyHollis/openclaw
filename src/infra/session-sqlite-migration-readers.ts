@@ -201,7 +201,7 @@ export function createTranscriptEventReader(
         recordLegacyCompactionTarget(event, plan.compactionTargetIndexes);
       }
       let recognizedEvent: FileEntry | undefined;
-      if (originalIndex === plan.headerIndex) {
+      if (originalIndex === plan.headerIndex && isRecord(event)) {
         const canonicalHeader = {
           ...event,
           id: sessionId,
@@ -211,7 +211,7 @@ export function createTranscriptEventReader(
         };
         Reflect.deleteProperty(canonicalHeader, "sessionId");
         event = canonicalHeader;
-        recognizedEvent = event;
+        recognizedEvent = canonicalHeader;
       } else {
         const classified = classifySessionFileEntry(event, plan.sourceVersion);
         // Runtime retains normalized opaque rows; import preserves their loaded bytes.
@@ -308,7 +308,7 @@ function planTranscriptImport(
   return plan;
 }
 
-function recordLegacyCompactionTarget(event: FileEntry, targets: Set<number>): void {
+function recordLegacyCompactionTarget(event: unknown, targets: Set<number>): void {
   if (
     isRecord(event) &&
     event.type === "compaction" &&
@@ -328,11 +328,11 @@ function recordLegacyCompactionTarget(event: FileEntry, targets: Set<number>): v
 function* iterateTranscriptEvents(
   transcriptPath: string,
   allowMalformedPrefix: boolean,
-): Generator<{ event: FileEntry; originalIndex: number }> {
+): Generator<{ event: unknown; originalIndex: number }> {
   let originalIndex = 0;
   try {
     for (const line of iterateJsonlLinesSync(transcriptPath)) {
-      const parsed = JSON.parse(line);
+      const parsed: unknown = JSON.parse(line);
       if (!parsed) {
         continue;
       }

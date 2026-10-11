@@ -196,7 +196,7 @@ export function parseSessionEntries(content: string): FileEntry[] {
   return entries;
 }
 
-export function normalizeLoadedFileEntry(entry: FileEntry): FileEntry {
+export function normalizeLoadedFileEntry<T>(entry: T): T {
   if (!isRecord(entry) || entry.type !== "message" || !isRecord(entry.message)) {
     return entry;
   }
