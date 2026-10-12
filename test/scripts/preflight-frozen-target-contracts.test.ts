@@ -712,8 +712,12 @@ describe("frozen admission Command Center declarations", () => {
   };
 
   it.each([true, false])("binds committed selected declarations with omissions=%s", (allow) => {
+    const declarationPath = paths[1];
+    if (!declarationPath) {
+      throw new Error("Missing Command Center declaration fixture path");
+    }
     const f = fixture(declarations);
-    writeFileSync(join(f.selected.root, paths[1]), "dirty replacement");
+    writeFileSync(join(f.selected.root, declarationPath), "dirty replacement");
     const result = f.run(
       { consumers: ["command-center"] },
       { allowFrozenTargetScenarioOmissions: allow },
