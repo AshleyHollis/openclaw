@@ -32,7 +32,7 @@ export function createSqliteWorkerBackend(
   let nextConnection = 0;
   function execute(
     command: ConnectionCommand,
-  ): WorkboardSqliteOperations[keyof WorkboardSqliteOperations]["output"] {
+  ): WorkboardSqliteWorkerOperations[keyof WorkboardSqliteWorkerOperations]["output"] {
     const connection = connections.get(command.input.connection);
     if (!connection) {
       throw new Error("Workboard SQLite connection is closed.");
@@ -40,7 +40,7 @@ export function createSqliteWorkerBackend(
     if (command.type === "connection.close") {
       connection.close();
       connections.delete(command.input.connection);
-      return;
+      return { ok: true, value: undefined };
     }
     const kernel = connection.kernel;
     if (!kernel) {
@@ -48,75 +48,75 @@ export function createSqliteWorkerBackend(
     }
     switch (command.type) {
       case "dataVersion":
-        return kernel.dataVersion();
+        return { ok: true, value: kernel.dataVersion() };
       case "cards.registerWithResultReview":
-        return kernel.cards.registerWithResultReview(...command.input.args);
+        return { ok: true, value: kernel.cards.registerWithResultReview(...command.input.args) };
       case "cards.getResultReview":
-        return kernel.cards.getResultReview(...command.input.args);
+        return { ok: true, value: kernel.cards.getResultReview(...command.input.args) };
       case "cards.listResultReviews":
-        return kernel.cards.listResultReviews(...command.input.args);
+        return { ok: true, value: kernel.cards.listResultReviews(...command.input.args) };
       case "cards.resolveResultReview":
-        return kernel.cards.resolveResultReview(...command.input.args);
+        return { ok: true, value: kernel.cards.resolveResultReview(...command.input.args) };
       case "cards.register":
-        return kernel.cards.register(...command.input.args);
+        return { ok: true, value: kernel.cards.register(...command.input.args) };
       case "cards.registerIfAbsent":
-        return kernel.cards.registerIfAbsent(...command.input.args);
+        return { ok: true, value: kernel.cards.registerIfAbsent(...command.input.args) };
       case "cards.registerIdempotent":
-        return kernel.cards.registerIdempotent(...command.input.args);
+        return { ok: true, value: kernel.cards.registerIdempotent(...command.input.args) };
       case "cards.registerIfUpdatedAt":
-        return kernel.cards.registerIfUpdatedAt(...command.input.args);
+        return { ok: true, value: kernel.cards.registerIfUpdatedAt(...command.input.args) };
       case "cards.claimIfOwnerAvailable":
-        return kernel.cards.claimIfOwnerAvailable(...command.input.args);
+        return { ok: true, value: kernel.cards.claimIfOwnerAvailable(...command.input.args) };
       case "cards.deleteIfUpdatedAt":
-        return kernel.cards.deleteIfUpdatedAt(...command.input.args);
+        return { ok: true, value: kernel.cards.deleteIfUpdatedAt(...command.input.args) };
       case "cards.lookup":
-        return kernel.cards.lookup(...command.input.args);
+        return { ok: true, value: kernel.cards.lookup(...command.input.args) };
       case "cards.delete":
-        return kernel.cards.delete(...command.input.args);
+        return { ok: true, value: kernel.cards.delete(...command.input.args) };
       case "cards.entries":
-        return kernel.cards.entries(...command.input.args);
+        return { ok: true, value: kernel.cards.entries(...command.input.args) };
       case "cards.listCardStatuses":
-        return kernel.cards.listCardStatuses(...command.input.args);
+        return { ok: true, value: kernel.cards.listCardStatuses(...command.input.args) };
       case "cards.listBoardAggregates":
-        return kernel.cards.listBoardAggregates(...command.input.args);
+        return { ok: true, value: kernel.cards.listBoardAggregates(...command.input.args) };
       case "cards.listStatsAggregates":
-        return kernel.cards.listStatsAggregates(...command.input.args);
+        return { ok: true, value: kernel.cards.listStatsAggregates(...command.input.args) };
       case "cards.hasCards":
-        return kernel.cards.hasCards(...command.input.args);
+        return { ok: true, value: kernel.cards.hasCards(...command.input.args) };
       case "boards.register":
-        return kernel.boards.register(...command.input.args);
+        return { ok: true, value: kernel.boards.register(...command.input.args) };
       case "boards.lookup":
-        return kernel.boards.lookup(...command.input.args);
+        return { ok: true, value: kernel.boards.lookup(...command.input.args) };
       case "boards.delete":
-        return kernel.boards.delete(...command.input.args);
+        return { ok: true, value: kernel.boards.delete(...command.input.args) };
       case "boards.entries":
-        return kernel.boards.entries(...command.input.args);
+        return { ok: true, value: kernel.boards.entries(...command.input.args) };
       case "sessionsBoard.get":
-        return kernel.sessionsBoard.get(...command.input.args);
+        return { ok: true, value: kernel.sessionsBoard.get(...command.input.args) };
       case "sessionsBoard.update":
-        return kernel.sessionsBoard.update(...command.input.args);
+        return { ok: true, value: kernel.sessionsBoard.update(...command.input.args) };
       case "sessionsBoard.listPlacements":
-        return kernel.sessionsBoard.listPlacements(...command.input.args);
+        return { ok: true, value: kernel.sessionsBoard.listPlacements(...command.input.args) };
       case "sessionsBoard.repairPlacements":
-        return kernel.sessionsBoard.repairPlacements(...command.input.args);
+        return { ok: true, value: kernel.sessionsBoard.repairPlacements(...command.input.args) };
       case "sessionsBoard.writePlacement":
-        return kernel.sessionsBoard.writePlacement(...command.input.args);
+        return { ok: true, value: kernel.sessionsBoard.writePlacement(...command.input.args) };
       case "subscriptions.register":
-        return kernel.subscriptions.register(...command.input.args);
+        return { ok: true, value: kernel.subscriptions.register(...command.input.args) };
       case "subscriptions.lookup":
-        return kernel.subscriptions.lookup(...command.input.args);
+        return { ok: true, value: kernel.subscriptions.lookup(...command.input.args) };
       case "subscriptions.delete":
-        return kernel.subscriptions.delete(...command.input.args);
+        return { ok: true, value: kernel.subscriptions.delete(...command.input.args) };
       case "subscriptions.entries":
-        return kernel.subscriptions.entries(...command.input.args);
+        return { ok: true, value: kernel.subscriptions.entries(...command.input.args) };
       case "attachments.register":
-        return kernel.attachments.register(...command.input.args);
+        return { ok: true, value: kernel.attachments.register(...command.input.args) };
       case "attachments.lookup":
-        return kernel.attachments.lookup(...command.input.args);
+        return { ok: true, value: kernel.attachments.lookup(...command.input.args) };
       case "attachments.delete":
-        return kernel.attachments.delete(...command.input.args);
+        return { ok: true, value: kernel.attachments.delete(...command.input.args) };
       case "attachments.entries":
-        return kernel.attachments.entries(...command.input.args);
+        return { ok: true, value: kernel.attachments.entries(...command.input.args) };
     }
   }
   return {
@@ -155,7 +155,7 @@ export function createSqliteWorkerBackend(
       }
       try {
         guarded = "guarded" in command.input && command.input.guarded === true;
-        return { ok: true, value: execute(command) };
+        return execute(command);
       } catch (error) {
         return { ok: false, failure: encodeWorkboardSqliteFailure(error) };
       } finally {
