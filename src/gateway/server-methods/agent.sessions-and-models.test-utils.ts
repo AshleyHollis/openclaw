@@ -514,8 +514,13 @@ describe("gateway agent handler", () => {
           });
           await racePromiseWithAbortSignal(cleanup.cleanupCompleted, signal);
           expect(announce).toHaveBeenCalledTimes(1);
-          expectRecordFields(continued, { cleanupCompletedAt: expect.any(Number) });
-          expectRecordFields(continued.delivery, { status: "delivered" });
+          // Cleanup acknowledgements publish a new immutable registry row.
+          const completed = requireValue(
+            getSubagentRunByChildSessionKey(childSessionKey),
+            "expected the orchestrator's completed run",
+          );
+          expectRecordFields(completed, { runId, cleanupCompletedAt: expect.any(Number) });
+          expectRecordFields(completed.delivery, { status: "delivered" });
           expect(announce).toHaveBeenCalledWith(
             expect.objectContaining({
               childSessionKey,
