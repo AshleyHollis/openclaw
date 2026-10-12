@@ -1,8 +1,8 @@
 import { isRecord } from "./record-shared.mjs";
 
 export const PATCHED_FS_SAFE_NAME = "@openclaw/fs-safe";
-export const PATCHED_FS_SAFE_VERSION = "0.24.2";
-export const HISTORICAL_PATCHED_FS_SAFE_VERSION = "0.21.1";
+const PATCHED_FS_SAFE_VERSION = "0.24.2";
+const HISTORICAL_PATCHED_FS_SAFE_VERSION = "0.21.1";
 // Independent registry input, verified against pnpm-lock.yaml's SHA512:
 // SHA256 7f5be938423b7ea92d46e72c1999dbb1768c4207a7e394dfbf5b2879bdcbcb4b.
 // Apply patches/@openclaw__fs-safe@0.21.1.patch (SHA256 c399b3eeebbcb7a5a99e958ad70ac6bb25d395365d91af3519bc75cca37e1dcd).

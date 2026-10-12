@@ -258,7 +258,7 @@ export function managedGatewayRestartCommandTimeoutMs(platform = process.platfor
   // harness alive long enough to receive that result plus service-manager overhead.
   return gatewayReadyDeadlineMs(platform) + 60_000;
 }
-export const CROSS_OS_RELEASE_SMOKE_TOOLS_PROFILE = "minimal";
+const CROSS_OS_RELEASE_SMOKE_TOOLS_PROFILE = "minimal";
 export const CROSS_OS_COMMAND_HEARTBEAT_SECONDS = parsePositiveIntegerEnv(
   "OPENCLAW_CROSS_OS_COMMAND_HEARTBEAT_SECONDS",
   60,
