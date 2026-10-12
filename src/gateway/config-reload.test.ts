@@ -30,6 +30,7 @@ import {
   setConfigResolutionFacts,
 } from "../config/resolution-facts.js";
 import {
+  getRuntimeConfigSnapshot,
   hashRuntimeConfigValue,
   resetConfigRuntimeState,
   setRuntimeConfigSnapshot,
@@ -3973,21 +3974,29 @@ describe("session store selection reload deferral", () => {
       await harness.reloader.ready;
       const release = createDeferredCore();
       const held = withRuntimeConfigSessionStoreSelectionAsync(() => release.promise);
-      harness.watcher.emit("change");
-      await flushReload(harness.reloader);
-      expect(harness.onHotReload).not.toHaveBeenCalled();
-      if (superseded) {
-        current = makeSnapshot({ config: candidateC, hash: "candidate-c" });
+      try {
         harness.watcher.emit("change");
         await flushReload(harness.reloader);
+        expect(harness.onHotReload).not.toHaveBeenCalled();
+        if (superseded) {
+          current = makeSnapshot({ config: candidateC, hash: "candidate-c" });
+          harness.watcher.emit("change");
+          await flushReload(harness.reloader);
+        }
+        release.resolve();
+        await held;
+        await flushReload(harness.reloader);
+        expect(harness.onHotReload).toHaveBeenCalledOnce();
+        expect(harness.onHotReload.mock.calls[0]?.[1]).toEqual(
+          superseded ? candidateC : candidateB,
+        );
+        expect(harness.onRestart).not.toHaveBeenCalled();
+        expect(harness.onConfigAccepted).toHaveBeenCalledOnce();
+      } finally {
+        release.resolve();
+        await held;
+        await flushReload(harness.reloader);
       }
-      release.resolve();
-      await held;
-      await flushReload(harness.reloader);
-      expect(harness.onHotReload).toHaveBeenCalledOnce();
-      expect(harness.onHotReload.mock.calls[0]?.[1]).toEqual(superseded ? candidateC : candidateB);
-      expect(harness.onRestart).not.toHaveBeenCalled();
-      expect(harness.onConfigAccepted).toHaveBeenCalledOnce();
     },
   );
 
@@ -4027,22 +4036,34 @@ describe("session store selection reload deferral", () => {
     await reading.promise;
     const release = createDeferredCore();
     const held = withRuntimeConfigSessionStoreSelectionAsync(() => release.promise);
-    finishRead.resolve();
-    await waitForReloadState(() => !harness.reloader.isReloading());
-    expect(harness.onHotReload).toHaveBeenCalledOnce();
-    expect(harness.onConfigAccepted).not.toHaveBeenCalled();
-    expect(harness.log.error).toHaveBeenCalledWith(
-      expect.stringContaining("session.store selection cannot change"),
-    );
-    // No new watcher event: release must invalidate the refused observation.
-    disk = makeSnapshot({ config: successor, hash: "candidate-c" });
-    release.resolve();
-    await held;
-    await flushReload(harness.reloader);
-    expect(harness.onHotReload).toHaveBeenCalledTimes(2);
-    expect(harness.onHotReload.mock.calls[1]?.[1]).toEqual(successor);
-    expect(harness.onConfigAccepted).toHaveBeenCalledOnce();
-    expect(reads).toBe(2);
+    try {
+      finishRead.resolve();
+      await waitForReloadState(() => !harness.reloader.isReloading());
+      expect(harness.onHotReload).toHaveBeenCalledOnce();
+      expect(harness.onConfigAccepted).not.toHaveBeenCalled();
+      expect(harness.log.info).toHaveBeenCalledWith(
+        "config reload deferred: session store selection is held",
+      );
+      expect(harness.log.error).not.toHaveBeenCalled();
+      expect(getRuntimeConfigSnapshot()).toEqual(initial);
+      expect(harness.onRestart).not.toHaveBeenCalled();
+      // No new watcher event: release must invalidate the refused observation.
+      disk = makeSnapshot({ config: successor, hash: "candidate-c" });
+      release.resolve();
+      await held;
+      await flushReload(harness.reloader);
+      expect(harness.onHotReload).toHaveBeenCalledTimes(2);
+      expect(harness.onHotReload.mock.calls[1]?.[1]).toEqual(successor);
+      expect(harness.onConfigAccepted).toHaveBeenCalledOnce();
+      expect(reads).toBe(2);
+      expect(getRuntimeConfigSnapshot()).toEqual(successor);
+      expect(harness.onRestart).not.toHaveBeenCalled();
+    } finally {
+      finishRead.resolve();
+      release.resolve();
+      await held;
+      await flushReload(harness.reloader);
+    }
   });
 
   it("defers a no-op candidate without converting it into a restart", async () => {
@@ -4056,14 +4077,20 @@ describe("session store selection reload deferral", () => {
     await harness.reloader.ready;
     const release = createDeferredCore();
     const held = withRuntimeConfigSessionStoreSelectionAsync(() => release.promise);
-    harness.watcher.emit("change");
-    await flushReload(harness.reloader);
-    expect(harness.onNoopConfigCommit).not.toHaveBeenCalled();
-    release.resolve();
-    await held;
-    await flushReload(harness.reloader);
-    expect(harness.onNoopConfigCommit).toHaveBeenCalledOnce();
-    expect(harness.onRestart).not.toHaveBeenCalled();
+    try {
+      harness.watcher.emit("change");
+      await flushReload(harness.reloader);
+      expect(harness.onNoopConfigCommit).not.toHaveBeenCalled();
+      release.resolve();
+      await held;
+      await flushReload(harness.reloader);
+      expect(harness.onNoopConfigCommit).toHaveBeenCalledOnce();
+      expect(harness.onRestart).not.toHaveBeenCalled();
+    } finally {
+      release.resolve();
+      await held;
+      await flushReload(harness.reloader);
+    }
   });
 
   it("retains an in-process restart receipt while held and applies it on release", async () => {
@@ -4086,27 +4113,33 @@ describe("session store selection reload deferral", () => {
     await harness.reloader.ready;
     const release = createDeferredCore();
     const held = withRuntimeConfigSessionStoreSelectionAsync(() => release.promise);
-    harness.emitWrite(
-      attachRuntimeConfigWriteApplication(
-        {
-          ...makeZeroDebounceHookWrite("written-candidate"),
-          snapshot: writtenSnapshot,
-          sourceConfig: candidate,
-          runtimeConfig: candidate,
-          afterWrite: { mode: "restart" as const, reason: "retained writer intent" },
-        },
-        application,
-      ),
-    );
-    await flushReload(harness.reloader);
-    expect(harness.onRestart).not.toHaveBeenCalled();
-    expect(settled).toBe(false);
-    release.resolve();
-    await held;
-    await flushReload(harness.reloader);
-    expect(harness.onRestart).toHaveBeenCalledOnce();
-    expect(harness.onRestart.mock.calls[0]?.[1]).toEqual(candidate);
-    await expect(application.result).resolves.toBe("restart-pending");
+    try {
+      harness.emitWrite(
+        attachRuntimeConfigWriteApplication(
+          {
+            ...makeZeroDebounceHookWrite("written-candidate"),
+            snapshot: writtenSnapshot,
+            sourceConfig: candidate,
+            runtimeConfig: candidate,
+            afterWrite: { mode: "restart" as const, reason: "retained writer intent" },
+          },
+          application,
+        ),
+      );
+      await flushReload(harness.reloader);
+      expect(harness.onRestart).not.toHaveBeenCalled();
+      expect(settled).toBe(false);
+      release.resolve();
+      await held;
+      await flushReload(harness.reloader);
+      expect(harness.onRestart).toHaveBeenCalledOnce();
+      expect(harness.onRestart.mock.calls[0]?.[1]).toEqual(candidate);
+      await expect(application.result).resolves.toBe("restart-pending");
+    } finally {
+      release.resolve();
+      await held;
+      await flushReload(harness.reloader);
+    }
   });
 });
 

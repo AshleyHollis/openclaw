@@ -5433,7 +5433,10 @@ describe("gateway plugin hot reload handlers", () => {
           hoisted.rejectPendingPreparedModelRuntimeReplacement,
         ).toHaveBeenCalledExactlyOnceWith(gate, error);
       } else {
-        expect(hoisted.rejectPendingPreparedModelRuntimeReplacement).not.toHaveBeenCalled();
+        expect(hoisted.markPreparedModelRuntimeSnapshotsStale).not.toHaveBeenCalled();
+        expect(
+          hoisted.rejectPendingPreparedModelRuntimeReplacement,
+        ).toHaveBeenCalledExactlyOnceWith(undefined, error);
       }
     },
   );

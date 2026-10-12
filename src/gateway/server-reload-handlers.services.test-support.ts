@@ -4,7 +4,7 @@ import {
   createRuntimeConfigWriteApplication,
 } from "../config/runtime-write-application.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { PluginRuntimeApplicationError } from "../plugins/lifecycle.js";
+import { getPluginRuntimeGeneration, PluginRuntimeApplicationError } from "../plugins/lifecycle.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
 import { createServiceRegistration } from "../plugins/services.test-support.js";
 import { createTestRegistry } from "../test-utils/channel-plugins.js";
@@ -129,12 +129,13 @@ export function registerGatewayTargetedServiceReloadTests({
         let current = true;
         const logReload = { info: vi.fn(), warn: vi.fn() };
         const requestRecoveryRestart = vi.fn(() => ({ status: "emitted" as const }));
+        const retainedServiceFailure = new Error("retained service failed");
         const reloadPluginServices = vi.fn(async () => {
           expect(modelsSettled).toBe(true);
           events.push("retained-service");
           if (outcome === "failure" || outcome === "superseded") {
             current = outcome !== "superseded";
-            throw new Error("retained service failed");
+            throw retainedServiceFailure;
           }
         });
         const handlers = createGatewayReloadHandlers({
@@ -192,6 +193,19 @@ export function registerGatewayTargetedServiceReloadTests({
             await expect(applying).rejects.toThrow(
               "Plugin runtime application failed during prepared model runtime reload",
             );
+          } else if (outcome === "failure" || outcome === "superseded") {
+            const failure = await applying.catch((error: unknown) => error);
+            expect(failure).toBeInstanceOf(PluginRuntimeApplicationError);
+            const applicationError = failure as PluginRuntimeApplicationError;
+            expect(applicationError.details).toEqual({
+              operationId: runtime.operationId,
+              pluginIds: runtime.pluginIds,
+              reason: "enable",
+              generation: getPluginRuntimeGeneration(),
+              phase: "activate",
+              committed: true,
+            });
+            expect(applicationError.cause).toBe(retainedServiceFailure);
           } else {
             await expect(applying).resolves.toEqual({ status: "applied", runtime });
           }
