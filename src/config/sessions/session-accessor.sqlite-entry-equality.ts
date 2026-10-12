@@ -1,4 +1,4 @@
-import type { ResolvedSessionEntryRow } from "./session-accessor.sqlite-entry-read.js";
+import type { PersistedSessionEntryRow } from "./session-accessor.sqlite-entry-row.types.js";
 import { SqliteSessionMutationConflictError } from "./session-mutation-conflict-error.js";
 import type { SessionEntry } from "./types.js";
 
@@ -8,7 +8,7 @@ export type SqliteLifecycleTargetSnapshot = Array<{
   /** Complete rows from preparation; absent snapshots require a hydrated commit read. */
   persistedRows?: {
     lookupKeys: readonly string[];
-    rows: readonly ResolvedSessionEntryRow["row"][];
+    rows: readonly PersistedSessionEntryRow[];
   };
 }>;
 

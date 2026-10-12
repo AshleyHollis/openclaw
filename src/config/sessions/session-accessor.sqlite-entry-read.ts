@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual, toUSVString } from "node:util";
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
-import { sql, type Selectable } from "kysely";
+import { sql } from "kysely";
 import {
   createSqliteQueryCache,
   getNodeSqliteKysely,
@@ -18,10 +18,11 @@ import type { DB as OpenClawAgentKyselyDatabase } from "../../state/openclaw-age
 import { isInternalSessionEffectsKey } from "./internal-session-key.js";
 import type { ExactSessionEntry, SessionEntrySummary } from "./session-accessor.sqlite-contract.js";
 import type { SqliteLifecycleTargetSnapshot } from "./session-accessor.sqlite-entry-equality.js";
-import {
-  hasSqliteSessionOwnerColumns,
-  type SqliteSessionOwnerRow,
-} from "./session-accessor.sqlite-owner-projection.js";
+import type {
+  PersistedSessionEntryRow,
+  SessionEntryRow,
+} from "./session-accessor.sqlite-entry-row.types.js";
+import { hasSqliteSessionOwnerColumns } from "./session-accessor.sqlite-owner-projection.js";
 import {
   prepareSqliteSessionParticipantProjection,
   projectSqliteSessionParticipants,
@@ -44,10 +45,7 @@ import {
   type CanonicalSessionValidationRow,
 } from "./session-canonical-row.js";
 import { parseSqliteSessionEntryRecord } from "./session-entry-json.js";
-import {
-  sessionEntrySnapshotColumns,
-  type SessionEntrySnapshotRow,
-} from "./session-entry-snapshots.js";
+import { sessionEntrySnapshotColumns } from "./session-entry-snapshots.js";
 import {
   collectSessionEntryLookupKeys,
   normalizeStoreSessionKey,
@@ -56,8 +54,6 @@ import {
 import type { InternalSessionEntry as SessionEntry } from "./types.js";
 
 type OpenClawAgentDatabaseReader = Pick<OpenClawAgentDatabase, "agentId" | "db">;
-type SessionEntryRow = Selectable<OpenClawAgentKyselyDatabase["session_nodes"]> &
-  SessionEntrySnapshotRow;
 
 function prepareExactSessionEntryQueries(database: DatabaseSync) {
   const db = getNodeSqliteKysely<OpenClawAgentKyselyDatabase>(database);
@@ -135,11 +131,7 @@ const getExactSessionEntryQueries = createSqliteQueryCache(prepareExactSessionEn
 
 export type ResolvedSessionEntryRow = {
   entry: SessionEntry;
-  row: Pick<SessionEntryRow, "current_session_id" | "entry_json" | "session_key" | "updated_at"> &
-    SqliteSessionOwnerRow &
-    SessionEntrySnapshotRow & { rowid?: string } & Partial<
-      Pick<SessionEntryRow, "legacy_acp_migration_json">
-    >;
+  row: PersistedSessionEntryRow;
 };
 
 function parseReadableSessionEntryData(
@@ -265,7 +257,7 @@ export function readSessionEntryRow(
  * prove this logical row is unchanged can re-read and compare the raw rows instead of decoding
  * the entry JSON again.
  */
-export function readSessionEntryRowScan(database: OpenClawAgentDatabaseReader, sessionKey: string) {
+function readSessionEntryRowScan(database: OpenClawAgentDatabaseReader, sessionKey: string) {
   // Mutation snapshots must retain every raw column, including the saved prompts.
   return scanSessionEntryRows(database, sessionKey, "full");
 }
@@ -424,7 +416,7 @@ export function readExactSessionEntryRowValidated(
 }
 
 /** Select a physical row while refusing any other admitted spelling. */
-export function readSessionEntryTargetRow(
+function readSessionEntryTargetRow(
   database: OpenClawAgentDatabaseReader,
   target: { canonicalKey: string; storeKeys: readonly string[] },
   options: {
