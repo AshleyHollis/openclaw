@@ -547,6 +547,7 @@ type InheritedSpawnPreferenceCase = {
   requesterRunId?: string;
   requesterThinkingLevel?: ThinkLevel;
   thinkingOverride?: string;
+  expectedGatewayThinking?: ThinkLevel;
 };
 
 const inheritedSpawnPreferenceCases: readonly InheritedSpawnPreferenceCase[] = [
@@ -614,6 +615,7 @@ const inheritedSpawnPreferenceCases: readonly InheritedSpawnPreferenceCase[] = [
     requesterThinkingLevel: "ultra",
     preferenceKey: "thinkingLevel",
     expected: "medium",
+    expectedGatewayThinking: "medium",
   },
 ];
 

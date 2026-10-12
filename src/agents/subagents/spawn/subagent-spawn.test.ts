@@ -1119,6 +1119,7 @@ describe("spawnSubagentDirect seam flow", () => {
       requesterRunId,
       requesterThinkingLevel,
       thinkingOverride,
+      expectedGatewayThinking,
     }) => {
       if (agentDefaults || requesterAgent) {
         configOverride = createConfigOverride({
@@ -1147,7 +1148,9 @@ describe("spawnSubagentDirect seam flow", () => {
 
       expect(result.status).toBe("accepted");
       expect(persistedStore?.[result.childSessionKey as string]?.[preferenceKey]).toBe(expected);
-      expect(requireRecord(gatewayRequest("agent").params).thinking).toBe(thinkingOverride);
+      expect(requireRecord(gatewayRequest("agent").params).thinking).toBe(
+        expectedGatewayThinking ?? thinkingOverride,
+      );
     },
   );
 
