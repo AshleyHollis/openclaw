@@ -49,7 +49,7 @@ beforeEach(() => {
 });
 
 describe("Workboard SQLite worker replies", () => {
-  it("preserves distinct operation results and forwards the original arguments", () => {
+  it("preserves distinct operation results and forwards the original arguments", async () => {
     const { backend, kernel, card } = fixture();
     expect(backend.execute({ type: "dataVersion", input: { connection: 1 } })).toEqual({
       ok: true,
@@ -73,10 +73,10 @@ describe("Workboard SQLite worker replies", () => {
     ).toEqual({ ok: true, value: undefined });
     expect(kernel.cards.lookup).toHaveBeenCalledExactlyOnceWith("synthetic-card");
     expect(kernel.boards.lookup).toHaveBeenCalledExactlyOnceWith("missing");
-    backend.close();
+    await backend.close();
   });
 
-  it("retains both write authority boundaries and the mutation result", () => {
+  it("retains both write authority boundaries and the mutation result", async () => {
     const { backend, kernel } = fixture();
     expect(
       backend.execute({
@@ -89,10 +89,10 @@ describe("Workboard SQLite worker replies", () => {
       [{ stage: "commit", facts: undefined }],
     ]);
     expect(kernel.cards.delete).toHaveBeenCalledExactlyOnceWith("synthetic-card");
-    backend.close();
+    await backend.close();
   });
 
-  it("encodes authority refusal and resets the guard before the next command", () => {
+  it("encodes authority refusal and resets the guard before the next command", async () => {
     const { backend } = fixture();
     const refusal = Object.assign(new Error("authority revoked"), { code: "unavailable" });
     requestSqliteWorkerOperationAdmission.mockImplementationOnce(() => {
@@ -108,10 +108,10 @@ describe("Workboard SQLite worker replies", () => {
       backend.execute({ type: "cards.delete", input: { connection: 1, args: ["synthetic-card"] } }),
     ).toEqual({ ok: true, value: true });
     expect(requestSqliteWorkerOperationAdmission).toHaveBeenCalledOnce();
-    backend.close();
+    await backend.close();
   });
 
-  it("releases a closed connection once and refuses later operations", () => {
+  it("releases a closed connection once and refuses later operations", async () => {
     const { backend, kernel } = fixture();
     expect(backend.execute({ type: "connection.close", input: { connection: 1 } })).toEqual({
       ok: true,
@@ -124,7 +124,7 @@ describe("Workboard SQLite worker replies", () => {
       failure: { error: new Error("Workboard SQLite connection is closed.") },
     });
     expect(kernel.cards.lookup).not.toHaveBeenCalled();
-    backend.close();
+    await backend.close();
     expect(kernel.close).toHaveBeenCalledOnce();
   });
 });

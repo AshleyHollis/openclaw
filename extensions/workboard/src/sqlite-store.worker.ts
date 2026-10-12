@@ -118,6 +118,8 @@ export function createSqliteWorkerBackend(
       case "attachments.entries":
         return { ok: true, value: kernel.attachments.entries(...command.input.args) };
     }
+    command satisfies never;
+    throw new Error("Unsupported Workboard SQLite operation.");
   }
   return {
     execute(command) {
