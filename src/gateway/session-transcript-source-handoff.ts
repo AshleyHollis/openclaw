@@ -29,7 +29,7 @@ export function assertSessionTranscriptGatewaySourceAdmissionAvailable(gateway: 
 /** Host-only sideband; neither the closure nor native custody belongs to RPC JSON. */
 export type SessionTranscriptGatewaySource = Readonly<{
   selection: SessionTranscriptSourceSelection;
-  assertCurrent: () => void;
+  assertCurrent: (this: void) => void;
 }>;
 
 function assertSessionTranscriptGatewaySource(
@@ -90,7 +90,7 @@ export function captureScopedSessionTranscriptGatewaySource(
   if (typeof originalGuard !== "function" || types.isAsyncFunction(originalGuard)) {
     throw new Error("Transcript source handoff requires synchronous captured authority");
   }
-  const capturedSource = { selection, assertCurrent: originalGuard.bind(supplied) };
+  const capturedSource = { selection, assertCurrent: originalGuard.bind(undefined) };
   const source = {
     selection,
     assertCurrent() {
@@ -121,7 +121,7 @@ export function createGatewaySessionTranscriptSourceHandoffOwner(request: Gatewa
   const supplied = request.sessionTranscriptSource;
   const originalGuard = supplied?.assertCurrent;
   const asyncGuard = typeof originalGuard === "function" && types.isAsyncFunction(originalGuard);
-  const guard = typeof originalGuard === "function" ? originalGuard.bind(supplied) : originalGuard;
+  const guard = typeof originalGuard === "function" ? originalGuard.bind(undefined) : originalGuard;
   const source =
     supplied === undefined
       ? undefined
@@ -195,7 +195,7 @@ async function prepareGatewaySessionTranscriptSourceHandoff(
   if (create?.sessionKey !== selection.sessionKey || create.agentId !== selection.agentId) {
     throw new Error("Transcript source handoff must match the exact card Session and agent");
   }
-  const assertCaller = source.assertCurrent.bind(source);
+  const assertCaller = source.assertCurrent.bind(undefined);
   const envelope = request.req;
   const input = envelope.params;
   const params = JSON.stringify(request.req.params);

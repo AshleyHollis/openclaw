@@ -8,6 +8,7 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 
 type Reply = {
   dispatched?: number;
+  watching?: number;
   ready?: boolean;
   pid?: number;
   id?: number;
@@ -25,13 +26,15 @@ type Reply = {
 let stateDir: string;
 const children: ChildProcess[] = [];
 let nextId = 0;
-async function start() {
+async function start(stateRoot = stateDir) {
   const child = fork(
-    fileURLToPath(new URL("./test-fixtures/workboard-idempotency-child.ts", import.meta.url)),
+    fileURLToPath(
+      new URL("./test-fixtures/workboard-idempotency-child.test-support.ts", import.meta.url),
+    ),
     [],
     {
       execArgv: ["--import", new URL("../../scripts/tsx.mjs", import.meta.url).href],
-      env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
+      env: { ...process.env, OPENCLAW_STATE_DIR: stateRoot },
       stdio: ["ignore", "pipe", "pipe", "ipc"],
     },
   );
@@ -45,11 +48,16 @@ async function start() {
   });
   const pending = new Map<number, { resolve(reply: Reply): void; reject(error: Error): void }>();
   const dispatched = new Map<number, () => void>();
+  const watching = new Map<number, () => void>();
   await new Promise<void>((resolve, reject) => {
     child.on("message", (reply: Reply) => {
       if (reply.dispatched !== undefined) {
         dispatched.get(reply.dispatched)?.();
         dispatched.delete(reply.dispatched);
+      }
+      if (reply.watching !== undefined) {
+        watching.get(reply.watching)?.();
+        watching.delete(reply.watching);
       }
       if (reply.ready) {
         resolve();
@@ -75,6 +83,17 @@ async function start() {
         pending.set(id, { resolve, reject });
         child.send({ id, method, params, loseResponse });
       });
+    },
+    watchCards(count: number) {
+      const id = ++nextId;
+      const installed = new Promise<void>((resolve) => {
+        watching.set(id, resolve);
+      });
+      const result = new Promise<Reply>((resolve, reject) => {
+        pending.set(id, { resolve, reject });
+        child.send({ id, method: "watch-cards", params: { count } });
+      });
+      return { installed, result };
     },
     startContended(method: string, params: Record<string, unknown>) {
       const id = ++nextId;
@@ -110,6 +129,8 @@ it("admits one immutable scoped create across real processes, restart, and respo
     notes: "Review the fictional source",
     labels: ["email"],
   };
+  const publication = first.watchCards(1);
+  await publication.installed;
   const [left, right] = await Promise.all([
     first.call("workboard.cards.create", input),
     second.call("workboard.cards.create", input),
@@ -119,6 +140,9 @@ it("admits one immutable scoped create across real processes, restart, and respo
   expect(right.response?.ok).toBe(true);
   const card = left.response!.payload!.card!;
   expect(right.response!.payload!.card!.id).toBe(card.id);
+  const published = await publication.result;
+  expect(published.response?.ok).toBe(true);
+  expect(published.response?.payload?.cards).toEqual([card]);
   expect((await first.call("workboard.cards.list")).response?.payload?.cards).toHaveLength(1);
   for (const [method, params] of [
     ["create", { ...input, idempotencyKey: "revoked-operation" }],
@@ -175,6 +199,32 @@ it("admits one immutable scoped create across real processes, restart, and respo
   ).toBe(settled.response?.payload?.card?.id);
   expect((await restarted.call("workboard.cards.list")).response?.payload?.cards).toHaveLength(4);
   await Promise.all([second.stop(), restarted.stop()]);
+});
+it("retires prewarmed snapshots after the second process wins and the first replays", async () => {
+  const stateRoot = path.join(stateDir, "second-wins");
+  const [reader, writer] = await Promise.all([start(stateRoot), start(stateRoot)]);
+  expect(reader.pid).not.toBe(writer.pid);
+  expect((await reader.call("workboard.cards.list")).response?.payload?.cards).toEqual([]);
+  expect((await writer.call("workboard.cards.list")).response?.payload?.cards).toEqual([]);
+  const publication = reader.watchCards(1);
+  await publication.installed;
+  const input = {
+    title: "Fictional second-process commitment",
+    tenant: "fictional-intake",
+    boardId: "default",
+    idempotencyKey: "second-wins-operation",
+  };
+  const admitted = await writer.call("workboard.cards.create", input);
+  expect(admitted.response?.ok).toBe(true);
+  const card = admitted.response!.payload!.card!;
+  const replayed = await reader.call("workboard.cards.create", input);
+  expect(replayed.response?.ok).toBe(true);
+  expect(replayed.response?.payload?.card).toEqual(card);
+  const published = await publication.result;
+  expect(published.response?.ok).toBe(true);
+  expect(published.response?.payload?.cards).toEqual([card]);
+  expect((await reader.call("workboard.cards.list")).response?.payload?.cards).toEqual([card]);
+  await Promise.all([reader.stop(), writer.stop()]);
 });
 afterAll(async () => {
   await Promise.all(

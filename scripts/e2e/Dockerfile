@@ -128,6 +128,7 @@ INSTALL_DEPS
 FROM bare AS functional
 
 ARG OPENCLAW_FS_SAFE_NATIVE_CONTRACT=required
+ARG OPENCLAW_FS_SAFE_PUBLICATION_CONTRACT=required
 
 # The app under test enters through the named BuildKit context, not by copying
 # checkout sources into the image.
@@ -144,6 +145,7 @@ RUN tar -xzf /tmp/openclaw-current.tgz -C /app --strip-components=1 \
  && mkdir -p "$HOME/.local/bin" \
  && ln -sf /app/openclaw.mjs "$HOME/.local/bin/openclaw" \
  && OPENCLAW_FS_SAFE_NATIVE_CONTRACT="$OPENCLAW_FS_SAFE_NATIVE_CONTRACT" \
+      OPENCLAW_FS_SAFE_PUBLICATION_CONTRACT="$OPENCLAW_FS_SAFE_PUBLICATION_CONTRACT" \
       node /tmp/verify-fs-safe-native.mjs --package-root /app --mode require \
  && rm -f /tmp/openclaw-current.tgz
 

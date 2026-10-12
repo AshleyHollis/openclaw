@@ -3,6 +3,10 @@ import type {
   WorkboardBoardMetadata,
   WorkboardCard,
   WorkboardNotificationSubscription,
+  WorkboardSessionPlacement,
+  WorkboardSessionsBoard,
+  WorkboardSessionsBoardSpec,
+  WorkboardResultReviewRequest,
 } from "@openclaw/workboard-contract";
 import type { PreparedSessionTranscriptSourceAdmission } from "openclaw/plugin-sdk/session-transcript-runtime";
 
@@ -42,6 +46,24 @@ export type WorkboardKeyedStore<T = PersistedWorkboardCard> = {
   lookup(key: string): Promise<T | undefined>;
   delete(key: string): Promise<boolean>;
   entries(): Promise<Array<{ key: string; value: T }>>;
+};
+
+export type WorkboardSessionPlacementWrite = WorkboardSessionPlacement & {
+  source: "operator";
+  /** Undefined requires an absent row; otherwise compare the last observed revision. */
+  expectedUpdatedAt?: number;
+};
+
+export type WorkboardSessionsBoardStore = {
+  get(boardId: string): Promise<WorkboardSessionsBoard>;
+  update(boardId: string, patch: unknown): Promise<WorkboardSessionsBoard>;
+  listPlacements(boardId: string): Promise<WorkboardSessionPlacement[]>;
+  repairPlacements(): Promise<{ placements: number; boards: number }>;
+  writePlacement(
+    boardId: string,
+    placement: WorkboardSessionPlacementWrite,
+    expectedSpec: WorkboardSessionsBoardSpec,
+  ): Promise<boolean>;
 };
 
 export type WorkboardSubscriptionStore = Omit<
@@ -85,6 +107,25 @@ export type WorkboardCardReadScope =
     };
 
 export type WorkboardCardStore = Omit<WorkboardKeyedStore, "entries"> & {
+  registerWithResultReview(
+    key: string,
+    value: PersistedWorkboardCard,
+    expectedUpdatedAt: number,
+    request: WorkboardResultReviewRequest,
+  ): Promise<false | { card: WorkboardCard; inserted: boolean }>;
+  getResultReview(id: string): Promise<WorkboardResultReviewRequest | undefined>;
+  listResultReviews(scope: {
+    tenant: string;
+    boardId: string;
+    cardId: string;
+  }): Promise<WorkboardResultReviewRequest[]>;
+  resolveResultReview(
+    id: string,
+    expectedRevision: number,
+    expectedUpdatedAt: number,
+    decision: "reviewed" | "withdrawn",
+    now: number,
+  ): Promise<{ request: WorkboardResultReviewRequest; card: WorkboardCard } | undefined>;
   entries(
     scope?: WorkboardCardReadScope,
   ): Promise<Array<{ key: string; value: PersistedWorkboardCard }>>;

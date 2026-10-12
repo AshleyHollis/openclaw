@@ -56,6 +56,7 @@ it("keeps version and injected instance surfaces independent of the broad runtim
     "nodes",
     "sandbox",
     "worktrees",
+    "fileAccess",
     "webSearch",
     "modelConfig",
   ]);
@@ -79,25 +80,4 @@ it("keeps version and injected instance surfaces independent of the broad runtim
   // Object.prototype names are not declared runtime metadata.
   expect(() => Reflect.has(runtime, "toString")).toThrow("broad runtime should stay lazy");
   expect(resolveRuntimeModule).toHaveBeenCalledTimes(1);
-});
-
-it("does not infer a Gateway owner by invoking an injected subagent accessor", () => {
-  const subagent = {} as PluginRuntime["subagent"];
-  bindGatewayContextResolver(subagent, () => undefined);
-  const readSubagent = vi.fn(() => subagent);
-  const resolveRuntimeModule = vi
-    .spyOn(sdkAlias, "resolvePluginRuntimeModulePathWithDiagnostics")
-    .mockImplementation(() => {
-      throw new Error("broad runtime should stay lazy");
-    });
-  const runtime = createLazyPluginRuntime({
-    runtimeOptions: {
-      get subagent() {
-        return readSubagent();
-      },
-    },
-  });
-  expect(getGatewayContextResolver(runtime)).toBeUndefined();
-  expect(readSubagent).not.toHaveBeenCalled();
-  expect(resolveRuntimeModule).not.toHaveBeenCalled();
 });

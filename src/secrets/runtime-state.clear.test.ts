@@ -4,10 +4,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import * as diagnostics from "../agents/auth-profiles/legacy-source-diagnostic.js";
 import * as authSnapshots from "../agents/auth-profiles/runtime-snapshots.js";
-import {
-  getRuntimeConfigSnapshot,
-  withRuntimeConfigSessionStoreSelectionAsync,
-} from "../config/runtime-snapshot.js";
+import { getRuntimeConfigSnapshot } from "../config/runtime-snapshot.js";
+import { withRuntimeConfigSessionStoreSelectionAsync } from "../config/runtime-snapshot.test-support.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import * as state from "./runtime-state.js";
 
@@ -99,8 +97,8 @@ it("retires migration refusals and the provider publisher before the resolver ru
 it("isolates snapshot owners while exposing the active config pair for hot paths", () => {
   const resolvedValue = { nested: ["synthetic-value"] };
   const snapshot = preparedSnapshot({
-    sourceConfig: { agents: { list: [{ id: "source" }] } },
-    config: { agents: { list: [{ id: "runtime" }] } },
+    sourceConfig: { agents: { entries: { source: {} } } },
+    config: { agents: { entries: { runtime: {} } } },
     authStores: [],
     degradedOwners: [
       {
@@ -126,18 +124,33 @@ it("isolates snapshot owners while exposing the active config pair for hot paths
     degradedOwners: snapshot.degradedOwners,
     secretOwners: snapshot.secretOwners,
   });
+  const refreshContext: state.SecretsRuntimeRefreshContext = {
+    env: { SNAPSHOT_FIXTURE: "original" },
+    explicitAgentDirs: ["original"],
+    includeAuthStoreRefs: true,
+    loadablePluginOrigins: new Map(),
+  };
 
   state.activateSecretsRuntimeSnapshotState({
     snapshot,
-    refreshContext: null,
+    refreshContext,
     refreshHandler: null,
   });
+  refreshContext.env.SNAPSHOT_FIXTURE = "caller edit";
 
   snapshot.degradedOwners![0]!.paths.push("changed-at-source");
   snapshot.degradedOwners![0]!.providerFailures![0]!.provider = "changed-at-source";
   resolvedValue.nested.push("changed-at-source");
   const configSnapshot = state.getActiveSecretsRuntimeConfigSnapshot();
   const fullSnapshot = state.getActiveSecretsRuntimeSnapshotState();
+  const readerContext = state.getPreparedSecretsRuntimeSnapshotRefreshContext(fullSnapshot!);
+  expect(readerContext?.env.SNAPSHOT_FIXTURE).toBe("original");
+  readerContext!.env.SNAPSHOT_FIXTURE = "reader edit";
+  readerContext!.explicitAgentDirs!.push("reader edit");
+  expect(state.getActiveSecretsRuntimeRefreshContext()).toMatchObject({
+    env: { SNAPSHOT_FIXTURE: "original" },
+    explicitAgentDirs: ["original"],
+  });
 
   expect(configSnapshot?.config).not.toBe(fullSnapshot?.config);
   expect(configSnapshot?.sourceConfig).not.toBe(fullSnapshot?.sourceConfig);

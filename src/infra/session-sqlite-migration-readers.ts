@@ -35,6 +35,7 @@ import { readAgentDatabaseAdmissionRefusal } from "../state/agent-database-admis
 import { createRetainedAgentDatabaseMatcher } from "../state/agent-deletion-discovery.js";
 import { resolveOpenClawAgentSqlitePath } from "../state/openclaw-agent-db.js";
 import { tableExists, tableHasColumn } from "../state/openclaw-state-db-schema-helpers.js";
+import { executeSqliteQuerySync } from "./kysely-sync.js";
 import { openNodeSqliteDatabase } from "./node-sqlite.js";
 
 type SessionStoreTarget = ResolvedSessionStoreTarget & { sqlitePath?: string };
@@ -45,6 +46,7 @@ export type ReadOnlySqliteValidationSnapshot = {
   sessionIdsBySessionKey: ReadonlyMap<string, string>;
   sessionKeysBySessionId: ReadonlyMap<string, string>;
   transcriptEventCountsBySessionId: ReadonlyMap<string, number>;
+  archivedSessionIds: ReadonlySet<string>;
 };
 
 type ReadOnlySqliteResult<T> = { ok: true; value: T } | { error: unknown; ok: false };
@@ -201,7 +203,7 @@ export function createTranscriptEventReader(
         recordLegacyCompactionTarget(event, plan.compactionTargetIndexes);
       }
       let recognizedEvent: FileEntry | undefined;
-      if (originalIndex === plan.headerIndex) {
+      if (originalIndex === plan.headerIndex && isRecord(event)) {
         const canonicalHeader = {
           ...event,
           id: sessionId,
@@ -211,7 +213,7 @@ export function createTranscriptEventReader(
         };
         Reflect.deleteProperty(canonicalHeader, "sessionId");
         event = canonicalHeader;
-        recognizedEvent = event;
+        recognizedEvent = canonicalHeader;
       } else {
         const classified = classifySessionFileEntry(event, plan.sourceVersion);
         // Runtime retains normalized opaque rows; import preserves their loaded bytes.
@@ -229,7 +231,7 @@ export function createTranscriptEventReader(
         }
         event = recognizedEvent;
       }
-      append(event as TranscriptEvent);
+      append(event);
     }
     assertTranscriptFileUnchanged(transcriptPath, sourceFingerprint);
     return () => assertTranscriptFileUnchanged(transcriptPath, sourceFingerprint);
@@ -308,7 +310,7 @@ function planTranscriptImport(
   return plan;
 }
 
-function recordLegacyCompactionTarget(event: FileEntry, targets: Set<number>): void {
+function recordLegacyCompactionTarget(event: unknown, targets: Set<number>): void {
   if (
     isRecord(event) &&
     event.type === "compaction" &&
@@ -328,16 +330,16 @@ function recordLegacyCompactionTarget(event: FileEntry, targets: Set<number>): v
 function* iterateTranscriptEvents(
   transcriptPath: string,
   allowMalformedPrefix: boolean,
-): Generator<{ event: FileEntry; originalIndex: number }> {
+): Generator<{ event: unknown; originalIndex: number }> {
   let originalIndex = 0;
   try {
     for (const line of iterateJsonlLinesSync(transcriptPath)) {
-      const parsed = JSON.parse(line);
+      const parsed: unknown = JSON.parse(line);
       if (!parsed) {
         continue;
       }
       yield {
-        event: normalizeLoadedFileEntry(parsed as FileEntry),
+        event: normalizeLoadedFileEntry(parsed),
         originalIndex,
       };
       originalIndex += 1;
@@ -369,6 +371,7 @@ export function readOnlySqliteValidationSnapshot(
     sessionIdsBySessionKey: new Map(),
     sessionKeysBySessionId: new Map(),
     transcriptEventCountsBySessionId: new Map(),
+    archivedSessionIds: new Set(),
   };
   const result = readSessionDatabase(target, (database) => {
     const projection = resolveSessionIdentityProjection(database);
@@ -405,10 +408,26 @@ export function readOnlySqliteValidationSnapshot(
         }
       }
     }
+    const archivedSessionIds = new Set<string>();
+    const query = getSessionKysely(database);
+    for (const table of [
+      "session_transcript_archives",
+      "session_transcript_cold_archives",
+    ] as const) {
+      if (tableExists(database, table)) {
+        for (const row of executeSqliteQuerySync(
+          database,
+          query.selectFrom(table).select("session_id"),
+        ).rows) {
+          archivedSessionIds.add(row.session_id);
+        }
+      }
+    }
     return {
       sessionIdsBySessionKey,
       sessionKeysBySessionId,
       transcriptEventCountsBySessionId,
+      archivedSessionIds,
     };
   });
   return result.ok ? { ok: true, snapshot: result.value ?? empty } : result;

@@ -94,9 +94,6 @@ async function replacementFixture(options?: { newChannel?: boolean; sameGenerati
   await retired.dispose();
   const request: DurableInboundReplyDeliveryParams = {
     cfg,
-    ...(options?.sameGeneration
-      ? {}
-      : { prepareRuntimeHandoff: (currentConfig: OpenClawConfig) => currentConfig }),
     channel: "telegram",
     accountId: "default",
     agentId: "main",
@@ -139,11 +136,18 @@ describe("final delivery after plugin replacement", () => {
     vi.unstubAllEnvs();
   });
 
-  it.each([false, true])(
-    "sends an ordinary final from a prepared view without a handoff (structured=%s)",
-    async (structured) => {
+  it.each([
+    { sameGeneration: true, structured: false },
+    { sameGeneration: true, structured: true },
+    { sameGeneration: false, structured: false },
+    { sameGeneration: false, structured: true },
+  ])(
+    "settles final custody through its Gateway without sender preparation (sameGeneration=$sameGeneration, structured=$structured)",
+    async ({ sameGeneration, structured }) => {
       vi.stubEnv("OPENCLAW_STATE_DIR", state.tmpDir());
-      const fixture = await replacementFixture({ sameGeneration: true });
+      const fixture = await replacementFixture({ sameGeneration });
+      const successorConfig: OpenClawConfig = { ...cfg, logging: { level: "debug" } };
+      fixture.setConfig(successorConfig);
       const locator = {
         agentId: "main",
         sessionKey: "agent:main:telegram:direct:12345",
@@ -182,7 +186,12 @@ describe("final delivery after plugin replacement", () => {
         },
       });
       expect(fixture.sendText).toHaveBeenCalledExactlyOnceWith(
-        expect.objectContaining({ to: "12345", text: "Saved final answer", accountId: "default" }),
+        expect.objectContaining({
+          cfg: sameGeneration ? cfg : successorConfig,
+          to: "12345",
+          text: "Saved final answer",
+          accountId: "default",
+        }),
       );
       expect(loadSessionEntry(locator)?.pendingFinalDelivery?.deliveries).toEqual([
         { id: completion.deliveryId, state: "delivered" },
@@ -190,25 +199,6 @@ describe("final delivery after plugin replacement", () => {
       expect(await loadPendingDeliveries(state.tmpDir())).toEqual([]);
       await clearPendingFinalDeliveryAfterSuccess(completion);
       expect(loadSessionEntry(locator)?.pendingFinalDelivery).toBeUndefined();
-    },
-  );
-
-  it.each([false, true])(
-    "sends once through its own Gateway (structured=%s)",
-    async (structured) => {
-      vi.stubEnv("OPENCLAW_STATE_DIR", state.tmpDir());
-      const fixture = await replacementFixture();
-      const result = await fixture.deliver(structured);
-      if (result.status === "failed") {
-        throw result.error;
-      }
-      expect(result).toMatchObject({
-        status: "handled_visible",
-        delivery: { visibleReplySent: true, messageIds: ["accepted-final"] },
-      });
-      expect(fixture.sendText).toHaveBeenCalledExactlyOnceWith(
-        expect.objectContaining({ to: "12345", text: "Saved final answer", accountId: "default" }),
-      );
     },
   );
 
@@ -222,7 +212,6 @@ describe("final delivery after plugin replacement", () => {
     "plugin-id-changed",
     "new-channel",
     "replaced-channel",
-    "no-sender-preparation",
     "superseded-before-send",
     "superseded-live-send",
     "superseded-prepared-send",
@@ -245,9 +234,6 @@ describe("final delivery after plugin replacement", () => {
         ...entry,
         pluginId: "another-owner",
       }));
-    }
-    if (stateChange === "no-sender-preparation") {
-      delete fixture.request.prepareRuntimeHandoff;
     }
     if (stateChange.startsWith("closed")) {
       fixture.publication.current = undefined;

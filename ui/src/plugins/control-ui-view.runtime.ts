@@ -5,6 +5,7 @@ import { property, state } from "lit/decorators.js";
 import { keyed } from "lit/directives/keyed.js";
 import type {
   ControlUiAction,
+  ControlUiSession,
   ControlUiSurface,
   ControlUiSurfaceProps,
   ControlUiView,
@@ -45,9 +46,8 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
   private handle?: ReturnType<ControlUiView<unknown>>;
   private viewContext?: ControlUiViewContext<unknown>;
   private readonly defaultContainers = new Set<HTMLElement>();
-  private readonly subscriptions = new SubscriptionsController(this).watch(
+  private readonly subscriptions = new SubscriptionsController(this).watchStore(
     () => this.context?.plugins,
-    (plugins, notify) => plugins.subscribe(notify),
     () => {
       const next = this.resolveRegistration();
       if (this.registration?.value !== next?.value || this.registration?.signal !== next?.signal) {
@@ -139,6 +139,7 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
           signal: abort.signal,
           props: this.scopedProps(abort.signal),
           presented: this.presented,
+          panel: this.scopedPanelPresentation(abort.signal),
           mountDefault: (target) => {
             if (abort.signal.aborted) {
               throw new Error("This plugin UI view has ended.");
@@ -159,7 +160,6 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
               }
             };
           },
-          panel: this.scopedPanelPresentation(abort.signal),
         };
         this.handle = registration.value.mount(container, this.viewContext);
       } else if (this.viewContext) {
@@ -180,13 +180,11 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
   }
 
   private scopedProps(signal: AbortSignal): unknown {
-    if (this.kind !== "replacements") {
-      return structuredClone(this.props);
-    }
-    if (this.surface === "session-list") {
+    if (this.kind === "replacements" && this.surface === "session-list") {
       // A session-list replacement may request the host's next roster page.
       // That callback is deliberately lifetime-bound and cannot pass through
       // structuredClone with the immutable roster snapshot.
+      // SAFETY: the host renderer supplies session-list props for the replacement/surface discriminants checked above.
       const props = this.props as ControlUiSurfaceProps["session-list"];
       const { loadMoreNativeSessions, ...cloneable } = props;
       const generation = this.mountGeneration;
@@ -211,7 +209,7 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
           : undefined,
       };
     }
-    if (this.surface !== "composer") {
+    if (this.kind !== "replacements" || this.surface !== "composer") {
       return structuredClone(this.props);
     }
     // SAFETY: renderPluginSurface supplies composer props only for the discriminants checked above.
@@ -360,24 +358,20 @@ class ControlUiPluginContributions extends OpenClawLightDomContentsElement {
     "navigation";
   @property({ attribute: false }) sessionKey = "";
   @property({ attribute: false }) agentId?: string;
+  @property({ attribute: false }) session?: ControlUiSession;
   @property({ attribute: false }) navigationKey = "";
   @property({ attribute: false }) currentNavigationHref = "";
   @property({ type: Boolean }) presented = true;
   @state() private actionError = "";
   private readonly subscriptions = new SubscriptionsController(this)
-    .watch(
+    .watchStore(
       () => this.context?.plugins,
-      (plugins, notify) => plugins.subscribe(notify),
       () => this.retireHiddenActions(),
     )
-    .watch(
-      () => (this.kind === "navigation" ? this.context?.router : undefined),
-      (router, notify) => router.subscribe(notify),
-    )
-    .watch(
+    .watchStore(() => (this.kind === "navigation" ? this.context?.router : undefined))
+    .watchStore(
       () =>
         this.kind === "header" || this.kind === "composer" ? this.context?.sessions : undefined,
-      (sessions, notify) => sessions.subscribe(notify),
       () => this.retireHiddenActions(),
     );
 
@@ -452,36 +446,72 @@ class ControlUiPluginContributions extends OpenClawLightDomContentsElement {
       return nothing;
     }
     if (this.kind === "navigation") {
-      return runtime
-        .registrations("navigation")
-        .filter((entry) => entry.key === this.navigationKey)
-        .map((entry) => {
-          const href = entry.host.navigation.pageHref(entry.value.page);
-          const currentUrl = new URL(this.currentNavigationHref || window.location.href, window.location.href);
-          const target = new URL(href, currentUrl);
-          // Extra page filters do not change the destination; explicit target params do.
-          const active =
-            target.pathname === currentUrl.pathname &&
-            [...target.searchParams].every(([key, value]) => currentUrl.searchParams.get(key) === value);
-          let icon: IconName = "plug";
-          if (entry.value.icon && Object.hasOwn(icons, entry.value.icon)) {
-            // SAFETY: the own-key check narrows this plugin-provided name to the icon registry.
-            icon = entry.value.icon as IconName;
+      const currentUrl = new URL(
+        this.currentNavigationHref || window.location.href,
+        window.location.href,
+      );
+      const search = currentUrl.searchParams;
+      const navigation = runtime.registrations("navigation").map((entry) => {
+        const href = entry.host.navigation.pageHref(entry.value.page);
+        const target = new URL(href, currentUrl);
+        // Extra page filters do not change the destination; explicit target params do.
+        const active =
+          target.pathname === currentUrl.pathname &&
+          [...target.searchParams].every(([key, value]) => search.get(key) === value);
+        return { entry, href, active };
+      });
+      const renderLink = (
+        { entry, href, active }: (typeof navigation)[number],
+        child = false,
+        fallbackIcon = "plug",
+      ) => {
+        let icon: IconName = Object.hasOwn(icons, fallbackIcon)
+          ? (fallbackIcon as IconName) // SAFETY: the own-key check admits only registered icon names.
+          : "plug";
+        if (entry.value.icon && Object.hasOwn(icons, entry.value.icon)) {
+          // SAFETY: the own-key check narrows this plugin-provided name to the icon registry.
+          icon = entry.value.icon as IconName;
+        }
+        return html`<a
+          class="nav-item ${child ? "nav-item--child" : ""} ${active ? "nav-item--active" : ""}"
+          href=${href}
+          aria-current=${active ? "page" : nothing}
+          @click=${(event: MouseEvent) => {
+            if (!shouldHandleNavigationClick(event)) {
+              return;
+            }
+            event.preventDefault();
+            entry.host.navigation.openPage(entry.value.page);
+          }}
+          ><span class="nav-item__icon" aria-hidden="true">${icons[icon]}</span
+          ><span class="nav-item__text">${entry.value.label}</span></a
+        >`;
+      };
+      return navigation
+        .filter(({ entry }) => entry.key === this.navigationKey)
+        .map((parent) => {
+          const children = navigation
+            .filter(
+              ({ entry }) =>
+                entry.pluginId === parent.entry.pluginId &&
+                entry.value.parent === parent.entry.value.id &&
+                entry.key !== parent.entry.key,
+            )
+            .toSorted(
+              (a, b) =>
+                (a.entry.value.order ?? 0) - (b.entry.value.order ?? 0) ||
+                a.entry.value.label.localeCompare(b.entry.value.label),
+            );
+          if (!children.length || !(parent.active || children.some((child) => child.active))) {
+            return renderLink(parent);
           }
-          return html`<a
-            class="nav-item ${active ? "nav-item--active" : ""}"
-            href=${href}
-            aria-current=${active ? "page" : nothing}
-            @click=${(event: MouseEvent) => {
-              if (!shouldHandleNavigationClick(event)) {
-                return;
-              }
-              event.preventDefault();
-              entry.host.navigation.openPage(entry.value.page);
-            }}
-            ><span class="nav-item__icon" aria-hidden="true">${icons[icon]}</span
-            ><span class="nav-item__text">${entry.value.label}</span></a
-          >`;
+          // The zone entry is a flex row; one block group keeps the children under the link.
+          return html`<div class="nav-item-group">
+            ${renderLink(parent)}
+            <ul class="nav-item__children">
+              ${children.map((child) => html`<li>${renderLink(child, true, parent.entry.value.icon)}</li>`)}
+            </ul>
+          </div>`;
         });
     }
     if (this.kind === "session-header") {
@@ -492,7 +522,7 @@ class ControlUiPluginContributions extends OpenClawLightDomContentsElement {
           renderPluginContribution(
             "accessories",
             entry.key,
-            { sessionKey: this.sessionKey, agentId: this.agentId },
+            { sessionKey: this.sessionKey, agentId: this.agentId, session: this.session },
             nothing,
             this.presented,
           ),

@@ -4,7 +4,7 @@ import { rosterActivityStore } from "../../lib/agents/roster-activity-store.ts";
 import { mountRoster, roster, session, sessionKeys, settleRoster } from "./roster.test-support.ts";
 
 describe("AppSidebar agent roster pins", () => {
-  it("keeps cross-agent pins in Pages in saved order with their owning avatars", async () => {
+  it("keeps cross-agent pins in Pages in saved zone order with their owning avatars", async () => {
     const avatarRoute = "/avatar/working?v=pinned-roster";
     const agents: AgentsListResult = {
       ...roster,
@@ -48,11 +48,20 @@ describe("AppSidebar agent roster pins", () => {
     sidebar.sidebarAgentsMode = "roster";
     await settleRoster(sidebar);
 
+    const renderedEntries = [
+      ...sidebar.querySelectorAll<HTMLElement>(".sidebar-nav [data-sidebar-entry]"),
+    ];
+    // Pages retains pin order while management destinations have their own Tools zone.
     expect(
-      [...sidebar.querySelectorAll<HTMLElement>(".sidebar-nav [data-sidebar-entry]")].map(
-        (entry) => entry.dataset.sidebarEntry,
-      ),
-    ).toEqual(entries);
+      renderedEntries
+        .filter((entry) => !entry.closest(".sidebar-nav__tools"))
+        .map((entry) => entry.dataset.sidebarEntry),
+    ).toEqual(entries.filter((entry) => entry.startsWith("session:")));
+    expect(
+      renderedEntries
+        .filter((entry) => entry.closest(".sidebar-nav__tools"))
+        .map((entry) => entry.dataset.sidebarEntry),
+    ).toEqual(entries.filter((entry) => entry.startsWith("route:")));
     for (const id of ["working", "main", "recent"]) {
       const rows = sidebar.querySelectorAll(`[data-session-key="agent:${id}:pinned"]`);
       expect(rows).toHaveLength(1);

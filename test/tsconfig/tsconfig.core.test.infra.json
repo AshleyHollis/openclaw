@@ -16,6 +16,8 @@
     "../../src/infra/outbound/**",
     "../../src/infra/sqlite*.test.ts",
     "../../src/infra/sqlite*.test.tsx",
+    "../../src/infra/state-migrations*.test.ts",
+    "../../src/infra/state-migrations*.test.tsx",
     "../../src/infra/update-*.test.ts",
     "../../src/infra/update-*.test.tsx",
     "../../src/infra/package-update-*.test.ts",

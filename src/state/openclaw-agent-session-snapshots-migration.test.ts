@@ -1,13 +1,13 @@
 import { copyFileSync } from "node:fs";
 import { constants, DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
-import { readExactSessionEntryRow } from "../config/sessions/session-accessor.sqlite-entry-read.js";
-import { readSessionEntryCacheValidityToken } from "../config/sessions/session-accessor.sqlite-entry-revision.js";
 import {
+  readExactSessionEntryRow,
   readSessionEntrySelectionSnapshot,
   readUnchangedLifecycleTargetSnapshot,
-  writeSessionEntry,
-} from "../config/sessions/session-accessor.sqlite-entry-store.js";
+} from "../config/sessions/session-accessor.sqlite-entry-read.js";
+import { readSessionEntryCacheValidityToken } from "../config/sessions/session-accessor.sqlite-entry-revision.js";
+import { writeSessionEntry } from "../config/sessions/session-accessor.sqlite-entry-store.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { withAgentDatabaseMaintenanceLease } from "./openclaw-agent-db-maintenance-lease.js";

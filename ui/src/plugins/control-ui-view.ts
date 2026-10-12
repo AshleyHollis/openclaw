@@ -7,6 +7,7 @@ import type {
   ControlUiViewContext,
 } from "../../../src/plugin-sdk/control-ui.js";
 import { applicationContext } from "../app/context.ts";
+import { livePresentation, type PresentationValue } from "../lit/presentation-binding.ts";
 import type { ControlUiPluginCapability } from "./control-ui-capability.ts";
 
 export type ViewKind = "pages" | "panels" | "accessories" | "widgets" | "replacements";
@@ -20,7 +21,7 @@ class PluginSurfaceDirective extends AsyncDirective {
     ControlUiSurface,
     unknown,
     unknown,
-    boolean,
+    PresentationValue,
     unknown,
     ControlUiViewContext["panel"]?,
   ];
@@ -28,7 +29,14 @@ class PluginSurfaceDirective extends AsyncDirective {
 
   override update(
     part: ChildPart,
-    args: [ControlUiSurface, unknown, unknown, boolean, unknown, ControlUiViewContext["panel"]?],
+    args: [
+      ControlUiSurface,
+      unknown,
+      unknown,
+      PresentationValue,
+      unknown,
+      ControlUiViewContext["panel"]?,
+    ],
   ) {
     this.args = args;
     const host = part.options?.host;
@@ -95,7 +103,7 @@ class PluginSurfaceDirective extends AsyncDirective {
     surface: ControlUiSurface,
     props: unknown,
     defaultView: unknown,
-    presented: boolean,
+    presented: PresentationValue,
     replacementCompanion: unknown,
     panel?: ControlUiViewContext["panel"],
   ) {
@@ -109,7 +117,7 @@ class PluginSurfaceDirective extends AsyncDirective {
           .defaultView=${defaultView}
           .replacementCompanion=${replacementCompanion}
           .defaultHost=${this.host}
-          .presented=${presented}
+          .presented=${livePresentation(presented)}
           .panelPresentation=${panel}
         ></openclaw-plugin-view>`
       : defaultView;
@@ -122,7 +130,7 @@ export function renderPluginSurface<S extends ControlUiSurface>(
   surface: S,
   props: ControlUiSurfaceProps[S],
   defaultView: unknown,
-  presented = true,
+  presented: PresentationValue = true,
   replacementCompanion: unknown = nothing,
   panel?: ControlUiViewContext["panel"],
 ) {
@@ -134,7 +142,7 @@ export function renderPluginContribution(
   key: string,
   props: unknown,
   defaultView: unknown = nothing,
-  presented = true,
+  presented: PresentationValue = true,
   panel?: ControlUiViewContext["panel"],
 ) {
   return html`<openclaw-plugin-view
@@ -142,7 +150,7 @@ export function renderPluginContribution(
     .contributionKey=${key}
     .props=${props}
     .defaultView=${defaultView}
-    .presented=${presented}
+    .presented=${livePresentation(presented)}
     .panelPresentation=${panel}
   ></openclaw-plugin-view>`;
 }

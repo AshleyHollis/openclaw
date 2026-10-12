@@ -1,7 +1,6 @@
 import { html, nothing, render } from "lit";
 import type { ControlUiView } from "openclaw/plugin-sdk/control-ui";
 import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
-import { createWorkboardClient } from "../../api/gateway.ts";
 import { renderAgentPicker } from "../../components/host-components.ts";
 import { icons } from "../../components/icons.ts";
 import { renderWorkboardBoardGlyph } from "../../components/workboard-board-glyph.ts";
@@ -25,14 +24,27 @@ import {
   WORKBOARD_CHANGED_EVENT,
 } from "../../lib/workboard/index.ts";
 import { shouldDeferWorkboardLiveRefresh } from "../../lib/workboard/loading.ts";
+import { invalidateWorkboardLoads } from "../../lib/workboard/runtime.ts";
 import { createWorkboardSessionResolver } from "../../lib/workboard/session-resolution.ts";
+import type { WorkboardBoardMetadata } from "../../lib/workboard/types.ts";
 import { matchesAgentScope } from "./agent-filter.ts";
 import { matchesBoardFilter, WORKBOARD_ALL_BOARDS_FILTER } from "./board-filter.ts";
 import { createWorkboardCardNavigation, type WorkboardCardTarget } from "./card-navigation.ts";
+import { createSessionsBoardController } from "./sessions-board-controller.ts";
 import { loadBoardAutomation, renderBoardAutomationHeading } from "./view-automation.ts";
-import { createBoardDraft, renderBoardModal, type BoardDraft } from "./view-board-modal.ts";
+import {
+  createBoardDraft,
+  createNewBoardDraft,
+  renderBoardModal,
+  type BoardDraft,
+} from "./view-board-modal.ts";
 import { getVisibleDetailCard, hasCardDetailEdits } from "./view-card-details.ts";
-import { workboardErrorMessage, type BoardAutomationState } from "./view-helpers.ts";
+import {
+  workboardErrorMessage,
+  type BoardAutomationState,
+  type WorkboardProps,
+} from "./view-helpers.ts";
+import { renderSessionsBoard } from "./view-sessions-board.ts";
 import { renderWorkboard } from "./view.ts";
 
 export function workboardPageTarget(boardId?: string, card?: WorkboardCardTarget) {
@@ -64,7 +76,10 @@ function reconcileCardOverlays(state: WorkboardUiState, visible: (card: Workboar
   }
 }
 
-export function createWorkboardPage(workboard: WorkboardCapability): ControlUiView {
+export function createWorkboardPage(
+  workboard: WorkboardCapability,
+  registerBoardNavigation: (board: WorkboardBoardMetadata) => void,
+): ControlUiView {
   return (container, initialContext) => {
     const host = initialContext.host;
     let context = initialContext;
@@ -80,7 +95,7 @@ export function createWorkboardPage(workboard: WorkboardCapability): ControlUiVi
     let metadataError: string | null = null;
     let observedScope: string | null | undefined;
     let redirectedBoard = "";
-    const client = createWorkboardClient(host);
+    const client = host;
     const state = workboard.state;
     const requestUpdate = () => {
       if (disposed || queued) {
@@ -95,6 +110,7 @@ export function createWorkboardPage(workboard: WorkboardCapability): ControlUiVi
       });
     };
     const sessionResolver = createWorkboardSessionResolver(host, requestUpdate);
+    const sessionsBoard = createSessionsBoardController(host, requestUpdate);
     const cardNavigation = createWorkboardCardNavigation(state, requestUpdate);
     const stop = () => {
       // A paused page no longer owns shared loads started by session actions.
@@ -172,7 +188,10 @@ export function createWorkboardPage(workboard: WorkboardCapability): ControlUiVi
           shouldDeferWorkboardLiveRefresh(state) ||
           hasCardDetailEdits(state),
         visible: (card) => matchesAgentScope(card, defaultAgentId, scope),
-        load: () => loadWorkboard({ host: workboard, client, requestUpdate, force: true }),
+        load: () => {
+          state.boardFilter = requestedBoardId;
+          return loadWorkboard({ host: workboard, client, requestUpdate, force: true });
+        },
       });
       const boardId = destination.deferred ? state.boardFilter : requestedBoardId;
       const missingScope =
@@ -183,6 +202,10 @@ export function createWorkboardPage(workboard: WorkboardCapability): ControlUiVi
         reconcileCardOverlays(state, (card) => matchesAgentScope(card, defaultAgentId, scope));
       }
       if (state.boardFilter !== boardId) {
+        if (state.boards.find((board) => board.id === state.boardFilter)?.kind === "sessions") {
+          state.loaded = false;
+          state.loadAttempted = false;
+        }
         state.boardFilter = boardId;
         reconcileCardOverlays(state, (card) => matchesBoardFilter(card, boardId));
       }
@@ -202,26 +225,39 @@ export function createWorkboardPage(workboard: WorkboardCapability): ControlUiVi
       } else {
         redirectedBoard = "";
       }
+      const selectedBoard =
+        boardId === WORKBOARD_ALL_BOARDS_FILTER
+          ? null
+          : state.boards.find((board) => board.id === boardId);
+      sessionsBoard.sync(selectedBoard, connected && context.presented);
       if (connected && context.presented) {
         refreshActive = true;
-        const force = configureWorkboardLiveRefresh({ host: workboard, client, requestUpdate });
+        const force = configureWorkboardLiveRefresh({
+          host: workboard,
+          client,
+          requestUpdate,
+          shouldDefer: () =>
+            Boolean(
+              boardDraft ||
+              sessionsBoard.busy ||
+              sessionsBoard.draggedKey ||
+              shouldDeferWorkboardLiveRefresh(state),
+            ),
+          refresh: selectedBoard?.kind === "sessions" ? sessionsBoard.read : undefined,
+        });
         if (!destination.exact) {
           void loadWorkboard({
             host: workboard,
             client,
             requestUpdate,
             force,
-            refreshDiagnostics: host.connection.canWrite,
+            refreshDiagnostics: host.connection.canWrite && selectedBoard?.kind !== "sessions",
           });
         }
         resumeWorkboardLiveRefresh(workboard);
       } else {
         stop();
       }
-      const selectedBoard =
-        boardId === WORKBOARD_ALL_BOARDS_FILTER
-          ? null
-          : state.boards.find((board) => board.id === boardId);
       const detailCard = getVisibleDetailCard(state);
       const detailJobId = detailCard
         ? state.boards.find((board) => board.id === workboardCardBoardId(detailCard))
@@ -274,9 +310,33 @@ export function createWorkboardPage(workboard: WorkboardCapability): ControlUiVi
           [...host.sessions.rows, ...candidates].map((session) => [session.key, session]),
         ).values(),
       ];
+      const onNewBoard = () => {
+        boardDraft = createNewBoardDraft();
+        requestUpdate();
+      };
+      const onBoardChange = (boardFilter: string) =>
+        host.navigation.openPage(workboardPageTarget(boardFilter), {
+          replace: true,
+          preserveSearch: true,
+        });
+      const renderBoard = (props: WorkboardProps & { onRefresh: () => void }) =>
+        selectedBoard?.kind === "sessions"
+          ? renderSessionsBoard({
+              board: selectedBoard,
+              boards: state.boards,
+              controller: sessionsBoard,
+              host,
+              heading: props.heading ?? html``,
+              scopeControl: props.scopeControl,
+              pageError,
+              overlayOpen: Boolean(boardDraft),
+              onNewBoard,
+              onBoardChange,
+            })
+          : renderWorkboard(props);
       render(
         html`
-          ${renderWorkboard({
+          ${renderBoard({
             heading: html`
               <div class="workboard-heading__identity">
                 <div class="page-title workboard-page-title">
@@ -295,7 +355,12 @@ export function createWorkboardPage(workboard: WorkboardCapability): ControlUiVi
                             aria-label=${t("workboard.editBoard")}
                             title=${t("workboard.editBoard")}
                             @click=${() => {
-                              boardDraft = createBoardDraft(selectedBoard);
+                              boardDraft = createBoardDraft({
+                                ...selectedBoard,
+                                ...(sessionsBoard.snapshot?.board.id === selectedBoard.id
+                                  ? sessionsBoard.snapshot.board
+                                  : {}),
+                              });
                               requestUpdate();
                             }}
                           >
@@ -348,6 +413,7 @@ export function createWorkboardPage(workboard: WorkboardCapability): ControlUiVi
             host: workboard,
             client: connected ? client : null,
             connected,
+            connectionGeneration: metadataGeneration,
             canWrite: host.connection.canWrite,
             canGrant: host.connection.canGrant,
             canModelOverride: host.connection.canAdmin,
@@ -372,11 +438,8 @@ export function createWorkboardPage(workboard: WorkboardCapability): ControlUiVi
                 refreshDiagnostics: !destination.exact && host.connection.canWrite,
               });
             },
-            onBoardFilterChange: (boardFilter) =>
-              host.navigation.openPage(workboardPageTarget(boardFilter), {
-                replace: true,
-                preserveSearch: true,
-              }),
+            onBoardFilterChange: onBoardChange,
+            onNewBoard,
             onRequestUpdate: requestUpdate,
           })}
           ${
@@ -395,13 +458,31 @@ export function createWorkboardPage(workboard: WorkboardCapability): ControlUiVi
                     boardDraft = null;
                     requestUpdate();
                   },
-                  onSaved: () => {
+                  onSaved: (board) => {
+                    if (disposed) {
+                      return;
+                    }
+                    const creating = boardDraft?.create;
                     boardDraft = null;
+                    if (creating) {
+                      invalidateWorkboardLoads(workboard);
+                      registerBoardNavigation(board);
+                      host.ui.pinNavigation(`board-${board.id}`);
+                    }
                     void refreshWorkboard({
                       host: workboard,
                       client,
                       requestUpdate,
                       source: "manual",
+                    }).then(() => {
+                      if (disposed) {
+                        return;
+                      }
+                      if (creating) {
+                        onBoardChange(board.id);
+                      } else if (selectedBoard?.kind === "sessions") {
+                        void sessionsBoard.read();
+                      }
                     });
                     requestUpdate();
                   },
@@ -457,6 +538,7 @@ export function createWorkboardPage(workboard: WorkboardCapability): ControlUiVi
         unsubscribeState();
         unsubscribeEvents();
         unsubscribeCron();
+        sessionsBoard.dispose();
         sessionResolver.dispose();
         document.removeEventListener("visibilitychange", onVisibilityChange);
         stop();

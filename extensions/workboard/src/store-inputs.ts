@@ -7,8 +7,6 @@ import type {
   WorkboardWorkspaceAccess,
 } from "@openclaw/workboard-contract";
 
-export type { WorkboardBoardSummary } from "@openclaw/workboard-contract";
-
 type WorkboardCardInput = {
   title?: unknown;
   notes?: unknown;
@@ -41,6 +39,7 @@ type WorkboardCardInput = {
 
 export type WorkboardCardPatch = WorkboardCardInput;
 export type WorkboardUpdateCardOptions = {
+  resultReview?: import("@openclaw/workboard-contract").WorkboardResultReviewRequest;
   allowAutomationLaunch?: boolean;
   allowMetadataDependencyLinks?: boolean;
   enforceStatusHolds?: boolean;
@@ -117,6 +116,8 @@ export type WorkboardBulkInput = {
   archived?: unknown;
 };
 export type WorkboardCompleteInput = {
+  expectedUpdatedAt?: unknown;
+  resultReview?: unknown;
   ownerId?: unknown;
   token?: unknown;
   summary?: unknown;
@@ -164,6 +165,7 @@ export type WorkboardReclaimInput = {
 };
 export type WorkboardBoardInput = {
   id?: unknown;
+  kind?: unknown;
   name?: unknown;
   description?: unknown;
   icon?: unknown;
@@ -177,7 +179,6 @@ export type WorkboardBoardInput = {
 export type WorkboardSpecifyInput = WorkboardCardPatch & {
   summary?: unknown;
 };
-export type WorkboardDecomposeChildInput = WorkboardLinkedCreateInput;
 export type WorkboardDecomposeInput = {
   summary?: unknown;
   children?: unknown;

@@ -29,7 +29,6 @@ vi.mock("node:sqlite", () => ({
   },
 }));
 vi.mock("../../auto-reply/internal-turn-source.js", () => ({}));
-vi.mock("../../infra/kysely-sync.js", () => ({}));
 vi.mock("../../infra/sqlite-number.js", () => ({}));
 vi.mock("../../state/openclaw-agent-db-identity.js", () => ({}));
 vi.mock("../../state/openclaw-agent-db-readonly-scope.js", () => ({}));
@@ -58,9 +57,11 @@ vi.mock("./internal-session-key.js", () => ({}));
 vi.mock("./metadata.js", () => ({}));
 vi.mock("./session-accessor.sqlite-entry-cache.js", () => ({}));
 vi.mock("./session-accessor.sqlite-entry-equality.js", () => ({}));
-vi.mock("./session-accessor.sqlite-entry-store.js", () => ({
+vi.mock("./session-accessor.sqlite-entry-read.js", () => ({
   readSessionEntrySelectionSnapshot: () => [],
   readUnchangedLifecycleTargetSnapshot: () => [],
+}));
+vi.mock("./session-accessor.sqlite-entry-store.js", () => ({
   writeSessionEntry: (_database: unknown, _key: string, entry: InternalSessionEntry) => entry,
 }));
 vi.mock("./session-accessor.sqlite-exact-read.js", () => ({}));

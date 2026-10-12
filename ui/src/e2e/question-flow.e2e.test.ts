@@ -254,6 +254,7 @@ suite.define(() => {
     await attention.tap();
     await expect.poll(() => tooltip.count()).toBe(0);
     expect(await shell.getAttribute("class")).toContain("shell--nav-drawer-open");
+    await screenshot(page, "02-sidebar-attention-second-tapped.png");
     await attention.tap();
     await expect.poll(() => tooltip.count()).toBe(1);
     await page.keyboard.press("Escape");

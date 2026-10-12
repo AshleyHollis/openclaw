@@ -148,7 +148,6 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
     };
     const params = {
       client: scope.client,
-      connectionGeneration: scope.generation,
       gatewaySnapshot: scope.context.gateway.snapshot,
       mode,
       pendingKey: this[pendingProperty],
@@ -178,7 +177,6 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
     };
     const params = {
       client: scope.client,
-      connectionGeneration: scope.generation,
       gatewaySnapshot: scope.context.gateway.snapshot,
       reclaimingKey: this.headerPlacementReclaimingKey,
       placementStartup: scope.context.placementStartup,
@@ -337,10 +335,17 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
     }
     return {
       gatewayQuestionPrompts: this.questionProjection.prompts,
-      // Session replay already owns the parent's presentation scope for delegated approvals.
+      // Admitted replay owns the parent's presentation scope; request.agentId
+      // still identifies the requester, which can be a delegated child's agent.
       inlineApproval: visible
         ? (state.chatSessionApprovalQueue?.find((approval) =>
-            matchesConversation(approval.request),
+            uiConversationMatches(
+              state,
+              state.sessionKey,
+              approval.request.sessionKey,
+              agentId,
+              agentId,
+            ),
           ) ??
           this.context.overlays?.snapshot?.approvalQueue?.find((approval) =>
             matchesConversation(approval.request),
@@ -437,6 +442,7 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
       retireChatMetadataRequests(state);
       this.taskSuggestionsRequestVersion += 1;
       this.resetSessionSuggestions();
+      this.resetSessionReactions();
       this.clearTypingActors();
       this.sessionDiscussionStates.clear();
       this.sessionDiscussionOpenUrls.clear();
@@ -504,7 +510,7 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
     const resumedHistory =
       !wasConnected && state.connected ? resumePendingChatHistoryLoad(state) : undefined;
     if (sourceChanged) {
-      retireSessionWorkspaceCheckout(state, true);
+      retireSessionWorkspaceCheckout(state);
     }
     if (!sourceChanged && previousMediaAuthToken !== resolveControlUiAuthToken(state)) {
       releaseChatMediaResourceSubscriber(state.requestUpdate);

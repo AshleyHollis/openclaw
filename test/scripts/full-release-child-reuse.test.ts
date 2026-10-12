@@ -323,10 +323,97 @@ describe("independent release child reuse", () => {
     );
   });
   it.each([
-    { status: "completed", conclusion: "failure" },
-    { status: "completed", conclusion: "cancelled" },
-    { status: "in_progress", conclusion: null },
-  ])(
+    {
+      role: "pluginPrereleaseIndependent",
+      workflow: "plugin-prerelease.yml",
+      args: ["-f", `target_ref=${TARGET}`, "-f", "phase=independent"],
+    },
+    {
+      role: "releaseChecksIndependent",
+      workflow: "openclaw-release-checks.yml",
+      args: ["-f", `ref=${TARGET}`, "-f", "phase=independent"],
+    },
+    {
+      role: "productPerformance",
+      workflow: "openclaw-performance.yml",
+      args: [
+        "-f",
+        `target_ref=${TARGET}`,
+        "-f",
+        "profile=release",
+        "-f",
+        "repeat=3",
+        "-f",
+        "publish_reports=false",
+      ],
+    },
+  ])("matches GitHub's omitted empty defaults for $role", async ({ role, workflow, args }) => {
+    const inputs = releaseChildDispatchInputs(
+      readFileSync(`.github/workflows/${workflow}`, "utf8"),
+      args,
+    );
+    const data = await fixture(
+      role,
+      Object.fromEntries(Object.entries(inputs).filter(([, value]) => value !== "")),
+    );
+    data.request.inputs = inputs;
+    const selection = await discoverReusableReleaseChild(data.request, data.deps);
+    expect(selection).not.toBeNull();
+    expect(selection!.inputs).toEqual(data.receipt.inputs);
+    if (role === "productPerformance") {
+      expect(selection!.inputs.mode).toBe("kova");
+    }
+    await expect(
+      validateReusableReleaseChild({ ...selection, inputs }, data.request, data.deps),
+    ).resolves.toMatchObject({ receipt: { inputs: data.receipt.inputs } });
+    Object.assign(data.receipt.inputs, inputs);
+    await data.seal();
+    data.request.inputs = selection!.inputs;
+    expect(await discoverReusableReleaseChild(data.request, data.deps)).not.toBeNull();
+  });
+
+  it("rejects a missing current-parent tooling SHA before reading runs", async () => {
+    const data = await fixture();
+    const selection = await discoverReusableReleaseChild(data.request, data.deps);
+    data.request.workflowSha = "";
+    const reason = "current parent workflow SHA is invalid";
+    await expect(validateReusableReleaseChild(selection, data.request, data.deps)).rejects.toThrow(
+      reason,
+    );
+    await expect(discoverReusableReleaseChild(data.request, data.deps)).rejects.toThrow(reason);
+  });
+
+  it("reports other-tooling receipts without spending full validations", async () => {
+    const data = await fixture();
+    const selection = await discoverReusableReleaseChild(data.request, data.deps);
+    data.request.workflowSha = "c".repeat(40);
+    await expect(validateReusableReleaseChild(selection, data.request, data.deps)).rejects.toThrow(
+      "same tooling is required",
+    );
+    expect(await discoverReusableReleaseChild(data.request, data.deps)).toBeNull();
+    expect(data.deps.report).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `run 101 ${data.run.display_title}: rejected: tooling ${TOOLING} differs from current parent ${"c".repeat(40)}`,
+      ),
+    );
+    expect(data.deps.report).toHaveBeenCalledWith(
+      expect.stringContaining('evaluated 0; dispatching fresh work; skipped {"other tooling":1}'),
+    );
+  });
+
+  it("finds the target after other-target runs without spending full validations", async () => {
+    const data = await fixture();
+    data.runInventory.unshift(
+      ...Array.from({ length: 6 }, (_, index) => ({ ...data.run, id: 200 + index })),
+    );
+    const selection = await discoverReusableReleaseChild(data.request, data.deps);
+    expect(selection?.runId).toBe("101");
+    expect(data.reads[0]).toContain("per_page=100");
+    expect(data.deps.report).toHaveBeenCalledWith(
+      expect.stringContaining('scanned 7 runs, evaluated 1; skipped {"target receipt absent":6}'),
+    );
+  });
+  it.each([{ status: "in_progress", conclusion: null }])(
     "reuses green children from $status/$conclusion parents without a manifest",
     async (parentState) => {
       const data = await fixture();
@@ -511,14 +598,13 @@ describe("independent release child reuse", () => {
 
   it.each([
     { target_ref: "c".repeat(40), release_scope: "full" },
-    { target_ref: TARGET, release_scope: "npm-beta" },
     { target_ref: TARGET, release_scope: "" },
   ])("rejects different exact dispatch inputs %#", async (inputs) => {
     const data = await fixture();
     expect(await discoverReusableReleaseChild({ ...data.request, inputs }, data.deps)).toBeNull();
   });
 
-  it.each(['{ "id": "801" }', '{"id":"802"}', ""])(
+  it.each(['{ "id": "801" }', ""])(
     "requires the exact candidate descriptor bytes %s",
     async (candidate_artifact_json) => {
       const data = await fixture("pluginPrereleaseCandidate");

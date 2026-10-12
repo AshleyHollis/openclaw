@@ -255,10 +255,12 @@ export function createControlUiComponents(options: {
             props.onExpandedPathsChange?.([...next].toSorted());
           };
           const handleTreeKey = (event: KeyboardEvent) => {
+            // SAFETY: this handler is attached to the host-rendered HTML scroll container.
             const tree = event.currentTarget as HTMLElement;
             const controls = [
               ...tree.querySelectorAll<HTMLElement>("summary, .chat-workspace-rail__file-open"),
             ].filter((item) => item.offsetParent !== null);
+            // SAFETY: no target property is used until identity membership in the queried HTMLElement controls is confirmed.
             const current = event.target as HTMLElement;
             const index = controls.indexOf(current);
             if (index < 0) {
@@ -279,6 +281,7 @@ export function createControlUiComponents(options: {
               event.preventDefault();
               focus(controls.length - 1);
             } else if (event.key === "ArrowRight" && current.tagName === "SUMMARY") {
+              // SAFETY: this host renders every queried summary directly inside its details element.
               const details = current.parentElement as HTMLDetailsElement;
               if (!details.open) {
                 event.preventDefault();
@@ -286,6 +289,7 @@ export function createControlUiComponents(options: {
                 updateExpansion(current.dataset.treePath ?? "", true);
               }
             } else if (event.key === "ArrowLeft" && current.tagName === "SUMMARY") {
+              // SAFETY: this host renders every queried summary directly inside its details element.
               const details = current.parentElement as HTMLDetailsElement;
               if (details.open) {
                 event.preventDefault();
@@ -306,7 +310,10 @@ export function createControlUiComponents(options: {
                 return html`<li role="treeitem" aria-expanded=${String(open)}>
                   <details
                     ?open=${open}
-                    @toggle=${(event: Event) => updateExpansion(path, (event.currentTarget as HTMLDetailsElement).open)}
+                    @toggle=${(event: Event) => {
+                      // SAFETY: this handler is attached directly to the host-rendered details element.
+                      updateExpansion(path, (event.currentTarget as HTMLDetailsElement).open);
+                    }}
                   >
                     <summary
                       class="chat-workspace-rail__file chat-workspace-rail__file--directory"
@@ -352,7 +359,10 @@ export function createControlUiComponents(options: {
                   aria-label="Filter files by name or path"
                   placeholder="Filter filenames or paths…"
                   .value=${props.query}
-                  @input=${(event: Event) => props.onQueryChange((event.currentTarget as HTMLInputElement).value)}
+                  @input=${(event: Event) => {
+                    // SAFETY: this handler is attached directly to the host-rendered search input.
+                    props.onQueryChange((event.currentTarget as HTMLInputElement).value);
+                  }}
                 />
               </label>
               ${props.query.trim() ? html`<button class="rail-header__action" type="button" aria-label="Clear file filter" @click=${() => props.onQueryChange("")}>${icons.circleX}</button>` : nothing}
@@ -415,43 +425,35 @@ export function createControlUiComponents(options: {
         render(
           treeMode
             ? renderTree()
-            : renderSessionWorkspaceRail(
-                {
-                  filter: "all",
-                  browserPath: props.currentPath,
-                  browserSearch: props.query,
-                  collapsed: false,
+            : renderSessionWorkspaceRail({
+                filter: "all",
+                browserPath: props.currentPath,
+                browserSearch: props.query,
+                sessionKey: "plugin:topic-files",
+                list: {
                   sessionKey: "plugin:topic-files",
-                  list: {
-                    sessionKey: "plugin:topic-files",
-                    root: props.rootLabel,
-                    files: [],
-                    artifacts: [],
-                    browser: {
-                      path: props.currentPath,
-                      parentPath: props.currentPath
-                        ? props.currentPath.split("/").slice(0, -1).join("/")
-                        : undefined,
-                      entries: [...props.entries],
-                      search: props.query || undefined,
-                    },
+                  root: props.rootLabel,
+                  files: [],
+                  artifacts: [],
+                  browser: {
+                    path: props.currentPath,
+                    parentPath: props.currentPath
+                      ? props.currentPath.split("/").slice(0, -1).join("/")
+                      : undefined,
+                    entries: [...props.entries],
+                    search: props.query || undefined,
                   },
-                  loading: props.loading,
-                  error: props.error,
-                  activeId: props.selectedPath ? `file:${props.selectedPath}` : null,
-                  dock: "right",
-                  narrowLayout: false,
-                  onToggleCollapsed: () => {},
-                  onSetDock: () => {},
-                  onRefresh: () => props.onRefresh(),
-                  onBrowsePath: (path) => props.onBrowsePath(path),
-                  onOpenFile: (path) => props.onSelect(path),
-                  onSearch: (query) => props.onQueryChange(query),
-                  onSetFilter: () => {},
-                  onOpenArtifact: () => {},
                 },
-                { embedded: true },
-              ),
+                loading: props.loading,
+                error: props.error,
+                activeId: props.selectedPath ? `file:${props.selectedPath}` : null,
+                onRefresh: () => props.onRefresh(),
+                onBrowsePath: (path) => props.onBrowsePath(path),
+                onOpenFile: (path) => props.onSelect(path),
+                onSearch: (query) => props.onQueryChange(query),
+                onSetFilter: () => {},
+                onOpenArtifact: () => {},
+              }),
           root,
         );
         if (previousScroll !== undefined) {

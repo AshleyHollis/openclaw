@@ -38,7 +38,10 @@ import {
 import type { PreparedModelRuntimeSnapshot } from "./prepared-model-runtime.types.js";
 import { resolveAgentRuntimeToolConfig } from "./tool-runtime-config.js";
 import type { AnyAgentTool } from "./tools/common.js";
-import { captureGatewayToolCallerAssertion } from "./tools/gateway-caller-context.js";
+import {
+  captureGatewayToolCallerAssertion,
+  getGatewayToolCallerIdentity,
+} from "./tools/gateway-caller-context.js";
 import { hasProviderAuthForTool } from "./tools/model-config.helpers.js";
 
 type ResolveOpenClawPluginToolsOptions = OpenClawPluginToolOptions & {
@@ -94,16 +97,15 @@ function createPluginToolDelivery(params: {
   // Capabilities bind the source policy session, even when plugins execute in
   // a shared or durable session. Keep validation separate from execution identity.
   const policySessionKey = params.options?.agentSessionKey ?? sessionKey;
-  if (
-    resolveMessageActionTurnAuthorization({
-      token,
-      agentId,
-      runId,
-      sessionKey: policySessionKey,
-      sessionId,
-    })?.scheduled
-  ) {
-    // Scheduled grants are consumed by individual message actions. They do not
+  const messageActionAuthorization = resolveMessageActionTurnAuthorization({
+    token,
+    agentId,
+    runId,
+    sessionKey: policySessionKey,
+    sessionId,
+  });
+  if (messageActionAuthorization?.scheduled || messageActionAuthorization?.deliveryAttempt) {
+    // Cron capabilities are consumed by individual message actions. They do not
     // delegate the source conversation's plugin delivery capability.
     return undefined;
   }
@@ -329,6 +331,7 @@ export function resolveOpenClawPluginToolsForOptions(params: {
   const loadContext = getPluginRuntimeLoadContext(preparedRegistry);
   const metadataSnapshot = preparedModelRuntime?.metadataSnapshot ?? loadContext?.metadataSnapshot;
   const assertCallerCurrent = captureGatewayToolCallerAssertion();
+  const operatorAuthority = getGatewayToolCallerIdentity()?.operatorAuthority;
   const assertRequestCurrent = params.options?.assertInvocationCurrent;
   const pluginTools = resolvePluginTools({
     ...pluginToolInputs,
@@ -345,6 +348,7 @@ export function resolveOpenClawPluginToolsForOptions(params: {
           assertRequestCurrent();
         }
       : assertCallerCurrent,
+    operatorAuthority,
     ownerContinuation: requesterOwner,
     clientCaps: params.options?.clientCaps,
     toolAllowlist: params.options?.pluginToolAllowlist,

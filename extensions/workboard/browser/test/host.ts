@@ -30,6 +30,9 @@ export function createWorkboardTestHost() {
     redact: vi.fn((text) => text),
     connection,
     request: vi.fn(async () => ({}) as never),
+    httpRequest: vi.fn(async () => {
+      throw new Error("This test did not install native HTTP transport");
+    }),
     onEvent: (event, listener) => {
       let entries = events.get(event);
       if (!entries) {
@@ -120,7 +123,9 @@ export function createWorkboardTestHost() {
       invalidate: vi.fn(),
       registerPage: register("page"),
       registerNavigation: register("navigation"),
+      pinNavigation: vi.fn(),
       registerPanel: register("panel"),
+      openPanel: vi.fn(),
       registerAction: register("action"),
       registerAccessory: register("accessory"),
       registerWidget: register("widget"),

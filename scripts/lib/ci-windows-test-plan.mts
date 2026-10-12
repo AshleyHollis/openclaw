@@ -13,6 +13,7 @@ export type WindowsTestShard = {
 // and hooks, rounded up to 0.1s. Concurrent case sums overcount fixture walls.
 // Project startup belongs to its first file; keep compatible project files
 // together. Timings guide placement; package scripts alone own coverage.
+// Census timings: run 36437664939, Windows jobs 108980729190/108980729152.
 const fileSeconds: Readonly<Record<string, number>> = {
   "extensions/acpx/src/runtime-argv.process.test.ts": 16.2,
   "extensions/canvas/scripts/pnpm-runner.test.ts": 1.5,
@@ -69,6 +70,7 @@ const fileSeconds: Readonly<Record<string, number>> = {
   "src/infra/fs-safe.test.ts": 2.5,
   "src/infra/git-exec.test.ts": 1.8,
   "src/infra/openclaw-cli-shim.windows.test.ts": 1.8,
+  "src/infra/openclaw-process-census.test.ts": 1.7,
   "src/infra/ports.test.ts": 3.2,
   "src/infra/process-env.test.ts": 0.1,
   "src/infra/sqlite-private-directory.windows.test.ts": 1.3,
@@ -87,6 +89,8 @@ const fileSeconds: Readonly<Record<string, number>> = {
   "src/infra/windows-diagnostic-env.test.ts": 1.8,
   "src/infra/windows-encoding.test.ts": 0.7,
   "src/infra/windows-install-roots.test.ts": 0.6,
+  "src/infra/windows-process-census.native.test.ts": 1.7,
+  "src/infra/windows-process-census.test.ts": 1.6,
   "src/infra/windows-process-start.native.test.ts": 0.7,
   "src/infra/windows-process-start.test.ts": 0.9,
   "src/media-understanding/attachments.file-url.windows.test.ts": 3.8,
@@ -103,13 +107,13 @@ const fileSeconds: Readonly<Record<string, number>> = {
   "src/process/exec.windows.test.ts": 2.6,
   "src/process/owned-stdio.real.test.ts": 2.4,
   "src/process/owned-stdio.windows.test.ts": 4.3,
+  "src/process/supervisor/service-child-group-ownership.test.ts": 0.1,
   "src/process/supervisor/supervisor.anchored-shell.real.test.ts": 5.7,
   "src/process/terminal-pty.test.ts": 1.4,
   "src/process/windows-command.test.ts": 6.5,
   "src/shared/pid-alive.env.test.ts": 1.4,
   "src/shared/runtime-import.test.ts": 1.4,
   "src/shared/worker-bundle-archive.test.ts": 4,
-  "src/skills/runtime/refresh-watch-close.test.ts": 0.1,
   "src/skills/runtime/refresh-watch-path.test.ts": 0.2,
   "src/skills/runtime/refresh.missing-root.integration.test.ts": 5.4,
   "src/skills/runtime/refresh.windows.test.ts": 0.3,
@@ -220,7 +224,7 @@ export function createWindowsTestShards(
       right.seconds - left.seconds || left.targets[0]!.localeCompare(right.targets[0]!, "en"),
   );
 
-  for (const count of [4, 5]) {
+  for (const count of [4, 5, 6]) {
     const shards = Array.from({ length: Math.min(count, envelopes.length) }, (_, index) => ({
       check_name: `checks-windows-node-test-${index + 1}`,
       targets: [] as string[],
@@ -234,9 +238,9 @@ export function createWindowsTestShards(
       shard.targets.push(...envelope.targets);
     }
     // Keep whole files: splitting a fixture file would repeat its prepared compiler.
-    // Growth may exceed the estimate, but must never remove coverage or exceed five jobs.
+    // Growth may exceed the estimate, but must never remove coverage or exceed six jobs.
     if (
-      count === 5 ||
+      count === 6 ||
       shards.every((shard) => Math.ceil(shard.predicted_seconds) < targetSeconds)
     ) {
       return shards.map((shard) => ({

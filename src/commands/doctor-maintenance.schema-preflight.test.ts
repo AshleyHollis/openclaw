@@ -14,7 +14,7 @@ import { extractSqliteTableSchema } from "../infra/sqlite-schema-sql.js";
 import { createLegacyDatabaseFixture } from "../infra/state-migrations.media-persistence.test-support.js";
 import { setLoggerOverride } from "../logging/logger.js";
 import { testApi } from "../logging/logger.test-support.js";
-import { readAgentDeletionRecoveryHolds } from "../state/agent-deletion-journal-recovery.js";
+import { readAgentDeletionRecoveryHolds } from "../state/agent-deletion-journal-recovery.kernel.js";
 import { OPENCLAW_AGENT_SCHEMA_VERSION } from "../state/openclaw-agent-db-contract.js";
 import { unregisterOpenClawAgentDatabase } from "../state/openclaw-agent-db-registry.js";
 import { recordOpenClawDatabaseQuarantine } from "../state/openclaw-quarantine-store.js";
@@ -258,6 +258,8 @@ it.each(["present", "missing"] as const)(
             })
           : undefined;
       const heldBytes = heldPath ? fs.readFileSync(heldPath) : undefined;
+      const resultPath = state.path("doctor-result.json");
+      vi.stubEnv("OPENCLAW_UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH", resultPath);
       const initial = openOpenClawStateDatabase({ env: state.env });
       if (history === "missing") {
         initial.db.exec("DROP TABLE agent_deletion_journal");
@@ -334,14 +336,38 @@ it.each(["present", "missing"] as const)(
       expect(snapshotPath && fs.existsSync(snapshotPath)).toBe(false);
 
       const output = [...runtime.log.mock.calls, ...runtime.error.mock.calls].flat().join("\n");
-      if (heldPath) {
-        expect(runtime.exit, output).toHaveBeenCalledExactlyOnceWith(1);
-        expect(output).toContain("Failing check agent-deletion-journal");
-        expect(mocks.outro).not.toHaveBeenCalledWith("Doctor complete.");
-      } else {
-        expect(runtime.exit, output).not.toHaveBeenCalled();
-        expect(mocks.outro).toHaveBeenCalledWith("Doctor complete.");
-      }
+      const assertDoctorOutcome = () => {
+        if (heldPath) {
+          expect(runtime.exit).toHaveBeenCalledTimes(1);
+          expect(runtime.exit).toHaveBeenCalledWith(1);
+          expect(mocks.outro).not.toHaveBeenCalledWith("Doctor complete.");
+          expect(mocks.writeUpdatePostInstallDoctorResult).toHaveBeenCalledWith({
+            resultPath,
+            result: expect.objectContaining({
+              status: "error",
+              maintenanceRefusal: { kind: "data-at-risk", reason: "incomplete-migration" },
+              failureFacts: [
+                {
+                  check: "agent-deletion-journal",
+                  code: "unverified-agent-databases",
+                  message: expect.stringContaining("1 store held back"),
+                },
+              ],
+            }),
+          });
+          expect(runtime.error.mock.calls.flat().join("\n")).toContain(
+            "agent-deletion-journal (unverified-agent-databases)",
+          );
+        } else {
+          expect(runtime.exit).not.toHaveBeenCalled();
+          expect(mocks.outro).toHaveBeenCalledWith("Doctor complete.");
+          expect(mocks.writeUpdatePostInstallDoctorResult).toHaveBeenCalledWith({
+            resultPath,
+            result: expect.objectContaining({ status: "ok" }),
+          });
+        }
+      };
+      assertDoctorOutcome();
       expect(output).toContain(`Warning: Rebuilt corrupt shared-state SQLite indexes: ${index}`);
       const backupLine = runtime.log.mock.calls
         .flat()
@@ -366,6 +392,7 @@ it.each(["present", "missing"] as const)(
         ]);
         expect(fs.readFileSync(heldPath)).toEqual(heldBytes);
         expect(output).toContain("recorded a Doctor receipt");
+        expect(output).toContain(heldPath);
       }
 
       // Model a committed REINDEX whose quarantine finalization was interrupted.
@@ -380,17 +407,12 @@ it.each(["present", "missing"] as const)(
       ).toBe(true);
       runtime.exit.mockClear();
       runtime.error.mockClear();
+      mocks.outro.mockClear();
+      mocks.writeUpdatePostInstallDoctorResult.mockClear();
       await runCommandWithRuntime(runtime, () =>
         runDoctorHealthFlow(runtime, { repair: true, nonInteractive: true }),
       );
-      if (heldPath) {
-        expect(runtime.exit).toHaveBeenCalledExactlyOnceWith(1);
-        expect(runtime.error.mock.calls.flat().join("\n")).toContain(
-          "Failing check agent-deletion-journal",
-        );
-      } else {
-        expect(runtime.exit, runtime.error.mock.calls.flat().join("\n")).not.toHaveBeenCalled();
-      }
+      assertDoctorOutcome();
       expect(
         openOpenClawStateDatabase({ env: state.env })
           .db.prepare("SELECT * FROM audit_events NOT INDEXED")

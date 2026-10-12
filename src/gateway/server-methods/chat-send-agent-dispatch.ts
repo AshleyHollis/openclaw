@@ -185,6 +185,7 @@ export function startChatDispatch(params: StartChatDispatchParams): void {
     session,
     hasCronCreatorAuthority: cronCreatorAuthority !== undefined,
     suppressReplies: progressRefresh,
+    releaseSourceWorkAdmission: admission.releaseSourceWorkAdmission,
     retainWorkAdmission: retainGatewayWorkAdmission,
     armOperatorRunCancellation: admission.armOperatorRunCancellation,
     retireOperatorRunCancellation: admission.retireOperatorRunCancellation,
@@ -288,6 +289,7 @@ export function startChatDispatch(params: StartChatDispatchParams): void {
           if (replyContextFieldsPromise && !preAckReplyContextPromise) {
             const replyContextFields = await replyContextFieldsPromise;
             assertWorkspaceRunOwnership?.();
+            assertSessionIncarnationCurrent?.();
             applyChatSendReplyContextFields(ctx, replyContextFields);
             messageInjectionAttempt = beginCapturedMessageInjection();
           }
@@ -306,6 +308,7 @@ export function startChatDispatch(params: StartChatDispatchParams): void {
               target: messageInjectionTarget!,
             });
             assertWorkspaceRunOwnership?.();
+            assertSessionIncarnationCurrent?.();
             if (injected) {
               acceptedMessageInjection = true;
               return {

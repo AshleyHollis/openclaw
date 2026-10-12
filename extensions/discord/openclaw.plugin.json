@@ -1,9 +1,18 @@
 {
   "id": "discord",
-  "categories": ["channels"],
+  "categories": [
+    "channels"
+  ],
   "doctorContract": {
     "configRepair": true,
-    "stateMigrations": [{ "id": "discord-legacy-state" }]
+    "stateMigrations": [
+      {
+        "id": "discord-retired-state"
+      },
+      {
+        "id": "discord-legacy-state"
+      }
+    ]
   },
   "name": "Discord",
   "description": "OpenClaw Discord channel plugin for channels, DMs, commands, and app events.",
@@ -35,5 +44,8 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {}
+  },
+  "controlUi": {
+    "entry": "dist/control-ui/591b4199f123a2e0d03eca34cf0e3d6e2ff48060c8e5abfe8d82088070ebaca9/index.js"
   }
 }

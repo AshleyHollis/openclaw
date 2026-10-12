@@ -34,10 +34,15 @@ describe("update-cli child-owned deferred completion", () => {
         command: argv[2],
         order: vi.mocked(runUtf8CommandWithTimeout).mock.invocationCallOrder[index] ?? 0,
       })),
-      ...vi.mocked(runExec).mock.calls.map(([, args], index) => ({
-        command: args[1],
-        order: vi.mocked(runExec).mock.invocationCallOrder[index] ?? 0,
-      })),
+      // Doctor's UTF-8 effect fixture delegates to runExec. Count the command
+      // once at its production ingress; runExec owns config validation.
+      ...vi
+        .mocked(runExec)
+        .mock.calls.flatMap(([, args], index) =>
+          args[1] === "config"
+            ? [{ command: args[1], order: vi.mocked(runExec).mock.invocationCallOrder[index] ?? 0 }]
+            : [],
+        ),
     ]
       .filter(({ command }) => command === "doctor" || command === "config")
       .toSorted((left, right) => left.order - right.order)

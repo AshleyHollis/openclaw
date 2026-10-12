@@ -1,7 +1,14 @@
-import { executeSqliteQueryTakeFirstSync, getNodeSqliteKysely } from "../../infra/kysely-sync.js";
+import {
+  executeSqliteQuerySync,
+  executeSqliteQueryTakeFirstSync,
+  getNodeSqliteKysely,
+  sqliteStringSet,
+} from "../../infra/kysely-sync.js";
 import { coerceRequiredSqliteNumber as sqliteNumber } from "../../infra/sqlite-number.js";
+import type { OpenClawAgentDatabase } from "../../state/openclaw-agent-db-contract.js";
 import type { DB as OpenClawAgentKyselyDatabase } from "../../state/openclaw-agent-db.generated.js";
 import type { SessionStateDeleteSnapshot } from "./session-accessor.sqlite-delete-snapshot.types.js";
+import { getSessionKysely } from "./session-accessor.sqlite-scope-helpers.js";
 
 export function sqliteSessionStateDeleteSnapshotsEqual(
   left: SessionStateDeleteSnapshot,
@@ -81,4 +88,21 @@ export function readSessionStateDeleteSnapshot(
     trajectoryLastSeq: lastTrajectory?.seq ?? null,
     transcriptUpdatedAt: window?.transcript_updated_at ?? null,
   };
+}
+
+/** Ids of every persisted generation owned by the given logical session keys. */
+export function readSessionGenerationIdsForKeys(
+  database: Pick<OpenClawAgentDatabase, "db">,
+  keys: Iterable<string>,
+  options: { exactStoredKeys?: boolean } = {},
+): string[] {
+  const sessionKeys = [...keys].map((key) => (options.exactStoredKeys ? key : key.trim()));
+  const db = getSessionKysely(database.db);
+  return executeSqliteQuerySync(
+    database.db,
+    db
+      .selectFrom("session_windows")
+      .select("session_id")
+      .where("session_key", "in", sqliteStringSet(sessionKeys)),
+  ).rows.map((row) => row.session_id);
 }

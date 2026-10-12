@@ -37,6 +37,7 @@ export type WorkboardProps = {
   host: object;
   client: GatewayBrowserClient | null;
   connected: boolean;
+  connectionGeneration?: number;
   canWrite?: boolean;
   canGrant?: boolean;
   canModelOverride?: boolean;
@@ -49,6 +50,7 @@ export type WorkboardProps = {
   showAgentFilter?: boolean;
   onOpenSession: ControlUiHost["sessions"]["open"];
   onBoardFilterChange?: (boardFilter: string) => void;
+  onNewBoard?: () => void;
   onRequestUpdate?: () => void;
 };
 
@@ -172,14 +174,8 @@ export function formatEventLabel(event: WorkboardEvent): string {
   return t(eventLabelKeys[event.kind]);
 }
 
-export function matchesFilter(
-  card: WorkboardCard,
-  options: { query: string; priority: "all" | WorkboardPriority },
-): boolean {
-  if (options.priority !== "all" && card.priority !== options.priority) {
-    return false;
-  }
-  const query = options.query.trim().toLowerCase();
+export function matchesCardQuery(card: WorkboardCard, search: string): boolean {
+  const query = search.trim().toLowerCase();
   if (!query) {
     return true;
   }

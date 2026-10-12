@@ -50,6 +50,7 @@ import { renderSidebarReorderMenu } from "./sidebar-reorder.ts";
 export type AppSidebarRenderHost = AppSidebarSessionNavigationElement & {
   activePluginTabId: string;
   teamOnlineExpanded: boolean;
+  readonly people: import("./sidebar-people-controller.ts").SidebarPeopleController;
   getRouteSessionKey(): string;
   renderPinnedSidebarSession(session: SidebarRecentSession): unknown;
   toggleSection(sectionId: string): void;
@@ -74,11 +75,14 @@ function renderSidebarAgentCard(host: AppSidebarRenderHost) {
     agents: cardAgents,
     identity: cardIdentity,
   } = host.activeChipAgent();
+  if (!cardAgent) {
+    return renderSidebarWorkspaceHeader(host);
+  }
   const menuUnread = cardAgents.some((entry) => {
     const agentId = normalizeAgentId(entry.id);
     return agentId !== cardAgentId && host.agentUnreadCount(agentId) > 0;
   });
-  const cardName = normalizeAgentLabel(cardAgent ?? { id: cardAgentId }, cardIdentity);
+  const cardName = normalizeAgentLabel(cardAgent, cardIdentity);
   const gateway = host.sessionDataContext?.gateway;
   const avatarAuthReady = Boolean(
     gateway &&
@@ -90,11 +94,9 @@ function renderSidebarAgentCard(host: AppSidebarRenderHost) {
     <openclaw-sidebar-agent-card
       .agentName=${cardName}
       .agentId=${cardAgentId}
-      .avatarUrl=${
-        cardAgent ? resolveAgentAvatarUrl(cardAgent, cardIdentity) : cardIdentity?.avatar
-      }
+      .avatarUrl=${resolveAgentAvatarUrl(cardAgent, cardIdentity)}
       .avatarAuthReady=${avatarAuthReady}
-      .avatarText=${resolveAgentTextAvatar(cardAgent ?? { identity: {} }, cardIdentity)}
+      .avatarText=${resolveAgentTextAvatar(cardAgent, cardIdentity)}
       .environment=${host.sessionDataContext?.config?.current?.environment ?? null}
       .menuOpen=${host.sidebarMenus.agentMenuPosition !== null}
       .menuUnread=${menuUnread}
@@ -255,11 +257,11 @@ export function renderAppSidebarHomeRow(host: AppSidebarRenderHost) {
   const session = mainRow ? host.projectHomeSession(mainRow, agentId) : null;
   const attention = session?.attention ?? host.resolveSessionAttention({ key: mainKey, agentId });
   const attentionLabel = sessionAttentionTooltipLabel(attention);
-  const outboxAttentionCount = host.outboxAttentionCountForSession(mainKey);
+  const outboxAttentionCount = host.storedOutboxes?.attentionCountForSession(mainKey) ?? 0;
   const active =
     isSessionRouteId(host.activeRouteId) &&
     areUiSessionKeysEquivalent(host.getRouteSessionKey(), mainKey);
-  const hasComposerDraft = host.hasSessionDraft(mainKey);
+  const hasComposerDraft = host.storedOutboxes?.hasSessionDraft(mainKey) ?? false;
   const ownRun = mainRow ? isSessionRunActive(mainRow) : false;
   const subagentsWorking = (session?.runningChildCount ?? 0) > 0;
   const running = ownRun || subagentsWorking;
@@ -395,16 +397,12 @@ export function renderAppSidebarFooterBar(host: AppSidebarRenderHost) {
                   lastError: host.lastError,
                   announce: false,
                 })
-              : html`
-                  ${
-                    gateway
-                      ? html`<span class="sidebar-identity-card__gateway" aria-hidden="true">
-                          <span class="sidebar-gateway-name">${gateway.name}</span>
-                          ${gatewayPrimaryTag ? html`<span class="sidebar-gateway-primary">${gatewayPrimaryTag}</span>` : nothing}
-                        </span>`
-                      : nothing
-                  }
-                `
+              : gateway
+                ? html`<span class="sidebar-identity-card__gateway" aria-hidden="true">
+                    <span class="sidebar-gateway-name">${gateway.name}</span>
+                    ${gatewayPrimaryTag ? html`<span class="sidebar-gateway-primary">${gatewayPrimaryTag}</span>` : nothing}
+                  </span>`
+                : nothing
           }
         </span>
       </button>
@@ -454,6 +452,10 @@ export function renderAppSidebarZoneEntry(
       ? host.sessionOrganizer.sidebarZoneDropTarget.position
       : null;
   const pluginTab = entry.type === "plugin" ? pluginTabs.get(entry.key) : undefined;
+  const location = host.router?.getState().location;
+  const currentNavigationHref = location
+    ? `${location.pathname}${location.search}${location.hash}`
+    : window.location.href;
   const content =
     entry.type === "route"
       ? host.sidebarMenus.renderRoute(entry.route)
@@ -463,7 +465,7 @@ export function renderAppSidebarZoneEntry(
           ? html`<openclaw-plugin-contributions
               .kind=${"navigation"}
               .navigationKey=${entry.key}
-              .currentNavigationHref=${`${window.location.pathname}${window.location.search}`}
+              .currentNavigationHref=${currentNavigationHref}
             ></openclaw-plugin-contributions>`
           : sessionRows.has(entry.key)
             ? host.renderPinnedSidebarSession(sessionRows.get(entry.key)!)
@@ -496,23 +498,24 @@ export function renderAppSidebarZoneEntry(
               : nothing
       }
       @dragend=${draggable ? () => host.sessionOrganizer.finishSidebarEntryDrag() : nothing}
-      @dragover=${
-        allowReorder
-          ? (event: DragEvent) => host.sessionOrganizer.handleSidebarZoneDragOver(event, serialized)
-          : nothing
-      }
-      @drop=${allowReorder ? (event: DragEvent) => host.sessionOrganizer.handleSidebarZoneDrop(event, serialized) : nothing}
+      @dragover=${(event: DragEvent) =>
+        host.sessionOrganizer.handleSidebarZoneDragOver(event, serialized)}
+      @drop=${(event: DragEvent) => host.sessionOrganizer.handleSidebarZoneDrop(event, serialized)}
     >
       ${content}
-      ${renderSidebarReorderMenu({
-        label,
-        kind: "entry",
-        onMove: async (target, position) => {
-          host.sessionOrganizer.writeSidebarEntryAt(serialized, target, position);
-          host.requestUpdate();
-          await host.updateComplete;
-        },
-      })}
+      ${
+        allowReorder
+          ? renderSidebarReorderMenu({
+              label,
+              kind: "entry",
+              onMove: async (target, position) => {
+                host.sessionOrganizer.writeSidebarEntryAt(serialized, target, position);
+                host.requestUpdate();
+                await host.updateComplete;
+              },
+            })
+          : nothing
+      }
     </div>
   `;
 }
@@ -536,7 +539,7 @@ export function renderAppSidebarPluginNavigationGroups(
           <span class="sidebar-nav__tools-label">${group.label}</span>
         </summary>
         <div class="nav-section__items">
-          ${group.entries.map((entry) =>
+          ${repeat(group.entries, serializeSidebarEntry, (entry) =>
             renderAppSidebarZoneEntry(host, entry, sessionRows, pluginTabs, false),
           )}
         </div>

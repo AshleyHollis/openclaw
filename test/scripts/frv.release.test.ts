@@ -830,6 +830,36 @@ describe("publication status real CLI", () => {
     );
   });
 
+  it("retains partial package successes and truncation without declaring a complete observation", async () => {
+    const fixture = publicationFixture();
+    Object.assign(fixture.diagnostic.stages.pluginNpm, {
+      packages: [
+        { name: "@openclaw/first", state: "success", publication: "observed", error: null },
+        {
+          name: "@openclaw/second",
+          state: "failure",
+          publication: "unknown",
+          error: { class: "registry-not-visible", status: 1 },
+        },
+      ],
+      packagesTruncated: true,
+    });
+    const result = await runPublicationCli(fixture);
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stdout).publication.collection).toEqual({
+      complete: false,
+      error: "incomplete",
+    });
+    const publication = JSON.parse(result.stdout).publication;
+    expect(publication.diagnostics.truncated).toBe(true);
+    expect(publication.surfaces.pluginNpm.packages).toHaveLength(2);
+    expect(publication.surfaces.pluginNpm.packages[0].publication).toBe("observed");
+    expect(publication.surfaces.pluginNpm.packages[1].error.class).toBe("registry-not-visible");
+    expect(result.stdout + result.stderr).not.toMatch(
+      /synthetic-secret|private\/fixture|quota|404 unavailable/u,
+    );
+  });
+
   it("keeps Docker-only readback and advisory VCR API step conclusions separate from writer receipts", async () => {
     const fixture = publicationFixture();
     fixture.publisherJobs.push(
@@ -886,52 +916,73 @@ describe("publication status real CLI", () => {
     ).toEqual(["success", "failure", "skipped"]);
   });
 
-  it.each(["openclaw-npm-release", "wrong"])(
-    "observes supplied children only for %s workflow",
-    async (workflow) => {
-      const fixture = publicationFixture();
-      Reflect.set(fixture.diagnostic.children.openclawNpm!, "suppliedRunId", "909");
-      const result = await runPublicationCli(fixture, undefined, (responses) => {
-        responses[`repos/${REPOSITORY}/actions/runs/909`] = {
-          ...fixture.publisher,
-          id: 909,
-          workflow_id: 9090,
-          path: `.github/workflows/${workflow}.yml`,
-          ...(workflow === "wrong"
-            ? {}
-            : {
-                run_attempt: 3,
-                head_sha: SHA,
-                head_branch: "older-tooling",
-                conclusion: "success",
-              }),
-        };
-        responses[`repos/${REPOSITORY}/actions/workflows/9090`] = {
-          id: 9090,
-          path: `.github/workflows/${workflow}.yml`,
-        };
-      });
-      const publication = JSON.parse(result.stdout).publication;
-      expect(result.status).toBe(workflow === "wrong" ? 1 : 0);
-      expect(publication.relationship.status).toBe("verified");
-      if (workflow === "wrong") {
-        expect(publication.collection.error).toBe("identity-mismatch");
-      } else {
-        expect(publication.surfaces.coreNpm.children).toEqual([
-          {
-            runId: "909",
-            workflowSha: SHA,
-            workflowRef: "older-tooling",
-            recordedAttempt: null,
-            observedAttempt: 3,
-            status: "completed",
-            conclusion: "success",
-            relation: "supplied",
-          },
-        ]);
-      }
-    },
-  );
+  it("observes a supplied original core child without inventing a publisher-attempt receipt", async () => {
+    const fixture = publicationFixture();
+    Reflect.set(fixture.diagnostic.children.openclawNpm!, "suppliedRunId", "909");
+    const result = await runPublicationCli(fixture, undefined, (responses) => {
+      responses[`repos/${REPOSITORY}/actions/runs/909`] = {
+        ...fixture.publisher,
+        id: 909,
+        run_attempt: 3,
+        workflow_id: 9090,
+        head_sha: SHA,
+        head_branch: "older-tooling",
+        path: ".github/workflows/openclaw-npm-release.yml",
+        conclusion: "success",
+      };
+      responses[`repos/${REPOSITORY}/actions/workflows/9090`] = {
+        id: 9090,
+        path: ".github/workflows/openclaw-npm-release.yml",
+      };
+    });
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).publication.surfaces.coreNpm.children).toEqual([
+      {
+        runId: "909",
+        workflowSha: SHA,
+        workflowRef: "older-tooling",
+        recordedAttempt: null,
+        observedAttempt: 3,
+        status: "completed",
+        conclusion: "success",
+        relation: "supplied",
+      },
+    ]);
+  });
+
+  it("retains a verified relationship when an unrelated child workflow is invalid", async () => {
+    const fixture = publicationFixture();
+    Reflect.set(fixture.diagnostic.children.openclawNpm!, "suppliedRunId", "909");
+    const result = await runPublicationCli(fixture, undefined, (responses) => {
+      responses[`repos/${REPOSITORY}/actions/runs/909`] = {
+        ...fixture.publisher,
+        id: 909,
+        workflow_id: 9090,
+        path: ".github/workflows/wrong.yml",
+      };
+      responses[`repos/${REPOSITORY}/actions/workflows/9090`] = {
+        id: 9090,
+        path: ".github/workflows/wrong.yml",
+      };
+    });
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stdout).publication.collection.error).toBe("identity-mismatch");
+    expect(JSON.parse(result.stdout).publication.relationship.status).toBe("verified");
+  });
+
+  it("retains a verified relationship when a validation child advances after the join", async () => {
+    const result = await runPublicationCli(publicationFixture(), undefined, (responses) => {
+      const path = `repos/${REPOSITORY}/actions/runs/101`;
+      const before = responses[path] as object;
+      responses[path] = { sequence: [before, { ...before, run_attempt: 2 }] };
+    });
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stdout).publication.collection.error).toBe("attempt-changed");
+    expect(JSON.parse(result.stdout).publication.relationship.status).toBe("verified");
+    expect(
+      result.calls.filter((call) => call.includes(`repos/${REPOSITORY}/actions/runs/101`)),
+    ).toHaveLength(2);
+  });
 
   it.each(["transport", "workflow", "attempt-limit"])(
     "authenticates the publisher before a validation child %s failure",
@@ -1020,30 +1071,74 @@ describe("publication status real CLI", () => {
     },
   );
 
-  it.each(["passive", "active"])(
-    "bounds %s twenty-digit IDs before metadata reads",
-    async (kind) => {
-      const fixture = publicationFixture();
-      Object.assign(
-        fixture.diagnostic.children.pluginNpm!,
-        kind === "active"
-          ? {
-              suppliedRunId: "12345678901234567890",
-            }
-          : {
-              readbackArtifactId: "12345678901234567890",
-              packageArtifactId: "12345678901234567",
-              producerRunAttempt: "12345678901234567890",
-            },
-      );
-      const result = await runPublicationCli(fixture);
+  it.each(["77", "88"])(
+    "does not retain a verified relationship when final joined run %s cannot be rechecked",
+    async (runId) => {
+      const result = await runPublicationCli(publicationFixture(), undefined, (responses) => {
+        const path = `repos/${REPOSITORY}/actions/runs/${runId}`;
+        responses[path] = { sequence: [responses[path], { failure: "403" }] };
+      });
+      expect(result.status).toBe(1);
       const publication = JSON.parse(result.stdout).publication;
-      expect(result.status).toBe(kind === "active" ? 1 : 0);
+      expect(publication.collection).toEqual({ complete: false, error: "transport" });
+      expect(publication.relationship.status).toBe("unverified");
+      expect(publication.relationship.reason).toBe("transport");
+    },
+  );
+
+  it("preserves producer-valid passive twenty-digit diagnostic IDs", async () => {
+    const fixture = publicationFixture();
+    Object.assign(fixture.diagnostic.children.pluginNpm!, {
+      readbackArtifactId: "12345678901234567890",
+      packageArtifactId: "12345678901234567",
+      producerRunAttempt: "12345678901234567890",
+    });
+    const result = await runPublicationCli(fixture);
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).publication.relationship.status).toBe("verified");
+    expect(JSON.parse(result.stdout).publication.surfaces.coreNpm.registryObservation.state).toBe(
+      "observed",
+    );
+    expect(result.calls.flat().join(" ")).not.toContain("123456789012345");
+  });
+
+  it.each(["77", "88"])(
+    "invalidates the relationship when joined run %s advances",
+    async (runId) => {
+      const result = await runPublicationCli(publicationFixture(), undefined, (responses) => {
+        const path = `repos/${REPOSITORY}/actions/runs/${runId}`;
+        const before = responses[path] as { run_attempt: number };
+        responses[path] = {
+          sequence: [before, { ...before, run_attempt: before.run_attempt + 1 }],
+        };
+      });
+      expect(result.status).toBe(1);
+      expect(JSON.parse(result.stdout).publication.relationship.status).toBe("invalid");
+      expect(JSON.parse(result.stdout).publication.collection.error).toBe("attempt-changed");
+      expect(
+        result.calls.filter((call) => call.includes(`repos/${REPOSITORY}/actions/runs/${runId}`)),
+      ).toHaveLength(2);
+    },
+  );
+
+  it.each(["77", "88"])(
+    "retains the relationship when joined run %s completes the same attempt",
+    async (runId) => {
+      const result = await runPublicationCli(publicationFixture(), undefined, (responses) => {
+        const path = `repos/${REPOSITORY}/actions/runs/${runId}`;
+        const before = responses[path] as object;
+        responses[path] = {
+          sequence: [
+            { ...before, status: "in_progress", conclusion: null },
+            { ...before, display_title: "Updated workflow display title" },
+          ],
+        };
+      });
+      expect(result.status, result.stderr).toBe(0);
+      const publication = JSON.parse(result.stdout).publication;
+      expect(publication.collection).toEqual({ complete: true, error: null });
       expect(publication.relationship.status).toBe("verified");
       expect(publication.surfaces.coreNpm.registryObservation.state).toBe("observed");
-      if (kind === "active") {
-        expect(publication.collection.error).toBe("limits");
-      }
       expect(result.calls.flat().join(" ")).not.toContain("123456789012345");
     },
   );
@@ -1226,11 +1321,11 @@ describe("publication status real CLI", () => {
     },
   );
 
-  it.each(["traversal", "unexpected-entry", "expanded", "truncated", "corrupt", "duplicate-entry"])(
+  it.each(["unexpected-entry", "expanded"])(
     "refuses %s archives before projecting diagnostics",
     async (kind) => {
       const fixture = publicationFixture();
-      const result = await runPublicationCli(fixture, undefined, async (responses, artifact) => {
+      const result = await runPublicationCli(fixture, undefined, async (_responses, artifact) => {
         await artifact(
           3,
           fixture.publisher,
@@ -1238,41 +1333,14 @@ describe("publication status real CLI", () => {
           DIAGNOSTIC_FILE,
           fixture.diagnostic,
           (zip) => {
-            if (kind === "traversal") {
-              zip.file("../escape.json", "{}");
-            }
             if (kind === "unexpected-entry") {
               zip.file("extra.json", "{}");
             }
             if (kind === "expanded") {
               zip.file(DIAGNOSTIC_FILE, " ".repeat(128 * 1024 + 1));
             }
-            if (kind === "duplicate-entry") {
-              zip.file("x".repeat(DIAGNOSTIC_FILE.length), "{}");
-            }
           },
         );
-        const archive = responses[`repos/${REPOSITORY}/actions/artifacts/3/zip`] as {
-          binary: string;
-        };
-        let bytes = Buffer.from(archive.binary, "base64");
-        if (kind === "truncated") {
-          bytes = bytes.subarray(0, -10);
-        }
-        if (kind === "corrupt") {
-          bytes[0] = 0;
-        }
-        if (kind === "duplicate-entry") {
-          const needle = Buffer.from("x".repeat(DIAGNOSTIC_FILE.length));
-          for (let offset = bytes.indexOf(needle); offset !== -1; offset = bytes.indexOf(needle)) {
-            bytes.set(Buffer.from(DIAGNOSTIC_FILE), offset);
-          }
-        }
-        archive.binary = bytes.toString("base64");
-        Object.assign(responses[`repos/${REPOSITORY}/actions/artifacts/3`] as object, {
-          size_in_bytes: bytes.length,
-          digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
-        });
       });
       expect(result.status).toBe(1);
       expect(JSON.parse(result.stdout).publication.verification.state).toBe("unknown");

@@ -2,18 +2,16 @@
 
 This directory contains the public, reproducible overlay used to build the OpenClaw image for the TerraMaster NAS. It deliberately contains no NAS credentials, deployment credentials, Discord tokens, model credentials, or private infrastructure state.
 
-The current source candidate integrates pinned upstream tag `v2026.9.9` at
-commit `bcfc88812a35243893585dbeca87ca41b48272ca` over the frozen native candidate
-`245fcc6e0f88bc63098df2cec533ccc95b86b938`, preserving the deployed Life fork
-at `26a9c0faa4124e53ae2eab34291d68a7245f630c`. The approved active-answer
-compaction wait and commentary reconciliation are carried at their native owners.
-See [the Code-first integration handoff](stable-2026.9.9.md) for source scope,
-compatibility limits and the remaining qualification sequence.
-Historical release manifests and runtime installation locks describe their frozen
-artifacts, not this candidate. They must not be used as proof that the 9.9 package,
-managed Codex plugin or image is built or installed.
+The Next source candidate integrates pinned upstream tag `v2026.10.1` at
+commit `e178c39e9aae3fa440735217f9aef9574f286677` over the frozen Current native
+candidate `ea4135dbeced9c393ab4f6ebde8bf3e751ea5fa2`, with the separately approved
+reliability, result review, operator and source-handoff owners. See
+[the Next integration handoff](next-2026.10.1.md) for scope and qualification gates.
+The [9.9 integration handoff](stable-2026.9.9.md) remains historical evidence.
+Historical manifests and installation locks describe their frozen artifacts;
+they do not qualify the combined Next source, archive, build or host.
 
-The active filesystem package patch is `@openclaw/fs-safe@0.21.1`, with durable
+The active filesystem package patch is `@openclaw/fs-safe@0.24.2`, with durable
 publication owned by `src/infra/durable-publication.ts`. Retired filesystem
 adapters and the unreferenced SQLite snapshot worker are not resurrected.
 Fork Topic rollback, revision-aware scheduling, transcript and Control UI public

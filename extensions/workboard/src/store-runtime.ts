@@ -1,6 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import type { WorkboardChange } from "@openclaw/workboard-contract";
+import type {
+  WorkboardBoardSummary,
+  WorkboardChange,
+  WorkboardListResult,
+} from "@openclaw/workboard-contract";
 import type { PreparedSessionTranscriptSourceAdmission } from "openclaw/plugin-sdk/session-transcript-runtime";
 import type {
   WorkboardCardStore,
@@ -9,6 +13,10 @@ import type {
 } from "./persistence-types.js";
 
 export class WorkboardStoreRuntime {
+  protected readonly cardLists = new Map<
+    string | undefined,
+    Promise<WorkboardListResult & { boards: WorkboardBoardSummary[] }>
+  >();
   private readonly operationScope = new AsyncLocalStorage<{ active: boolean }>();
   private readonly operations = new Set<Promise<unknown>>();
   private mutationQueue: Promise<unknown> = Promise.resolve();
@@ -65,6 +73,7 @@ export class WorkboardStoreRuntime {
         while (this.operations.size > 0) {
           await Promise.allSettled(this.operations);
         }
+        this.cardLists.clear();
         this.operationScope.disable();
         await this.closePersistence?.();
       })
@@ -98,6 +107,15 @@ export class WorkboardStoreRuntime {
   protected trackCardStore(store: WorkboardCardStore): WorkboardCardStore {
     return {
       ...this.track(store),
+      registerWithResultReview: (...args) =>
+        this.trackMutation(
+          () => store.registerWithResultReview(...args),
+          (result) => result !== false && result.inserted,
+        ),
+      getResultReview: (id) => this.runOperation(() => store.getResultReview(id)),
+      listResultReviews: (scope) => this.runOperation(() => store.listResultReviews(scope)),
+      resolveResultReview: (...args) =>
+        this.trackMutation(() => store.resolveResultReview(...args)),
       entries: (scope) => this.runOperation(() => store.entries(scope)),
       registerIfAbsent: (key, value) =>
         this.trackMutation(() => store.registerIfAbsent(key, value)),
@@ -122,7 +140,7 @@ export class WorkboardStoreRuntime {
     };
   }
 
-  private trackMutation<T>(
+  protected trackMutation<T>(
     run: () => Promise<T>,
     changed: (result: T) => boolean = Boolean,
   ): Promise<T> {
@@ -130,6 +148,7 @@ export class WorkboardStoreRuntime {
       const result = await run();
       if (changed(result)) {
         this.mutationRevision += 1;
+        this.cardLists.clear();
       }
       return result;
     });
@@ -209,6 +228,9 @@ export class WorkboardStoreRuntime {
   }
 
   private emit(): void {
+    // Every list includes all board summaries, so even a board-scoped payload
+    // depends on the whole store revision, including foreign SQLite commits.
+    this.cardLists.clear();
     const change = { epoch: this.epoch, revision: ++this.revision };
     for (const listener of this.listeners) {
       try {

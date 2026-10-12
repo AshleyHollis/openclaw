@@ -1,10 +1,13 @@
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import type { ControlUiSessionListSnapshot } from "../../../src/plugin-sdk/control-ui.js";
 import { createDeferred } from "../../../test/helpers/promise.js";
-import type { GatewayBrowserClient } from "../api/gateway.ts";
+import { GatewayBrowserClient } from "../api/gateway.ts";
 import type { AgentsListResult } from "../api/types.ts";
 import { createAgentSelectionCapability } from "../app/agent-selection.ts";
+import { AssistantDock, type AssistantDockOwner } from "../app/assistant-dock.ts";
 import type { ApplicationContext } from "../app/context.ts";
+import { PLUGIN_PANEL_TOGGLE_EVENT } from "../components/panel-toggle-contract.ts";
+import { takeSessionPanelToggle } from "../components/session-panel-toggle-buffer.ts";
 import { i18n } from "../i18n/index.ts";
 import { createAgentCapability } from "../lib/agents/index.ts";
 import {
@@ -12,11 +15,6 @@ import {
   createTestSessionCapability,
   sessionsResult,
 } from "../lib/sessions/session-capability.test-support.ts";
-import { ChatPaneSessionPanelToggleController } from "../pages/chat/chat-pane-session-panel-toggle.ts";
-import { createInitializationContext } from "../pages/chat/chat-pane.test-support.ts";
-import { createPageState } from "../pages/chat/chat-state-page.ts";
-import { createSessionWorkspaceProps } from "../pages/chat/components/chat-session-workspace.ts";
-import { isSidebarSlotVisible, closeSlot } from "../pages/chat/sidebar-layout.ts";
 import { createControlUiPluginHost } from "./control-ui-host.ts";
 import { type ControlUiPluginOwner, ControlUiPluginRuntime } from "./control-ui-runtime.ts";
 import { scopeControlUiHost } from "./control-ui-scope.ts";
@@ -28,10 +26,13 @@ function createRosterHost(request: GatewayBrowserClient["request"]) {
   const sessions = createTestSessionCapability(gateway);
   const context = { gateway, agents, sessions } as unknown as ApplicationContext;
   const abort = new AbortController();
-  const owner = { client, abort, descriptor: { pluginId: "review" }, disposers: new Set() } as Omit<
-    ControlUiPluginOwner,
-    "host"
-  >;
+  const owner = {
+    client,
+    abort,
+    descriptor: { pluginId: "review" },
+    disposers: new Set(),
+    contributions: { navigation: new Map() },
+  } as Omit<ControlUiPluginOwner, "host">;
   const runtime = new ControlUiPluginRuntime(() => context);
   runtime.start();
   return {
@@ -52,117 +53,6 @@ function createRosterHost(request: GatewayBrowserClient["request"]) {
 }
 
 describe("native UI roster refresh", () => {
-  it.each([false, true])(
-    "issues a fresh Files request for the same exact conversation (crypto fallback: %s)",
-    (fallback) => {
-      if (fallback) {
-        vi.stubGlobal("crypto", {
-          getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto),
-        });
-      }
-      const fixture = createRosterHost(vi.fn());
-      const selection = createAgentSelectionCapability(
-        { ...fixture.context.gateway, connection: { gatewayUrl: "ws://localhost:18789" } },
-        fixture.agents,
-      );
-      const navigate = vi.fn();
-      const setSessionKey = vi.fn();
-      Object.assign(fixture.context, { basePath: "", agentSelection: selection, navigate });
-      Object.assign(fixture.context.gateway, { setSessionKey });
-      try {
-        const target = { sessionKey: "agent:main:linked", agentId: "main" };
-        const openFiles = fixture.host.sessions.openFiles;
-        if (!openFiles) {
-          throw new Error("Expected the native Files capability");
-        }
-        openFiles(target);
-        openFiles(target);
-        expect(navigate).toHaveBeenCalledTimes(2);
-        const [first, second] = navigate.mock.calls.map((call) => call[1]);
-        expect(first.pathname).toBe(second.pathname);
-        const firstSearch = new URLSearchParams(first.search);
-        const secondSearch = new URLSearchParams(second.search);
-        expect(firstSearch.get("__openclawFilesPanel")).toBeTruthy();
-        expect(secondSearch.get("__openclawFilesPanel")).toBeTruthy();
-        expect(secondSearch.get("__openclawFilesPanel")).not.toBe(
-          firstSearch.get("__openclawFilesPanel"),
-        );
-        firstSearch.delete("__openclawFilesPanel");
-        secondSearch.delete("__openclawFilesPanel");
-        expect(secondSearch.toString()).toBe(firstSearch.toString());
-        expect(firstSearch.get("__openclawFilesSession")).toBe(target.sessionKey);
-        expect(first.pathname).not.toContain("linked");
-        expect(setSessionKey).not.toHaveBeenCalled();
-      } finally {
-        fixture.dispose();
-        if (fallback) {
-          vi.unstubAllGlobals();
-        }
-      }
-    },
-  );
-
-  it("opens Files B through the real host and pane without replacing Chat A or its draft", async () => {
-    const request = vi.fn(async (method: string) =>
-      method === "sessions.files.list"
-        ? { sessionKey: "agent:writer:files", files: [] }
-        : { artifacts: [] },
-    );
-    const fixture = createRosterHost(request);
-    onTestFinished(fixture.dispose);
-    const navigate = vi.fn();
-    Object.assign(fixture.context, { navigate });
-    const state = createPageState(
-      createInitializationContext(),
-      { invalidate: vi.fn(), afterCommit: () => () => {} },
-      document.createElement("div"),
-    );
-    Object.assign(state, {
-      client: fixture.context.gateway.snapshot.client,
-      connected: true,
-      connectionEpoch: 1,
-      sessions: fixture.sessions,
-      sessionKey: "agent:main:main",
-      chatMessage: "Keep this draft",
-      agentsList: { defaultId: "main", agents: [] },
-      sidebarLayout: { columns: [] },
-    });
-    const controller = new ChatPaneSessionPanelToggleController({
-      current: () => ({
-        state,
-        renderRoot: document.createElement("div"),
-        linkReaders: [],
-        updateComplete: Promise.resolve(),
-      }),
-      pending: new Map(),
-      requestUpdate: vi.fn(),
-      updateSidebarLayout: (layout) => {
-        state.sidebarLayout = layout;
-      },
-    });
-    onTestFinished(controller.subscribe());
-    const route = window.location.href;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      fixture.host.sessions.openFiles!({ sessionKey: "agent:writer:files", agentId: "writer" });
-      expect(navigate).not.toHaveBeenCalled();
-      expect(window.location.href).toBe(route);
-      expect(fixture.host.sessions.selectedKey).toBe("agent:main:main");
-      expect(state.sessionKey).toBe("agent:main:main");
-      expect(state.chatMessage).toBe("Keep this draft");
-      expect(isSidebarSlotVisible(state.sidebarLayout, "workspace")).toBe(true);
-      expect(isSidebarSlotVisible(state.sidebarLayout, "conversation")).toBe(true);
-      const props = createSessionWorkspaceProps(state, { expanded: true });
-      expect(props.sessionKey).toBe("agent:writer:files");
-      await vi.waitFor(() =>
-        expect(request).toHaveBeenCalledWith(
-          "sessions.files.list",
-          expect.objectContaining({ sessionKey: "agent:writer:files", agentId: "writer" }),
-        ),
-      );
-      state.sidebarLayout = closeSlot(state.sidebarLayout, "workspace");
-    }
-  });
-
   it("observes independent session windows without replacing or exposing the application roster", async () => {
     const primary = sessionsResult(
       [{ key: "agent:main:current", kind: "direct", updatedAt: 1 }],
@@ -504,71 +394,46 @@ describe("native UI locale subscription", () => {
 });
 
 describe("native UI page navigation", () => {
-  it.each([
-    ["global", "/chat/writer"],
-    [
-      "agent:writer:reminder:7f56867a-dfb8-4a7d-9951-537c6e6a0c61",
-      "/chat/writer/reminder/7f56867a-dfb8-4a7d-9951-537c6e6a0c61",
-    ],
-  ])(
-    "opens exact %s in Chat without changing its Dashboard preference",
-    async (sessionKey, pathname) => {
-      const request = vi
-        .fn()
-        .mockResolvedValue(
-          sessionsResult(
-            [{ key: sessionKey, kind: "direct", agentId: "writer", boardFace: "dashboard" }],
-            1,
-          ),
-        );
-      const fixture = createRosterHost(request);
-      onTestFinished(fixture.dispose);
-      const selection = createAgentSelectionCapability(
-        {
-          ...fixture.context.gateway,
-          connection: { gatewayUrl: "ws://localhost:18789" },
+  it("pins only registered destinations once through sidebar preferences and retires pin handles", () => {
+    const fixture = createRosterHost(vi.fn());
+    onTestFinished(fixture.dispose);
+    let sidebarEntries = ["route:usage", "session:agent:main:existing"];
+    const update = vi.fn((patch: { sidebarEntries: string[] }) => {
+      sidebarEntries = patch.sidebarEntries;
+    });
+    Object.assign(fixture.context, {
+      navigation: {
+        get snapshot() {
+          return { sidebarEntries };
         },
-        fixture.agents,
-      );
-      onTestFinished(selection.dispose);
-      const navigate = vi.fn();
-      const setSessionKey = vi.fn(() => expect(selection.state.selectedId).toBe("writer"));
-      Object.assign(fixture.context, { basePath: "", agentSelection: selection, navigate });
-      Object.assign(fixture.context.gateway, { setSessionKey });
-      await fixture.sessions.refresh({ agentId: "writer" });
-
-      fixture.host.sessions.open({ sessionKey, agentId: "writer" });
-      expect(navigate).toHaveBeenLastCalledWith(
-        "dashboard",
-        expect.objectContaining({ pathname: pathname.replace("/chat/", "/dashboard/") }),
-      );
-      fixture.host.sessions.openChat({ sessionKey, agentId: "writer" });
-      expect(navigate).toHaveBeenLastCalledWith("chat", expect.objectContaining({ pathname }));
-      expect(setSessionKey).toHaveBeenLastCalledWith(sessionKey);
-      expect(fixture.host.sessions.rows[0]?.boardFace).toBe("dashboard");
-      fixture.host.sessions.open({ sessionKey, agentId: "writer" });
-      expect(navigate).toHaveBeenLastCalledWith(
-        "dashboard",
-        expect.objectContaining({ pathname: pathname.replace("/chat/", "/dashboard/") }),
-      );
-      expect(request).toHaveBeenCalledOnce();
-
-      const view = new AbortController();
-      const scoped = scopeControlUiHost(fixture.host, view.signal);
-      const retainedViewOpen = scoped.sessions.openChat;
-      const retainedOwnerOpen = fixture.host.sessions.openChat;
-      navigate.mockClear();
-      setSessionKey.mockClear();
-      view.abort();
-      expect(() => retainedViewOpen({ sessionKey, agentId: "writer" })).toThrow("view has ended");
-      fixture.runtime.dispose();
-      expect(() => retainedOwnerOpen({ sessionKey, agentId: "writer" })).toThrow(
-        "activation has ended",
-      );
-      expect(navigate).not.toHaveBeenCalled();
-      expect(setSessionKey).not.toHaveBeenCalled();
-    },
-  );
+        update,
+      },
+    });
+    const view = new AbortController();
+    const pin = scopeControlUiHost(fixture.host, view.signal).ui.pinNavigation;
+    pin("board");
+    expect(update).not.toHaveBeenCalled();
+    const unregister = fixture.host.ui.registerNavigation({
+      id: "board",
+      label: "Board",
+      page: { id: "board" },
+      defaultVisible: false,
+    });
+    pin("foreign/board");
+    pin("board");
+    pin("board");
+    expect(update).toHaveBeenCalledExactlyOnceWith({
+      sidebarEntries: ["route:usage", "session:agent:main:existing", "plugin:review/board"],
+    });
+    unregister();
+    sidebarEntries = ["route:usage"];
+    pin("board");
+    expect(update).toHaveBeenCalledOnce();
+    view.abort();
+    expect(() => pin("board")).toThrow("view has ended");
+    fixture.dispose();
+    expect(() => fixture.host.ui.pinNavigation("board")).toThrow("activation has ended");
+  });
 
   it("opens a queried global session with its owner before changing the selected key", async () => {
     const primary = sessionsResult(
@@ -698,6 +563,171 @@ describe("native UI page navigation", () => {
   );
 });
 
+describe("native UI plugin panels", () => {
+  it("opens only owned panels and retires retained view and activation handles", () => {
+    const navigate = vi.fn();
+    const context = {
+      basePath: "",
+      navigate,
+      gateway: { snapshot: { sessionKey: "agent:main:main", hello: null }, setSessionKey: vi.fn() },
+      agents: { state: { agentsList: null } },
+      agentSelection: { state: { selectedId: "main" }, set: vi.fn() },
+      sessions: { state: { result: null } },
+    } as unknown as ApplicationContext;
+    const abort = new AbortController();
+    const owner = {
+      abort,
+      descriptor: { pluginId: "review" },
+      disposers: new Set(),
+      contributions: { panels: new Map([["document", {}]]) },
+    } as Omit<ControlUiPluginOwner, "host">;
+    const runtime = {
+      isCurrent: () => !abort.signal.aborted,
+    } as unknown as ControlUiPluginRuntime;
+    const host = createControlUiPluginHost(() => context, runtime, owner);
+    const listener = vi.fn();
+    window.addEventListener(PLUGIN_PANEL_TOGGLE_EVENT, listener);
+    try {
+      expect(() => host.ui.openPanel("foreign/document")).toThrow("own registered panel");
+      const view = new AbortController();
+      const open = scopeControlUiHost(host, view.signal).ui.openPanel;
+      open("document", { sessionKey: "global", agentId: "writer" });
+      expect(navigate).toHaveBeenCalledWith(
+        "chat",
+        expect.objectContaining({ pathname: "/chat/writer" }),
+      );
+      expect(listener).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          detail: {
+            pluginId: "review",
+            panelId: "document",
+            sessionKey: "global",
+            agentId: "writer",
+            open: true,
+          },
+        }),
+      );
+      expect(takeSessionPanelToggle("plugin:review/document", "global", "writer")).not.toBeNull();
+      open("document", { sessionKey: "agent:writer:document" });
+      expect(navigate).toHaveBeenLastCalledWith(
+        "chat",
+        expect.objectContaining({ pathname: "/chat/writer/document" }),
+      );
+      expect(context.agentSelection.set).toHaveBeenLastCalledWith("writer");
+      expect(listener).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          detail: expect.objectContaining({
+            sessionKey: "agent:writer:document",
+            agentId: "writer",
+          }),
+        }),
+      );
+      expect(
+        takeSessionPanelToggle("plugin:review/document", "agent:writer:document", "writer"),
+      ).not.toBeNull();
+      view.abort();
+      expect(() => open("document")).toThrow("view has ended");
+      abort.abort();
+      expect(() => host.ui.openPanel("document")).toThrow("activation has ended");
+    } finally {
+      window.removeEventListener(PLUGIN_PANEL_TOGGLE_EVENT, listener);
+      abort.abort();
+    }
+  });
+});
+
+describe("native UI conversation dock", () => {
+  it("adapts dock operations, publishes snapshots, and retires activation and view handles", () => {
+    const dock = new AssistantDock();
+    let session: { key: string; activation: object } | null = null;
+    const panel: AssistantDockOwner = {
+      openSession: vi.fn((params, activation) => {
+        session = { key: params.sessionKey, activation };
+        dock.notify();
+      }),
+      closeSession: vi.fn((activation) => {
+        if (!activation || activation === session?.activation) {
+          session = null;
+          dock.notify();
+        }
+      }),
+      get openSessionKey() {
+        return session?.key ?? null;
+      },
+    };
+    const detach = dock.attach(panel);
+    const subscribe = () => () => undefined;
+    const client = new GatewayBrowserClient({ url: "ws://gateway.example.test" });
+    const { gateway } = createGatewayHarness(client);
+    const context = {
+      assistantDock: dock,
+      gateway,
+      sessions: { subscribe },
+      agents: { subscribe },
+      agentSelection: { subscribe },
+      theme: { subscribe },
+    } as unknown as ApplicationContext;
+    const runtime = new ControlUiPluginRuntime(() => context);
+    runtime.start();
+    const makeHost = () => {
+      const owner = {
+        client,
+        abort: new AbortController(),
+        descriptor: { pluginId: "review" },
+        disposers: new Set(),
+      } as Omit<ControlUiPluginOwner, "host">;
+      return {
+        host: createControlUiPluginHost(() => context, runtime, owner),
+        dispose: () => {
+          owner.abort.abort();
+          owner.disposers.forEach((dispose) => dispose());
+          owner.disposers.clear();
+        },
+      };
+    };
+    const first = makeHost();
+    const second = makeHost();
+    const notified = vi.fn(() => second.host.dock?.openSessionKey);
+    const stop = second.host.subscribe(notified);
+    const params = {
+      sessionKey: "agent:research:review",
+      agentId: "research",
+      label: "Review",
+      context: { page: "review:board", detail: { filter: "stuck" } },
+    };
+    try {
+      expect(first.host.dock?.openSessionKey).toBeNull();
+      first.host.dock?.openSession(params);
+      expect(panel.openSession).toHaveBeenCalledWith(params, expect.any(AbortController));
+      expect(notified).toHaveLastReturnedWith(params.sessionKey);
+      first.host.dock?.close();
+      expect(notified).toHaveLastReturnedWith(null);
+      first.host.dock?.openSession(params);
+      const view = new AbortController();
+      const scoped = scopeControlUiHost(second.host, view.signal);
+      const retainedOpen = scoped.dock!.openSession;
+      retainedOpen({ ...params, sessionKey: "agent:research:second" });
+      view.abort();
+      // Navigation retires a view's handles, but the activation still owns its dock.
+      expect(second.host.dock?.openSessionKey).toBe("agent:research:second");
+      expect(() => retainedOpen(params)).toThrow("view has ended");
+      first.dispose();
+      expect(second.host.dock?.openSessionKey).toBe("agent:research:second");
+      const close = second.host.dock!.close;
+      second.dispose();
+      expect(dock.openSessionKey).toBeNull();
+      expect(() => close()).toThrow("activation has ended");
+    } finally {
+      stop();
+      first.dispose();
+      second.dispose();
+      detach();
+      runtime.dispose();
+      client.stop();
+    }
+  });
+});
+
 describe("declared authenticated plugin HTTP relay", () => {
   it("relays only the declared Command Center actions without exposing the credential", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
@@ -708,12 +738,17 @@ describe("declared authenticated plugin HTTP relay", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const context = {
-      gateway: { connection: { token: "fixture-private-token" } },
-    } as unknown as ApplicationContext<RouteId>;
+      gateway: {
+        connection: { gatewayUrl: window.location.origin, token: "fixture-private-token" },
+      },
+    } as unknown as ApplicationContext;
     const abort = new AbortController();
     const owner = {
       abort,
-      client: { request: vi.fn() } as unknown as GatewayBrowserClient,
+      client: {
+        gatewayUrl: window.location.origin,
+        request: vi.fn(),
+      } as unknown as GatewayBrowserClient,
       descriptor: { pluginId: "command-center" },
       disposers: new Set(),
     } as Omit<ControlUiPluginOwner, "host">;
@@ -759,12 +794,21 @@ describe("bootstrap credential relay", () => {
       .mockResolvedValue(new Response('{"status":"clear"}', { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const context = {
-      gateway: { connection: { token: "", bootstrapToken: "fixture-bootstrap-token" } },
-    } as unknown as ApplicationContext<RouteId>;
+      gateway: {
+        connection: {
+          gatewayUrl: window.location.origin,
+          token: "",
+          bootstrapToken: "fixture-bootstrap-token",
+        },
+      },
+    } as unknown as ApplicationContext;
     const abort = new AbortController();
     const owner = {
       abort,
-      client: { request: vi.fn() } as unknown as GatewayBrowserClient,
+      client: {
+        gatewayUrl: window.location.origin,
+        request: vi.fn(),
+      } as unknown as GatewayBrowserClient,
       descriptor: { pluginId: "command-center" },
       disposers: new Set(),
     } as Omit<ControlUiPluginOwner, "host">;
@@ -792,4 +836,49 @@ describe("bootstrap credential relay", () => {
       abort.abort();
     }
   });
+});
+
+describe("plugin HTTP credential recipient", () => {
+  it.each(["admitted", "selected"] as const)(
+    "refuses a foreign %s Gateway before sending a credential",
+    async (mismatch) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const abort = new AbortController();
+      const context = {
+        gateway: {
+          connection: {
+            gatewayUrl:
+              mismatch === "selected" ? "wss://gateway-b.example.invalid" : window.location.origin,
+            token: "fixture-private-token",
+          },
+        },
+      } as unknown as ApplicationContext;
+      const owner = {
+        abort,
+        client: {
+          gatewayUrl:
+            mismatch === "admitted" ? "wss://gateway-b.example.invalid" : window.location.origin,
+          request: vi.fn(),
+        },
+        descriptor: { pluginId: "command-center" },
+        disposers: new Set(),
+      } as unknown as Omit<ControlUiPluginOwner, "host">;
+      const runtime = { isCurrent: () => true } as unknown as ControlUiPluginRuntime;
+      const host = createControlUiPluginHost(() => context, runtime, owner);
+      try {
+        await expect(
+          host.httpRequest({
+            method: "POST",
+            path: "/plugins/command-center/api/topic/actions",
+            body: "{}",
+          }),
+        ).rejects.toThrow("served by the connected Gateway");
+        expect(fetchMock).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+        abort.abort();
+      }
+    },
+  );
 });

@@ -104,7 +104,7 @@ describe("resident session rows", () => {
         updatedAt: 400,
       };
       replaceSessionEntrySync(scope, original);
-      const describe = async (requestedKey = key, agentId = "main") => {
+      const describeSession = async (requestedKey = key, agentId = "main") => {
         const respond = vi.fn();
         await sessionByKeyReadHandlers["sessions.describe"]!({
           req: { type: "req", id: "lifecycle-read", method: "sessions.describe" },
@@ -118,9 +118,12 @@ describe("resident session rows", () => {
         return respond.mock.calls[0];
       };
       await listSessions({ context, client, request: {} });
-      expect(await describe()).toMatchObject([
+      expect(await describeSession()).toMatchObject([
         true,
-        { session: { key, sessionId: original.sessionId }, lifecycleRevision: original.lifecycleRevision },
+        {
+          session: { key, sessionId: original.sessionId },
+          lifecycleRevision: original.lifecycleRevision,
+        },
       ]);
       expect(
         (await listSessions({ context, client, request: {} })).sessions.find(
@@ -128,20 +131,20 @@ describe("resident session rows", () => {
         ),
       ).not.toHaveProperty("lifecycleRevision");
       replaceSessionEntrySync(scope, { ...original, lifecycleRevision: "reset-in-place" });
-      expect(await describe()).toMatchObject([
+      expect(await describeSession()).toMatchObject([
         true,
         { session: { key, sessionId: original.sessionId }, lifecycleRevision: "reset-in-place" },
       ]);
       replaceSessionEntrySync(scope, { ...original, lifecycleRevision: undefined });
-      expect(await describe()).toMatchObject([
+      expect(await describeSession()).toMatchObject([
         true,
         { session: { key, sessionId: original.sessionId }, lifecycleRevision: null },
       ]);
-      expect(await describe("agent:main:missing")).toMatchObject([
+      expect(await describeSession("agent:main:missing")).toMatchObject([
         true,
         { session: null, lifecycleRevision: null },
       ]);
-      expect(await describe(key, "work")).toEqual([
+      expect(await describeSession(key, "work")).toEqual([
         false,
         undefined,
         expect.objectContaining({
@@ -247,28 +250,7 @@ describe("resident session rows", () => {
     });
   });
 
-  it("resolves a person reference without SQLite when every row is clean", async () => {
-    await withOpenClawTestState({ scenario: "minimal" }, async () => {
-      const context = requestContext(await seedSessions());
-      const client = identifiedClient("owner@example.com");
-      await listSessions({ context, client, request: { archived: "all" } });
-      expect(getSessionRowProjection(context)!.dirtyRowCount).toBe(0);
-      const prepares = vi.spyOn(DatabaseSync.prototype, "prepare");
-      const reads = observeMainThreadReads();
-      const result = await listSessions({
-        context,
-        client,
-        request: { archived: "all", involvingProfileId: "deadbeef" },
-      });
-      expect(result.sessions).toEqual([]);
-      expect({
-        prepares: prepares.mock.calls.length,
-        reads: reads.count(),
-      }).toEqual({ prepares: 0, reads: 0 });
-    });
-  });
-
-  it("lists for different viewers and describes without SQLite after initialization", async () => {
+  it("lists for different viewers, filters a person and describes without SQLite after initialization", async () => {
     await withOpenClawTestState({ scenario: "minimal" }, async () => {
       const cfg = await seedSessions();
       const context = requestContext(cfg);
@@ -276,6 +258,7 @@ describe("resident session rows", () => {
       const viewer = identifiedClient("viewer@example.com");
       const request = { archived: "all" as const, limit: 100 };
       await listSessions({ context, client, request });
+      expect(getSessionRowProjection(context)!.dirtyRowCount).toBe(0);
 
       const queries = vi.spyOn(sqlite, "executeSqliteQuerySync");
       const firstRows = vi.spyOn(sqlite, "executeSqliteQueryTakeFirstSync");
@@ -283,6 +266,12 @@ describe("resident session rows", () => {
       // Native calls also cover prepared compiled queries and direct PRAGMA probes.
       const prepares = vi.spyOn(DatabaseSync.prototype, "prepare");
       const reads = observeMainThreadReads();
+      const person = await listSessions({
+        context,
+        client,
+        request: { archived: "all", involvingProfileId: "deadbeef" },
+      });
+      expect(person.sessions).toEqual([]);
       const listed = await listSessions({
         context,
         client: viewer,

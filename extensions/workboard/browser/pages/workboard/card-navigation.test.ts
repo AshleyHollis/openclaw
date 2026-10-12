@@ -67,6 +67,11 @@ describe("authenticated exact card navigation", () => {
       await vi.waitFor(() => expect(page.workboard.state.detailCardId).toBe(target.cardId));
       expect(page.container.querySelector(".workboard-detail-drawer")).not.toBeNull();
       expect(page.request).toHaveBeenCalledWith("workboard.cards.list", {});
+      expect(page.request).toHaveBeenCalledWith("workboard.resultReviews.list", {
+        boardId: "ops",
+        cardId: target.cardId,
+        tenant: target.tenant,
+      });
       expect(page.request.mock.calls.map(([method]) => method)).not.toEqual(
         expect.arrayContaining([
           "workboard.cards.start",

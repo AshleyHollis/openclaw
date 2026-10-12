@@ -1,6 +1,9 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
-import { createOperationalRunInstanceRef } from "../agents/admitted-run-context.js";
+import {
+  createAdmittedRunOperatorAuthority,
+  createOperationalRunInstanceRef,
+} from "../agents/admitted-run-context.js";
 import {
   captureGatewayToolCallerAssertion,
   withGatewayToolCallerIdentity,
@@ -156,7 +159,63 @@ describe("plugin tool declaration membership", () => {
 });
 
 describe("versioned plugin tool authority", () => {
+  it.each([1, 2] as const)("ignores context-authored operator facts in V%s", (version) => {
+    const { entry, registry } = register(
+      version === 2 ? { contextVersion: 2, create: () => null } : () => null,
+    );
+    const supplied = Object.assign(
+      { senderIsOwner: true },
+      {
+        authenticatedOperator: { profileId: "invented-profile", scopes: ["operator.admin"] },
+      },
+    );
+    const context = createPluginToolFactoryContext({ entry, registry, context: supplied });
+    expect(context).not.toHaveProperty("authenticatedOperator");
+  });
+
+  it("rejects a plain operator lookalike instead of promoting it to host authority", () => {
+    const { entry, registry } = register({ contextVersion: 2, create: () => null });
+    expect(() =>
+      createPluginToolFactoryContext({
+        entry,
+        registry,
+        context: {},
+        assertInvocationCurrent() {},
+        operatorAuthority: {
+          profileId: "invented-profile",
+          scopes: ["operator.admin"],
+          assertCurrent() {},
+        },
+      }),
+    ).toThrow("issued by the host");
+  });
+
+  it.each([1, 2] as const)(
+    "does not expose a captured operator during V%s catalog discovery",
+    (version) => {
+      const { entry, registry } = register(
+        version === 2 ? { contextVersion: 2, create: () => null } : () => null,
+      );
+      const operatorAuthority = createAdmittedRunOperatorAuthority({
+        profileId: "original-profile",
+        scopes: ["operator.read"],
+        assertCurrent() {},
+      });
+      const context = createPluginToolFactoryContext({
+        entry,
+        registry,
+        context: {},
+        operatorAuthority,
+      });
+      expect(context).not.toHaveProperty("authenticatedOperator");
+    },
+  );
+
   it("requires a final-effect assertion in the versioned context type", () => {
+    expectTypeOf<OpenClawPluginToolContext>().not.toHaveProperty("authenticatedOperator");
+    expectTypeOf<OpenClawPluginToolContext<2>["authenticatedOperator"]>().toEqualTypeOf<
+      Readonly<{ profileId: string; scopes: readonly string[] }> | undefined
+    >();
     expectTypeOf<OpenClawPluginToolContext<2>["assertInvocationCurrent"]>().toEqualTypeOf<
       () => void
     >();
@@ -217,6 +276,34 @@ describe("versioned plugin tool authority", () => {
         );
       },
     );
+  });
+
+  it.each([
+    ["the memory slot owner's tools", "probe", true],
+    ["another plugin's tools", "records", false],
+  ])("checks memory audience currency only for %s", (_label, slotOwner, guarded) => {
+    const { entry, registry } = register(() => null);
+    registry.memoryCapabilities.push({
+      pluginId: slotOwner,
+      capability: {},
+      memorySlotSelected: true,
+    });
+    const assertMemoryAudienceCurrent = vi.fn(() => {
+      throw new Error("memory audience is no longer current");
+    });
+    const context = createPluginToolFactoryContext({
+      entry,
+      registry,
+      context: { assertMemoryAudienceCurrent },
+      assertInvocationCurrent: () => {},
+    });
+
+    if (guarded) {
+      expect(() => context.assertInvocationCurrent()).toThrow("no longer current");
+    } else {
+      expect(() => context.assertInvocationCurrent()).not.toThrow();
+      expect(assertMemoryAudienceCurrent).not.toHaveBeenCalled();
+    }
   });
 
   it("allows metadata construction but rejects V2 effects without an admitted invocation", async () => {

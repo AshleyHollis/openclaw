@@ -1,9 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { fileURLToPath } from "node:url";
 import { afterEach, expect, it, vi } from "vitest";
-import { registerWorkboardGatewayMethods } from "../../extensions/workboard/runtime-api.js";
 import { observeSqliteWorkerAdmissionForTest } from "../../test/helpers/sqlite-worker-admission-observer.js";
 import { createSessionTranscriptVisibleMessageDigest } from "../config/sessions/session-transcript-visible-message.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -28,7 +26,12 @@ import type { RuntimeGatewayRequestOptions } from "../plugins/runtime/types.js";
 import { closeOpenClawAgentDatabasesAsync } from "../state/openclaw-agent-db.js";
 import { resolveOpenClawAgentSqlitePath } from "../state/openclaw-agent-db.paths.js";
 import { closeOpenClawStateDatabaseAsync } from "../state/openclaw-state-db.js";
-import { ensureProfileForEmail, setUserProfileRole } from "../state/user-profiles.js";
+import { setUserProfileRole } from "../state/user-profile-writes.worker.js";
+import { ensureProfileForEmail } from "../state/user-profiles.js";
+import {
+  loadBundledPluginFacade,
+  resolveBundledPluginPublicModulePath,
+} from "../test-utils/bundled-plugin-public-surface.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { createPluginGatewayMethodDescriptor } from "./methods/descriptor.js";
 import { createGatewayMethodRegistry } from "./methods/registry.js";
@@ -49,7 +52,21 @@ it("refuses an independently injected legacy host before invoking its transport"
   const request = vi.fn(async () => {
     throw new Error("Legacy transport must not be invoked");
   });
-  const runtime = createPluginRuntime({ gateway: { isAvailable: async () => true, request } });
+  const runtime = createPluginRuntime({
+    gateway: {
+      isAvailable: async () => true,
+      request,
+      openPluginPanel: async () => {
+        throw new Error("Legacy panel broker must not be invoked");
+      },
+      readSessionFacts: async () => {
+        throw new Error("Legacy session facts broker must not be invoked");
+      },
+      subscribeSessionChanges: () => {
+        throw new Error("Legacy session changes broker must not be invoked");
+      },
+    },
+  });
   expect(SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION).toBe(1);
   expect(runtime.gateway.sessionTranscriptSourceAdmissionVersion).toBeUndefined();
   expect(() => assertSessionTranscriptGatewaySourceAdmissionAvailable(runtime.gateway)).toThrow(
@@ -106,9 +123,19 @@ async function withSourceGateway(
   }) => Promise<void>,
 ) {
   await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+    const { registerWorkboardGatewayMethods } = await loadBundledPluginFacade<{
+      registerWorkboardGatewayMethods(
+        this: void,
+        params: {
+          api: ReturnType<typeof createTestPluginApi>;
+        },
+      ): void;
+    }>({ pluginId: "workboard", artifactBasename: "runtime-api.js" });
     const readPolicy: { others: "view" | "none" } = { others: "view" };
     const config: OpenClawConfig = {
-      agents: { list: [{ id: "main", default: true }] },
+      agents: { entries: { main: {} } },
+      // Keep automatic retention writers from racing the exact source-custody lock assertions.
+      session: { maintenance: { mode: "warn" } },
       gateway: {
         roles: {
           default: "reader",
@@ -182,7 +209,10 @@ async function withSourceGateway(
     assertSessionTranscriptGatewaySourceAdmissionAvailable(runtime.gateway);
     const api = createTestPluginApi({
       runtime,
-      runtimeSource: fileURLToPath(new URL("../../extensions/workboard/index.ts", import.meta.url)),
+      runtimeSource: resolveBundledPluginPublicModulePath({
+        pluginId: "workboard",
+        artifactBasename: "index.js",
+      }),
       registerGatewayMethod(name, handler, options) {
         descriptors.push(
           createPluginGatewayMethodDescriptor({

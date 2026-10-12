@@ -19,7 +19,6 @@ import {
   type NpmLocalPackageArtifact,
 } from "../generate-npm-package-lock.mts";
 import { resolveNpmRunner } from "../npm-runner.mts";
-import type { NpmRunnerParams } from "../npm-runner.mts";
 import { mapPluginCatalogEntries } from "./bundled-plugin-build-entries.mjs";
 import {
   listPluginNpmRuntimeBuildOutputs,
@@ -64,10 +63,6 @@ function writeJsonFile(filePath: string, value: unknown) {
 
 function resolvePackageDir(repoRoot: string, packageDir: string) {
   return path.isAbsolute(packageDir) ? packageDir : path.resolve(repoRoot, packageDir);
-}
-
-function resolvePackageJsonPath(packageDir: string) {
-  return path.join(packageDir, "package.json");
 }
 
 function normalizePackPath(value: string) {
@@ -219,15 +214,8 @@ function listConfiguredBundledDependencyNames(packageJson: PluginPackageJson) {
   return [];
 }
 
-export function resolvePluginNpmCommand(
-  args: string[],
-  params: Omit<NpmRunnerParams, "npmArgs"> = {},
-) {
-  return resolveNpmRunner({ ...params, npmArgs: args });
-}
-
 function spawnNpmSync(args: string[], options: SpawnSyncOptions = {}) {
-  const invocation = resolvePluginNpmCommand(args, { env: options.env ?? process.env });
+  const invocation = resolveNpmRunner({ npmArgs: args, env: options.env ?? process.env });
   return spawnSync(invocation.command, invocation.args, {
     ...options,
     ...(invocation.env ? { env: invocation.env } : {}),
@@ -752,7 +740,21 @@ function shouldBundleDependencies(
 ) {
   if (packageJson?.openclaw?.release?.bundleRuntimeDependencies === false) {
     if (patchedDependencies.length > 0) {
-      throw new Error("patched runtime dependencies conflict with bundleRuntimeDependencies=false");
+      // Opt-out forbids broad runtime bundling. An explicit exact patch closure
+      // still preserves the installed workspace patch in the published artifact.
+      const configured = packageJson.bundleDependencies ?? packageJson.bundledDependencies;
+      const patchedNames = new Set(patchedDependencies.map(({ name }) => name));
+      if (
+        !Array.isArray(configured) ||
+        configured.length !== patchedNames.size ||
+        new Set(configured).size !== configured.length ||
+        !configured.every((name) => typeof name === "string" && patchedNames.has(name))
+      ) {
+        throw new Error(
+          "patched runtime dependencies conflict with bundleRuntimeDependencies=false",
+        );
+      }
+      return true;
     }
     return false;
   }
@@ -783,7 +785,7 @@ function installPackageLocalBundledDependencies(params: PluginPackageContext) {
   }
 
   console.error(`[plugin-npm-publish] installing bundled dependencies for ${params.pluginDir}`);
-  const packageJsonPath = resolvePackageJsonPath(params.packageDir);
+  const packageJsonPath = path.join(params.packageDir, "package.json");
   const packedPackageJsonText = fs.readFileSync(packageJsonPath, "utf8");
   const installPackageJsonBase = {
     ...params.packageJson,
@@ -860,7 +862,7 @@ function installPackageLocalBundledDependencies(params: PluginPackageContext) {
 export function resolveAugmentedPluginNpmPackageJson(params: PluginPackageParams) {
   const repoRoot = path.resolve(params.repoRoot ?? ".");
   const packageDir = resolvePackageDir(repoRoot, params.packageDir);
-  const packageJsonPath = resolvePackageJsonPath(packageDir);
+  const packageJsonPath = path.join(packageDir, "package.json");
   if (!fs.existsSync(packageJsonPath)) {
     return {
       packageJsonPath,
@@ -1066,8 +1068,8 @@ export function resolveAugmentedPluginNpmManifest(params: PluginPackageParams) {
   if (params.clawhubMetadataDir) {
     const metadataDir = path.resolve(params.clawhubMetadataDir);
     const metadata = readJsonFile(path.join(metadataDir, "openclaw.plugin.json"));
-    const sourcePackage = readJsonFile(resolvePackageJsonPath(packageDir));
-    const toolingPackage = readJsonFile(resolvePackageJsonPath(metadataDir));
+    const sourcePackage = readJsonFile(path.join(packageDir, "package.json"));
+    const toolingPackage = readJsonFile(path.join(metadataDir, "package.json"));
     if (
       typeof manifest.id !== "string" ||
       !manifest.id ||
@@ -1107,7 +1109,7 @@ export function resolveAugmentedPluginNpmManifest(params: PluginPackageParams) {
   // Manifest-only overlays have no package runtime to rewrite.
   const runtimePlan =
     (manifest.providerCatalogEntry || manifest.capabilityCatalogEntry) &&
-    fs.existsSync(resolvePackageJsonPath(packageDir))
+    fs.existsSync(path.join(packageDir, "package.json"))
       ? resolvePluginNpmRuntimeBuildPlan({ repoRoot, packageDir, profile: params.profile })
       : null;
   const augmentedManifest = mergeGeneratedChannelConfigs(
@@ -1145,7 +1147,7 @@ export function withAugmentedPluginNpmManifestForPackage<T>(
 ): T {
   const repoRoot = path.resolve(params.repoRoot ?? ".");
   const packageDir = resolvePackageDir(repoRoot, params.packageDir);
-  const packageJsonPath = resolvePackageJsonPath(packageDir);
+  const packageJsonPath = path.join(packageDir, "package.json");
   const packageJson =
     params.profile === "qa-gateway-fixture"
       ? resolvePluginNpmRuntimeBuildPlan({ repoRoot, packageDir, profile: params.profile })
@@ -1166,7 +1168,7 @@ export function withAugmentedPluginNpmManifestForPackage<T>(
     !params.clawhubMetadataDir &&
     (!packageJson || !bundleDependencies || !hasPackageRuntimeDependencies(packageJson))
   ) {
-    return withPluginNpmManifestOverlay(resolvedParams, callback);
+    return withPluginNpmManifestOverlay(resolvedParams, bundleDependencies, callback);
   }
 
   // pnpm owns the source install. npm bundling needs a separate tree so its
@@ -1177,15 +1179,11 @@ export function withAugmentedPluginNpmManifestForPackage<T>(
   try {
     fs.cpSync(packageDir, stagedPackageDir, {
       recursive: true,
-      // Historical candidates contain npm shrinkwraps. npm ci prefers them to
-      // the fresh pnpm-policy lock, so exclude only the bundle's root shrinkwrap
-      // from staging; preserve the frozen source and dependency-owned locks.
-      filter: (source) =>
-        path.basename(source) !== "node_modules" &&
-        (!bundleDependencies || source !== path.join(packageDir, "npm-shrinkwrap.json")),
+      filter: (source) => path.basename(source) !== "node_modules",
     });
     return withPluginNpmManifestOverlay(
       { ...resolvedParams, repoRoot, packageDir: stagedPackageDir },
+      bundleDependencies,
       callback,
     );
   } finally {
@@ -1195,23 +1193,11 @@ export function withAugmentedPluginNpmManifestForPackage<T>(
 
 function withPluginNpmManifestOverlay<T>(
   params: PluginPackageParams,
+  bundleDependencies: boolean,
   callback: (context: ManifestOverlayContext) => T,
 ): T {
   const repoRoot = path.resolve(params.repoRoot ?? ".");
   const packageDir = resolvePackageDir(repoRoot, params.packageDir);
-  const packageJsonPath = resolvePackageJsonPath(packageDir);
-  const packageJsonForBundlePolicy =
-    params.profile === "qa-gateway-fixture"
-      ? resolvePluginNpmRuntimeBuildPlan({ repoRoot, packageDir, profile: params.profile })
-          ?.packageJson
-      : fs.existsSync(packageJsonPath)
-        ? readJsonFile(packageJsonPath)
-        : undefined;
-  const bundleDependencies = shouldBundleDependencies(
-    params.bundleDependencies,
-    packageJsonForBundlePolicy,
-    params.patchedDependencies,
-  );
   const resolvedManifest = resolveAugmentedPluginNpmManifest({
     repoRoot,
     packageDir,
@@ -1234,19 +1220,19 @@ function withPluginNpmManifestOverlay<T>(
     resolvedPackageJson.changed && resolvedPackageJson.packageJson
       ? fs.readFileSync(resolvedPackageJson.packageJsonPath, "utf8")
       : undefined;
-  if (resolvedManifest.changed && resolvedManifest.manifest) {
-    console.error(
-      `[plugin-npm-publish] overlaying plugin manifest metadata for ${resolvedManifest.pluginId}`,
-    );
-    writeJsonFile(resolvedManifest.manifestPath, resolvedManifest.manifest);
-  }
-  if (resolvedPackageJson.changed && resolvedPackageJson.packageJson) {
-    console.error(
-      `[plugin-npm-publish] overlaying package-local runtime metadata for ${resolvedPackageJson.pluginDir}`,
-    );
-    writeJsonFile(resolvedPackageJson.packageJsonPath, resolvedPackageJson.packageJson);
-  }
   try {
+    if (resolvedManifest.changed && resolvedManifest.manifest) {
+      console.error(
+        `[plugin-npm-publish] overlaying plugin manifest metadata for ${resolvedManifest.pluginId}`,
+      );
+      writeJsonFile(resolvedManifest.manifestPath, resolvedManifest.manifest);
+    }
+    if (resolvedPackageJson.changed && resolvedPackageJson.packageJson) {
+      console.error(
+        `[plugin-npm-publish] overlaying package-local runtime metadata for ${resolvedPackageJson.pluginDir}`,
+      );
+      writeJsonFile(resolvedPackageJson.packageJsonPath, resolvedPackageJson.packageJson);
+    }
     if (bundleDependencies && resolvedPackageJson.packageJson) {
       installPackageLocalBundledDependencies({
         packageDir,

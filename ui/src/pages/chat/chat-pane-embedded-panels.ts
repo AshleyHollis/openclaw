@@ -1,11 +1,9 @@
 import type { ControlUiFocusBuildTarget } from "@openclaw/session-url-contract";
 import { html, nothing, type TemplateResult } from "lit";
-import type { DirectiveResult } from "lit/directive.js";
 import type { SessionObserverDigest } from "../../../../packages/gateway-protocol/src/schema/sessions.js";
 import type { ControlUiSessionPullRequest } from "../../../../src/gateway/control-ui-contract.js";
 import type {
   ControlUiPanel,
-  ControlUiSurfaceProps,
   ControlUiViewContext,
 } from "../../../../src/plugin-sdk/control-ui.js";
 import type { ControlUiLinkReaderDescriptor } from "../../../../src/shared/control-ui-link-reader.js";
@@ -22,8 +20,14 @@ import { t } from "../../i18n/index.ts";
 import { registerFilePreviewEnglish } from "../../i18n/locales/en-file-preview.ts";
 import type { ChatAttachment } from "../../lib/chat/chat-types.ts";
 import { canCallGatewayMethod } from "../../lib/gateway-methods.ts";
+import {
+  livePresentation,
+  presentedContent,
+  presentedProperty,
+  type PresentationValue,
+} from "../../lit/presentation-binding.ts";
 import type { ControlUiRegistration } from "../../plugins/control-ui-capability.ts";
-import { renderPluginContribution, renderPluginSurface } from "../../plugins/control-ui-view.ts";
+import { renderPluginContribution } from "../../plugins/control-ui-view.ts";
 import { SIDEBAR_PANEL_SHORTCUTS } from "./chat-pane-panel-shortcuts.ts";
 import type {
   ChatSessionCompanionThread,
@@ -37,11 +41,11 @@ import {
   closeSessionWorkspacePreview,
 } from "./components/chat-session-workspace-state.ts";
 import { resolveSessionDiffSidebarContent } from "./components/chat-session-workspace.ts";
+import type { SidebarContent } from "./components/chat-sidebar-content-types.ts";
 import type {
   SidebarPanelDefinition,
   SidebarPanelTemplates,
 } from "./components/chat-sidebar-region-types.ts";
-import type { SidebarContent } from "./components/chat-sidebar.ts";
 import type { SessionDiscussionPanelConfig } from "./components/session-discussion-panel.ts";
 import type { SidebarSlotId } from "./sidebar-layout-types.ts";
 import { promoteSidebarPanel, sidebarMainPanel } from "./sidebar-layout.ts";
@@ -49,25 +53,26 @@ import { promoteSidebarPanel, sidebarMainPanel } from "./sidebar-layout.ts";
 registerFilePreviewEnglish();
 
 type SidebarPanelDefinitionParams = {
+  panePresentation?: PresentationValue;
   state: ChatPageHost;
   themeMode: "dark" | "light";
   agentId: string | null;
-  browserPresented: boolean;
+  browserPresented: PresentationValue;
   browserTabsInHeader: boolean;
   linkReaders?: readonly ControlUiLinkReaderDescriptor[];
-  linkReaderPresented?: boolean;
+  linkReaderPresented?: PresentationValue;
   linkReaderTabsInHeader?: boolean;
   onCloseLinkReader?: () => void;
   terminalTabsInHeader: boolean;
   browserRefreshOnPresentation: boolean;
   preferredBrowserTab?: BrowserTabSelection;
   sessionBrowserTabs?: BrowserTabTarget[];
-  desktopPresented: boolean;
+  desktopPresented: PresentationValue;
   desktopRefreshOnPresentation: boolean;
   desktopAvailable: boolean;
   desktopSource: string | null;
   desktopFocusHref: string;
-  portalPresented?: boolean;
+  portalPresented?: PresentationValue;
   onDesktopFocusTargetChange: (
     target: Extract<ControlUiFocusBuildTarget, { kind: "desktop" }>,
   ) => void;
@@ -76,16 +81,13 @@ type SidebarPanelDefinitionParams = {
   renderDetail: (content: SidebarContent) => TemplateResult;
   digest: SessionObserverDigest | null;
   activeRunId: string | null;
-  startedAt: number | undefined;
-  lastReadAt: number | undefined;
   pullRequests: ControlUiSessionPullRequest[];
   companion: ChatSessionCompanionThread;
-  companionPresented: boolean;
+  companionPresented: PresentationValue;
   companionFocusRequest: (() => boolean) | undefined;
   onCompanionSubmit: (question: string | ChatSessionCompanionTurn) => void;
   onCompanionDraftChange: (draft: string) => void;
   onCompanionAttachmentsChange?: (attachments: ChatAttachment[]) => boolean | void;
-  onCompanionVisibilityChange: (visible: boolean) => void;
   connected: boolean;
   onClearCompanion: () => void;
   discussion: SessionDiscussionPanelConfig | null;
@@ -93,7 +95,7 @@ type SidebarPanelDefinitionParams = {
   discussionOpenUrl: string | null;
   discussionSourceGeneration: number;
   pluginPanels: ControlUiRegistration<ControlUiPanel>[];
-  isPluginPanelPresented: (slot: SidebarSlotId) => boolean;
+  isPluginPanelPresented: (slot: SidebarSlotId) => PresentationValue;
 };
 
 type SidebarPanelTextKey =
@@ -163,7 +165,7 @@ export function sidebarPanelDefinitions(
     slot: Exclude<SidebarSlotId, `plugin:${string}`>,
     textKey: SidebarPanelTextKey,
     icon: TemplateResult,
-    content: TemplateResult | DirectiveResult | typeof nothing | null,
+    content: TemplateResult | typeof nothing | null,
     headerAction?: TemplateResult,
   ): SidebarPanelDefinition => ({
     slot,
@@ -180,7 +182,7 @@ export function sidebarPanelDefinitions(
               phase: state.connected ? "connected" : "stopped",
             },
             "portal.list",
-            "operator.write",
+            "operator.read",
           )
         : SIDEBAR_PANEL_SHORTCUTS[slot]?.available(panelContext)),
     ),
@@ -221,7 +223,7 @@ export function sidebarPanelDefinitions(
           phase: state.connected ? "connected" : "offline",
           hello: state.hello,
         })}
-        .presented=${params?.browserPresented ?? false}
+        .presented=${livePresentation(params?.browserPresented ?? false)}
         .tabsInHeader=${params?.browserTabsInHeader ?? false}
         .refreshOnPresentation=${params?.browserRefreshOnPresentation ?? true}
         .sessionKey=${state.sessionKey}
@@ -233,15 +235,12 @@ export function sidebarPanelDefinitions(
     : null;
   const companion = params
     ? html`<openclaw-chat-session-rail
-        embedded
-        .presented=${params.companionPresented}
+        .presented=${livePresentation(params.companionPresented)}
         .focusRequest=${params.companionFocusRequest}
         .sessionKey=${state?.sessionKey}
         .digest=${params.digest}
         .running=${Boolean(params.activeRunId)}
         .activeRunId=${params.activeRunId}
-        .startedAt=${params.startedAt}
-        .lastReadAt=${params.lastReadAt}
         .pullRequests=${params.pullRequests}
         .companion=${params.companion}
         .connected=${state?.connected === true}
@@ -251,7 +250,6 @@ export function sidebarPanelDefinitions(
         .onAttachmentsChange=${params.onCompanionAttachmentsChange}
         .uploadConfig=${state?.uploadConfig}
         .attachmentLimits=${resolveChatAttachmentLimits(state?.hello?.policy)}
-        .onVisibilityChange=${params.onCompanionVisibilityChange}
       ></openclaw-chat-session-rail>`
     : null;
   const desktop =
@@ -261,7 +259,7 @@ export function sidebarPanelDefinitions(
           data-chat-autotype-exempt
           .client=${state.connected ? state.client : null}
           .available=${params.desktopAvailable}
-          .presented=${params?.desktopPresented ?? false}
+          .presented=${livePresentation(params?.desktopPresented ?? false)}
           .refreshOnPresentation=${params?.desktopRefreshOnPresentation ?? true}
           .requestedSource=${params?.desktopSource ?? null}
           .sessionKey=${state.sessionKey}
@@ -281,7 +279,7 @@ export function sidebarPanelDefinitions(
   const portal = state
     ? html`<openclaw-portals-page
         embedded
-        .presented=${params?.portalPresented ?? false}
+        .presented=${livePresentation(params?.portalPresented ?? false)}
         .requestedPortalId=${state.sidebarLayout.columns.flatMap((column) => column.panels).find((panel) => panel.slot === "portal")?.portalId ?? null}
         .requestedEnvironmentId=${state.sidebarLayout.columns.flatMap((column) => column.panels).find((panel) => panel.slot === "portal")?.environmentId ?? null}
       ></openclaw-portals-page>`
@@ -291,33 +289,24 @@ export function sidebarPanelDefinitions(
   // same cached diff loader so their live content and selection survive.
   const detailContent =
     state?.sidebarContent ?? (state ? resolveSessionDiffSidebarContent(state) : null);
-  const nativeWorkspaceContent =
+  // The region mounts only tabs in the layout. Rendering Review starts its lazy
+  // panel import, so default diff content must not build it before a tab exists.
+  const detailTabPresent =
+    state?.sidebarLayout.columns.some((column) =>
+      column.panels.some((panel) => panel.slot === "detail"),
+    ) ?? false;
+  const workspaceContent =
     state && params && workspace
       ? html`<openclaw-chat-files-panel
           .tabsInHeader=${sidebarMainPanel(state.sidebarLayout)?.slot !== "workspace"}
-          .previews=${workspace.previews}
-          .activeId=${workspace.activePreviewId}
+          .previews=${presentedProperty(params.panePresentation ?? true, workspace.previews, [])}
+          .activeId=${presentedProperty(params.panePresentation ?? true, workspace.activePreviewId, null)}
           .browser=${params.workspace}
           .renderDetail=${params.renderDetail}
           .onSelect=${(id: string | null) => selectSessionWorkspacePreview(state, id)}
           .onClose=${(id: string) => closeSessionWorkspacePreview(state, id)}
         ></openclaw-chat-files-panel>`
       : (params?.workspace ?? null);
-  // The replacement owns only the existing native Files slot. The default
-  // continues to render unchanged when no plugin selects this surface.
-  const workspaceContent = state
-    ? renderPluginSurface(
-        "session-files",
-        {
-          sessionKey: workspace?.sessionKey ?? state.sessionKey,
-          agentId: workspace?.agentId ?? params?.agentId ?? undefined,
-        } as ControlUiSurfaceProps["session-files"],
-        nativeWorkspaceContent,
-        params?.isPluginPanelPresented?.("workspace") ?? false,
-        nothing,
-        pluginPanelPresentation({ state, slot: "workspace", sessionKey: state.sessionKey }),
-      )
-    : nativeWorkspaceContent;
   const pluginPanels = new Map<SidebarSlotId, ControlUiRegistration<ControlUiPanel> | undefined>(
     (params?.pluginPanels ?? []).map((entry) => [`plugin:${entry.key}`, entry]),
   );
@@ -342,8 +331,11 @@ export function sidebarPanelDefinitions(
               <strong>${t("chat.detailPanel.unavailable")}</strong>
               <span>${detailContent.message}</span>
             </div>`
-          : detailContent && params
-            ? params.renderDetail(detailContent)
+          : detailContent && params && detailTabPresent
+            ? html`${presentedContent(
+                state?.sidebarContent ? (params.panePresentation ?? true) : true,
+                params.renderDetail(detailContent),
+              )}`
             : null,
     ),
     definePanel("terminal", "terminal", icons.terminal, terminal),
@@ -362,7 +354,7 @@ export function sidebarPanelDefinitions(
             .readers=${params?.linkReaders ?? EMPTY_LINK_READERS}
             .agentId=${params?.agentId ?? undefined}
             .sessionKey=${state.sessionKey}
-            .presented=${params?.linkReaderPresented ?? false}
+            .presented=${livePresentation(params?.linkReaderPresented ?? false)}
             .tabsInHeader=${params?.linkReaderTabsInHeader ?? true}
             .onClose=${params?.onCloseLinkReader}
           ></openclaw-link-reader-panel>`
@@ -417,12 +409,8 @@ export function sidebarPanelDefinitions(
             entry.key,
             { sessionKey: state?.sessionKey ?? "", agentId: params?.agentId ?? undefined },
             nothing,
-            params?.isPluginPanelPresented?.(slot) ?? false,
-            pluginPanelPresentation({
-              state,
-              slot,
-              sessionKey: state?.sessionKey ?? "",
-            }),
+            params?.isPluginPanelPresented(slot),
+            pluginPanelPresentation({ state, slot, sessionKey: state?.sessionKey ?? "" }),
           )
         : null,
       loading: renderPanelLoadingSkeleton("files", t("common.loading")),

@@ -1,19 +1,22 @@
+import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import type {
-  WorkboardCard,
-  WorkboardMetadata,
-  WorkboardExecution,
+import {
+  normalizeWorkboardSessionsBoardSpec,
+  type WorkboardCard,
+  type WorkboardMetadata,
+  type WorkboardExecution,
+  type WorkboardResultReviewRequest,
 } from "@openclaw/workboard-contract";
 import {
   compileSqliteQueryBindings,
   executeSqliteQueryTakeFirstSync,
+  executeSqliteQuerySync,
   getNodeSqliteKysely,
   iterateSqliteQuerySync,
   runSqliteDeferredTransactionSync,
   runSqliteImmediateTransactionSync,
   sqliteStringSet,
 } from "openclaw/plugin-sdk/sqlite-worker-runtime";
-import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type {
   PersistedWorkboardAttachment,
   PersistedWorkboardBoard,
@@ -24,10 +27,11 @@ import type {
   WorkboardCardStatsAggregate,
   WorkboardKeyedStore,
   WorkboardOwnerClaimResult,
+  WorkboardSessionsBoardStore,
   WorkboardSubscriptionStore,
 } from "./persistence-types.js";
+import { readResultReviewRecord } from "./result-review-record.js";
 import {
-  asBlobContent,
   blobToBase64,
   definedFields,
   jsonValue,
@@ -43,9 +47,13 @@ import {
   type WorkboardCardDatabase,
 } from "./sqlite-store-records.js";
 import { createWorkboardDatabase } from "./sqlite-store-schema.js";
+import { WorkboardSqliteSessionsBoardStore } from "./sqlite-store-sessions-board.js";
 import { bindNull, insertCard } from "./sqlite-store-write.js";
+import { assertWorkboardStatusHolds } from "./status-holds.js";
+import { cardParentIds } from "./store-card-helpers.js";
 import {
   MAX_WORKER_CONTEXT_PARENTS,
+  MAX_CARD_EVENTS,
   MAX_WORKER_CONTEXT_RECENT_CARDS,
   workboardCardConsumesOwnerSlot,
   workboardCardSlotOwner,
@@ -57,6 +65,7 @@ type SyncStore<T> = {
 export type WorkboardSqliteKernel = {
   cards: SyncStore<WorkboardCardStore>;
   boards: SyncStore<WorkboardKeyedStore<PersistedWorkboardBoard>>;
+  sessionsBoard: SyncStore<WorkboardSessionsBoardStore>;
   subscriptions: SyncStore<WorkboardSubscriptionStore>;
   attachments: SyncStore<WorkboardKeyedStore<PersistedWorkboardAttachment>>;
   dataVersion(this: void): number;
@@ -86,18 +95,14 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
   }
 
   private matchesUpdatedAt(key: string, expectedUpdatedAt: number): boolean {
-    const { compiled, bind } = compileSqliteQueryBindings<string>((parameter) =>
+    const current = executeSqliteQueryTakeFirstSync(
+      this.db,
       getNodeSqliteKysely<WorkboardCardDatabase>(this.db)
         .selectFrom("workboard_cards")
         .select("updated_at")
-        .where(
-          "id",
-          "=",
-          parameter((value) => value),
-        ),
+        .where("id", "=", key),
     );
-    const current = this.db.prepare(compiled.sql).get(...bind(key));
-    return isRecord(current) && numberValue(current, "updated_at") === expectedUpdatedAt;
+    return current !== undefined && numberValue(current, "updated_at") === expectedUpdatedAt;
   }
 
   private validatePayload(key: string, value: PersistedWorkboardCard): void {
@@ -106,9 +111,258 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
     }
   }
 
+  private executeReviewWrite(query: {
+    compile(): { sql: string; parameters: readonly unknown[] };
+  }): void {
+    const compiled = query.compile();
+    this.db.prepare(compiled.sql).run(...compiled.parameters.map(bindNull));
+  }
+
+  getResultReview(id: string): WorkboardResultReviewRequest | undefined {
+    const row = executeSqliteQueryTakeFirstSync(
+      this.db,
+      getNodeSqliteKysely<WorkboardCardDatabase>(this.db)
+        .selectFrom("workboard_result_reviews")
+        .selectAll()
+        .where("id", "=", id),
+    );
+    return row ? readResultReviewRecord(parseJson(requiredString(row, "request_json"))) : undefined;
+  }
+
+  listResultReviews(scope: {
+    tenant: string;
+    boardId: string;
+    cardId: string;
+  }): WorkboardResultReviewRequest[] {
+    const rows = iterateSqliteQuerySync(
+      this.db,
+      getNodeSqliteKysely<WorkboardCardDatabase>(this.db)
+        .selectFrom("workboard_result_reviews")
+        .select("request_json")
+        .where("tenant", "=", scope.tenant)
+        .where("board_id", "=", scope.boardId)
+        .where("card_id", "=", scope.cardId)
+        .orderBy("created_at", "asc")
+        .orderBy("id", "asc"),
+    );
+    return Array.from(rows, (row) =>
+      readResultReviewRecord(parseJson(requiredString(row, "request_json"))),
+    );
+  }
+
+  private saveResultReview(request: WorkboardResultReviewRequest): void {
+    const row = {
+      id: request.id,
+      tenant: request.tenant,
+      board_id: request.boardId,
+      card_id: request.cardId,
+      status: request.status,
+      revision: request.revision,
+      created_at: request.createdAt,
+      request_json: JSON.stringify(request),
+    };
+    this.executeReviewWrite(
+      getNodeSqliteKysely<WorkboardCardDatabase>(this.db)
+        .insertInto("workboard_result_reviews")
+        .values(row)
+        .onConflict((oc) => oc.column("id").doUpdateSet(row)),
+    );
+  }
+
+  private withdrawResultReviews(cardId: string, now: number): void {
+    const rows = iterateSqliteQuerySync(
+      this.db,
+      getNodeSqliteKysely<WorkboardCardDatabase>(this.db)
+        .selectFrom("workboard_result_reviews")
+        .select("request_json")
+        .where("card_id", "=", cardId)
+        .where("status", "=", "pending"),
+    );
+    // Collect before updating the indexed selection.
+    const requests = Array.from(rows, (row) =>
+      readResultReviewRecord(parseJson(requiredString(row, "request_json"))),
+    );
+    for (const request of requests) {
+      this.saveResultReview({
+        ...request,
+        status: "withdrawn",
+        revision: request.revision + 1,
+        resolvedAt: now,
+      });
+    }
+  }
+
+  private replaceCard(card: WorkboardCard): void {
+    if (card.status === "done" || card.metadata?.archivedAt) {
+      this.withdrawResultReviews(card.id, card.updatedAt);
+    }
+    insertCard(this.db, card);
+  }
+
+  registerWithResultReview(
+    key: string,
+    value: PersistedWorkboardCard,
+    expectedUpdatedAt: number,
+    request: WorkboardResultReviewRequest,
+  ): false | { card: WorkboardCard; inserted: boolean } {
+    this.validatePayload(key, value);
+    if (
+      request.schemaVersion !== 1 ||
+      !request.id ||
+      !request.sessionKey ||
+      !request.runId ||
+      request.cardId !== key ||
+      request.status !== "pending" ||
+      request.revision !== 1 ||
+      request.boardId !== (value.card.metadata?.automation?.boardId ?? "default") ||
+      request.tenant !== (value.card.metadata?.automation?.tenant ?? "") ||
+      value.card.status !== "review" ||
+      value.card.metadata?.archivedAt ||
+      request.resolvedAt !== null ||
+      request.expiresAt !== null ||
+      ![request.completionIntent, request.requestRevision, request.resultDigest].every((digest) =>
+        /^[a-f0-9]{64}$/.test(digest),
+      )
+    ) {
+      throw new Error("invalid result review registration");
+    }
+    return this.write(() => {
+      const existing = this.getResultReview(request.id);
+      if (existing) {
+        if (
+          existing.completionIntent !== request.completionIntent ||
+          existing.tenant !== request.tenant ||
+          existing.boardId !== request.boardId ||
+          existing.cardId !== request.cardId ||
+          existing.sessionKey !== request.sessionKey ||
+          existing.runId !== request.runId
+        ) {
+          throw new Error("result review immutable intent changed");
+        }
+        const card = this.lookup(key)?.card;
+        if (!card) {
+          throw new Error("result review card no longer exists");
+        }
+        if (
+          (card.metadata?.automation?.tenant ?? "") !== existing.tenant ||
+          (card.metadata?.automation?.boardId ?? "default") !== existing.boardId
+        ) {
+          throw new Error("result review card scope changed");
+        }
+        return { card, inserted: false };
+      }
+      if (!this.matchesUpdatedAt(key, expectedUpdatedAt)) {
+        return false;
+      }
+      const current = this.lookup(key)?.card;
+      if (
+        !current ||
+        current.metadata?.archivedAt ||
+        (current.execution?.sessionKey ?? current.sessionKey) !== request.sessionKey ||
+        (current.execution?.runId ?? current.runId) !== request.runId ||
+        (current.metadata?.automation?.tenant ?? "") !== request.tenant ||
+        (current.metadata?.automation?.boardId ?? "default") !== request.boardId
+      ) {
+        throw new Error("result review card scope changed");
+      }
+      assertWorkboardStatusHolds(
+        current,
+        value.card,
+        value.card.updatedAt,
+        this.listCardStatuses(cardParentIds(value.card)),
+      );
+      this.saveResultReview(request);
+      insertCard(this.db, value.card);
+      const accepted = this.lookup(key)?.card;
+      if (!accepted) {
+        throw new Error("result review card readback failed");
+      }
+      return { card: accepted, inserted: true };
+    });
+  }
+
+  resolveResultReview(
+    id: string,
+    expectedRevision: number,
+    expectedUpdatedAt: number,
+    decision: "reviewed" | "withdrawn",
+    now: number,
+  ): { request: WorkboardResultReviewRequest; card: WorkboardCard } | undefined {
+    if (decision !== "reviewed" && decision !== "withdrawn") {
+      throw new Error("invalid result review decision");
+    }
+    return this.write(() => {
+      const request = this.getResultReview(id);
+      if (
+        !request ||
+        request.status !== "pending" ||
+        request.revision !== expectedRevision ||
+        !this.matchesUpdatedAt(request.cardId, expectedUpdatedAt)
+      ) {
+        return undefined;
+      }
+      const current = this.lookup(request.cardId)?.card;
+      if (
+        !current ||
+        (decision === "reviewed" &&
+          (current.status !== "review" ||
+            (current.execution?.sessionKey ?? current.sessionKey) !== request.sessionKey ||
+            (current.execution?.runId ?? current.runId) !== request.runId)) ||
+        current.metadata?.archivedAt ||
+        (current.metadata?.automation?.tenant ?? "") !== request.tenant ||
+        (current.metadata?.automation?.boardId ?? "default") !== request.boardId
+      ) {
+        return undefined;
+      }
+      const updatedAt = Math.max(now, current.updatedAt + 1);
+      const card: WorkboardCard = {
+        ...current,
+        updatedAt,
+        ...(decision === "reviewed"
+          ? {
+              status: "done",
+              completedAt: updatedAt,
+              events: [
+                ...(current.events ?? []),
+                {
+                  id: randomUUID(),
+                  kind: "moved" as const,
+                  at: updatedAt,
+                  fromStatus: current.status,
+                  toStatus: "done" as const,
+                  sessionKey: request.sessionKey,
+                  runId: request.runId,
+                },
+              ].slice(-MAX_CARD_EVENTS),
+              ...(current.execution
+                ? { execution: { ...current.execution, status: "done", updatedAt } }
+                : {}),
+            }
+          : {}),
+      };
+      if (decision === "reviewed") {
+        assertWorkboardStatusHolds(
+          current,
+          card,
+          updatedAt,
+          this.listCardStatuses(cardParentIds(card)),
+        );
+      }
+      const resolved: WorkboardResultReviewRequest = {
+        ...request,
+        status: decision,
+        revision: request.revision + 1,
+        resolvedAt: updatedAt,
+      };
+      this.saveResultReview(resolved);
+      insertCard(this.db, card);
+      return { request: resolved, card };
+    });
+  }
+
   register(key: string, value: PersistedWorkboardCard): void {
     this.validatePayload(key, value);
-    this.write(() => insertCard(this.db, value.card));
+    this.write(() => this.replaceCard(value.card));
   }
 
   registerIfAbsent(key: string, value: PersistedWorkboardCard): boolean {
@@ -117,7 +371,7 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
       if (this.db.prepare("SELECT 1 FROM workboard_cards WHERE id = ?").get(key)) {
         return false;
       }
-      insertCard(this.db, value.card);
+      this.replaceCard(value.card);
       return true;
     });
   }
@@ -209,7 +463,7 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
           throw new Error(`card not found: ${parentId}`);
         }
       }
-      insertCard(this.db, value.card);
+      this.replaceCard(value.card);
       const update = query
         .updateTable("workboard_cards")
         .set({
@@ -235,7 +489,7 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
       if (!this.matchesUpdatedAt(key, expectedUpdatedAt)) {
         return false;
       }
-      insertCard(this.db, value.card);
+      this.replaceCard(value.card);
       return true;
     });
   }
@@ -296,7 +550,7 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
       // Validate the target's stored tree before replacing it, without decoding
       // unrelated cards as an incidental prerequisite for claiming this one.
       readCard(this.db, current);
-      insertCard(this.db, value.card);
+      this.replaceCard(value.card);
       return "updated";
     });
   }
@@ -322,6 +576,7 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
   }
 
   private deleteCard(key: string) {
+    this.withdrawResultReviews(key, Date.now());
     this.db
       .prepare(
         `
@@ -536,6 +791,10 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
 }
 
 function readBoard(row: Row): PersistedWorkboardBoard {
+  const kind = stringValue(row, "kind");
+  if (kind !== undefined && kind !== "cards" && kind !== "sessions") {
+    throw new Error("invalid workboard board kind");
+  }
   // SAFETY: Board registration serializes defaultWorkspace unchanged.
   const defaultWorkspace = parseJson(row.default_workspace_json) as
     | PersistedWorkboardBoard["board"]["defaultWorkspace"]
@@ -548,6 +807,10 @@ function readBoard(row: Row): PersistedWorkboardBoard {
     version: 1,
     board: definedFields({
       id: requiredString(row, "id"),
+      ...(kind ? { kind } : {}),
+      ...(kind === "sessions"
+        ? { sessions: normalizeWorkboardSessionsBoardSpec(parseJson(row.sessions_spec)) }
+        : {}),
       name: stringValue(row, "name"),
       description: stringValue(row, "description"),
       icon: stringValue(row, "icon"),
@@ -586,6 +849,12 @@ class WorkboardSqliteBoardStore implements SyncStore<WorkboardKeyedStore<Persist
           description: parameter(() => bindNull(board.description)),
           icon: parameter(() => bindNull(board.icon)),
           color: parameter(() => bindNull(board.color)),
+          kind: parameter(() => bindNull(board.kind)),
+          sessions_spec: parameter(() =>
+            board.kind === "sessions"
+              ? jsonValue(normalizeWorkboardSessionsBoardSpec(board.sessions))
+              : null,
+          ),
           automation_job_id: parameter(() => bindNull(board.automationJobId)),
           default_workspace_json: parameter(() => jsonValue(board.defaultWorkspace)),
           orchestration_json: parameter(() => jsonValue(board.orchestration)),
@@ -608,7 +877,28 @@ class WorkboardSqliteBoardStore implements SyncStore<WorkboardKeyedStore<Persist
           })),
         ),
     );
-    this.db.prepare(compiled.sql).run(...bind());
+    const statement = this.db.prepare(compiled.sql);
+    runSqliteImmediateTransactionSync(this.db, () => {
+      const existing = this.lookup(key)?.board;
+      if (existing && (existing.kind ?? "cards") !== (board.kind ?? "cards")) {
+        throw new Error("board kind cannot be changed after creation.");
+      }
+      if (board.kind === "sessions" && !existing) {
+        const card = executeSqliteQueryTakeFirstSync(
+          this.db,
+          getNodeSqliteKysely<WorkboardCardDatabase>(this.db)
+            .selectFrom("workboard_cards")
+            .select("id")
+            .where("board_id", "=", key)
+            .limit(1),
+        );
+        if (key === "default" || card) {
+          throw new Error("board kind cannot be changed after creation.");
+        }
+      }
+      // Existing session specs are changed only by sessionsBoard.update, never an appearance upsert.
+      statement.run(...bind());
+    });
   }
 
   lookup(key: string): PersistedWorkboardBoard | undefined {
@@ -617,8 +907,13 @@ class WorkboardSqliteBoardStore implements SyncStore<WorkboardKeyedStore<Persist
   }
 
   delete(key: string): boolean {
-    const result = this.db.prepare("DELETE FROM workboard_boards WHERE id = ?").run(key);
-    return result.changes > 0;
+    const result = executeSqliteQuerySync(
+      this.db,
+      getNodeSqliteKysely<{ workboard_boards: Row }>(this.db)
+        .deleteFrom("workboard_boards")
+        .where("id", "=", key),
+    );
+    return (result.numAffectedRows ?? 0n) > 0n;
   }
 
   entries(): Array<{ key: string; value: PersistedWorkboardBoard }> {
@@ -783,7 +1078,7 @@ class WorkboardSqliteAttachmentStore implements SyncStore<
           ON CONFLICT(attachment_id) DO UPDATE SET content = excluded.content
         `,
       )
-      .run(attachment.id, asBlobContent(value.contentBase64));
+      .run(attachment.id, Buffer.from(value.contentBase64, "base64"));
   }
 
   lookup(key: string): PersistedWorkboardAttachment | undefined {
@@ -820,9 +1115,11 @@ export function createWorkboardSqliteKernel(
   admitWrite?: (stage: "transaction" | "commit") => void,
 ): WorkboardSqliteKernel {
   const { db, close } = createWorkboardDatabase(dbPath, retainClose);
+  const boards = new WorkboardSqliteBoardStore(db);
   return {
     cards: new WorkboardSqliteCardStore(db, admitWrite),
-    boards: new WorkboardSqliteBoardStore(db),
+    boards,
+    sessionsBoard: new WorkboardSqliteSessionsBoardStore(db, boards),
     subscriptions: new WorkboardSqliteSubscriptionStore(db),
     attachments: new WorkboardSqliteAttachmentStore(db),
     // This connection-local primitive changes only after another connection commits.

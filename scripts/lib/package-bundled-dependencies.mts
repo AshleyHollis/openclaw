@@ -6,7 +6,7 @@ import { coerceErrorMessage } from "./error-format.mts";
 import {
   collectPatchedFsSafeArtifactErrors,
   PATCHED_FS_SAFE_NAME,
-  PATCHED_FS_SAFE_VERSION,
+  isSupportedPatchedFsSafeVersion,
 } from "./package-bundled-fs-safe.mts";
 import {
   collectPatchedMcpArtifactErrors,
@@ -202,7 +202,7 @@ export function collectBundledDependencyErrors({
     [PATCHED_MCP_NAME, "its patched runtime must not be replaced by the registry package"],
   ]);
   // Older frozen releases predate this atomic-publication patch contract.
-  if (dependencies[PATCHED_FS_SAFE_NAME] === PATCHED_FS_SAFE_VERSION) {
+  if (isSupportedPatchedFsSafeVersion(dependencies[PATCHED_FS_SAFE_NAME])) {
     required.set(
       PATCHED_FS_SAFE_NAME,
       "its patched runtime must not be replaced by the registry package",

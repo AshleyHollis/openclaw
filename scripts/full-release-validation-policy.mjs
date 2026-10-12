@@ -689,6 +689,7 @@ export function composeReleaseAttemptJobs(attempts, expected = {}) {
     const names = new Set();
     for (const rawJob of filterReleaseAttemptEvidenceJobs(attempt.jobs)) {
       const job = normalizedAttemptJob(rawJob, expectedAttempt);
+
       if (names.has(job.name)) {
         throw Object.assign(
           new Error(
@@ -1306,6 +1307,12 @@ function validateCandidatePlanBinding(plan, expectedCandidateRequest) {
       )
     ) {
       throw new Error("Candidate package request changed the admitted frozen baselines");
+    }
+    if (
+      request.schema === "openclaw.full-release-candidate-request/v3" &&
+      request.upgradeBaseline !== baselines.upgradeBaseline
+    ) {
+      throw new Error("Candidate package request changed the admitted primary baseline");
     }
   }
   if (plan.coveragePolicy !== undefined && plan.attemptEvidenceVersion !== 3) {

@@ -7,12 +7,16 @@ import {
 import type { FollowupRequest } from "../../agents/subagents/completion/session-followup-completion.types.js";
 import type { SubagentRunRecord } from "../../agents/subagents/registry/subagent-registry.types.js";
 import { bindInProcessSubagentResume } from "../in-process-subagent-resume.js";
-import { prepareGatewaySubagentRun } from "./agent-run-subagent.js";
+import {
+  prepareGatewaySubagentRun,
+  resolveRegisteredSubagentTimeoutSeconds,
+} from "./agent-run-subagent.js";
 import type { AgentTurnPrincipal } from "./types.js";
 
 const mocks = vi.hoisted(() => ({
   registerSubagentRun: vi.fn(),
   adoptPausedSubagentRunForFollowUp: vi.fn(),
+  adoptPausedSubagentRunIntoSuccessor: vi.fn(),
   getLatestLiveSubagentRunByChildSessionKey: vi.fn(),
   prepareParentSubagentResume: vi.fn(),
 }));
@@ -22,6 +26,7 @@ vi.mock("../../agents/subagents/registry/subagent-registry-read.js", () => ({
 vi.mock("../../agents/subagents/registry/subagent-registry.js", () => ({
   registerSubagentRun: mocks.registerSubagentRun,
   adoptPausedSubagentRunForFollowUp: mocks.adoptPausedSubagentRunForFollowUp,
+  adoptPausedSubagentRunIntoSuccessor: mocks.adoptPausedSubagentRunIntoSuccessor,
 }));
 vi.mock("../../config/sessions.js", () => ({
   resolveAgentIdFromSessionKey: () => "main",
@@ -80,43 +85,149 @@ function followupRequest(): FollowupRequest {
 describe("Gateway native subagent admission", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    mocks.adoptPausedSubagentRunForFollowUp.mockReturnValue(false);
+    mocks.adoptPausedSubagentRunForFollowUp.mockResolvedValue(false);
+    mocks.adoptPausedSubagentRunIntoSuccessor.mockResolvedValue(false);
   });
 
-  it("registers plugin work with its execution owner before accepting it", async () => {
-    const params = parameters({ client: pluginClient() });
-    await expect(prepareGatewaySubagentRun(params)).resolves.toEqual({
-      pluginSubagent: true,
-      reactivateSubagent: false,
-    });
-    expect(mocks.registerSubagentRun).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({
+  it.each([0, 600, undefined])(
+    "inherits registered budget %s only for the current admitted child incarnation",
+    (runTimeoutSeconds) => {
+      const admittedSessionEntry = {
+        sessionId: "admitted-child",
+        lifecycleRevision: "admitted",
+        updatedAt: 1,
+      };
+      const registered = {
         runId,
         childSessionKey,
-        task: "Continue the child",
-        requesterSessionKey: "agent:main:main",
-      }),
-      { assertCurrent: params.assertResumeAdmissionCurrent },
-    );
-  });
+        childSessionIdentity: {
+          sessionId: admittedSessionEntry.sessionId,
+          lifecycleRevision: admittedSessionEntry.lifecycleRevision,
+        },
+        execution: { suppressSessionEffects: false },
+        runTimeoutSeconds,
+      };
+      const admitted = {
+        sessionKey: childSessionKey,
+        agentId: "main",
+        admittedSessionId: admittedSessionEntry.sessionId,
+        admittedSessionEntry,
+      };
+      for (const testCase of [
+        { label: "current", registered, admitted, expected: runTimeoutSeconds ?? 0 },
+        {
+          label: "suppressed effects",
+          registered: { ...registered, execution: { suppressSessionEffects: true } },
+          admitted,
+          expected: undefined,
+        },
+        {
+          label: "rotated registered session",
+          registered: {
+            ...registered,
+            childSessionIdentity: { ...registered.childSessionIdentity, sessionId: "old-child" },
+          },
+          admitted,
+          expected: undefined,
+        },
+        {
+          label: "rotated admitted session",
+          registered,
+          admitted: { ...admitted, admittedSessionId: "replacement-child" },
+          expected: undefined,
+        },
+        {
+          label: "entry does not match admission",
+          registered,
+          admitted: {
+            ...admitted,
+            admittedSessionEntry: { ...admittedSessionEntry, sessionId: "replacement-child" },
+          },
+          expected: undefined,
+        },
+        {
+          label: "rotated lifecycle",
+          registered,
+          admitted: {
+            ...admitted,
+            admittedSessionEntry: { ...admittedSessionEntry, lifecycleRevision: "replacement" },
+          },
+          expected: undefined,
+        },
+        {
+          label: "missing admitted entry",
+          registered,
+          admitted: { ...admitted, admittedSessionEntry: undefined },
+          expected: undefined,
+        },
+        {
+          label: "missing registered incarnation",
+          registered: { ...registered, childSessionIdentity: undefined },
+          admitted,
+          expected: undefined,
+        },
+        { label: "no registered run", registered: undefined, admitted, expected: undefined },
+      ]) {
+        mocks.getLatestLiveSubagentRunByChildSessionKey.mockReturnValue(testCase.registered);
+        expect(resolveRegisteredSubagentTimeoutSeconds(testCase.admitted), testCase.label).toBe(
+          testCase.expected,
+        );
+        expect(mocks.getLatestLiveSubagentRunByChildSessionKey).toHaveBeenLastCalledWith(
+          childSessionKey,
+          undefined,
+          "main",
+        );
+      }
+      mocks.getLatestLiveSubagentRunByChildSessionKey.mockClear();
+      expect(resolveRegisteredSubagentTimeoutSeconds({ ...admitted, sessionKey: undefined })).toBe(
+        undefined,
+      );
+      expect(mocks.getLatestLiveSubagentRunByChildSessionKey).not.toHaveBeenCalled();
+    },
+  );
 
-  it("does not register work after its admission closes during runtime loading", async () => {
-    let admitted = true;
-    const preparation = prepareGatewaySubagentRun(
-      parameters({
+  it.each([true, false])(
+    "registers plugin work only while admission is current: %s",
+    async (current) => {
+      const sessionEntry = {
+        sessionId: "admitted-child",
+        lifecycleRevision: "admitted",
+        updatedAt: 1,
+      };
+      let admitted = true;
+      const params = parameters({
         client: pluginClient(),
         assertResumeAdmissionCurrent: () => {
           if (!admitted) {
             throw new Error("admission retired");
           }
+          return sessionEntry;
         },
-      }),
-    );
-    admitted = false;
-    await expect(preparation).rejects.toThrow("admission retired");
-    expect(mocks.registerSubagentRun).not.toHaveBeenCalled();
-    expect(mocks.adoptPausedSubagentRunForFollowUp).not.toHaveBeenCalled();
-  });
+      });
+      const preparation = prepareGatewaySubagentRun(params);
+      admitted = current;
+      if (current) {
+        await expect(preparation).resolves.toEqual({
+          pluginSubagent: true,
+          reactivateSubagent: false,
+        });
+        expect(mocks.registerSubagentRun).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({
+            runId,
+            childSessionKey,
+            sessionEntry,
+            task: "Continue the child",
+            requesterSessionKey: "agent:main:main",
+          }),
+          { assertCurrent: params.assertResumeAdmissionCurrent },
+        );
+      } else {
+        await expect(preparation).rejects.toThrow("admission retired");
+        expect(mocks.registerSubagentRun).not.toHaveBeenCalled();
+        expect(mocks.adoptPausedSubagentRunForFollowUp).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it("preserves an explicit parent resume without creating a sibling owner", async () => {
     const client = pluginClient();
@@ -130,7 +241,7 @@ describe("Gateway native subagent admission", () => {
       createdAt: 1,
     };
     client.internal = bindInProcessSubagentResume({}, resume);
-    const adoptParentResume = vi.fn(() => "previous-run");
+    const adoptParentResume = vi.fn(async () => "previous-run");
     mocks.prepareParentSubagentResume.mockResolvedValue(adoptParentResume);
     await expect(prepareGatewaySubagentRun(parameters({ client }))).resolves.toEqual({
       pluginSubagent: false,

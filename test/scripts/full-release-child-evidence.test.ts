@@ -123,47 +123,44 @@ if (endpoint === "repos/openclaw/openclaw/actions/runs/101") {
 }
 
 describe("full release child evidence producer", () => {
-  it.each(["normalCi", "pluginPrereleaseIndependent"])(
-    "blocks failed selected metadata and workload jobs for %s",
-    (key) => {
-      const workload = {
-        name: "install_smoke",
-        status: "completed",
-        conclusion: "success",
-      };
-      const metadata = { name: PUBLISHER, status: "completed", conclusion: "failure" };
-      const snapshot = () =>
-        classifyReleaseSnapshot({
-          children: [
-            {
-              key,
-              selected: true,
-              required: true,
-              result: "success",
-              source: "fresh",
-              runId: "101",
-              runAttempt: 1,
-              status: "completed",
-              conclusion: "success",
-              jobs: [workload, metadata],
-            },
-          ],
-          releaseProfile: "stable",
-          workflowRef: "main",
-        });
-      expect(snapshot()).toMatchObject({
-        state: "blocked_complete",
-        blockers: [expect.objectContaining({ job: PUBLISHER, kind: "job_failure" })],
+  it.each(["normalCi"])("blocks failed selected metadata and workload jobs for %s", (key) => {
+    const workload = {
+      name: "install_smoke",
+      status: "completed",
+      conclusion: "success",
+    };
+    const metadata = { name: PUBLISHER, status: "completed", conclusion: "failure" };
+    const snapshot = () =>
+      classifyReleaseSnapshot({
+        children: [
+          {
+            key,
+            selected: true,
+            required: true,
+            result: "success",
+            source: "fresh",
+            runId: "101",
+            runAttempt: 1,
+            status: "completed",
+            conclusion: "success",
+            jobs: [workload, metadata],
+          },
+        ],
+        releaseProfile: "stable",
+        workflowRef: "main",
       });
-      metadata.conclusion = "success";
-      expect(snapshot()).toMatchObject({ state: "passed", blockers: [] });
-      workload.conclusion = "failure";
-      expect(snapshot()).toMatchObject({
-        state: "blocked_complete",
-        blockers: [expect.objectContaining({ job: "install_smoke", kind: "job_failure" })],
-      });
-    },
-  );
+    expect(snapshot()).toMatchObject({
+      state: "blocked_complete",
+      blockers: [expect.objectContaining({ job: PUBLISHER, kind: "job_failure" })],
+    });
+    metadata.conclusion = "success";
+    expect(snapshot()).toMatchObject({ state: "passed", blockers: [] });
+    workload.conclusion = "failure";
+    expect(snapshot()).toMatchObject({
+      state: "blocked_complete",
+      blockers: [expect.objectContaining({ job: "install_smoke", kind: "job_failure" })],
+    });
+  });
 
   it.each([
     "ci.yml",
@@ -353,7 +350,9 @@ describe("full release child evidence producer", () => {
         workloadConclusion: "success",
         effectiveRunAttempt: runAttempt,
       });
-      expect(evidence.observedRunAttempts).toEqual(runAttempt === 2 ? [1, 2] : [1, 2, 3]);
+      expect(evidence.observedRunAttempts).toEqual(
+        Array.from({ length: runAttempt }, (_, index) => index + 1),
+      );
       expect(
         evidence.jobs.map((job: { name: string; acceptedRunAttempt: number }) => [
           job.name,

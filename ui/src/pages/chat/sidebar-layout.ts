@@ -1,5 +1,4 @@
 import {
-  cloneLayout,
   clampWidth,
   clampHeight,
   sidebarDock,
@@ -110,7 +109,7 @@ function removePanel(layout: SidebarLayout, panelId: string): void {
 }
 
 export function ensureSidebarConversation(layout: SidebarLayout): SidebarLayout {
-  const next = cloneLayout(layout);
+  const next = structuredClone(layout);
   const column = (next.columns[0] ??= createSidebarColumn());
   let conversation = column.panels.find((panel) => panel.slot === "conversation");
   if (!conversation) {
@@ -127,7 +126,7 @@ export function ensureSidebarConversation(layout: SidebarLayout): SidebarLayout 
 export function promoteSidebarPanel(layout: SidebarLayout, panelId: string): SidebarLayout {
   const target = layout.columns[0]?.panels.find((panel) => panel.id === panelId);
   if (!target || sidebarMainPanel(layout)?.id === panelId) {
-    return cloneLayout(layout);
+    return structuredClone(layout);
   }
   const next = ensureSidebarConversation(layout);
   const previousMainId = next.mainPanelId!;
@@ -140,7 +139,7 @@ export function promoteSidebarPanel(layout: SidebarLayout, panelId: string): Sid
 }
 
 export function openSlot(layout: SidebarLayout, slot: SidebarSlotId): SidebarLayout {
-  const next = cloneLayout(layout);
+  const next = structuredClone(layout);
   if ((sidebarMainPanel(next)?.slot ?? "conversation") === slot) {
     return next.expandedSide ? setSidebarExpanded(next, false) : next;
   }
@@ -173,7 +172,7 @@ export function openFilesWithConversation(layout: SidebarLayout): SidebarLayout 
 }
 
 export function closeSlot(layout: SidebarLayout, slot: SidebarSlotId): SidebarLayout {
-  let next = cloneLayout(layout);
+  let next = structuredClone(layout);
   const panel = next.columns
     .flatMap((column) => column.panels)
     .find((entry) => entry.slot === slot);
@@ -207,7 +206,7 @@ export function closeSlot(layout: SidebarLayout, slot: SidebarSlotId): SidebarLa
 }
 
 export function activatePanel(layout: SidebarLayout, panelId: string): SidebarLayout {
-  const next = cloneLayout(layout);
+  const next = structuredClone(layout);
   const column = next.columns.find((entry) => entry.panels.some((panel) => panel.id === panelId));
   if (column && panelId !== next.mainPanelId) {
     column.activePanelId = panelId;
@@ -226,7 +225,7 @@ export function reorderPanel(
   targetPanelId: string,
   placement: "before" | "after",
 ): SidebarLayout {
-  const next = cloneLayout(layout);
+  const next = structuredClone(layout);
   const panels = next.columns[0]?.panels;
   if (!panels || panelId === targetPanelId) {
     return next;
@@ -243,7 +242,7 @@ export function reorderPanel(
 }
 
 export function setSidebarOpen(layout: SidebarLayout, open: boolean): SidebarLayout {
-  const next = cloneLayout(layout);
+  const next = structuredClone(layout);
   if (open) {
     next.columns[0] ??= createSidebarColumn();
     if (next.expanded) {
@@ -261,7 +260,7 @@ export function setSidebarOpen(layout: SidebarLayout, open: boolean): SidebarLay
 
 export function setSidebarExpanded(layout: SidebarLayout, expanded: boolean): SidebarLayout {
   // Restore split must reveal the side even when focus began with that panel closed.
-  const next = cloneLayout(layout);
+  const next = structuredClone(layout);
   delete next.expandedSide;
   return { ...next, expanded, ...(expanded ? { open: true } : {}) };
 }
@@ -269,7 +268,7 @@ export function setSidebarExpanded(layout: SidebarLayout, expanded: boolean): Si
 /** Focus in place: restoring must not leave the main and side views swapped. */
 export function toggleSidebarPanelExpanded(layout: SidebarLayout, panelId: string): SidebarLayout {
   if (!sidebarSidePanels(layout).some((panel) => panel.id === panelId)) {
-    return cloneLayout(layout);
+    return structuredClone(layout);
   }
   if (layout.expanded && layout.expandedSide && sidebarActivePanel(layout)?.id === panelId) {
     return setSidebarExpanded(layout, false);
@@ -281,7 +280,7 @@ export function toggleSidebarPanelExpanded(layout: SidebarLayout, panelId: strin
 }
 
 export function setSidebarDock(layout: SidebarLayout, dock: SidebarDock): SidebarLayout {
-  return { ...cloneLayout(layout), dock };
+  return { ...structuredClone(layout), dock };
 }
 
 export function resizeSidebarPanel(
@@ -289,7 +288,7 @@ export function resizeSidebarPanel(
   columnId: string,
   size: number,
 ): SidebarLayout {
-  const next = cloneLayout(layout);
+  const next = structuredClone(layout);
   const column = next.columns.find((entry) => entry.id === columnId);
   if (column && Number.isFinite(size)) {
     if (sidebarDock(next) === "bottom") {

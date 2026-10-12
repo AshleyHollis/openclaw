@@ -471,8 +471,6 @@ describe("chat sidebar region", () => {
         renderDetail: () => html``,
         digest: null,
         activeRunId: null,
-        startedAt: undefined,
-        lastReadAt: undefined,
         pullRequests: [],
         companion: {
           turns: [],
@@ -481,7 +479,6 @@ describe("chat sidebar region", () => {
         },
         onCompanionSubmit: vi.fn(),
         onCompanionDraftChange: vi.fn(),
-        onCompanionVisibilityChange: vi.fn(),
         connected: false,
         onClearCompanion: vi.fn(),
         discussion: null,

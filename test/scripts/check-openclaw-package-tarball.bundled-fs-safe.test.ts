@@ -14,7 +14,8 @@ const require = createRequire(import.meta.url);
 const NAME = "@openclaw/fs-safe";
 const PREFIX = `node_modules/${NAME}`;
 const sourceRoot = dirname(require.resolve(`${NAME}/package.json`));
-const manifest = { dependencies: { [NAME]: "0.21.1" }, bundleDependencies: [NAME] };
+const sourceVersion = JSON.parse(readFileSync(join(sourceRoot, "package.json"), "utf8")).version;
+const manifest = { dependencies: { [NAME]: sourceVersion }, bundleDependencies: [NAME] };
 const check = (tarball: string) =>
   spawnSync(process.execPath, [resolve("scripts/check-openclaw-package-tarball.mts"), tarball], {
     encoding: "utf8",
@@ -49,7 +50,7 @@ function fixture(
 }
 
 describe("bundled patched fs-safe package", () => {
-  it("accepts the real frozen patched dependency", () => fixture(manifest), 60_000);
+  it("accepts the real version-bound patched dependency", () => fixture(manifest), 60_000);
 
   it("rejects an unbundled dependency", () => {
     fixture(

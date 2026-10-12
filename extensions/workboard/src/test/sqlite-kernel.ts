@@ -27,6 +27,11 @@ export function createKernelStores(
     close: async () => kernel.close(),
     cards: {
       ...asyncKeyedStore(kernel.cards),
+      registerWithResultReview: async (...args) => kernel.cards.registerWithResultReview(...args),
+      getResultReview: async (...args) => kernel.cards.getResultReview(...args),
+      listResultReviews: async (...args) => kernel.cards.listResultReviews(...args),
+      resolveResultReview: async (...args) => kernel.cards.resolveResultReview(...args),
+
       entries: async (scope) => kernel.cards.entries(scope),
       registerIfAbsent: async (...args) => kernel.cards.registerIfAbsent(...args),
       registerIdempotent: async (...args) => kernel.cards.registerIdempotent(...args),
@@ -39,6 +44,13 @@ export function createKernelStores(
       hasCards: async (boardId) => kernel.cards.hasCards(boardId),
     },
     boards: asyncKeyedStore(kernel.boards),
+    sessionsBoard: {
+      get: async (boardId) => kernel.sessionsBoard.get(boardId),
+      update: async (boardId, patch) => kernel.sessionsBoard.update(boardId, patch),
+      listPlacements: async (boardId) => kernel.sessionsBoard.listPlacements(boardId),
+      repairPlacements: async () => kernel.sessionsBoard.repairPlacements(),
+      writePlacement: async (...args) => kernel.sessionsBoard.writePlacement(...args),
+    },
     subscriptions: asyncKeyedStore(kernel.subscriptions),
     attachments: asyncKeyedStore(kernel.attachments),
   };

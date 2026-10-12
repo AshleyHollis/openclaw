@@ -1,13 +1,12 @@
 import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
 import { MAX_TIMER_TIMEOUT_MS } from "@openclaw/normalization-core/number-coercion";
-// Sessions tool tests cover list/send helpers and announce-target resolution.
+// Sessions tool tests cover list/send helpers and session delivery target resolution.
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveSessionThreadInfo } from "../../channels/plugins/session-conversation.js";
 import type { ChannelMessagingAdapter } from "../../channels/plugins/types.public.js";
 import { clearRuntimeConfigSnapshot, setRuntimeConfigSnapshot } from "../../config/io.js";
-import { retainLegacyDefaultAgentId } from "../../config/legacy.default-agent-owner.js";
 import { upsertSessionEntryCore } from "../../config/sessions/session-accessor.js";
 import {
   getOwnedSessionTranscriptWriterFence,
@@ -15,9 +14,11 @@ import {
 } from "../../config/sessions/transcript-write-context.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { GatewayClientRequestError } from "../../gateway/client.js";
-import { withTestDir } from "../../test-helpers/temp-dir.js";
 import { createTestRegistry } from "../../test-utils/channel-plugins.js";
 import { createSessionConversationTestRegistry } from "../../test-utils/session-conversation-registry.js";
+import { useSessionStoreTempDirs } from "../../test-utils/session-state-cleanup.js";
+
+const sessionDirs = useSessionStoreTempDirs(afterAll, "openclaw-exact-session-send-");
 
 const callGatewayMock = vi.fn();
 const inProcessCreationMock = vi.fn(
@@ -86,7 +87,6 @@ type SessionsToolTestConfig = {
     scope: "per-sender";
     mainKey: string;
     dmScope?: "main" | "per-peer" | "per-channel-peer" | "per-account-channel-peer";
-    agentToAgent?: { maxPingPongTurns: number };
   };
   tools: {
     agentToAgent: { enabled: boolean };
@@ -263,7 +263,8 @@ async function executeFireAndForgetA2AFrom(
           ...(options.bindingAgentId
             ? {
                 agents: {
-                  list: [{ id: "main", default: true }, { id: options.bindingAgentId }],
+                  ownership: "explicit",
+                  entries: { main: {}, [options.bindingAgentId]: {} },
                 },
               }
             : {}),
@@ -369,12 +370,12 @@ it("fails closed for cross-agent and resolution-derived bare keys", async () => 
     agents: { ownership: "explicit" as const, entries: { main: {}, other: {} } },
     tools: { agentToAgent: { enabled: false }, sessions: { visibility: "all" as const } },
   };
-  const send = async (retained: boolean) =>
+  const send = async () =>
     requireDetails(
       await createSessionsSendTool({
         agentId: "main",
         agentSessionKey: MAIN_AGENT_SESSION_KEY,
-        config: retained ? retainLegacyDefaultAgentId(config, "main") : config,
+        config,
       }).execute("authorization", {
         sessionKey: bareKey,
         message: "status?",
@@ -386,7 +387,7 @@ it("fails closed for cross-agent and resolution-derived bare keys", async () => 
     .mockImplementation(async (request: { method?: string }) =>
       request.method === "sessions.resolve" ? { key: "incident-42", agentId: "other" } : {},
     );
-  expect(await send(false)).toMatchObject({
+  expect(await send()).toMatchObject({
     status: "forbidden",
     error: expect.stringContaining("Agent-to-agent messaging is disabled"),
   });
@@ -404,7 +405,7 @@ it("fails closed for cross-agent and resolution-derived bare keys", async () => 
       }
       return request.params?.sessionId ? { key: "incident-42" } : {};
     });
-  expect(await send(true)).toMatchObject({
+  expect(await send()).toMatchObject({
     status: "forbidden",
     error: expect.stringContaining("Upgrade the gateway"),
   });
@@ -561,7 +562,7 @@ describe("resolveSessionsSendReplyTarget", () => {
     await installRegistry();
   });
 
-  it("derives non-WhatsApp announce targets from the session key", async () => {
+  it("derives non-WhatsApp delivery targets from the session key", async () => {
     const target = await resolveSessionsSendReplyTarget({
       sessionKey: "agent:main:discord:group:dev",
       displayKey: "agent:main:discord:group:dev",
@@ -571,22 +572,28 @@ describe("resolveSessionsSendReplyTarget", () => {
     expect(callGatewayMock).not.toHaveBeenCalled();
   });
 
-  it("hydrates WhatsApp accountId from sessions.describe when available", async () => {
-    callGatewayMock.mockResolvedValueOnce({
-      session: {
-        key: "agent:main:whatsapp:group:123@g.us",
-        deliveryContext: {
-          channel: "whatsapp",
-          to: "123@g.us",
-          accountId: "work",
-          threadId: 99,
-        },
-      },
-    });
+  it("hydrates the exact saved route beyond the first 200 sessions", async () => {
+    const sessionKey = "agent:main:whatsapp:group:123@g.us";
+    const saved = {
+      key: sessionKey,
+      agentId: "main",
+      deliveryContext: { channel: "whatsapp", to: "123@g.us", accountId: "work", threadId: 99 },
+    };
+    const sessions = [
+      ...Array.from({ length: 200 }, (_, index) => ({ key: `agent:main:other-${index}` })),
+      saved,
+    ];
+    callGatewayMock.mockImplementation(
+      async (request: { method: string; params: { key?: string; limit?: number } }) =>
+        request.method === "sessions.describe"
+          ? { session: sessions.find((session) => session.key === request.params.key) ?? null }
+          : { sessions: sessions.slice(0, request.params.limit) },
+    );
 
     const target = await resolveSessionsSendReplyTarget({
-      sessionKey: "agent:main:whatsapp:group:123@g.us",
-      displayKey: "agent:main:whatsapp:group:123@g.us",
+      sessionKey,
+      displayKey: sessionKey,
+      agentId: "main",
       callGateway: callGatewayMock,
     });
     expect(target).toEqual({
@@ -595,8 +602,6 @@ describe("resolveSessionsSendReplyTarget", () => {
       accountId: "work",
       threadId: "99",
     });
-    expect(callGatewayMock).toHaveBeenCalledTimes(1);
-    expect(requireGatewayRequest().method).toBe("sessions.describe");
   });
 
   it("hydrates delivery from the canonical external projection", async () => {
@@ -985,80 +990,79 @@ describe("sessions_send gating", () => {
       timeoutSeconds,
       requesterSessionKey = MAIN_AGENT_SESSION_KEY,
     }) => {
-      await withTestDir({ prefix: "openclaw-exact-session-send-" }, async (dir) => {
-        const { runSessionsSendA2AFlow } = await import("./sessions-send-tool.a2a.js");
-        vi.mocked(runSessionsSendA2AFlow).mockClear();
-        const storePath = path.join(dir, "sessions.json");
-        const targetSessionId = "child-incarnation";
-        await upsertSessionEntryCore(
-          { agentId: "main", sessionKey: targetSessionKey, storePath },
-          {
-            sessionId: targetSessionId,
-            updatedAt: 1,
-            parentSessionKey: requesterSessionKey,
-            spawnedBy: requesterSessionKey,
-          },
-        );
-        callGatewayMock.mockImplementation(async (opts: unknown) => {
-          const request = opts as { method?: string };
-          if (request.method === "sessions.list") {
-            return {
-              path: storePath,
-              sessions: [{ key: targetSessionKey, kind: "direct" }],
-            };
-          }
-          if (request.method === "agent") {
-            return { runId: "run-exact-send", acceptedAt: 123 };
-          }
-          if (request.method === "agent.wait") {
-            return { runId: "run-exact-send", status: "timeout" };
-          }
-          return {};
-        });
-        const tool = createSessionsSendTool({
-          agentSessionKey: requesterSessionKey,
-          expectedTargetSessionId: targetSessionId,
-          idempotencyKey: "worker-session-send:stable-operation",
-          callGateway: callGatewayMock,
-          config: {
-            ...PEER_ONLY_ROUTING_CONFIG,
-            session: { scope: "per-sender", mainKey: "main", store: storePath },
-            tools: {
-              agentToAgent: { enabled: true },
-              sessions: { visibility: "all" },
-            },
-          } as never,
-        });
-
-        const result = await tool.execute("call-exact-send", {
-          sessionKey: targetSessionKey,
-          message: "ping",
-          timeoutSeconds,
-          watch: true,
-        });
-
-        expect(requireDetails(result)).toMatchObject({
-          status: "accepted",
-          sessionKey: targetSessionKey,
-          targetDisposition: "queued",
-          delivery: { status: "skipped" },
-          watched: false,
-        });
-        expect(runSessionsSendA2AFlow).not.toHaveBeenCalled();
-        expect(
-          callGatewayMock.mock.calls.filter(([request]) => request.method === "agent.wait"),
-        ).toHaveLength(timeoutSeconds);
-        expect(callGatewayMock).toHaveBeenCalledWith(
-          expect.objectContaining({
-            method: "agent",
-            params: expect.objectContaining({
-              idempotencyKey: "worker-session-send:stable-operation",
-              sessionKey: targetSessionKey,
-              inputProvenance: expect.objectContaining({ sourceSessionKey: requesterSessionKey }),
-            }),
-          }),
-        );
+      const dir = sessionDirs.make();
+      const { runSessionsSendA2AFlow } = await import("./sessions-send-tool.a2a.js");
+      vi.mocked(runSessionsSendA2AFlow).mockClear();
+      const storePath = path.join(dir, "sessions.json");
+      const targetSessionId = "child-incarnation";
+      await upsertSessionEntryCore(
+        { agentId: "main", sessionKey: targetSessionKey, storePath },
+        {
+          sessionId: targetSessionId,
+          updatedAt: 1,
+          parentSessionKey: requesterSessionKey,
+          spawnedBy: requesterSessionKey,
+        },
+      );
+      callGatewayMock.mockImplementation(async (opts: unknown) => {
+        const request = opts as { method?: string };
+        if (request.method === "sessions.list") {
+          return {
+            path: storePath,
+            sessions: [{ key: targetSessionKey, kind: "direct" }],
+          };
+        }
+        if (request.method === "agent") {
+          return { runId: "run-exact-send", acceptedAt: 123 };
+        }
+        if (request.method === "agent.wait") {
+          return { runId: "run-exact-send", status: "timeout" };
+        }
+        return {};
       });
+      const tool = createSessionsSendTool({
+        agentSessionKey: requesterSessionKey,
+        expectedTargetSessionId: targetSessionId,
+        idempotencyKey: "worker-session-send:stable-operation",
+        callGateway: callGatewayMock,
+        config: {
+          ...PEER_ONLY_ROUTING_CONFIG,
+          session: { scope: "per-sender", mainKey: "main", store: storePath },
+          tools: {
+            agentToAgent: { enabled: true },
+            sessions: { visibility: "all" },
+          },
+        } as never,
+      });
+
+      const result = await tool.execute("call-exact-send", {
+        sessionKey: targetSessionKey,
+        message: "ping",
+        timeoutSeconds,
+        watch: true,
+      });
+
+      expect(requireDetails(result)).toMatchObject({
+        status: "accepted",
+        sessionKey: targetSessionKey,
+        targetDisposition: "queued",
+        delivery: { status: "skipped" },
+        watched: false,
+      });
+      expect(runSessionsSendA2AFlow).not.toHaveBeenCalled();
+      expect(
+        callGatewayMock.mock.calls.filter(([request]) => request.method === "agent.wait"),
+      ).toHaveLength(timeoutSeconds);
+      expect(callGatewayMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "agent",
+          params: expect.objectContaining({
+            idempotencyKey: "worker-session-send:stable-operation",
+            sessionKey: targetSessionKey,
+            inputProvenance: expect.objectContaining({ sourceSessionKey: requesterSessionKey }),
+          }),
+        }),
+      );
     },
   );
 
@@ -1399,7 +1403,7 @@ describe("sessions_send gating", () => {
       expect(details.status).toBe("no_reply");
       expect(details.reply).toBeUndefined();
       expect(details.delivery).toBeUndefined();
-      expect(details.message).toContain("pending announcement");
+      expect(details.message).toContain("pending delivery");
       expect(details.sessionKey).toBe(targetSessionKey);
       expect(runSessionsSendA2AFlow).not.toHaveBeenCalled();
     },
@@ -1469,6 +1473,7 @@ describe("sessions_send gating", () => {
           reply: "Already delivered to the source",
           sessionKey: targetSessionKey,
         });
+        expect(runSessionsSendA2AFlow).not.toHaveBeenCalled();
       } else {
         expect(requireDetails(result)).toMatchObject({
           status: "no_reply",
@@ -1582,10 +1587,26 @@ describe("sessions_send gating", () => {
         return;
       }
       const flowParams = await executeFireAndForgetA2AFrom(requesterSessionKey);
-
       expect(flowParams.requesterSessionKey).toBe(expectedRequesterSessionKey);
     },
   );
+
+  it("keeps a key-only DM requester's own session key in reply context and provenance", async () => {
+    const requesterSessionKey = "agent:main:feishu:direct:peer-1";
+    const flowParams = await executeFireAndForgetA2AFrom(requesterSessionKey);
+
+    expect(flowParams.requesterSessionKey).toBe(requesterSessionKey);
+    expect(callGatewayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "agent",
+        params: expect.objectContaining({
+          inputProvenance: expect.objectContaining({
+            sourceSessionKey: requesterSessionKey,
+          }),
+        }),
+      }),
+    );
+  });
 
   it.each([
     { label: "peer", key: "agent:main:direct:peer-1" },

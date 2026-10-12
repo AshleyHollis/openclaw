@@ -6,7 +6,7 @@ import {
   migrateSqliteSchemaToStrict,
 } from "openclaw/plugin-sdk/plugin-state-runtime";
 import { openNodeSqliteDatabase } from "openclaw/plugin-sdk/sqlite-worker-runtime";
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 const WORKBOARD_SQLITE_BUSY_TIMEOUT_MS = 5000;
 const WORKBOARD_SQLITE_DIR_MODE = 0o700;
 const WORKBOARD_SQLITE_FILE_MODE = 0o600;
@@ -28,6 +28,21 @@ function ensureColumn(db: DatabaseSync, tableName: string, columnName: string, d
 }
 
 const WORKBOARD_SCHEMA_SQL = `
+    CREATE TABLE IF NOT EXISTS workboard_result_reviews (
+      id TEXT PRIMARY KEY,
+      tenant TEXT NOT NULL,
+      board_id TEXT NOT NULL,
+      card_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending', 'reviewed', 'withdrawn')),
+      revision INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      request_json TEXT NOT NULL
+    ) STRICT;
+    CREATE UNIQUE INDEX IF NOT EXISTS workboard_result_reviews_pending_card_idx
+      ON workboard_result_reviews(tenant, board_id, card_id) WHERE status = 'pending';
+    CREATE INDEX IF NOT EXISTS workboard_result_reviews_card_idx
+      ON workboard_result_reviews(tenant, board_id, card_id, created_at);
+
     CREATE TABLE IF NOT EXISTS workboard_schema_migrations (
       id TEXT PRIMARY KEY,
       applied_at INTEGER NOT NULL
@@ -39,12 +54,25 @@ const WORKBOARD_SCHEMA_SQL = `
       description TEXT,
       icon TEXT,
       color TEXT,
+      kind TEXT,
+      sessions_spec TEXT,
       automation_job_id TEXT,
       default_workspace_json TEXT,
       orchestration_json TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       archived_at INTEGER
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS workboard_session_placements (
+      board_id TEXT NOT NULL REFERENCES workboard_boards(id) ON DELETE CASCADE,
+      session_key TEXT NOT NULL,
+      column_id TEXT NOT NULL,
+      source TEXT NOT NULL CHECK(source IN ('state', 'model', 'operator')),
+      reason TEXT NOT NULL,
+      facts_hash TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY(board_id, session_key)
     ) STRICT;
 
     CREATE TABLE IF NOT EXISTS workboard_cards (
@@ -274,12 +302,8 @@ function ensureWorkboardSchema(db: DatabaseSync): void {
     ensureColumn(db, "workboard_cards", column, `${column} TEXT`);
   }
   ensureColumn(db, "workboard_boards", "automation_job_id", "automation_job_id TEXT");
-  ensureColumn(
-    db,
-    "workboard_cards",
-    "lifecycle_status_source_updated_at",
-    "lifecycle_status_source_updated_at INTEGER",
-  );
+  ensureColumn(db, "workboard_boards", "kind", "kind TEXT");
+  ensureColumn(db, "workboard_boards", "sessions_spec", "sessions_spec TEXT");
   const migrationId = `schema-${SCHEMA_VERSION}`;
   const current = db
     .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = ?")

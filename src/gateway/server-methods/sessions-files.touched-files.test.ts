@@ -227,11 +227,16 @@ describe("sessions.files touched-file folds", () => {
   });
 
   it("lets a different session finish while a multi-page fold is yielded", async () => {
+    const pageYielded = createDeferred();
+    const resumeSlowFold = createDeferred();
+    const actualSetImmediate = globalThis.setImmediate;
+    let restoreYield = () => {};
     hoisted.resolveAgentWorkspaceDir.mockReturnValue(undefined);
     hoisted.loadSessionEntry.mockImplementation((sessionKey: string) => {
       const sessionId = sessionKey.endsWith(":slow") ? "sess-touched-slow" : "sess-touched-fast";
       const storePath = path.join(workspaceRoot, `${sessionId}.sqlite`);
       return {
+        agentId: "main",
         canonicalKey: sessionKey,
         cfg: {},
         storePath,
@@ -240,6 +245,19 @@ describe("sessions.files touched-file folds", () => {
     });
     hoisted.readSessionTranscriptVisibleMessageDeltaCore.mockImplementation((scope, limits) => {
       const isSlow = scope.sessionId === "sess-touched-slow";
+      if (isSlow && limits.cursor === undefined) {
+        // Hold this fold's actual page yield, independently of the fast
+        // request's asynchronous setup. The sibling test proves the yield.
+        const yieldSpy = vi
+          .spyOn(globalThis, "setImmediate")
+          .mockImplementationOnce((callback, ...args) =>
+            actualSetImmediate(() => {
+              pageYielded.resolve();
+              void resumeSlowFold.promise.then(() => callback(...args));
+            }),
+          );
+        restoreYield = () => yieldSpy.mockRestore();
+      }
       return {
         kind: "page",
         cursor: isSlow ? "slow-final" : "fast-final",
@@ -256,12 +274,20 @@ describe("sessions.files touched-file folds", () => {
       slowFinished = true;
       return result;
     });
-    expectOkPayload(
-      await invokeSessionFilesHandler("sessions.files.list", { sessionKey: "agent:main:fast" }),
-    );
-
-    expect(slowFinished).toBe(false);
-    expectOkPayload(await slow);
+    try {
+      await pageYielded.promise;
+      expect(hoisted.readSessionTranscriptVisibleMessageDeltaCore).toHaveBeenCalledTimes(1);
+      expectOkPayload(
+        await invokeSessionFilesHandler("sessions.files.list", { sessionKey: "agent:main:fast" }),
+      );
+      expect(slowFinished).toBe(false);
+      resumeSlowFold.resolve();
+      expectOkPayload(await slow);
+    } finally {
+      resumeSlowFold.resolve();
+      restoreYield();
+      await slow;
+    }
   });
 
   it("isolates touched-file folds for the same session across stores", async () => {

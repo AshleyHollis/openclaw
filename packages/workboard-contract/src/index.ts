@@ -1,3 +1,5 @@
+import type { WorkboardSessionsBoardSpec } from "./sessions-board.js";
+
 export const WORKBOARD_STATUSES = [
   "triage",
   "backlog",
@@ -161,6 +163,26 @@ export type WorkboardProof = {
   note?: string;
 };
 
+/** Explicit human review of one immutable completed result; never execution permission. */
+export type WorkboardResultReviewRequest = {
+  schemaVersion: 1;
+  id: string;
+  requestRevision: string;
+  resultDigest: string;
+  completionIntent: string;
+  revision: number;
+  status: "pending" | "reviewed" | "withdrawn";
+  tenant: string;
+  boardId: string;
+  cardId: string;
+  sessionKey: string;
+  runId: string;
+  createdAt: number;
+  expiresAt: null;
+  resolvedAt: number | null;
+  result: { summary: string; proof: WorkboardProof[]; artifacts: WorkboardArtifact[] };
+};
+
 export type WorkboardArtifact = {
   id: string;
   createdAt: number;
@@ -294,6 +316,8 @@ export type WorkboardAutomation = {
 
 export type WorkboardBoardMetadata = {
   id: string;
+  kind?: "cards" | "sessions";
+  sessions?: WorkboardSessionsBoardSpec;
   name?: string;
   description?: string;
   icon?: string;
@@ -306,21 +330,12 @@ export type WorkboardBoardMetadata = {
   archivedAt?: number;
 };
 
-export type WorkboardBoardSummary = {
-  id: string;
-  name?: string;
-  description?: string;
-  icon?: string;
-  color?: string;
-  automationJobId?: string;
-  defaultWorkspace?: WorkboardWorkspace;
-  orchestration?: WorkboardOrchestrationSettings;
+export type WorkboardBoardSummary = Omit<WorkboardBoardMetadata, "createdAt" | "updatedAt"> & {
   total: number;
   active: number;
   archived: number;
   byStatus: Partial<Record<WorkboardStatus, number>>;
   updatedAt?: number;
-  archivedAt?: number;
 };
 
 export type WorkboardOrchestrationSettings = {
@@ -391,3 +406,19 @@ export type WorkboardListResult = {
   cards: WorkboardCard[];
   statuses: readonly WorkboardStatus[];
 };
+export {
+  createDefaultWorkboardSessionsBoardSpec,
+  normalizeWorkboardSessionsBoardSpec,
+  patchWorkboardSessionsBoardSpec,
+} from "./sessions-board.js";
+export type {
+  WorkboardSessionFacts,
+  WorkboardSessionPlacement,
+  WorkboardSessionsBoard,
+  WorkboardSessionsBoardRead,
+  WorkboardSessionsBoardSpec,
+  WorkboardSessionsBoardView,
+  WorkboardSessionsColumn,
+  WorkboardSessionsColumnMatch,
+  WorkboardSessionsObserverHealth,
+} from "./sessions-board.js";

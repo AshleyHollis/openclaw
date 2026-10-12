@@ -1,4 +1,4 @@
-import type { LitElement } from "lit";
+import { render, type LitElement } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginControlUiDiagnostic } from "../../../packages/gateway-protocol/src/schema/plugins.js";
 import type {
@@ -11,6 +11,10 @@ import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { GatewaySessionRow } from "../api/types.ts";
 import { createAgentSelectionCapability } from "../app/agent-selection.ts";
 import type { ApplicationContext } from "../app/context.ts";
+import {
+  renderAppSidebarZoneEntry,
+  type AppSidebarRenderHost,
+} from "../components/app-sidebar-render.ts";
 import { t } from "../i18n/index.ts";
 import { createAgentCapability } from "../lib/agents/index.ts";
 import { createSessionCapability } from "../lib/sessions/index.ts";
@@ -26,10 +30,10 @@ import "./control-ui-view.runtime.ts";
 
 type ContributionsElement = LitElement & {
   kind: "navigation" | "header" | "composer";
-  sessionKey: string;
-  agentId?: string;
   navigationKey: string;
   currentNavigationHref: string;
+  sessionKey: string;
+  agentId?: string;
   presented: boolean;
 };
 const sessionKey = "agent:main:main";
@@ -61,17 +65,30 @@ it("updates native plugin navigation active state when the route changes", async
     reportError: vi.fn(),
   } as unknown as ControlUiPluginRuntime;
   const provider = createApplicationContextProvider({ plugins } as unknown as ApplicationContext);
-  const element = document.createElement("openclaw-plugin-contributions") as ContributionsElement;
-  element.kind = "navigation";
-  element.navigationKey = entry.key;
-  element.currentNavigationHref = "/chat";
-  provider.append(element);
+  let location = { pathname: "/chat", search: "", hash: "" };
+  const host = {
+    router: { getState: () => ({ location }) },
+    sessionOrganizer: {},
+    pluginNavigation: () => [entry],
+  } as unknown as AppSidebarRenderHost;
+  const container = document.createElement("div");
+  const renderNavigation = () =>
+    render(
+      renderAppSidebarZoneEntry(host, { type: "plugin", key: entry.key }, new Map(), new Map()),
+      container,
+    );
+  provider.append(container);
   document.body.append(provider);
   try {
+    renderNavigation();
+    const element = container.querySelector(
+      "openclaw-plugin-contributions",
+    ) as ContributionsElement;
     await element.updateComplete;
     expect(element.querySelector("a")?.getAttribute("aria-current")).toBeNull();
 
-    element.currentNavigationHref = href;
+    location = { pathname: "/plugin", search: "?plugin=fixture&id=dashboard", hash: "" };
+    renderNavigation();
     await element.updateComplete;
     const link = element.querySelector<HTMLAnchorElement>("a");
     expect(link?.getAttribute("aria-current")).toBe("page");

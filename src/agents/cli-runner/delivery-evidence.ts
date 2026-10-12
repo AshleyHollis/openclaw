@@ -24,6 +24,7 @@ export function isMissingRequiredCliReply(params: {
     !hasCompletionMessageSessionSpawn(output.acceptedSessionSpawns) &&
     !output.terminalInterruption &&
     resolveReplyExpectation(runParams) === "required" &&
+    // Strict isolated completion owns valid-empty output after reasoning is removed.
     !(isolatedCompletion && runParams.outputTextPolicy === "strict-visible")
   );
 }

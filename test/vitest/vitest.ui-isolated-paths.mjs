@@ -1,11 +1,12 @@
 // The shared UI runner reuses its module graph across fresh jsdom registries.
-// Tests in this list depend on module singletons or custom-element registration
+// Tests in this list own file-scoped module mocks, singletons, or custom-element registration
 // matching the current registry, so they need a fresh graph in the isolated lane.
 export const uiIsolatedTestFiles = [
   "ui/src/app/app-host.server-prefs.test.ts",
   "ui/src/app/bootstrap.gateway-credentials.test.ts",
   "ui/src/app/bootstrap.test.ts",
   "ui/src/app/router-outlet.test.ts",
+  "ui/src/app/update-failure-report-controller.test.ts",
   "ui/src/components/app-sidebar-native-gateways.test.ts",
   "ui/src/components/link-reader-title-tooltip.test.ts",
   "ui/src/components/markdown-tables.test.ts",
@@ -27,6 +28,7 @@ export const uiIsolatedTestFiles = [
   "ui/src/pages/chat/chat-pane-lifecycle.test.ts",
   "ui/src/pages/chat/chat-pane-pull-requests.test.ts",
   "ui/src/pages/chat/chat-pane-retained-presentation.test.ts",
+  "ui/src/pages/chat/chat-pane-retention.test.ts",
   "ui/src/pages/chat/chat-pane-swarm-startup.test.ts",
   "ui/src/pages/chat/chat-pane.read-marker.test.ts",
   "ui/src/pages/chat/chat-pane.session-discussion.test.ts",
@@ -34,6 +36,7 @@ export const uiIsolatedTestFiles = [
   "ui/src/pages/chat/components/chat-transcript-controller.test.ts",
   "ui/src/pages/chat/components/chat-transcript-geometry.test.ts",
   "ui/src/pages/chat/components/chat-transcript-invalidation.test.ts",
+  "ui/src/pages/chat/components/chat-transcript-message-controls.test.ts",
   "ui/src/pages/chat/components/chat-transcript-message-reveal.test.ts",
   "ui/src/pages/chat/components/chat-transcript-render.test.ts",
   "ui/src/pages/config/config-page.custom-theme.test.ts",

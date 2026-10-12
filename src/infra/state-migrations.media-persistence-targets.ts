@@ -71,6 +71,9 @@ export function prepareAgentDatabaseMigrationDiscovery(params: {
       registeredAgentDatabases,
       deletionJournal,
     }),
+    ...(params.preparedDiscovery?.stateDir === stateDir
+      ? { preparedTranscriptArchives: params.preparedDiscovery.preparedTranscriptArchives }
+      : {}),
   };
 }
 

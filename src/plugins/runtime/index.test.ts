@@ -203,7 +203,7 @@ describe("plugin runtime command execution", () => {
     const config: OpenClawConfig = {
       agents: {
         defaults: { sandbox: { mode: "all", scope: "session", workspaceAccess: "rw" } },
-        list: [{ id: "main", default: true }],
+        entries: { main: {} },
       },
       tools: { elevated: { enabled: false } },
     };
@@ -228,7 +228,7 @@ describe("plugin runtime command execution", () => {
     const config: OpenClawConfig = {
       agents: {
         defaults: { sandbox: { mode: "all", scope: "session", workspaceAccess: "rw" } },
-        list: [{ id: "main", default: true, workspace: "/workspace" }],
+        entries: { main: { workspace: "/workspace" } },
       },
       tools: {
         elevated: { enabled: false },

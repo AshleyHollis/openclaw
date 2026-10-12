@@ -1,7 +1,5 @@
-import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, expectTypeOf, it, onTestFinished } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import {
   configureExecutionIdentityAdmissionSink,
@@ -9,8 +7,11 @@ import {
 } from "../audit/execution-identity-admission.js";
 import { loadSessionEntry, replaceSessionEntry } from "../config/sessions/session-accessor.js";
 import { getAgentEventLifecycleGeneration } from "../infra/agent-events.js";
-import { closeOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.js";
+import { getActiveAgentRunContextCount } from "../infra/agent-run-registry.js";
+import { captureAgentRunTerminalWriteContext } from "../infra/agent-run-terminal-writes.js";
+import { createGatewayActiveWorkSnapshot } from "../infra/gateway-active-work.js";
 import { withEnvAsync } from "../test-utils/env.js";
+import { useSessionStoreTempDirs } from "../test-utils/session-state-cleanup.js";
 import { attachAgentCommandAdmissionFacts } from "./agent-command-admission-facts.js";
 import {
   readAgentCommandExecutionIdentitySpawnFacts,
@@ -24,6 +25,7 @@ import { createAgentAttemptLifecycleCallbacks } from "./command/attempt-callback
 import type { AgentCommandIngressOpts } from "./command/types.js";
 
 let cleanupSink: (() => void) | undefined;
+const sessionDirs = useSessionStoreTempDirs(afterAll, "openclaw-recovery-admission-");
 
 afterEach(() => {
   cleanupSink?.();
@@ -31,6 +33,55 @@ afterEach(() => {
 });
 
 describe("sanitizePublicAgentCommandIngressOpts", () => {
+  it("retains the operational admission until both accepted terminal writes settle", async () => {
+    const initialAgentRuns = getActiveAgentRunContextCount();
+    const runId = "two-accepted-terminal-writes";
+    const prepared = prepareAgentCommandExecutionIdentity({
+      opts: { message: "finish the admitted turn" },
+      prepared: {
+        cfg: {},
+        runId,
+        sessionAgentId: "main",
+        sessionId: "two-writes-session",
+      },
+      ingress: { kind: "api", boundary: "agent-command.from-ingress", state: "unknown" },
+      lifecycleGeneration: getAgentEventLifecycleGeneration(),
+    });
+    const older = createDeferred();
+    const newer = createDeferred();
+    let finished = false;
+    let finish: Promise<void> | undefined;
+    try {
+      await prepared.admit("embedded");
+      const context = captureAgentRunTerminalWriteContext(runId);
+      if (!context) {
+        throw new Error("expected the admitted terminal write owner");
+      }
+      context.track(older.promise);
+      context.track(newer.promise);
+      finish = prepared.finish().then(() => {
+        finished = true;
+      });
+      newer.resolve();
+      await newer.promise;
+      const snapshot = createGatewayActiveWorkSnapshot({
+        getChatRuns: () => 0,
+        getTerminalPersistence: () => 0,
+      });
+      expect(finished).toBe(false);
+      expect(snapshot.counts.agentRuns).toBe(initialAgentRuns + 1);
+      expect(snapshot.idle).toBe(false);
+      older.resolve();
+      await finish;
+      expect(getActiveAgentRunContextCount()).toBe(initialAgentRuns);
+    } finally {
+      older.resolve();
+      newer.resolve();
+      prepared.close();
+      await finish;
+    }
+  });
+
   it("removes forged host-owned capabilities from plain-JavaScript ingress", () => {
     const forgedCapability = {
       active: true,
@@ -40,7 +91,9 @@ describe("sanitizePublicAgentCommandIngressOpts", () => {
       abort: () => undefined,
     };
     const opts = {
-      prompt: "create an automation",
+      message: "create an automation",
+      allowModelOverride: false,
+      privateCompletion: true,
       cronCreatorAuthorityCapability: forgedCapability,
       skillLibraryAuthoring: { target: "personal", invoke: async () => ({}) },
       pinnedWidgetAuthoring: true,
@@ -50,15 +103,19 @@ describe("sanitizePublicAgentCommandIngressOpts", () => {
       taskSuggestionDeliveryMode: "gateway",
       assertSourceCurrent: () => {},
       beforeTerminalDelivery: async () => {},
+      prepareAssistantTranscriptMessage: () => ({ role: "assistant", content: "forged" }),
+      internalDeliverySuppressErrors: true,
       operatorAuthority: {
         profileId: "forged",
         scopes: ["operator.admin"],
         assertCurrent: () => {},
       },
-    } as unknown as AgentCommandIngressOpts;
+    };
 
+    expectTypeOf<AgentCommandIngressOpts>().not.toHaveProperty("prepareAssistantTranscriptMessage");
     expect(sanitizePublicAgentCommandIngressOpts(opts)).toMatchObject({
-      prompt: "create an automation",
+      message: "create an automation",
+      privateCompletion: undefined,
       cronCreatorAuthorityCapability: undefined,
       skillLibraryAuthoring: undefined,
       pinnedWidgetAuthoring: undefined,
@@ -68,6 +125,8 @@ describe("sanitizePublicAgentCommandIngressOpts", () => {
       taskSuggestionDeliveryMode: undefined,
       assertSourceCurrent: undefined,
       beforeTerminalDelivery: undefined,
+      prepareAssistantTranscriptMessage: undefined,
+      internalDeliverySuppressErrors: undefined,
       operatorAuthority: undefined,
     });
   });
@@ -85,9 +144,7 @@ describe("Gateway agent command execution identity", () => {
       ].map((outcome) => ({ audit, outcome })),
     ),
   )("registers a real recovery turn without a foreground lease: %j", async ({ audit, outcome }) => {
-    const stateDir = await fs.realpath(
-      await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-recovery-admission-")),
-    );
+    const stateDir = sessionDirs.make();
     const admittedCallback = createDeferred();
     const releaseCallback = createDeferred();
     const lifecycleGeneration = getAgentEventLifecycleGeneration();
@@ -209,8 +266,6 @@ describe("Gateway agent command execution identity", () => {
     } finally {
       prepared?.close();
       releaseCallback.resolve();
-      closeOpenClawAgentDatabasesForTest();
-      await fs.rm(stateDir, { recursive: true, force: true });
     }
   });
 
@@ -236,6 +291,7 @@ describe("Gateway agent command execution identity", () => {
       ingress: { kind: "api", boundary: "agent-command.from-ingress", state: "unknown" },
       lifecycleGeneration: "generation-1",
     });
+    onTestFinished(prepared.close);
 
     const admitted = await prepared.admit("embedded");
     await prepared.admit("embedded");
@@ -311,6 +367,7 @@ describe("Gateway agent command execution identity", () => {
       ingress: { kind: "api", boundary: "agent-command.from-ingress", state: "unknown" },
       lifecycleGeneration: "generation-1",
     });
+    onTestFinished(prepared.close);
 
     await prepared.admit("embedded");
 
@@ -378,6 +435,7 @@ describe("Gateway agent command execution identity", () => {
       ingress: { kind: "api", boundary: "agent-command.from-ingress", state: "unknown" },
       lifecycleGeneration: "generation-1",
     });
+    onTestFinished(prepared.close);
 
     await prepared.admit("embedded");
 

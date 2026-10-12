@@ -48,13 +48,20 @@ const workflowToolingClosure = [
   "scripts/lib/numeric-options.mjs",
 ];
 const maxRecordBytes = 256 * 1024;
+// Companion source qualification binds declarations only; it does not admit a
+// compiled SDK, plugin activation, or an installed host.
+const declarationFiles = {
+  "command-center": [
+    "package.json",
+    "src/plugin-sdk/control-ui.ts",
+    "src/plugins/manifest-types.ts",
+  ],
+};
 const prefix = "OPENCLAW_FROZEN_TARGET_";
 const shellOwners = {
-  onboard: ["onboard_contract", [`${prefix}ONBOARD_CASES`]],
   "release-typed-onboarding": [
     "typed_onboarding_contract",
     [
-      `${prefix}ONBOARD_SESSION_MEMORY_HOOK_MODE`,
       `${prefix}TYPED_ONBOARDING_SCENARIO_PATH`,
       `${prefix}TYPED_ONBOARDING_ASSERTIONS_PATH`,
       `${prefix}TYPED_ONBOARDING_ASSERTION_FILES_PATH`,
@@ -70,31 +77,14 @@ const shellOwners = {
     ],
   ],
   "openai-chat-tools": ["session_cold_storage_contract", [`${prefix}SESSION_COLD_STORAGE_MODE`]],
-  "mcp-code-mode-gateway": [
-    "mcp_code_mode_contract",
-    [`${prefix}MCP_MEMORY_CONFIG_MODE`, `${prefix}MCP_CODE_MODE_CATALOG_MODE`],
-  ],
   "agent-bundle-mcp-tools": [
     "agent_bundle_mcp_contract",
     [`${prefix}AGENT_BUNDLE_MCP_MODE`, `${prefix}AGENT_BUNDLE_MCP_CLIENT_PATH`],
   ],
-  "gateway-network": ["gateway_network_layout", [`${prefix}GATEWAY_NETWORK_LEGACY_LIB`]],
-  plugins: [
-    "plugin_harness_capabilities",
-    [`${prefix}PLUGIN_UNINSTALL_MODE`, "OPENCLAW_FROZEN_PLUGIN_PRERELEASE_FIXTURE_DIALECT"],
-  ],
-  "live-cli-backend": ["live_cli_backend_package_mode", [`${prefix}LIVE_CLI_BACKEND_PACKAGE_MODE`]],
-  "update-channel-switch": [
-    "update_channel_dry_run_mode",
-    [
-      "OPENCLAW_UPDATE_CHANNEL_DRY_RUN_PACKAGE_COMPAT",
-      "OPENCLAW_UPDATE_CHANNEL_DIRTY_BLOCK_EXIT_ZERO_COMPAT",
-    ],
-  ],
+  plugins: ["plugin_harness_capabilities", [`${prefix}PLUGIN_UNINSTALL_MODE`]],
   "upgrade-survivor": [
     "upgrade_survivor_capabilities",
     [
-      "OPENCLAW_FROZEN_UPGRADE_SURVIVOR_CLAWHUB_MODE",
       "OPENCLAW_FROZEN_UPGRADE_SURVIVOR_TOOL_SEARCH_RECIPE",
       "OPENCLAW_FROZEN_UPGRADE_SURVIVOR_MEMBERSHIP_MODE",
     ],
@@ -162,9 +152,7 @@ const supportFiles = {
 
 // Acquisition inputs only. Dialect decisions remain in the shared resolver owners.
 const selectedMetadata = {
-  onboard: ["src/config/zod-schema.ts"],
   "release-typed-onboarding": [
-    "src/commands/onboard-hooks.ts",
     "scripts/e2e/lib/release-typed-onboarding/scenario.sh",
     "scripts/e2e/lib/release-scenarios/assertions.mjs",
     "scripts/e2e/lib/release-assertion-files.mjs",
@@ -181,7 +169,6 @@ const selectedMetadata = {
     "src/config/zod-schema.session.ts",
     "src/config/zod-schema.session-config.ts",
   ],
-  "mcp-code-mode-gateway": ["src/agents/memory-search.ts", "src/agents/code-mode-namespaces.ts"],
   "agent-bundle-mcp-tools": [
     "package.json",
     "scripts/e2e/agent-bundle-mcp-tools-docker-client.ts",
@@ -190,24 +177,10 @@ const selectedMetadata = {
     "src/agents/agent-bundle-mcp-manager-api.ts",
     "src/agents/agent-bundle-mcp-runtime.ts",
   ],
-  "gateway-network": [
-    "scripts/e2e/lib/gateway-network/client.mjs",
-    "scripts/e2e/lib/gateway-network/client.mts",
-  ],
-  plugins: [
-    "scripts/e2e/lib/plugins/assertions.mjs",
-    "src/config/types.messages.ts",
-    "src/config/types.plugins.ts",
-    "src/plugin-sdk/session-store-runtime.ts",
-    "src/plugins/uninstall-package-plan.ts",
-  ],
-  "live-cli-backend": ["scripts/print-cli-backend-live-metadata.ts"],
-  "update-channel-switch": ["src/cli/update-cli/update-command.ts"],
+  plugins: ["scripts/e2e/lib/plugins/assertions.mjs"],
   "upgrade-survivor": [
     "package.json",
-    "src/infra/clawhub-install-trust.ts",
     "src/cli/update-cli/update-command-terminal-publication.ts",
-    "src/plugins/clawhub.ts",
     "scripts/e2e/lib/upgrade-survivor",
     "scripts/lib/npm-publish-plan.mjs",
     "scripts/windows-cmd-helpers.mjs",
@@ -532,8 +505,10 @@ async function planWorkflowAdmission(input) {
     sourcePaths.add("extensions/codex/package.json");
   }
   const fsSafeNative = selections.some((selection) => selection.fsSafeNative);
-  if (fsSafeNative && allow) {
+  if (fsSafeNative) {
     sourcePaths.add("package.json");
+    sourcePaths.add("pnpm-workspace.yaml");
+    sourcePaths.add("patches/@openclaw__fs-safe@0.24.2.patch");
     // Older frozen contracts still inspect this retired shim; absent paths need no hydration.
     sourcePaths.add("src/infra/fs-safe-defaults.ts");
   }
@@ -853,12 +828,6 @@ function consumerForLane(name) {
   if (name.startsWith("npm-onboard-")) {
     return "npm-onboard-channel-agent";
   }
-  if (name === "live-mcp-code-mode-gateway") {
-    return "mcp-code-mode-gateway";
-  }
-  if (name === "live-gateway") {
-    return "live-cli-backend";
-  }
   if (
     name === "plugins-offline" ||
     name === "mcp-channels" ||
@@ -915,7 +884,8 @@ async function preflightFrozenTargetContracts(input, workflow = false, verifiedT
     await import("./lib/docker-e2e-plan.mts");
   const { classifyReleaseTrain, parseReleaseVersion } = await import("./lib/release-version.mjs");
   const { resolveFrozenCodexCompatibility } = await import("./resolve-frozen-codex-live-suite.mjs");
-  const { resolveFsSafeNativeContract } = await import("./resolve-fs-safe-native-contract.mjs");
+  const { resolveFsSafeNativeContract, resolveFsSafePublicationContract } =
+    await import("./resolve-fs-safe-native-contract.mjs");
   if (allow && input.selected.sha === input.tooling.sha) {
     throw new Error("frozen omissions require distinct identities");
   }
@@ -926,7 +896,11 @@ async function preflightFrozenTargetContracts(input, workflow = false, verifiedT
   );
   const consumers = new Set(strings(selection.consumers ?? [], "consumers"));
   for (const consumer of consumers) {
-    if (!Object.hasOwn(shellOwners, consumer) && !Object.hasOwn(targetFiles, consumer)) {
+    if (
+      !Object.hasOwn(shellOwners, consumer) &&
+      !Object.hasOwn(targetFiles, consumer) &&
+      !Object.hasOwn(declarationFiles, consumer)
+    ) {
       throw new Error(`unknown selected contract: ${consumer}`);
     }
   }
@@ -1040,6 +1014,13 @@ async function preflightFrozenTargetContracts(input, workflow = false, verifiedT
   const contracts = [];
   for (const consumer of [...consumers].toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
     const contract = { consumer, status: "ADMITTED", modes: {}, files: [] };
+    if (Object.hasOwn(declarationFiles, consumer)) {
+      contract.modes.source = "declarations-only";
+      for (const path of declarationFiles[consumer]) {
+        required(sources.selected, path);
+        contract.files.push({ source: "selected", path });
+      }
+    }
     const owner = shellOwners[consumer === "kitchen-sink-plugin" ? "plugins" : consumer];
     if (owner) {
       const [fn, names] = owner;
@@ -1177,6 +1158,17 @@ async function preflightFrozenTargetContracts(input, workflow = false, verifiedT
     });
   }
   if (fsSafeNative) {
+    contracts.push({
+      consumer: "fs-safe-publication",
+      mode: resolveFsSafePublicationContract({
+        selectedSha: input.selected.sha,
+        workflowSha: input.tooling.sha,
+        allowFrozenSource: allow,
+        containingBranches: () =>
+          sources.selected.containingBranches("refs/remotes/origin/extended-stable"),
+        readSource: (path) => sources.selected.readText(path),
+      }),
+    });
     contracts.push({
       consumer: "fs-safe-native",
       mode: resolveFsSafeNativeContract({

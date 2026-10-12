@@ -229,8 +229,12 @@ describe("ChatSendParamsSchema", () => {
 
   it("requires both session incarnation fields or neither", () => {
     expect(Value.Check(ChatSendParamsSchema, send)).toBe(true);
-    expect(Value.Check(ChatSendParamsSchema, { ...send, expectedSessionId: "session-a" })).toBe(false);
-    expect(Value.Check(ChatSendParamsSchema, { ...send, expectedLifecycleRevision: "revision-a" })).toBe(false);
+    expect(Value.Check(ChatSendParamsSchema, { ...send, expectedSessionId: "session-a" })).toBe(
+      false,
+    );
+    expect(
+      Value.Check(ChatSendParamsSchema, { ...send, expectedLifecycleRevision: "revision-a" }),
+    ).toBe(false);
     expect(
       Value.Check(ChatSendParamsSchema, {
         ...send,
@@ -243,6 +247,47 @@ describe("ChatSendParamsSchema", () => {
         ...send,
         expectedSessionId: "",
         expectedLifecycleRevision: "revision-a",
+      }),
+    ).toBe(false);
+  });
+
+  it("admits bounded plugin page details while keeping ambient context closed", () => {
+    const context = {
+      page: "plugin:example:sessions",
+      detail: { board: "board-1", view: "stuck sessions" },
+    };
+    expect(Value.Check(ChatSendParamsSchema, { ...send, workContext: context })).toBe(true);
+    expect(
+      Value.Check(ChatSendParamsSchema, {
+        ...send,
+        workContext: { ...context, detail: { "line\nbreak": "reference" } },
+      }),
+    ).toBe(true);
+    expect(
+      Value.Check(ChatSendParamsSchema, {
+        ...send,
+        workContext: { ...context, detail: { ["x".repeat(32)]: "x".repeat(128) } },
+      }),
+    ).toBe(true);
+    for (const detail of [
+      null,
+      [],
+      { board: 42 },
+      { board: { id: "nested" } },
+      { "line\nbreak": { id: "nested" } },
+      { "": "empty key" },
+      { ["x".repeat(33)]: "long key" },
+      { board: "x".repeat(129) },
+      { a: "1", b: "2", c: "3", d: "4", e: "5" },
+    ]) {
+      expect(
+        Value.Check(ChatSendParamsSchema, { ...send, workContext: { ...context, detail } }),
+      ).toBe(false);
+    }
+    expect(
+      Value.Check(ChatSendParamsSchema, {
+        ...send,
+        workContext: { ...context, permission: "admin" },
       }),
     ).toBe(false);
   });

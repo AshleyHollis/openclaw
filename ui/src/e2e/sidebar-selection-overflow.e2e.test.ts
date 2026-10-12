@@ -17,15 +17,17 @@ const suite = createControlUiE2eSuite({
 
 suite.define(() => {
   it.each([
-    { overflow: false, width: 1280 },
-    { overflow: true, width: 1280 },
-    { overflow: true, width: 390 },
+    { overflow: false, width: 1280, height: 900 },
+    { overflow: true, width: 1280, height: 500 },
+    { overflow: true, width: 390, height: 500 },
   ])(
     "keeps sidebar insets symmetric with overflow=$overflow at $width px",
-    async ({ overflow, width }) => {
+    async ({ overflow, width, height }) => {
       const captureProof = process.env.OPENCLAW_CAPTURE_UI_PROOF === "1";
       const context = await suite.newBrowserContext({
-        viewport: { height: 500, width },
+        // The complete Tools navigation and three sessions need a desktop-height
+        // viewport to exercise the no-scrollbar branch; dense cases stay compact.
+        viewport: { height, width },
       });
       const page = await context.newPage();
       const sessionKey = "agent:main:dashboard:active-session";

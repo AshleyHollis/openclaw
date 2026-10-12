@@ -1,4 +1,3 @@
-// Defines plugin tool metadata and filesystem policy types.
 import type { ConversationRecallContext } from "../agents/conversation-recall.types.js";
 import type { ToolFsPolicy } from "../agents/tool-fs-policy.types.js";
 import type { AnyAgentTool } from "../agents/tools/common.js";
@@ -6,6 +5,7 @@ import type { ConversationReadInvocationOrigin } from "../channels/plugins/conve
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { HookEntry } from "../hooks/types.js";
 import type { DeliveryContext } from "../utils/delivery-context.types.js";
+import type { MemoryAudience } from "./memory-provider-types.js";
 
 export type OpenClawPluginActiveModelContext = {
   provider?: string;
@@ -31,6 +31,8 @@ type OpenClawPluginToolContextBase = {
   agentDir?: string;
   agentId?: string;
   sessionKey?: string;
+  /** Original host-owned producing run identity; never derived from tool arguments. */
+  readonly runId?: string;
   /** Ephemeral session UUID - regenerated on /new and /reset. Use for per-conversation isolation. */
   sessionId?: string;
   /** Out-of-band plugin-owned bindings attached by the current run initiator. */
@@ -65,6 +67,12 @@ type OpenClawPluginToolContextBase = {
   requesterSenderId?: string;
   /** Trusted owner bit from inbound context (runtime-provided, not tool args). */
   senderIsOwner?: boolean;
+  /** Host-resolved memory partition for this turn. Providers must not reconstruct it. */
+  memoryAudience?: MemoryAudience;
+  /** Stable identity for one provider-owned pre-compaction flush cycle. */
+  memoryFlush?: { flushId: string };
+  /** Rejects a retained audience after any captured session incarnation changes. */
+  assertMemoryAudienceCurrent?: () => void;
   /** Live host-bound authority. Recheck inside the final synchronous effect/write guard. */
   assertInvocationCurrent?: () => void;
   /**
@@ -88,7 +96,11 @@ type OpenClawPluginToolContextBase = {
 
 /** Version 1 is the source-compatible direct-turn context; version 2 requires final-effect authority. */
 export type OpenClawPluginToolContext<Version extends 1 | 2 = 1> = Version extends 2
-  ? OpenClawPluginToolContextBase & { assertInvocationCurrent: () => void }
+  ? OpenClawPluginToolContextBase & {
+      assertInvocationCurrent: () => void;
+      /** Original admitted operator scope ceiling; never grants access without the live guard. */
+      authenticatedOperator?: Readonly<{ profileId: string; scopes: readonly string[] }>;
+    }
   : OpenClawPluginToolContextBase;
 
 /** A version 2 descriptor explicitly opts into owner-authorized continuations. */

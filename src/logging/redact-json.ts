@@ -359,6 +359,7 @@ function projectedStringEnd(
 
 type RedactionPatternGroup = {
   patterns: ResolvedRedactPattern[];
+  scalarGrammar?: (pattern: ResolvedRedactPattern) => boolean;
   couldMatch?: (input: string) => boolean;
 };
 
@@ -394,6 +395,7 @@ export function redactJsonRecord(
   const decodedTokens = tokens.filter(
     (token) => !token.isKey && token.string && !skipDecodedPatterns(token, token.currentValue),
   );
+  const decodedPatternTokens = new Map<ResolvedRedactPattern, Set<ScalarToken>>();
   const projectMessage = (): boolean => {
     if (!messageToken || !message) {
       return false;
@@ -459,7 +461,13 @@ export function redactJsonRecord(
       }
       for (const pattern of group.patterns) {
         if (phase === 0) {
+          let decodedForPattern: Set<ScalarToken> | undefined;
+          if (group.scalarGrammar?.(pattern)) {
+            decodedForPattern = decodedPatternTokens.get(pattern) ?? new Set<ScalarToken>();
+            decodedPatternTokens.set(pattern, decodedForPattern);
+          }
           for (const token of decodedTokens) {
+            decodedForPattern?.add(token);
             for (const edit of getPatternRedactionEdits(token.currentValue, pattern, getCapture)) {
               add(token, edit);
             }
@@ -488,6 +496,11 @@ export function redactJsonRecord(
               const captureInsideToken =
                 capture.start >= token.currentStart + padding &&
                 capture.end <= token.currentEnd - padding;
+              // Only suppress encoded replay where this exact scalar rule ran.
+              // Keys, native toJSON values and cross-field captures retain protection.
+              if (captureInsideToken && decodedPatternTokens.get(pattern)?.has(token)) {
+                continue;
+              }
               if (batch && token.isKey && !captureInsideToken) {
                 continue;
               }
