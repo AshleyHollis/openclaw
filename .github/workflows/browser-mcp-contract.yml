@@ -27,6 +27,18 @@ on:
       - "scripts/stage-openclaw-bun.sh"
       - ".github/workflows/browser-mcp-contract.yml"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Existing MCP contract or approved fictional Native UI capture
+        type: choice
+        options: [mcp, native-ui-before-after]
+        default: mcp
+        required: true
+      source_sha:
+        description: Exact approved public UI projection commit on the fixed branch
+        type: string
+        default: ""
+        required: false
 
 permissions:
   contents: read
@@ -45,7 +57,7 @@ env:
 
 jobs:
   contract:
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    if: ${{ (github.event_name != 'workflow_dispatch' || inputs.mode != 'native-ui-before-after') && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -61,7 +73,7 @@ jobs:
 
   # The macOS and Linux desktop apps run the Browser plugin only on the pinned Bun fork.
   contract-bun:
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    if: ${{ (github.event_name != 'workflow_dispatch' || inputs.mode != 'native-ui-before-after') && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -86,3 +98,184 @@ jobs:
             extensions/browser/src/browser/chrome-mcp.chromium.test.ts \
             extensions/browser/src/browser/chrome-mcp-labels.chromium.test.ts \
             extensions/browser/src/browser/routes/agent.act.wait-visibility.chromium.test.ts
+
+  native-ui-before-after:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.mode == 'native-ui-before-after' &&
+      inputs.source_sha == github.sha &&
+      github.repository == 'AshleyHollis/openclaw' &&
+      github.repository_id == '1304656643' &&
+      github.repository_owner_id == '6480970' &&
+      github.event.repository.private == false &&
+      github.actor == 'AshleyHollis' &&
+      github.triggering_actor == 'AshleyHollis' &&
+      github.ref == 'refs/heads/codex/life-stable-ui-qualification-20261025'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit exact public UI-only projection
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
+          test "$(git rev-parse HEAD^)" = 157d8c2bc3ea2fa183afdc11088e69690bf8e64e
+          test "$(node -p 'process.platform')" = linux
+          git diff --name-only 157d8c2bc3ea2fa183afdc11088e69690bf8e64e HEAD | LC_ALL=C sort > "$RUNNER_TEMP/actual-ui-paths"
+          cat <<'PATHS' | LC_ALL=C sort > "$RUNNER_TEMP/expected-ui-paths"
+          .github/workflows/browser-mcp-contract.yml
+          src/plugin-sdk/control-ui.ts
+          ui/src/components/select-picker.browser.test.ts
+          ui/src/components/select-picker.ts
+          ui/src/components/sidebar-attention-layout.browser.test.ts
+          ui/src/pages/chat/chat-pane-embedded-panels.test.ts
+          ui/src/pages/chat/chat-pane-embedded-panels.ts
+          ui/src/pages/chat/chat-pane-files-presentation.browser.test.ts
+          ui/src/pages/chat/chat-pane-layout-render.ts
+          ui/src/plugins/control-ui-view.runtime.ts
+          ui/src/plugins/control-ui-view.test.ts
+          ui/src/plugins/control-ui-view.ts
+          ui/src/styles/components.css
+          ui/src/styles/forced-colors-indicators.browser.test.ts
+          ui/src/styles/layout.css
+          PATHS
+          cmp "$RUNNER_TEMP/actual-ui-paths" "$RUNNER_TEMP/expected-ui-paths"
+          sha256sum --check --strict <<'PINS'
+          97f30a37aba16ef2ac6ca02408e1d9235bec5d0b099400ad9e24b05c427e0d01  src/plugin-sdk/control-ui.ts
+          614c62925026a190dfdb1b2b161e99b883d127241c1274397de4a604adac7b5c  ui/src/components/select-picker.browser.test.ts
+          127eaba12d68ffb0d90f7b925722eb5bfb7e9b0a02f9f1d1f22305cd8fabc94f  ui/src/components/select-picker.ts
+          3ab02a380689c78a9e93ab3e928f6c900d8eb0b133dbd98d316f33e1142edc90  ui/src/components/sidebar-attention-layout.browser.test.ts
+          37df3ba0942841a3758e57a7696de9e9f56dca5247f998960a3add50383231e8  ui/src/pages/chat/chat-pane-embedded-panels.test.ts
+          c275ee72b59a955003d18b883cc7e03ba78eeb90a61b455ba92ca9af8d473fe2  ui/src/pages/chat/chat-pane-embedded-panels.ts
+          446aa882c423c50a7ae0992e71cdf076af09bfe85a1c7da35ccd58ae92f62a3d  ui/src/pages/chat/chat-pane-files-presentation.browser.test.ts
+          b5ed2bcd3052866026004ea067fc25bdb84295b9b014b840b87aca5bd8501ae1  ui/src/pages/chat/chat-pane-layout-render.ts
+          2230c0d6950c4f1b98c7b99e4720a36256124762a3b5c46c5a092d0d13ec380f  ui/src/plugins/control-ui-view.runtime.ts
+          548d5ee7f6b4dbfa2044336845e395efd9f0462a0e66fdaf97b3e16190996a72  ui/src/plugins/control-ui-view.test.ts
+          4a877f6d52f5b899d14b04e63fd8d13b12f11d1f4f084c0337c3b13417238a79  ui/src/plugins/control-ui-view.ts
+          d7bd5b391df2378edec513fa27fb56779b8f260039fdee7581854eee281f0093  ui/src/styles/components.css
+          53946e3984260fc4dc4d08811fcdf8af9973c9de3edaa49ea83933910237ac62  ui/src/styles/forced-colors-indicators.browser.test.ts
+          1043b5137ec9a033f7e2117b9292a19fce1add8b128d73733d0590e95534e014  ui/src/styles/layout.css
+          PINS
+      - uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.22.1"
+          install-bun: "false"
+          install-deps: "false"
+          cache-mode: off
+      - name: Prepare official baseline with identical four test fixtures
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = v24.22.1
+          test "$(pnpm --version)" = 12.15.0
+          git worktree add --detach "$RUNNER_TEMP/native-ui-before" 157d8c2bc3ea2fa183afdc11088e69690bf8e64e
+          for fixture in ui/src/styles/forced-colors-indicators.browser.test.ts ui/src/components/sidebar-attention-layout.browser.test.ts ui/src/components/select-picker.browser.test.ts ui/src/pages/chat/chat-pane-files-presentation.browser.test.ts; do
+            mkdir -p "$RUNNER_TEMP/native-ui-before/$(dirname "$fixture")"
+            cp "$GITHUB_WORKSPACE/$fixture" "$RUNNER_TEMP/native-ui-before/$fixture"
+          done
+          mkdir -p "$RUNNER_TEMP/native-ui-evidence/raw" "$RUNNER_TEMP/native-ui-evidence/sanitized" "$RUNNER_TEMP/native-ui-browsers"
+      - name: Install pinned public dependencies without candidate credentials or lifecycle scripts
+        run: |
+          set -euo pipefail
+          for phase in before after; do
+            source="$GITHUB_WORKSPACE"
+            if test "$phase" = before; then source="$RUNNER_TEMP/native-ui-before"; fi
+            home="$RUNNER_TEMP/native-ui-$phase-home"
+            mkdir -p "$home/tmp"
+            : > "$home/empty-user.npmrc"
+            : > "$home/empty-global.npmrc"
+            (cd "$source" && env -i PATH="$PATH" HOME="$home" TMPDIR="$home/tmp" CI=1 \
+              GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 \
+              npm_config_registry=https://registry.npmjs.org npm_config_userconfig="$home/empty-user.npmrc" \
+              npm_config_globalconfig="$home/empty-global.npmrc" PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false \
+              pnpm install --frozen-lockfile --ignore-scripts --store-dir "$RUNNER_TEMP/native-ui-public-store")
+          done
+      - name: Install the locked official Chromium and disposable VM libraries
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/native-ui-browser-home"
+          env -i PATH="$PATH" HOME="$RUNNER_TEMP/native-ui-browser-home" CI=1 \
+            PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/native-ui-browsers" \
+            PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false \
+            pnpm --dir ui exec playwright install --with-deps chromium
+          env -i PATH="$PATH" HOME="$RUNNER_TEMP/native-ui-browser-home" \
+            PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/native-ui-browsers" \
+            PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false \
+            pnpm --dir ui exec node --input-type=module -e \
+            'import{chromium}from"playwright";import{spawnSync}from"node:child_process";import{createRequire}from"node:module";const require=createRequire(import.meta.url),playwright=require("playwright/package.json").version,vitest=require("vitest/package.json").version;if(playwright!=="1.63.0"||vitest!=="5.0.1")throw Error("Locked browser packages differ");const r=spawnSync(chromium.executablePath(),["--version"],{encoding:"utf8"});if(r.status!==0)throw Error("Chromium version failed");console.log(JSON.stringify({node:process.version,chromium:r.stdout.trim(),playwright,vitest}))' \
+            > "$RUNNER_TEMP/native-ui-evidence/sanitized/browser.json"
+      - name: Capture baseline failures and candidate behavior through the same four fixtures
+        run: |
+          set -euo pipefail
+          for phase in before after; do
+            source="$GITHUB_WORKSPACE"
+            if test "$phase" = before; then source="$RUNNER_TEMP/native-ui-before"; fi
+            home="$RUNNER_TEMP/native-ui-$phase-home"
+            evidence="$RUNNER_TEMP/native-ui-evidence/raw/$phase"
+            mkdir -p "$evidence/person"
+            clean=(env -i PATH="$PATH" HOME="$home" TMPDIR="$home/tmp" CI=1 \
+              GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 \
+              PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/native-ui-browsers" \
+              OPENCLAW_UI_E2E_ARTIFACT_DIR="$evidence/person" PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false)
+            set +e
+            "${clean[@]}" pnpm --dir "$source/ui" test --project unit-node \
+              src/styles/forced-colors-indicators.browser.test.ts --maxWorkers=1 \
+              -t 'keeps person activity links visibly focused in forced colors' > "$evidence/person.log" 2>&1
+            person=$?
+            "${clean[@]}" pnpm --dir "$source/ui" test --project browser \
+              src/components/sidebar-attention-layout.browser.test.ts src/components/select-picker.browser.test.ts \
+              src/pages/chat/chat-pane-files-presentation.browser.test.ts --maxWorkers=1 \
+              -t 'keeps keyboard focus visible on the Inbox button in forced colors|keeps pointer selection closed inside a wrapping label|mounts the Files replacement with the host-owned promotion callback' > "$evidence/browser.log" 2>&1
+            browser=$?
+            set -e
+            printf '{"personExitCode":%s,"browserExitCode":%s}\n' "$person" "$browser" > "$evidence/result.json"
+          done
+      - name: Require genuine PNGs, preserve honest baseline results and bound sanitized custody
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,re,shutil,struct
+          from pathlib import Path
+          temp=Path(os.environ['RUNNER_TEMP']); candidate=Path(os.environ['GITHUB_WORKSPACE'])
+          evidence=temp/'native-ui-evidence'; target=evidence/'sanitized'; target.mkdir(parents=True,exist_ok=True)
+          report={'scope':'Four fictional Native UI source boundaries only; no package, CC or installed-image acceptance','candidateSource':os.environ['GITHUB_SHA'],'baselineSource':'157d8c2bc3ea2fa183afdc11088e69690bf8e64e','donorUiBytes':'d64b52653474a5d301ca5453f0d5c25931ee14ae','baselineStatus':'reference-only; expected failures are not qualification passes','phases':{},'images':[],'passed':False}
+          total=0
+          try:
+            for phase,source in [('before',temp/'native-ui-before'),('after',candidate)]:
+              raw=evidence/'raw'/phase
+              report['phases'][phase]=json.loads((raw/'result.json').read_text())
+              for name in ['person','browser']:
+                log=(raw/(name+'.log')).read_bytes(); assert len(log)<=8*1024*1024
+                text=log.decode('utf-8',errors='replace').replace(str(candidate),'<candidate>').replace(str(temp),'<runner-temp>')
+                text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',text)
+                (target/(phase+'-'+name+'.log')).write_text(text,encoding='utf-8')
+              person=list((raw/'person').glob('person-activity-forced-colors-focus-*/forced-colors-focus.png')); assert len(person)==1
+              images={'person':person[0], 'inbox':source/'ui/src/components/__screenshots__/life-stable-focused/inbox-forced-colors.png','picker-before':source/'ui/src/components/__screenshots__/life-stable-focused/picker-before-selection.png','picker-after':source/'ui/src/components/__screenshots__/life-stable-focused/picker-after-selection.png','files-before':source/'ui/src/pages/chat/__screenshots__/life-stable-focused/files-before-promotion-or-unsupported.png'}
+              if phase=='after': images['files-after']=source/'ui/src/pages/chat/__screenshots__/life-stable-focused/files-after-promotion.png'
+              for name,path in images.items():
+                assert path.is_file() and not path.is_symlink()
+                blob=path.read_bytes(); total+=len(blob); assert 0<len(blob)<=16*1024*1024 and total<=64*1024*1024
+                assert blob[:8]==b'\x89PNG\r\n\x1a\n' and blob[12:16]==b'IHDR'
+                width,height=struct.unpack('>II',blob[16:24]); assert 0<width<=16384 and 0<height<=16384
+                name=phase+'-'+name+'.png'; (target/name).write_bytes(blob)
+                report['images'].append({'file':name,'bytes':len(blob),'sha256':hashlib.sha256(blob).hexdigest(),'width':width,'height':height})
+            assert report['phases']['after']=={'personExitCode':0,'browserExitCode':0}
+            assert len(report['images'])==11
+            report['passed']=True
+          finally:
+            (target/'capture-result.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: native-ui-fictional-before-after-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/native-ui-evidence/sanitized/
+          if-no-files-found: error
+          retention-days: 1

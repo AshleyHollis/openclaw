@@ -82,6 +82,8 @@ export type ControlUiPageNavigationOptions = {
 };
 
 export type ControlUiSurfaceProps = {
+  /** The native Files slot, scoped to its current conversation. */
+  "session-files": BoardGetParams;
   "session-list": BoardGetParams & { sessions: readonly ControlUiSession[] };
   composer: BoardGetParams & {
     agentId: string;
@@ -117,6 +119,8 @@ export type ControlUiViewContext<T = Readonly<Record<string, string>>> = {
   readonly props: T;
   /** Presentation can pause a retained view without ending its host lifetime. */
   readonly presented: boolean;
+  /** Promote this mounted native panel only; revoked with its view lifetime. */
+  readonly panel?: Readonly<{ showInMain: () => void }>;
   /** Mount the host's built-in view inside a replacement; it keeps receiving host updates. */
   mountDefault: (container: HTMLElement) => ControlUiDisposer;
 };

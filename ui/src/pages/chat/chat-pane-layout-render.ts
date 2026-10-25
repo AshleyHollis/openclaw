@@ -14,8 +14,9 @@ import { scopedAgentParamsForSession } from "../../lib/sessions/index.ts";
 import { resolveUiConversationIdentity } from "../../lib/sessions/session-key.ts";
 import { resolveSessionWorkspace } from "../../lib/sessions/workspace.ts";
 import { livePresentation, presentedContent } from "../../lit/presentation-binding.ts";
+import { renderPluginSurface } from "../../plugins/control-ui-view.ts";
 import { ChatPaneBrowserAnnotationRender } from "./chat-pane-browser-annotation-render.ts";
-import { sidebarPanelDefinitions } from "./chat-pane-embedded-panels.ts";
+import { pluginPanelPresentation, sidebarPanelDefinitions } from "./chat-pane-embedded-panels.ts";
 import { resolveChatPaneDesktopTarget } from "./chat-pane-placement.ts";
 import type { createChatPaneRails } from "./chat-pane-rails.ts";
 import type { ResolvedBoardView } from "./chat-pane-shared.ts";
@@ -281,7 +282,14 @@ export abstract class ChatPaneLayoutRender extends ChatPaneBrowserAnnotationRend
         }
       },
       dashboard: !this.compact ? this.renderBoardPanel(board, sidebarLayout) : nothing,
-      workspace: renderSessionWorkspaceRail(sessionWorkspace),
+      workspace: html`${renderPluginSurface(
+        "session-files",
+        { sessionKey: state.sessionKey, agentId: currentAgentId },
+        renderSessionWorkspaceRail(sessionWorkspace),
+        slotPresentation("workspace"),
+        nothing,
+        pluginPanelPresentation({ state, slot: "workspace", sessionKey: state.sessionKey }),
+      )}`,
       renderDetail: (content) =>
         renderChatDetailSlot({
           chat: chatProps,

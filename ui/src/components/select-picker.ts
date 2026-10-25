@@ -444,7 +444,11 @@ export class SelectPicker<
             this.activeValue = option.value;
           }
         }}
-        @click=${() => this.commit(option.value)}
+        @click=${(event: MouseEvent) => {
+          // A wrapping label must not forward this click back to the trigger.
+          event.preventDefault();
+          this.commit(option.value);
+        }}
       >
         ${grouped ? nothing : this.leading(option)}
         <span class="picker-select__copy">

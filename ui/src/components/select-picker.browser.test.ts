@@ -39,6 +39,51 @@ async function mountModel(
 }
 
 describe.runIf("__vitest_browser__" in globalThis)("searchable model menu layout", () => {
+  it("keeps pointer selection closed inside a wrapping label", async () => {
+    const { page } = await import("vitest/browser");
+    const label = document.createElement("label");
+    const host = document.createElement("div");
+    label.append(host);
+    document.body.append(label);
+    const onChange = vi.fn();
+    render(
+      renderPicker({
+        label: "Assign Topic",
+        value: "",
+        options: [
+          { value: "", label: "Choose a Topic" },
+          { value: "fixture/topic", label: "Fictional Topic" },
+        ],
+        onChange,
+      }),
+      host,
+    );
+    const picker = host.querySelector<SelectPicker>("openclaw-select-picker")!;
+    await picker.updateComplete;
+    const trigger = picker.querySelector<HTMLButtonElement>("button")!;
+    const triggerClicks = vi.fn();
+    trigger.addEventListener("click", triggerClicks);
+    await page.elementLocator(trigger).click();
+    const openedScreenshot = await page.screenshot({
+      path: "__screenshots__/life-stable-focused/picker-before-selection.png",
+      save: true,
+    });
+    console.info(`[life-stable-visual] Picker before selection: ${openedScreenshot}`);
+    const option = picker.querySelector<HTMLElement>('[data-value="fixture/topic"]')!;
+    await page.elementLocator(option).click();
+    await picker.updateComplete;
+    const selectedScreenshot = await page.screenshot({
+      path: "__screenshots__/life-stable-focused/picker-after-selection.png",
+      save: true,
+    });
+    console.info(`[life-stable-visual] Picker after selection: ${selectedScreenshot}`);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("fixture/topic");
+    expect(triggerClicks).toHaveBeenCalledTimes(1);
+    await expect.element(trigger).toHaveAttribute("aria-expanded", "false");
+    await expect.element(trigger).toHaveFocus();
+    await expect.element(picker.querySelector<HTMLElement>('[role="listbox"]')!).not.toBeVisible();
+  });
+
   it.each([
     { width: 1280, direction: "ltr" },
     { width: 390, direction: "ltr" },

@@ -2,7 +2,10 @@ import type { ControlUiFocusBuildTarget } from "@openclaw/session-url-contract";
 import { html, nothing, type TemplateResult } from "lit";
 import type { SessionObserverDigest } from "../../../../packages/gateway-protocol/src/schema/sessions.js";
 import type { ControlUiSessionPullRequest } from "../../../../src/gateway/control-ui-contract.js";
-import type { ControlUiPanel } from "../../../../src/plugin-sdk/control-ui.js";
+import type {
+  ControlUiPanel,
+  ControlUiViewContext,
+} from "../../../../src/plugin-sdk/control-ui.js";
 import type { ControlUiLinkReaderDescriptor } from "../../../../src/shared/control-ui-link-reader.js";
 import { resolveControlUiAuthToken } from "../../app/control-ui-auth.ts";
 import { isBrowserPanelAvailable } from "../../app/panel-availability.ts";
@@ -44,9 +47,47 @@ import type { SidebarContent } from "./components/chat-sidebar-content-types.ts"
 import type { SidebarPanelDefinition } from "./components/chat-sidebar-region-types.ts";
 import type { SessionDiscussionPanelConfig } from "./components/session-discussion-panel.ts";
 import type { SidebarSlotId } from "./sidebar-layout-types.ts";
-import { sidebarMainPanel } from "./sidebar-layout.ts";
+import { promoteSidebarPanel, sidebarMainPanel } from "./sidebar-layout.ts";
 
 registerFilePreviewEnglish();
+
+/** Promote the existing Files panel without navigating or changing its conversation. */
+export function pluginPanelPresentation(params: {
+  state: ChatPageHost;
+  slot: SidebarSlotId;
+  sessionKey: string;
+}): ControlUiViewContext["panel"] {
+  const { state, slot, sessionKey } = params;
+  const connectionEpoch = state.connectionEpoch;
+  const client = state.client;
+  const panelId = state.sidebarLayout.columns
+    .flatMap((column) => column.panels)
+    .find((panel) => panel.slot === slot)?.id;
+  if (!panelId) {
+    return undefined;
+  }
+  let retired = false;
+  return Object.freeze({
+    showInMain() {
+      const layout = state.sidebarLayout;
+      const panel = layout.columns
+        .flatMap((column) => column.panels)
+        .find((entry) => entry.id === panelId && entry.slot === slot);
+      if (
+        retired ||
+        !state.connected ||
+        state.client !== client ||
+        state.connectionEpoch !== connectionEpoch ||
+        state.sessionKey !== sessionKey ||
+        !panel
+      ) {
+        retired = true;
+        return;
+      }
+      state.updateSidebarLayout(promoteSidebarPanel(layout, panel.id));
+    },
+  });
+}
 
 type SidebarPanelDefinitionParams = {
   panePresentation?: PresentationValue;

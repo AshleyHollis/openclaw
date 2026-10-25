@@ -1766,6 +1766,13 @@ openclaw-session-progress-hovercard-provider {
   box-shadow: var(--focus-ring);
 }
 
+@media (forced-colors: active) {
+  .person-activity-card a:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
 @media (pointer: coarse) {
   .person-activity-card a {
     min-height: 44px;

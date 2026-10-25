@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { MentionInboxItem } from "../../../packages/gateway-protocol/src/index.js";
 import type { ApplicationContext } from "../app/context.ts";
 import { client, createGatewayHarness } from "../app/overlays-access.test-support.ts";
+import { createApplicationContextProvider } from "../test-helpers/application-context.ts";
 import "../test-helpers/load-styles.ts";
 import "../styles/hub-tabs.css";
 import "../styles/sidebar-attention-floating.css";
@@ -96,6 +97,44 @@ afterEach(() => {
 });
 
 describe.runIf("__vitest_browser__" in globalThis)("Inbox panel layout", () => {
+  it("keeps keyboard focus visible on the Inbox button in forced colors", async () => {
+    const { cdp, page, userEvent } = await import("vitest/browser");
+    const session = cdp();
+    await session.send("Emulation.setEmulatedMedia", {
+      features: [{ name: "forced-colors", value: "active" }],
+    });
+    onTestFinished(() => session.send("Emulation.setEmulatedMedia", { features: [] }));
+    expect(matchMedia("(forced-colors: active)").matches).toBe(true);
+
+    const context = panelParams([]).context;
+    const provider = createApplicationContextProvider(context);
+    provider.style.padding = "24px";
+    const attention = document.createElement("openclaw-sidebar-attention") as HTMLElement & {
+      updateComplete: Promise<boolean>;
+    };
+    provider.append(attention);
+    document.body.append(provider);
+    await attention.updateComplete;
+    const inbox = attention.querySelector<HTMLButtonElement>(".sidebar-issues-button")!;
+    await userEvent.tab();
+    const screenshot = await page.screenshot({
+      path: "__screenshots__/life-stable-focused/inbox-forced-colors.png",
+      save: true,
+    });
+    console.info(`[life-stable-visual] Inbox forced colors: ${screenshot}`);
+    expect(inbox.getAttribute("aria-label")).toBe("0 inbox items");
+    expect(document.activeElement).toBe(inbox);
+    expect(inbox.matches(":focus-visible")).toBe(true);
+    const style = getComputedStyle(inbox);
+    expect(style.outlineStyle).toBe("solid");
+    expect(style.outlineWidth).toBe("2px");
+    expect(style.outlineOffset).toBe("2px");
+    const systemColor = document.createElement("span");
+    systemColor.style.color = "Highlight";
+    provider.append(systemColor);
+    expect(style.outlineColor).toBe(getComputedStyle(systemColor).color);
+  });
+
   it("keeps the header and tabs fixed when the selected category is empty", async () => {
     const params = panelParams([authWarning]);
 

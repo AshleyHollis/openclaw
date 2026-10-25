@@ -17,7 +17,7 @@ import {
 } from "../../test-helpers/chat-pane-embedded-panels.ts";
 import { gatewayHelloForMethods } from "../../test-helpers/gateway-methods.ts";
 import { resolveChatAgentId } from "./chat-agent-id.ts";
-import { sidebarPanelDefinitions } from "./chat-pane-embedded-panels.ts";
+import { pluginPanelPresentation, sidebarPanelDefinitions } from "./chat-pane-embedded-panels.ts";
 import { createSidebarFullMessageLoader } from "./chat-pane-sidebar-layout.ts";
 import { createGatewayBrowserClientFixture } from "./chat-pane.test-support.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
@@ -53,6 +53,7 @@ import {
   ensureSidebarConversation,
   isSidebarSlotVisible,
   openSlot,
+  sidebarMainPanel,
   setSidebarExpanded,
   setSidebarOpen,
   type SidebarLayout,
@@ -74,6 +75,54 @@ afterEach(() => {
 });
 
 describe("chat pane embedded panels", () => {
+  it("promotes the existing Files panel while preserving conversation and draft", () => {
+    const { state } = createReviewFixture();
+    state.chatMessage = "Fictional unsent draft";
+    state.sidebarLayout = openSlot(openSlot({ columns: [] }, "conversation"), "workspace");
+    const sessionKey = state.sessionKey;
+    const panel = state.sidebarLayout.columns
+      .flatMap((column) => column.panels)
+      .find((entry) => entry.slot === "workspace");
+    const presentation = expectDefined(
+      pluginPanelPresentation({ state, slot: "workspace", sessionKey }),
+      "Files presentation",
+    );
+    presentation.showInMain();
+    expect(sidebarMainPanel(state.sidebarLayout)?.id).toBe(panel?.id);
+    expect(state.sessionKey).toBe(sessionKey);
+    expect(state.chatMessage).toBe("Fictional unsent draft");
+  });
+
+  it.each(["connection", "client", "epoch", "session", "panel"] as const)(
+    "retires a Files promotion when its %s changes without reviving it",
+    (changed) => {
+      const { state } = createReviewFixture();
+      state.sidebarLayout = openSlot(openSlot({ columns: [] }, "conversation"), "workspace");
+      const presentation = expectDefined(
+        pluginPanelPresentation({ state, slot: "workspace", sessionKey: state.sessionKey }),
+        "Files presentation",
+      );
+      const original = {
+        connected: state.connected,
+        client: state.client,
+        connectionEpoch: state.connectionEpoch,
+        sessionKey: state.sessionKey,
+        sidebarLayout: state.sidebarLayout,
+      };
+      if (changed === "connection") state.connected = false;
+      if (changed === "client") state.client = createGatewayBrowserClientFixture();
+      if (changed === "epoch") state.connectionEpoch += 1;
+      if (changed === "session") state.sessionKey = "agent:main:another-fictional-session";
+      if (changed === "panel") state.sidebarLayout = closeSlot(state.sidebarLayout, "workspace");
+      const layout = state.sidebarLayout;
+      presentation.showInMain();
+      expect(state.sidebarLayout).toBe(layout);
+      Object.assign(state, original);
+      presentation.showInMain();
+      expect(state.sidebarLayout).toBe(original.sidebarLayout);
+    },
+  );
+
   it("navigates an existing file tab to an explicit line without resetting its editor or draft", async () => {
     const descriptors = ["getClientRects", "getBoundingClientRect"].map(
       (key) => [key, Object.getOwnPropertyDescriptor(Range.prototype, key)] as const,

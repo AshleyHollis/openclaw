@@ -173,4 +173,42 @@ describeForcedColors("Control UI forced-colors indicators", () => {
       }
     }
   });
+  it("keeps person activity links visibly focused in forced colors", async () => {
+    const artifactDir = createControlUiE2eArtifactDir("person-activity-forced-colors-focus");
+    const context = await browser.newContext({
+      forcedColors: "active",
+      viewport: { width: 800, height: 600 },
+    });
+    const page = await context.newPage();
+    try {
+      await page.setContent(
+        `<style>${readUiCss()} body { padding: 24px; }</style><div class="person-activity-card"><footer><a href="#activity">View activity</a></footer></div>`,
+      );
+      await page.keyboard.press("Tab");
+      const link = page.getByRole("link", { name: "View activity", exact: true });
+      const state = await link.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          focused: element === document.activeElement,
+          focusVisible: element.matches(":focus-visible"),
+          outlineStyle: style.outlineStyle,
+          outlineWidth: parseFloat(style.outlineWidth),
+          outlineColor: style.outlineColor,
+          boxShadow: style.boxShadow,
+        };
+      });
+      await page.screenshot({
+        path: path.join(artifactDir, "forced-colors-focus.png"),
+        fullPage: true,
+      });
+      expect(state.focused).toBe(true);
+      expect(state.focusVisible).toBe(true);
+      expect(state.boxShadow).toBe("none");
+      expect(state.outlineStyle).toBe("solid");
+      expect(state.outlineWidth).toBeGreaterThanOrEqual(2);
+      expect(state.outlineColor).not.toBe("transparent");
+    } finally {
+      await context.close();
+    }
+  });
 });

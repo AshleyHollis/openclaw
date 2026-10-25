@@ -24,7 +24,8 @@ class SurfaceTestHost extends LitElement {
   count = 0;
   sessionKey = "main";
   agentId = "main";
-  surface: "workspace" | "composer" = "workspace";
+  surface: "workspace" | "composer" | "session-files" = "workspace";
+  panelPresentation?: ControlUiViewContext["panel"];
   draft = "";
   presentation?: PresentationBinding;
   readonly setDraft = vi.fn((draft: string) => {
@@ -60,6 +61,16 @@ class SurfaceTestHost extends LitElement {
         html`<button class="companion-action">Retained attachment controls</button>`,
       );
     }
+    if (this.surface === "session-files") {
+      return renderPluginSurface(
+        "session-files",
+        identity,
+        defaultView,
+        this.presentation ?? true,
+        undefined,
+        this.panelPresentation,
+      );
+    }
     return renderPluginSurface(
       "workspace",
       { ...identity, routeId: "chat" },
@@ -70,7 +81,7 @@ class SurfaceTestHost extends LitElement {
 }
 customElements.define("control-ui-surface-test-host", SurfaceTestHost);
 
-function mountSurface(initial?: ControlUiReplacement<"workspace" | "composer">) {
+function mountSurface(initial?: ControlUiReplacement<"workspace" | "composer" | "session-files">) {
   const listeners = new Set<() => void>();
   const abort = new AbortController();
   const request = vi.fn().mockResolvedValue({ ok: true });
@@ -121,7 +132,7 @@ function mountSurface(initial?: ControlUiReplacement<"workspace" | "composer">) 
     reportError,
     listeners,
     request,
-    select: (replacement?: ControlUiReplacement<"workspace" | "composer">) => {
+    select: (replacement?: ControlUiReplacement<"workspace" | "composer" | "session-files">) => {
       selected = replacement;
       for (const listener of listeners) {
         listener();
@@ -135,6 +146,56 @@ afterEach(() => {
 });
 
 describe("native UI built-in delegation", () => {
+  it.each(["unmount", "session", "selection", "presentation"] as const)(
+    "retires a mounted Files promotion after %s without reviving its callback",
+    async (retirement) => {
+      let captured: ControlUiViewContext<ControlUiSurfaceProps["session-files"]> | undefined;
+      const promote = vi.fn();
+      const { host, provider, select } = mountSurface({
+        id: "files",
+        label: "Files",
+        surface: "session-files",
+        mount(_container, context) {
+          captured = context;
+        },
+      });
+      host.panelPresentation = { showInMain: promote };
+      await vi.waitFor(() => expect(captured?.panel).toBeDefined());
+      const panel = captured!.panel!;
+      panel.showInMain();
+      expect(promote).toHaveBeenCalledOnce();
+      const view = host.querySelector<
+        LitElement & {
+          presented: boolean;
+          props: { sessionKey: string; agentId: string };
+        }
+      >("openclaw-plugin-view")!;
+      if (retirement === "unmount") {
+        host.remove();
+        provider.append(host);
+      }
+      if (retirement === "session") {
+        view.props = { sessionKey: "other", agentId: "main" };
+        view.props = { sessionKey: "main", agentId: "main" };
+      }
+      if (retirement === "selection") select();
+      if (retirement === "presentation") {
+        view.presented = false;
+        view.presented = true;
+      }
+      expect(() => panel.showInMain()).toThrow("view has ended");
+      expect(promote).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("keeps the native default when no Files replacement is selected", async () => {
+    const { host } = mountSurface();
+    host.surface = "session-files";
+    await host.updateComplete;
+    expect(host.querySelector(".builtin-action")).not.toBeNull();
+    expect(host.querySelector("openclaw-plugin-view")).toBeNull();
+  });
+
   it("keeps host controls beside a replacement and removes them when the built-in returns", async () => {
     const replacement: ControlUiReplacement<"composer"> = {
       id: "composer",

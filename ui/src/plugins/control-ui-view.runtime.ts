@@ -35,6 +35,7 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) defaultView: unknown = nothing;
   @property({ attribute: false }) replacementCompanion: unknown = nothing;
   @property({ attribute: false }) defaultHost?: LitElement;
+  @property({ attribute: false }) panelPresentation?: ControlUiViewContext["panel"];
   @property({ type: Boolean }) presented = true;
   @state() private error = "";
   private registration?: ViewRegistration;
@@ -137,6 +138,7 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
           host: scopeControlUiHost(registration.host, abort.signal),
           signal: abort.signal,
           props: this.scopedProps(abort.signal),
+          panel: this.scopedPanelPresentation(abort.signal),
           presented: this.presented,
           mountDefault: (target) => {
             if (abort.signal.aborted) {
@@ -164,6 +166,7 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
         this.viewContext = {
           ...this.viewContext,
           props: this.scopedProps(this.mountAbort.signal),
+          panel: this.scopedPanelPresentation(this.mountAbort.signal),
           presented: this.presented,
         };
         this.handle?.update?.(this.viewContext);
@@ -212,6 +215,32 @@ class ControlUiPluginView extends OpenClawLightDomContentsElement {
           }
         : undefined,
     };
+  }
+
+  private scopedPanelPresentation(signal: AbortSignal): ControlUiViewContext["panel"] {
+    const presentation = this.panelPresentation;
+    if (!presentation) {
+      return undefined;
+    }
+    const mountGeneration = this.mountGeneration;
+    const presentationGeneration = this.composerGeneration;
+    return Object.freeze({
+      showInMain: () => {
+        if (
+          signal.aborted ||
+          this.mountAbort?.signal !== signal ||
+          this.mountGeneration !== mountGeneration ||
+          this.composerGeneration !== presentationGeneration ||
+          !this.isConnected ||
+          this.registration?.signal.aborted ||
+          !this.presented
+        ) {
+          throw new Error("This plugin UI view has ended.");
+        }
+        // Never retarget a retained callback to a later panel presentation.
+        presentation.showInMain();
+      },
+    });
   }
 
   override focus(options?: FocusOptions): void {
