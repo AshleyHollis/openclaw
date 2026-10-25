@@ -1,5 +1,5 @@
 // Actual mounted Files replacement and host promotion in the browser.
-import { html, render } from "lit";
+import { html, render, type LitElement } from "lit";
 import { expect, it, onTestFinished, vi } from "vitest";
 import type { ControlUiViewContext } from "../../../../src/plugin-sdk/control-ui.js";
 import type { ApplicationContext } from "../../app/context.ts";
@@ -30,6 +30,8 @@ class FilesPresentationFixture extends ChatPane {
     this.context = context;
     this.state = state;
     this.compact = true;
+    // This explicitly rendered sibling fixture has a desktop main/side layout.
+    this.paneWidth = 1280;
     const rails = createChatPaneRails({
       state,
       sidebarLayout: state.sidebarLayout,
@@ -50,6 +52,8 @@ class FilesPresentationFixture extends ChatPane {
         paneId: "fictional-files",
         sessionKey: state.sessionKey,
         transcript: this.transcript,
+        draft: state.chatMessage,
+        getDraft: () => state.chatMessage,
       }),
       observerDigest: null,
       observerRunId: null,
@@ -67,6 +71,7 @@ it.runIf("__vitest_browser__" in globalThis)(
   "mounts the Files replacement with the host-owned promotion callback",
   async () => {
     const { page } = await import("vitest/browser");
+    await page.viewport(1280, 900);
     const { state, mount } = createReviewFixture();
     state.sidebarLayout = openSlot(openSlot({ columns: [] }, "conversation"), "workspace");
     state.chatMessage = "Fictional unsent draft";
@@ -74,7 +79,19 @@ it.runIf("__vitest_browser__" in globalThis)(
     const workspace = state.sidebarLayout.columns
       .flatMap((column) => column.panels)
       .find((panel) => panel.slot === "workspace");
-    const client = createGatewayBrowserClientFixture();
+    const client = createGatewayBrowserClientFixture({
+      request: (method) => {
+        if (method === "agents.list") {
+          return {
+            defaultId: "main",
+            mainKey: "main",
+            scope: "per-sender",
+            agents: [{ id: "main" }],
+          };
+        }
+        return method === "sessions.describe" ? { session: null } : {};
+      },
+    });
     const runtime = new ControlUiPluginRuntime(() => context);
     const baseContext = createInitializationContext(client);
     const context: ApplicationContext = {
@@ -156,6 +173,7 @@ it.runIf("__vitest_browser__" in globalThis)(
     });
     render(fixture.renderFixture(context, state), output, { host: fixture });
     await fixture.updateComplete;
+    await output.querySelector<LitElement>("openclaw-chat-sidebar-region")?.updateComplete;
     const beforeScreenshot = await page.screenshot({
       path: "__screenshots__/life-stable-focused/files-before-promotion-or-unsupported.png",
       save: true,
@@ -180,6 +198,16 @@ it.runIf("__vitest_browser__" in globalThis)(
     // Publish the existing host's updated layout into this explicitly rendered fixture.
     render(fixture.renderFixture(context, state), output, { host: fixture });
     await fixture.updateComplete;
+    await output.querySelector<LitElement>("openclaw-chat-sidebar-region")?.updateComplete;
+    await expect
+      .element(output.querySelector<HTMLButtonElement>("[data-fixture-show-files]")!)
+      .toBeVisible();
+    await expect
+      .element(output.querySelector<HTMLTextAreaElement>("textarea")!)
+      .toBeVisible();
+    await expect
+      .element(output.querySelector<HTMLTextAreaElement>("textarea")!)
+      .toHaveValue("Fictional unsent draft");
     const afterScreenshot = await page.screenshot({
       path: "__screenshots__/life-stable-focused/files-after-promotion.png",
       save: true,

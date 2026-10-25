@@ -119,7 +119,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 2
+          fetch-depth: 3
           persist-credentials: false
       - name: Admit exact public UI-only projection
         env:
@@ -127,7 +127,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
-          test "$(git rev-parse HEAD^)" = 157d8c2bc3ea2fa183afdc11088e69690bf8e64e
+          test "$(git rev-parse HEAD^)" = 8ca2911240798acbbce782c1e81dda4cf395d82c
           test "$(node -p 'process.platform')" = linux
           git diff --name-only 157d8c2bc3ea2fa183afdc11088e69690bf8e64e HEAD | LC_ALL=C sort > "$RUNNER_TEMP/actual-ui-paths"
           cat <<'PATHS' | LC_ALL=C sort > "$RUNNER_TEMP/expected-ui-paths"
@@ -155,7 +155,7 @@ jobs:
           3ab02a380689c78a9e93ab3e928f6c900d8eb0b133dbd98d316f33e1142edc90  ui/src/components/sidebar-attention-layout.browser.test.ts
           37df3ba0942841a3758e57a7696de9e9f56dca5247f998960a3add50383231e8  ui/src/pages/chat/chat-pane-embedded-panels.test.ts
           c275ee72b59a955003d18b883cc7e03ba78eeb90a61b455ba92ca9af8d473fe2  ui/src/pages/chat/chat-pane-embedded-panels.ts
-          446aa882c423c50a7ae0992e71cdf076af09bfe85a1c7da35ccd58ae92f62a3d  ui/src/pages/chat/chat-pane-files-presentation.browser.test.ts
+          4e540947df7350546c9dcedae50d0c9f433e4ef95f34d7ebda1f6b6a07d428fb  ui/src/pages/chat/chat-pane-files-presentation.browser.test.ts
           b5ed2bcd3052866026004ea067fc25bdb84295b9b014b840b87aca5bd8501ae1  ui/src/pages/chat/chat-pane-layout-render.ts
           2230c0d6950c4f1b98c7b99e4720a36256124762a3b5c46c5a092d0d13ec380f  ui/src/plugins/control-ui-view.runtime.ts
           548d5ee7f6b4dbfa2044336845e395efd9f0462a0e66fdaf97b3e16190996a72  ui/src/plugins/control-ui-view.test.ts
