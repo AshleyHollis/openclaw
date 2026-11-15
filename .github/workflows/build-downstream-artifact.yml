@@ -33,7 +33,10 @@ on:
         type: boolean
 
 concurrency:
-  group: ${{ inputs.artifact_kind == 'offline-session-helper' && format('build-nas-downstream-helper-{0}', inputs.helper_source_sha) || format('build-nas-downstream-{0}', inputs.release_manifest) }}
+  group: >-
+    ${{ inputs.artifact_kind == 'offline-session-helper' && format('build-nas-downstream-helper-{0}', inputs.helper_source_sha) ||
+    inputs.artifact_kind == 'runtime-package' && format('build-nas-runtime-package-{0}', inputs.runtime_source_sha) ||
+    format('build-nas-downstream-{0}', inputs.release_manifest) }}
   cancel-in-progress: false
 
 jobs:

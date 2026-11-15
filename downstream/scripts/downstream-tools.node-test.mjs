@@ -15,19 +15,27 @@ const validatePackedMetadataScript = path.join(
 );
 const validateScript = path.join(repositoryRoot, "downstream/scripts/validate-release.mjs");
 
-test("preserves the existing release concurrency key independently of helper selection", async () => {
+test("locks runtime packages by source and preserves the helper and release locks", async () => {
   const workflow = await readFile(
     path.join(repositoryRoot, ".github/workflows/build-downstream-artifact.yml"),
     "utf8",
   );
-  // This external Actions key must also serialize with the prior workflow
-  // revision; helper inputs cannot partition normal release publication.
-  assert.ok(
-    workflow.includes(
-      "group: ${{ inputs.artifact_kind == 'offline-session-helper' && format('build-nas-downstream-helper-{0}', inputs.helper_source_sha) || format('build-nas-downstream-{0}', inputs.release_manifest) }}",
-    ),
+  const concurrency = workflow.match(/^concurrency:\r?\n(?: +[^\r\n]+\r?\n)+/mu)?.[0];
+  assert.ok(concurrency);
+  assert.match(
+    concurrency,
+    /inputs\.artifact_kind == 'runtime-package' && format\('build-nas-runtime-package-\{0\}', inputs\.runtime_source_sha\) \|\|/u,
   );
-  assert.match(workflow, /cancel-in-progress: false/u);
+  // These groups serialize with dispatches of the prior workflow revision.
+  assert.match(
+    concurrency,
+    /inputs\.artifact_kind == 'offline-session-helper' && format\('build-nas-downstream-helper-\{0\}', inputs\.helper_source_sha\) \|\|/u,
+  );
+  assert.match(
+    concurrency,
+    /\|\|\s+format\('build-nas-downstream-\{0\}', inputs\.release_manifest\)\s+\}\}/u,
+  );
+  assert.match(concurrency, /cancel-in-progress: false/u);
 });
 
 test("repacks an official package tree without executing lifecycle scripts", async () => {
