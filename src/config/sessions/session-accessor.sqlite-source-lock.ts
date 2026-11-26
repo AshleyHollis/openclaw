@@ -109,7 +109,7 @@ export function withSessionTranscriptSourceLock<T>(
         const row = executeSqliteQueryTakeFirstSync(database.db, selectMessagePayload(query));
         const entry = row
           ? projectVisibleMessageEntry({
-              ...parseActiveTranscriptMessageRow(row),
+              ...parseActiveTranscriptMessageRow(row, projection),
               parentId: identity.parentId,
             })[0]
           : undefined;
