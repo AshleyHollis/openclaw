@@ -1646,16 +1646,21 @@ async function resolveCandidate(options: PackageCandidateOptions) {
       await installPackageSourceDeps(packageSource.sourceDir);
       // The admitted source owns its build/inventory/pack contract. Mixing a
       // newer publisher helper with a frozen ref breaks versioned entrypoints.
-      await run("node", [
-        path.join(packageSource.sourceDir, "scripts/package-openclaw-for-docker.mjs"),
-        "--allow-unreleased-changelog",
-        "--source-dir",
-        packageSource.sourceDir,
-        "--output-dir",
-        outputDir,
-        "--output-name",
-        options.outputName || DEFAULT_OUTPUT_NAME,
-      ]);
+      // Resolve candidate workspace imports using its tsconfig, not the workflow checkout.
+      await run(
+        "node",
+        [
+          path.join(packageSource.sourceDir, "scripts/package-openclaw-for-docker.mjs"),
+          "--allow-unreleased-changelog",
+          "--source-dir",
+          packageSource.sourceDir,
+          "--output-dir",
+          outputDir,
+          "--output-name",
+          options.outputName || DEFAULT_OUTPUT_NAME,
+        ],
+        { cwd: packageSource.sourceDir },
+      );
     } else if (options.source === "npm") {
       const npmPackRunner = resolveNpmPackageCandidatePackRunner(options.packageSpec, outputDir, {
         env: process.env,
