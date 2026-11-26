@@ -1,0 +1,27 @@
+{
+  "allowScripts": {
+    "@google/genai@2.32.0": true,
+    "esbuild@0.28.2": true,
+    "file:/tmp/openclaw-current.tgz": true,
+    "koffi@3.3.3": true,
+    "protobufjs@7.6.6": true
+  },
+  "dependencies": {
+    "openclaw": "file:../tmp/openclaw-current.tgz"
+  },
+  "name": "openclaw-nas-host-runtime",
+  "optionalDependencies": {
+    "@openclaw/fs-safe-darwin-arm64": "0.27.1",
+    "@openclaw/fs-safe-darwin-x64": "0.27.1",
+    "@openclaw/fs-safe-freebsd-arm64": "0.27.1",
+    "@openclaw/fs-safe-freebsd-x64": "0.27.1",
+    "@openclaw/fs-safe-linux-arm64-gnu": "0.27.1",
+    "@openclaw/fs-safe-linux-arm64-musl": "0.27.1",
+    "@openclaw/fs-safe-linux-x64-gnu": "0.27.1",
+    "@openclaw/fs-safe-linux-x64-musl": "0.27.1",
+    "@openclaw/fs-safe-win32-arm64-msvc": "0.27.1",
+    "@openclaw/fs-safe-win32-x64-msvc": "0.27.1"
+  },
+  "private": true,
+  "version": "2026.11.10"
+}

@@ -35,6 +35,7 @@ on:
 concurrency:
   group: >-
     ${{ github.ref == 'refs/heads/prep/life-20261110-command-center-ci' && 'life-20261110-command-center-package' ||
+        github.ref == 'refs/heads/prep/life-20261110-runtime-locks' && 'life-20261110-runtime-locks' ||
     inputs.artifact_kind == 'offline-session-helper' && format('build-nas-downstream-helper-{0}', inputs.helper_source_sha) ||
     inputs.artifact_kind == 'runtime-package' && format('build-nas-runtime-package-{0}', inputs.runtime_source_sha) ||
     format('build-nas-downstream-{0}', inputs.release_manifest) }}
@@ -42,7 +43,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.ref != 'refs/heads/prep/life-20261110-command-center-ci' && github.actor == github.repository_owner && inputs.artifact_kind == 'release'
+    if: github.ref != 'refs/heads/prep/life-20261110-command-center-ci' && github.ref != 'refs/heads/prep/life-20261110-runtime-locks' && github.actor == github.repository_owner && inputs.artifact_kind == 'release'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -288,7 +289,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   runtime-image:
-    if: github.ref != 'refs/heads/prep/life-20261110-command-center-ci' && github.actor == github.repository_owner && inputs.artifact_kind == 'runtime-image'
+    if: github.ref != 'refs/heads/prep/life-20261110-command-center-ci' && github.ref != 'refs/heads/prep/life-20261110-runtime-locks' && github.actor == github.repository_owner && inputs.artifact_kind == 'runtime-image'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -426,7 +427,7 @@ jobs:
             'No production alias or deployment changed. Matching Command Center artifact, real-data rehearsal, final acceptance and independent evaluation remain required.' >> "$GITHUB_STEP_SUMMARY"
 
   runtime-package:
-    if: github.ref != 'refs/heads/prep/life-20261110-command-center-ci' && github.actor == github.repository_owner && inputs.artifact_kind == 'runtime-package'
+    if: github.ref != 'refs/heads/prep/life-20261110-command-center-ci' && github.ref != 'refs/heads/prep/life-20261110-runtime-locks' && github.actor == github.repository_owner && inputs.artifact_kind == 'runtime-package'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
@@ -495,7 +496,7 @@ jobs:
           printf '%s\n' 'Candidate package only. No registry publish, release qualification, deployment or promotion. Matching plugin, real-data rehearsal and final acceptance remain required.' >> "$GITHUB_STEP_SUMMARY"
 
   offline-session-helper:
-    if: github.ref != 'refs/heads/prep/life-20261110-command-center-ci' && github.actor == github.repository_owner && inputs.artifact_kind == 'offline-session-helper'
+    if: github.ref != 'refs/heads/prep/life-20261110-command-center-ci' && github.ref != 'refs/heads/prep/life-20261110-runtime-locks' && github.actor == github.repository_owner && inputs.artifact_kind == 'offline-session-helper'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -699,5 +700,80 @@ jobs:
           path: |
             ${{ runner.temp }}/life-command-center-output/artifact/command-center.tgz
             ${{ runner.temp }}/life-command-center-output/artifact/receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
+  life-runtime-locks:
+    if: github.actor == github.repository_owner && github.ref == 'refs/heads/prep/life-20261110-runtime-locks' && inputs.artifact_kind == 'runtime-package' && !inputs.publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    env:
+      TOOLCHAIN: docker.io/library/node@sha256:0925478b811e8890f5508ad2a75135933310effd45492696ecf7c111c8339d02
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - name: Download exact Gateway build output
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
+        with:
+          github-token: ${{ github.token }}
+          run-id: '45801130969'
+          artifact-ids: '15107987581'
+          path: ${{ runner.temp }}/life-lock-gateway-zip
+          skip-decompress: 'true'
+          digest-mismatch: error
+      - name: Test the lock admission checks
+        run: python3 -B downstream/scripts/test_life_runtime_locks.py
+      - name: Stage checked packages and Linux lock inputs
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          umask 077
+          base="$RUNNER_TEMP/life-runtime-locks"
+          mkdir "$base"
+          zips=("$RUNNER_TEMP"/life-lock-gateway-zip/*.zip)
+          test "${#zips[@]}" -eq 1
+          python3 downstream/scripts/stage_life_gateway.py "${zips[0]}" "$base/input"
+          curl --fail --silent --show-error --proto '=https' --max-time 90 --max-filesize 2000000 \
+            https://registry.npmjs.org/@openclaw/codex/-/codex-2026.11.3.tgz --output "$base/input/codex-current.tgz"
+          curl --fail --silent --show-error --proto '=https' --max-time 90 --max-filesize 5000000 \
+            https://registry.npmjs.org/npm/-/npm-12.2.0.tgz --output "$base/npm.tgz"
+          printf '%s  %s\n' 6666b48816b39b86c3febac7b51a4ee4de6c5ca589c382ad8004b6b113f86677 "$base/npm.tgz" | sha256sum -c -
+          mkdir "$base/npm"
+          tar -xzf "$base/npm.tgz" -C "$base/npm" --strip-components=1 --no-same-owner --no-same-permissions
+          python3 downstream/scripts/life_runtime_locks.py prepare "$base/input" "$base/work"
+      - name: Generate only Linux dependency locks
+        run: |
+          set -euo pipefail
+          base="$RUNNER_TEMP/life-runtime-locks"
+          docker pull "$TOOLCHAIN"
+          docker run --rm --init --read-only --user "$(id -u):$(id -g)" \
+            --cap-drop ALL --security-opt no-new-privileges --cpus 2 --memory 4g --pids-limit 128 \
+            --tmpfs /cache:rw,nosuid,nodev,size=1073741824,mode=1777 \
+            --mount "type=bind,src=$base/work/app,dst=/app" \
+            --mount "type=bind,src=$base/work/plugins,dst=/opt/openclaw-plugin-runtime" \
+            --mount "type=bind,src=$base/npm,dst=/npm,readonly" \
+            --mount "type=bind,src=$base/input/openclaw-current.tgz,dst=/tmp/openclaw-current.tgz,readonly" \
+            --mount "type=bind,src=$base/input/codex-current.tgz,dst=/tmp/codex-current.tgz,readonly" \
+            --env HOME=/cache --env npm_config_cache=/cache/npm --env npm_config_userconfig=/dev/null \
+            --entrypoint /bin/sh "$TOOLCHAIN" -euc '
+              test "$(node --version)" = v24.22.1
+              test "$(node /npm/bin/npm-cli.js --version)" = 12.2.0
+              cd /app
+              node /npm/bin/npm-cli.js install --package-lock-only --ignore-scripts --registry=https://registry.npmjs.org/ --no-audit --no-fund
+              cd /opt/openclaw-plugin-runtime
+              node /npm/bin/npm-cli.js install --package-lock-only --ignore-scripts --install-strategy=nested --registry=https://registry.npmjs.org/ --no-audit --no-fund
+            '
+          python3 downstream/scripts/life_runtime_locks.py verify "$base/input" "$base/work" "$base/output"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: life-2026-11-10-runtime-locks
+          path: |
+            ${{ runner.temp }}/life-runtime-locks/output/host.package-lock.json
+            ${{ runner.temp }}/life-runtime-locks/output/plugins.package-lock.json
+            ${{ runner.temp }}/life-runtime-locks/output/receipt.json
           if-no-files-found: error
           retention-days: 14
