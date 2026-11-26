@@ -396,6 +396,7 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
         }
         if (prop === "gateway") {
           const gateway: PluginRuntime["gateway"] = getRuntimeProperty();
+          const sendPrivateWebPush = gateway.sendPrivateWebPush;
           const withIdentity = gateway.withUserProfileIdentity;
           const resolveGitHubAccount = gateway.resolveGitHubAccount;
           return {
@@ -409,6 +410,10 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
             },
             openPluginPanel: (params) =>
               runWithCurrentPluginScope(() => gateway.openPluginPanel(params)),
+            sendPrivateWebPush: sendPrivateWebPush
+              ? (target, publication) =>
+                  runWithCurrentPluginScope(() => sendPrivateWebPush(target, publication))
+              : undefined,
             readSessionFacts: (params) =>
               runWithCurrentPluginScope(() => gateway.readSessionFacts(params)),
             appendAgentMessage: (params) =>

@@ -34,6 +34,14 @@ export { inspectPathPermissions } from "@openclaw/fs-safe/permissions";
 export { writeFileWindowFully } from "../infra/file-descriptor.js";
 export { openRootFile } from "../infra/boundary-file-read.js";
 export {
+  publishDurableDirectoryNoReplace,
+  stageDurableFileInDirectory,
+} from "../infra/durable-publication.js";
+export {
+  readDurableFilesystemIdentity,
+  type DurableFilesystemIdentity,
+} from "../infra/filesystem-identity.js";
+export {
   ensureDurableDirectory,
   sha256File,
   syncDirectory,

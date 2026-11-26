@@ -41,10 +41,17 @@ export function normalizeVisibleMessageLimit(
 }
 
 export function normalizeVisibleDeltaLimits(limits: SessionTranscriptVisibleMessageDeltaLimits) {
+  if (limits.offset !== undefined && (!Number.isSafeInteger(limits.offset) || limits.offset < 0)) {
+    throw new RangeError("Visible message offset must be a nonnegative safe integer");
+  }
+  if (limits.cursor !== undefined && limits.offset !== undefined) {
+    throw new Error("Visible message cursor and offset cannot be combined");
+  }
   if (limits.start !== undefined && !VISIBLE_MESSAGE_DELTA_STARTS.has(limits.start)) {
     throw new RangeError('start must be "transcript" or "reset-window"');
   }
   return {
+    offset: limits.offset ?? 0,
     start: limits.start ?? "transcript",
     maxMessages: normalizeVisibleMessageLimit(
       limits.maxMessages,

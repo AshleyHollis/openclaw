@@ -32,6 +32,53 @@ const schemaAdmission: SqliteDatabaseAdmissionKey<true> = {
   read: (value) => (value === true ? true : undefined),
 };
 
+function tableColumns(db: DatabaseSync, tableName: string): Set<string> {
+  return new Set(
+    db
+      .prepare(`PRAGMA table_info(${tableName})`)
+      .all()
+      .flatMap((row) => (typeof row.name === "string" ? [row.name] : [])),
+  );
+}
+
+const SOURCE_CREATION_COLUMNS = [
+  "creation_idempotency_key",
+  "creation_tenant",
+  "creation_board_id",
+  "creation_intent_json",
+] as const;
+
+export function ensureWorkboardSourceSchema(db: DatabaseSync): void {
+  const columns = tableColumns(db, "workboard_cards");
+  for (const column of SOURCE_CREATION_COLUMNS) {
+    if (!columns.has(column)) {
+      db.exec(`ALTER TABLE workboard_cards ADD COLUMN ${column} TEXT`);
+    }
+  }
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS workboard_cards_creation_idempotency_idx
+    ON workboard_cards(creation_tenant, creation_board_id, creation_idempotency_key)
+    WHERE creation_idempotency_key IS NOT NULL`);
+}
+
+export function ensureWorkboardResultReviewSchema(db: DatabaseSync): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workboard_result_reviews (
+      id TEXT PRIMARY KEY,
+      tenant TEXT NOT NULL,
+      board_id TEXT NOT NULL,
+      card_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending', 'reviewed', 'withdrawn')),
+      revision INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      request_json TEXT NOT NULL
+    ) STRICT;
+    CREATE UNIQUE INDEX IF NOT EXISTS workboard_result_reviews_pending_card_idx
+      ON workboard_result_reviews(tenant, board_id, card_id) WHERE status = 'pending';
+    CREATE INDEX IF NOT EXISTS workboard_result_reviews_card_idx
+      ON workboard_result_reviews(tenant, board_id, card_id, created_at);
+  `);
+}
+
 function ensureWorkboardSchema(db: DatabaseSync): void {
   if (getSqliteDatabaseAdmission(db, schemaAdmission)) {
     return;
@@ -53,9 +100,18 @@ function ensureWorkboardSchema(db: DatabaseSync): void {
     .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = ?")
     .get(migrationId);
   if (!current) {
-    migrateSqliteSchemaToStrict(db, WORKBOARD_SCHEMA_SQL, {
-      databaseLabel: "workboard database",
-    });
+    const columns = tableColumns(db, "workboard_cards");
+    const retainedSourceColumns = SOURCE_CREATION_COLUMNS.filter((column) => columns.has(column));
+    const schema = retainedSourceColumns.length
+      ? WORKBOARD_SCHEMA_SQL.replace(
+          "automation_json TEXT,",
+          [
+            "automation_json TEXT,",
+            ...retainedSourceColumns.map((column) => `${column} TEXT,`),
+          ].join(" "),
+        )
+      : WORKBOARD_SCHEMA_SQL;
+    migrateSqliteSchemaToStrict(db, schema, { databaseLabel: "workboard database" });
     db.prepare(
       "INSERT OR IGNORE INTO workboard_schema_migrations (id, applied_at) VALUES (?, ?)",
     ).run(migrationId, Date.now());

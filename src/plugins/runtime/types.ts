@@ -191,6 +191,7 @@ export type RuntimeGatewayRequestOptions = {
   timeoutMs?: number;
   /** Cancel this request without extending the current caller or plugin lifetime. */
   signal?: AbortSignal;
+  sessionTranscriptSource?: import("../../gateway/session-transcript-source-handoff.js").SessionTranscriptGatewaySource;
   /** Requested Gateway scopes. Honored only for bundled or trusted official plugins. */
   scopes?: OperatorScope[];
   /** Fence an in-process channel send to the exact current requester session incarnation. */
@@ -218,6 +219,8 @@ export type RuntimeAgentMessageResult = { messageId: string; replayed: boolean }
 /** Trusted in-process runtime surface injected into native plugins. */
 export type PluginRuntime = PluginRuntimeCore & {
   gateway: {
+    readonly sessionTranscriptSourceAdmissionVersion?: 1;
+    readonly authenticatedSessionTranscriptSourceAdmissionVersion?: 1;
     /** Whether this process owns an active Gateway request context. */
     isAvailable: () => Promise<boolean>;
     /** Dispatch a Gateway method as the current trusted plugin. */
@@ -232,6 +235,18 @@ export type PluginRuntime = PluginRuntimeCore & {
       sessionKey: string;
       agentId?: string;
     }) => Promise<{ ok: true }>;
+    /** Send a private Web Push to the current operator's enabled browser subscriptions. */
+    sendPrivateWebPush?: (
+      target: {
+        pageId: string;
+        recordId: string;
+        expiresAtMs: number;
+      },
+      publication: {
+        prepare: () => Promise<void>;
+        claim: () => boolean;
+      },
+    ) => Promise<{ attempted: number; accepted: number }>;
     /** Bounded redacted facts for up to 40 sessions; excludes incognito and rechecks the bound caller/lifecycle. */
     readSessionFacts: (params: {
       sessionKeys: readonly string[];

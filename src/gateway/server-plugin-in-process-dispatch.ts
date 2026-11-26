@@ -41,6 +41,7 @@ import type {
 } from "./server-plugin-in-process-dispatch.types.js";
 import { mergePluginRuntimeClientInternal } from "./server-plugin-runtime-client.js";
 import { SessionMutationAuthorizationChangedError } from "./session-mutation-authorization-error.js";
+import { captureScopedSessionTranscriptGatewaySource } from "./session-transcript-source-handoff.js";
 import { cancelSubagentCompletionToolHandoff } from "./subagent-completion-tool-handoff.js";
 
 export {
@@ -358,6 +359,11 @@ export async function dispatchGatewayMethodInProcessRaw(
   params: unknown,
   options?: DispatchGatewayMethodInProcessOptions,
 ): Promise<GatewayMethodDispatchResponse> {
+  const sessionTranscriptSource = captureScopedSessionTranscriptGatewaySource(
+    method,
+    options,
+    getPluginRuntimeGatewayRequestScope(),
+  );
   return await withInProcessGatewayDispatch(method, params, options, async (resolved) => {
     const assertExplicitRequestCurrent = composeSessionSourceAssertion(
       [captureExternalSessionCommitGuard(options?.sessionMutationCommitGuard)],
@@ -406,6 +412,7 @@ export async function dispatchGatewayMethodInProcessRaw(
       onExecution: options?.onExecution,
       onSignalAbort: options?.onSignalAbort,
       requestIdPrefix: "plugin-subagent",
+      sessionTranscriptSource,
       prepareDispatchCurrent: options?.prepareDispatchCurrent,
       assertPreparationCurrent: composeSessionSourceAssertion([
         resolved.assertContextCurrent,

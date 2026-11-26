@@ -76,7 +76,7 @@ export class SessionAccessPreparationPendingError extends SessionMutationAuthori
 
 /** Prepare session/profile facts through resident owners; retain the original source authority. */
 export async function prepareGatewaySessionAccessAuthority(request: {
-  policy: GatewayMethodSessionAccess;
+  policy: GatewayMethodSessionAccess | { mode: "read"; requiredTool?: never };
   methodOwner?: GatewayMethodOwner;
   pluginRegistry?: PluginRegistry;
   requestParams: unknown;
@@ -354,7 +354,9 @@ export async function prepareGatewaySessionAccessAuthority(request: {
               expectedProfileId: profileId,
               isCreator: sharing.isCreator,
             })) ||
-          sharing.authorizeTarget(current)
+          (params.policy.mode === "read"
+            ? sharing.entryFilter?.(current.canonicalKey, current.entry) === false
+            : sharing.authorizeTarget(current))
         ) {
           denied();
         }

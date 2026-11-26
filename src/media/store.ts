@@ -27,6 +27,10 @@ import { captureChannelReadScope } from "../shared/channel-read-authority.js";
 import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
 import { pruneGeneratedHtmlProvenance } from "./generated-html-provenance.js";
 import { getMediaDir } from "./store-path.js";
+import {
+  isInboundOriginalDirectory,
+  withInboundOriginalMutation,
+} from "./inbound-original-custody.js";
 import { MEDIA_FILE_MODE, SaveMediaSourceError } from "./store.shared.js";
 
 // Keep the public media-runtime SDK export on its existing store path.
@@ -235,26 +239,33 @@ async function pruneNonPlaybackMedia(ttlMs: number, options: CleanOldMediaOption
     }
     const scopedDir = path.join(mediaDir, entry.name);
     const recursive = options.recursive === true;
-    await pruneMediaStore(
-      {
-        ttlMs,
-        recursive,
-        maxDepth: recursive ? undefined : 0,
-        pruneEmptyDirs: options.pruneEmptyDirs,
-      },
-      scopedDir,
-    );
-    if (options.pruneEmptyDirs) {
-      await fs.rmdir(scopedDir).catch((error: unknown) => {
-        // Missing or still-populated directories need no further cleanup.
-        if (
-          !findErrorWithCode(error, "ENOENT") &&
-          !findErrorWithCode(error, "ENOTEMPTY") &&
-          !findErrorWithCode(error, "EEXIST")
-        ) {
-          throw error;
-        }
-      });
+    const prune = async () => {
+      await pruneMediaStore(
+        {
+          ttlMs,
+          recursive,
+          maxDepth: recursive ? undefined : 0,
+          pruneEmptyDirs: options.pruneEmptyDirs,
+        },
+        scopedDir,
+      );
+      if (options.pruneEmptyDirs) {
+        await fs.rmdir(scopedDir).catch((error: unknown) => {
+          // Missing or still-populated directories need no further cleanup.
+          if (
+            !findErrorWithCode(error, "ENOENT") &&
+            !findErrorWithCode(error, "ENOTEMPTY") &&
+            !findErrorWithCode(error, "EEXIST")
+          ) {
+            throw error;
+          }
+        });
+      }
+    };
+    if (await isInboundOriginalDirectory(mediaDir, scopedDir)) {
+      await withInboundOriginalMutation(mediaDir, prune);
+    } else {
+      await prune();
     }
   }
 }
@@ -529,7 +540,10 @@ export async function saveMediaBuffer(
   const readScope = captureChannelReadScope();
   readScope?.assertCurrent();
   const relativePath = resolveMediaRelativePath(id, subdir, "writeSavedMediaBuffer");
-  if (readScope || assertCommitAllowed) {
+  const inboundMediaRoot = await isInboundOriginalDirectory(getMediaDir(), dir)
+    ? getMediaDir()
+    : undefined;
+  if (readScope || assertCommitAllowed || inboundMediaRoot) {
     const { writeReadScopeMedia } = await import("./store.read-scope.js");
     await writeReadScopeMedia({
       dir,
@@ -537,6 +551,7 @@ export async function saveMediaBuffer(
       scope: readScope,
       assertCommitAllowed,
       durable: true,
+      inboundMediaRoot,
       write: async (handle) => {
         readScope?.assertCurrent();
         assertCommitAllowed?.();
@@ -620,8 +635,11 @@ export async function saveMediaStream(
     const id = buildSavedMediaId({ baseId, ext, originalFilename });
     return { id, size, contentType: mime };
   };
+  const inboundMediaRoot = await isInboundOriginalDirectory(getMediaDir(), dir)
+    ? getMediaDir()
+    : undefined;
   let result: Omit<SavedMedia, "path">;
-  if (readScope || options?.assertCommitAllowed) {
+  if (readScope || options?.assertCommitAllowed || inboundMediaRoot) {
     const { writeReadScopeMedia } = await import("./store.read-scope.js");
     result = await writeReadScopeMedia({
       dir,
@@ -629,6 +647,7 @@ export async function saveMediaStream(
       scope: readScope,
       assertCommitAllowed: options?.assertCommitAllowed,
       durable: options?.durable,
+      inboundMediaRoot,
       write,
     }).catch(rethrowMediaWriteError);
   } else {
@@ -687,9 +706,10 @@ export async function readMediaBuffer(
   id: string,
   subdir = "inbound",
   maxBytes = MEDIA_MAX_BYTES,
+  options?: { env?: NodeJS.ProcessEnv },
 ): Promise<ReadMediaBufferResult> {
   const relativePath = resolveMediaRelativePath(id, subdir, "readMediaBuffer");
-  await using opened = await openMediaStore(maxBytes)
+  await using opened = await openMediaStore(maxBytes, getMediaDir(options?.env))
     .open(relativePath)
     .catch(() => null);
   if (!opened?.stat.isFile()) {
@@ -711,9 +731,17 @@ export async function readMediaBuffer(
  */
 export async function deleteMediaBuffer(id: string, subdir = "inbound"): Promise<void> {
   const relativePath = resolveMediaRelativePath(id, subdir, "deleteMediaBuffer");
-  await runFsSafeStoreOperation({
-    type: "remove-store-file",
-    rootDir: getMediaDir(),
-    relativePath,
-  });
+  const mediaRoot = getMediaDir();
+  const remove = async () =>
+    await runFsSafeStoreOperation({
+      type: "remove-store-file",
+      rootDir: mediaRoot,
+      relativePath,
+    });
+  const directory = resolveMediaScopedDir(subdir, "deleteMediaBuffer");
+  if (await isInboundOriginalDirectory(mediaRoot, directory)) {
+    await withInboundOriginalMutation(mediaRoot, remove);
+  } else {
+    await remove();
+  }
 }

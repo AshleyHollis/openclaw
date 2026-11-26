@@ -58,6 +58,7 @@ export type WorkboardUpdateCardOptions = {
   ownerSlot?: WorkboardOwnerSlot;
   preserveProofId?: string;
   preserveNotificationId?: string;
+  resultReview?: import("@openclaw/workboard-contract").WorkboardResultReviewRequest;
 };
 export type WorkboardCommentInput = { body?: unknown };
 export type WorkboardLinkInput = {
@@ -123,6 +124,8 @@ export type WorkboardCompleteInput = WorkboardMutationScope & {
   proofId?: unknown;
   artifacts?: unknown;
   createdCardIds?: unknown;
+  expectedUpdatedAt?: unknown;
+  resultReview?: unknown;
   /** Optional worker claims; never required and never checked before completion. */
   claims?: unknown;
 };

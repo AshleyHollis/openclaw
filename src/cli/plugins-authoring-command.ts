@@ -165,6 +165,7 @@ export async function runPluginsBuildCommand(opts: PluginsBuildOptions): Promise
     const currentControlUi = withPluginCache(createPluginCache(), () =>
       loadPluginControlUiDeclaration({
         rootDir,
+        pluginId: metadata.id,
         controlUi: authored?.controlUi,
         channels: authored?.channels,
         rejectHardlinks: false,

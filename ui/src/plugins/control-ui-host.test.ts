@@ -667,3 +667,161 @@ it("adapts dock operations, publishes snapshots, and retires activation and view
   expect(dock.openSessionKey).toBeNull();
   expect(() => close()).toThrow("activation has ended");
 });
+
+describe("declared authenticated plugin HTTP relay", () => {
+  it.each(["command-center", "fictional-plugin"])(
+    "relays only %s's admitted paths without exposing the credential",
+    async (pluginId) => {
+      const path = `/plugins/${pluginId}/api/topic/actions`;
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response('{"status":"applied"}', {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const context = {
+        gateway: {
+          connection: { gatewayUrl: window.location.origin, token: "fixture-private-token" },
+        },
+      } as unknown as ApplicationContext;
+      const abort = new AbortController();
+      const owner = {
+        abort,
+        client: {
+          gatewayUrl: window.location.origin,
+          request: vi.fn(),
+        } as unknown as GatewayBrowserClient,
+        descriptor: { pluginId, httpRoutes: [path, "/plugins/foreign/action"] },
+        disposers: new Set(),
+      } as Omit<ControlUiPluginOwner, "host">;
+      const runtime = {
+        isCurrent: (current: Omit<ControlUiPluginOwner, "host">) =>
+          current === owner && !current.abort.signal.aborted,
+      } as ControlUiPluginRuntime;
+      const host = createControlUiPluginHost(() => context, runtime, owner);
+      owner.descriptor.httpRoutes!.push(`/plugins/${pluginId}/api/not-declared`);
+      try {
+        await expect(
+          host.httpRequest({
+            method: "POST",
+            path,
+            body: '{"schemaVersion":1}',
+          }),
+        ).resolves.toEqual({ status: 200, body: '{"status":"applied"}' });
+        expect(fetchMock).toHaveBeenCalledWith(
+          expect.objectContaining({ pathname: path }),
+          expect.objectContaining({
+            method: "POST",
+            redirect: "error",
+            body: '{"schemaVersion":1}',
+            headers: expect.objectContaining({ Authorization: "Bearer fixture-private-token" }),
+          }),
+        );
+        await expect(
+          host.httpRequest({
+            method: "POST",
+            path: `/plugins/${pluginId}/api/not-declared`,
+            body: "{}",
+          }),
+        ).rejects.toThrow("Undeclared plugin HTTP route.");
+        await expect(
+          host.httpRequest({ method: "POST", path: "/plugins/foreign/action", body: "{}" }),
+        ).rejects.toThrow("Undeclared plugin HTTP route.");
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.unstubAllGlobals();
+        abort.abort();
+      }
+    },
+  );
+});
+describe("plugin HTTP credential recipient", () => {
+  it.each(["admitted", "selected"] as const)(
+    "refuses a foreign %s Gateway before sending a credential",
+    async (mismatch) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const abort = new AbortController();
+      const context = {
+        gateway: {
+          connection: {
+            gatewayUrl:
+              mismatch === "selected" ? "wss://gateway-b.example.invalid" : window.location.origin,
+            token: "fixture-private-token",
+          },
+        },
+      } as unknown as ApplicationContext;
+      const owner = {
+        abort,
+        client: {
+          gatewayUrl:
+            mismatch === "admitted" ? "wss://gateway-b.example.invalid" : window.location.origin,
+          request: vi.fn(),
+        },
+        descriptor: {
+          pluginId: "command-center",
+          httpRoutes: ["/plugins/command-center/api/topic/actions"],
+        },
+        disposers: new Set(),
+      } as unknown as Omit<ControlUiPluginOwner, "host">;
+      const runtime = { isCurrent: () => true } as unknown as ControlUiPluginRuntime;
+      const host = createControlUiPluginHost(() => context, runtime, owner);
+      try {
+        await expect(
+          host.httpRequest({
+            method: "POST",
+            path: "/plugins/command-center/api/topic/actions",
+            body: "{}",
+          }),
+        ).rejects.toThrow("served by the connected Gateway");
+        expect(fetchMock).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+        abort.abort();
+      }
+    },
+  );
+});
+
+describe("mounted HTTP lifetime", () => {
+  it("aborts pending HTTP work when its view retires while retaining host activation", async () => {
+    const activation = new AbortController();
+    const view = new AbortController();
+    let requestSignal: AbortSignal | undefined;
+    const host = {
+      signal: activation.signal,
+      sessions: {},
+      agents: {},
+      navigation: {},
+      ui: {},
+      components: {},
+      httpRequest: vi.fn((_request, options) => {
+        requestSignal = options?.signal;
+        return new Promise((_resolve, reject) => {
+          requestSignal?.addEventListener(
+            "abort",
+            () => {
+              const reason = requestSignal?.reason;
+              reject(reason instanceof Error ? reason : new Error("Unexpected abort reason"));
+            },
+            { once: true },
+          );
+        });
+      }),
+    } as unknown as import("../../../src/plugin-sdk/control-ui.js").ControlUiHost;
+    const pending = scopeControlUiHost(host, view.signal).httpRequest({
+      method: "POST",
+      path: "/plugins/fictional/action",
+      body: "{}",
+    });
+    const retirementReason = new Error("View retired");
+    retirementReason.name = "AbortError";
+    const rejected = expect(pending).rejects.toBe(retirementReason);
+    view.abort(retirementReason);
+    await rejected;
+    expect(requestSignal?.aborted).toBe(true);
+    expect(requestSignal?.reason).toBe(retirementReason);
+    expect(activation.signal.aborted).toBe(false);
+  });
+});

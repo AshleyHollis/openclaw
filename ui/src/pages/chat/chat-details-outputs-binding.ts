@@ -6,13 +6,17 @@ import type { ResolvedBoardView } from "./chat-pane-shared.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import type { ChatDetailsProps } from "./components/chat-details-types.ts";
 import {
+  getChatSessionWorkspace,
   isCurrentSessionWorkspace,
   loadSessionWorkspaceArtifacts,
   retainSessionWorkspaceArtifacts,
   selectSessionWorkspacePreview,
 } from "./components/chat-session-workspace-state.ts";
 import type { SessionWorkspaceState } from "./components/chat-session-workspace-types.ts";
-import { createSessionWorkspaceProps } from "./components/chat-session-workspace.ts";
+import {
+  openSessionWorkspaceArtifact,
+  type createSessionWorkspaceProps,
+} from "./components/chat-session-workspace.ts";
 import { openSlot } from "./sidebar-layout.ts";
 
 type OutputsContext = {
@@ -113,17 +117,27 @@ export function createDetailsOutputsBinding(
       if (!current()) {
         return;
       }
-      // Consume the native reader operation without changing its draft/resource identity.
-      createSessionWorkspaceProps(state, {
-        presentation: context.presentation(),
-        draftScope: state.sessionWorkspaceDraftScope,
-        draftContext: state.sessionWorkspaceDraftContext,
-      }).onOpenArtifact(id);
+      void openSessionWorkspaceArtifact(
+        state,
+        id,
+        {
+          disposition: context.presentation() === "desktop" ? "preview" : undefined,
+        },
+        workspace,
+        getChatSessionWorkspace,
+      );
     },
     onViewAll: () => {
       if (!current()) {
         return;
       }
+      // Explicit navigation opens the catalog summarized by this Chat's Outputs.
+      state.sessionWorkspaceTarget = {
+        sessionKey: workspace.sessionKey,
+        agentId: workspace.agentId,
+        chatSessionKey: state.sessionKey,
+        connectionEpoch: state.connectionEpoch,
+      };
       selectSessionWorkspacePreview(state, null);
       state.updateSidebarLayout(openSlot(state.sidebarLayout, "workspace"));
     },

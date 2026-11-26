@@ -77,6 +77,7 @@ import { sessionLog } from "./session-log.js";
 import { retainSessionListForegroundWork } from "./session-projection-work.js";
 import { resolveSessionRuntimeAuthorityRequest } from "./session-runtime-authority.js";
 import { SessionMutationAuthorizationChangedError } from "./session-sharing.js";
+import { createGatewaySessionTranscriptSourceHandoffOwner } from "./session-transcript-source-handoff.js";
 import { dispatchSharedRead } from "./shared-read-responses.js";
 import {
   startSlowRequestDiagnostics,
@@ -389,8 +390,14 @@ export async function handleGatewayRequest(
     const releaseForegroundWork = retainSessionListForegroundWork();
     let sessionAccessAuthority: GatewaySessionAccessAuthority | undefined;
     let releaseSessionMutation: (() => void) | undefined;
+    let transcriptSourceHandoff:
+      | ReturnType<typeof createGatewaySessionTranscriptSourceHandoffOwner>
+      | undefined;
     try {
       entry?.assertOpen();
+      const sourceHandoff = createGatewaySessionTranscriptSourceHandoffOwner(opts);
+      transcriptSourceHandoff = sourceHandoff;
+      sourceHandoff.validate();
       const requestMutationAuthority = readGatewayRequestMutationAuthority(opts);
       // Post-hello hydration may supply the first profile. Once selected, the same
       // caller must survive every awaited row read and authorization retry.
@@ -524,6 +531,9 @@ export async function handleGatewayRequest(
           respond(false, undefined, uploadError);
           return;
         }
+        if (sourceHandoff.hasSource) {
+          await sourceHandoff.prepare(sessionMutationAuthorization);
+        }
         const handlerOptions: GatewayRequestHandlerOptions =
           bindGatewayRequestHandlerMutationAuthority(
             opts,
@@ -540,6 +550,7 @@ export async function handleGatewayRequest(
               ...(hasCurrentClientAuthority ? { hasCurrentClientAuthority } : {}),
               sessionMutationCommitGuard: opts.sessionMutationCommitGuard,
               sessionMutationAuthorization,
+              takeSessionTranscriptSourceAdmission: sourceHandoff.take,
               withSessionTurnAuthority,
               markSessionSubscribePhase: subscribeDiagnostics?.mark,
               diffTiming,
@@ -664,12 +675,19 @@ export async function handleGatewayRequest(
       respond(false, undefined, error.error);
     } finally {
       workboardDiagnostics?.mark("cleanup");
-      releaseSessionMutation?.();
-      sessionAccessAuthority?.release();
-      releaseForegroundWork();
-      // Transport/import owners retain failures through their response and logging paths.
-      if (!opts.requestEntry) {
-        entry?.release();
+      const settle = () => {
+        releaseSessionMutation?.();
+        sessionAccessAuthority?.release();
+        releaseForegroundWork();
+        // Transport/import owners retain failures through their response and logging paths.
+        if (!opts.requestEntry) {
+          entry?.release();
+        }
+      };
+      if (transcriptSourceHandoff?.hasSource) {
+        await transcriptSourceHandoff.close(settle);
+      } else {
+        settle();
       }
     }
   };

@@ -1,16 +1,28 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import {
   getDatabaseEngineInput,
   openEngineWorkerStore,
   runEngineStoreOperation,
 } from "openclaw/plugin-sdk/database-engine-runtime";
+import { resolveRuntimeWorkerUrl } from "openclaw/plugin-sdk/process-runtime";
+import {
+  runSessionTranscriptSourceAdmissionOperation,
+  type PreparedSessionTranscriptSourceAdmission,
+} from "openclaw/plugin-sdk/session-transcript-runtime";
 import { readSqliteDatabaseWriteTokenForPath } from "openclaw/plugin-sdk/sqlite-runtime";
 import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
-import type { WorkboardPersistence, WorkboardWriteAuthority } from "./persistence-types.js";
+import type {
+  WorkboardPersistence,
+  WorkboardSourceCardInput,
+  WorkboardWriteAuthority,
+} from "./persistence-types.js";
+import { workboardSqliteSourceEntrypoint } from "./sqlite-source-entrypoint.js";
 import type {
   WorkboardSqliteOperations,
   WorkboardSqliteWorkerOperations,
+  WorkboardSourceWorkerOperations,
 } from "./sqlite-store-contract.js";
 import { unwrapWorkboardSqliteResult } from "./sqlite-store-errors.js";
 
@@ -54,11 +66,12 @@ export function createWorkboardSqliteStores(options: {
   ): Promise<WorkboardSqliteOperations[K]["output"]> {
     const authority = writes ? writeAuthority.getStore() : undefined;
     const store = await (worker ??= openWorker());
+    const reviewWrite = type === "resultReviews.register" || type === "resultReviews.resolve";
     const result = unwrapWorkboardSqliteResult(
       await runEngineStoreOperation(
         store,
         selectedDatabase,
-        writes,
+        reviewWrite ? "protected" : writes,
         (scope) => scope.execute({ type, input }),
         authority
           ? () => {
@@ -77,6 +90,50 @@ export function createWorkboardSqliteStores(options: {
     }
     return result;
   }
+  async function registerSource(
+    input: WorkboardSourceCardInput,
+    source: PreparedSessionTranscriptSourceAdmission,
+  ) {
+    const authority = writeAuthority.getStore();
+    const assertCurrent = () => {
+      if (!authority?.active || !authority.assertCurrent) {
+        throw new Error("Workboard source mutation authority has settled.");
+      }
+      authority.assertCurrent();
+    };
+    assertCurrent();
+    if (await selectedDatabase) {
+      throw new Error("Workboard transcript source publication requires a SQLite destination.");
+    }
+    await (worker ??= openWorker());
+    const canonicalPath = await realpath(databasePath);
+    const identity = await stat(canonicalPath, { bigint: true });
+    const result = unwrapWorkboardSqliteResult(
+      await runSessionTranscriptSourceAdmissionOperation<WorkboardSourceWorkerOperations>(
+        source,
+        {
+          moduleUrl: resolveRuntimeWorkerUrl(workboardSqliteSourceEntrypoint),
+          input: {
+            databasePath: canonicalPath,
+            destinationIdentity: {
+              dev: identity.dev.toString(),
+              ino: identity.ino.toString(),
+              birthtime: identity.birthtimeNs.toString(),
+            },
+          },
+        },
+        { type: "create", input },
+        assertCurrent,
+      ),
+    );
+    // The first admitted write has settled. Any dependent writes may finish using
+    // the established mutation owner, including after the originating request closes.
+    if (authority && result.inserted) {
+      authority.assertCurrent = undefined;
+    }
+    return result;
+  }
+
   async function run<T>(operation: () => Promise<T>): Promise<T> {
     if (sealed) {
       throw new Error("Workboard SQLite connection is closed.");
@@ -110,6 +167,7 @@ export function createWorkboardSqliteStores(options: {
     cards: {
       register: bindOperation("cards.register", true),
       registerIfAbsent: bindOperation("cards.registerIfAbsent", true),
+      registerSource: (input, source) => run(() => registerSource(input, source)),
       registerIfUpdatedAt: bindOperation("cards.registerIfUpdatedAt", true),
       claimIfOwnerAvailable: bindOperation("cards.claimIfOwnerAvailable", true),
       deleteIfUpdatedAt: bindOperation("cards.deleteIfUpdatedAt", true),
@@ -120,6 +178,12 @@ export function createWorkboardSqliteStores(options: {
       listBoardAggregates: bindOperation("cards.listBoardAggregates"),
       listStatsAggregates: bindOperation("cards.listStatsAggregates"),
       hasCards: bindOperation("cards.hasCards"),
+    },
+    resultReviews: {
+      get: bindOperation("resultReviews.get"),
+      list: bindOperation("resultReviews.list"),
+      register: bindOperation("resultReviews.register", true),
+      resolve: bindOperation("resultReviews.resolve", true),
     },
     boards: {
       register: bindOperation("boards.register", true),

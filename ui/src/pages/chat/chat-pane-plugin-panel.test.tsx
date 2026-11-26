@@ -18,6 +18,7 @@ it("retains the plugin panel while parking and reveals it with current pane prop
   const [sessionKey, setSessionKey] = createSignal("agent:main:first");
   const update = vi.fn<(context: ControlUiViewContext<unknown>) => void>();
   const dispose = vi.fn();
+  const showInMain = vi.fn();
   const mount = vi.fn((container: HTMLElement, context: ControlUiViewContext<unknown>) => {
     const input = document.createElement("input");
     input.value = "Panel draft";
@@ -49,6 +50,7 @@ it("retains the plugin panel while parking and reveals it with current pane prop
           contributionKey="fixture/notes"
           props={{ sessionKey: sessionKey(), agentId: "main" }}
           presentation={presentation()}
+          panelPresentation={{ showInMain }}
         />
       </span>
     ),
@@ -56,6 +58,8 @@ it("retains the plugin panel while parking and reveals it with current pane prop
   );
   await waitForSolid(() => expect(mount).toHaveBeenCalledOnce());
   const input = view.container.querySelector("input");
+  update.mock.lastCall?.[0].panel?.showInMain();
+  expect(showInMain).toHaveBeenCalledOnce();
   presented = false;
   owner.dispatchEvent(new Event(PRESENTATION_CHANGED_EVENT));
   await waitForSolid(() => expect(update.mock.lastCall?.[0].presented).toBe(false));
@@ -86,4 +90,5 @@ it("retains the plugin panel while parking and reveals it with current pane prop
   expect(dispose).toHaveBeenCalledOnce();
   view.unmount();
   expect(dispose).toHaveBeenCalledTimes(2);
+  expect(() => update.mock.lastCall?.[0].panel?.showInMain()).toThrow("ended");
 });

@@ -74,6 +74,12 @@ export type SessionWorkspaceHost = {
   agentsList?: SessionScopeHost["agentsList"];
   settings?: UiSettings;
   sessionWorkspaceState?: SessionWorkspaceState;
+  sessionWorkspaceTarget?: {
+    sessionKey: string;
+    agentId?: string;
+    chatSessionKey: string;
+    connectionEpoch: number;
+  };
   sessionWorkspaceDraftScope?: string;
   sessionWorkspaceDraftContext?: { sessionTitle?: string; paneLabel?: string };
   sidebarContent: SidebarSelection | null;

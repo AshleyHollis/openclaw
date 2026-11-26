@@ -20,8 +20,8 @@ export function resolveSessionWorkspaceDiff(
   state: SessionWorkspaceHost,
   openFile: (path: string) => Promise<SessionWorkspacePreview | undefined> | undefined,
   canEditFile: (path: string) => Promise<boolean>,
+  workspace = getSessionWorkspace(state),
 ): SidebarSelection | null {
-  const workspace = getSessionWorkspace(state);
   const client = state.client;
   if (isGatewayMethodAdvertised(state, "sessions.diff") !== true || !client) {
     return null;
@@ -36,7 +36,7 @@ export function resolveSessionWorkspaceDiff(
   if (workspace.diffContent) {
     return workspace.diffContent;
   }
-  const sessionKey = state.sessionKey;
+  const sessionKey = workspace.sessionKey;
   const agentId = workspace.agentId;
   const canLoadFileText =
     isGatewayMethodAdvertised(state, "sessions.files.get") === true && Boolean(state.client);

@@ -127,7 +127,7 @@ export function readSessionTranscriptVisibleMessageDeltaCore(
   limits: SessionTranscriptVisibleMessageDeltaLimits = {},
   options?: Parameters<typeof withCurrentProjectionSnapshot>[2],
 ): SessionTranscriptVisibleMessageDeltaResult {
-  const { maxMessages, maxBytes, start } = normalizeVisibleDeltaLimits(limits);
+  const { maxMessages, maxBytes, start, offset } = normalizeVisibleDeltaLimits(limits);
   return withCurrentProjectionSnapshot(
     scope,
     (projection) => {
@@ -201,6 +201,26 @@ export function readSessionTranscriptVisibleMessageDeltaCore(
       if (resetChanged) {
         return reset("session_reset");
       }
+      const endExclusive =
+        transcriptFence?.beforeActiveMessagePosition ?? projection.state.activeMessageCount;
+      if (limits.cursor === undefined && offset > 0) {
+        const position = Math.min(offset, endExclusive) - 1;
+        if (position >= 0) {
+          const anchor = executeSqliteQueryTakeFirstSync(
+            projection.database.db,
+            getActiveTranscriptKysely(projection.database)
+              .selectFrom("session_transcript_active_events")
+              .select("event_seq")
+              .where("session_id", "=", projection.resolved.sessionId)
+              .where("message_position", "=", position),
+          );
+          if (!anchor) {
+            return reset("anchor_missing");
+          }
+          current.lastEventSeq = anchor.event_seq;
+          current.lastMessagePosition = position;
+        }
+      }
       const range = resolveVisibleDeltaRange(projection, current, {
         beforeRawSeq: transcriptFence?.beforeRawSeq,
         readLatestReset,
@@ -209,10 +229,13 @@ export function readSessionTranscriptVisibleMessageDeltaCore(
         return reset(range.reason);
       }
       return readVisibleDeltaPage(projection, current, range, {
-        endExclusive:
-          transcriptFence?.beforeActiveMessagePosition ?? projection.state.activeMessageCount,
+        endExclusive,
         maxBytes,
         maxMessages,
+        generation,
+        activeLeafEntryId: transcriptFence
+          ? transcriptFence.admission.effectiveParentId
+          : projection.state.leafEventId,
       });
     },
     options,
@@ -273,7 +296,7 @@ function readVisibleDeltaPage(
   projection: CurrentTranscriptProjection,
   cursor: VisibleMessageCursor,
   range: VisibleDeltaRange,
-  bounds: { endExclusive: number; maxBytes: number; maxMessages: number },
+  bounds: { endExclusive: number; maxBytes: number; maxMessages: number; generation: string; activeLeafEntryId: string | null },
 ): VisibleDeltaPage {
   // Read one row past the count bound so hasMore needs no second query.
   const metadata = readVisibleDeltaMetadata(projection, range, bounds);
@@ -308,6 +331,9 @@ function readVisibleDeltaPage(
     selectedCount === 0 && metadata[0] ? metadata[0].serialized_bytes : undefined;
   return {
     kind: "page",
+    activeLeafEntryId: bounds.activeLeafEntryId,
+    generation: bounds.generation,
+    totalMessages: bounds.endExclusive,
     cursor: encodeVisibleMessageCursor({ ...cursor, lastEventSeq, lastMessagePosition }),
     events,
     hasMore: selectedCount < metadata.length,

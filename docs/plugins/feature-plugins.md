@@ -32,6 +32,18 @@ the dashboard, but cannot send the secure cookies used for native assets.
 Plugin pages explain how to switch to HTTPS/Tailscale Serve or localhost;
 backend operations remain available.
 
+To send an HTTP action through `host.httpRequest`, declare its exact `POST` path
+in `controlUi.httpRoutes` and register that route with Gateway authentication.
+The path must be under the plugin's `/plugins/<id>/` namespace. The browser host
+keeps the operator credential and sends it only to the connected same-origin
+Gateway. The route handler still owns authorization for the action.
+
+Use `host.sessions.openChat` to open a conversation's Chat view without changing
+its saved default. `host.sessions.openFiles` opens that conversation's Files
+alongside the current Chat. A replacement for `session-files` receives the Files
+conversation in its props. When it is presented, `context.panel?.showInMain()`
+moves Files into the main position without navigating.
+
 ## Enable custom plugin UI
 
 Native browser UI is available by default for enabled plugins, including

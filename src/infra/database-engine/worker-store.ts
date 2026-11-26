@@ -104,7 +104,7 @@ export async function openEngineWorkerStore<Operations extends SqliteWorkerOpera
 export async function runEngineStoreOperation<Operations extends SqliteWorkerOperations, T>(
   store: SqliteWorkerStore<Operations>,
   input: DatabaseEngineInput,
-  writes: boolean,
+  writes: boolean | "protected",
   operation: (scope: Pick<SqliteWorkerStore<Operations>, "execute">) => Promise<T>,
   assertCurrent: (() => void) | undefined,
   databasePath: string,
@@ -118,6 +118,12 @@ export async function runEngineStoreOperation<Operations extends SqliteWorkerOpe
           scope.execute(command, options),
         ),
     });
+  if (writes === "protected") {
+    if (!assertCurrent) {
+      throw new Error("Protected database worker writes require current authority.");
+    }
+    return runSqliteWorkerStoreWrite(current, observed, assertCurrent, [databasePath]);
+  }
   if (input && writes) {
     return runSqliteWorkerStoreWrite(current, observed, assertCurrent ?? (() => {}), [
       databasePath,

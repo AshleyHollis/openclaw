@@ -5,7 +5,11 @@ import { t } from "../../../i18n/index.ts";
 import { formatUiError } from "../../../lib/format-error.ts";
 import { showToast } from "../../../lib/toast.ts";
 import { readFileDraft, reviewRetainedFileDrafts } from "./chat-file-drafts.ts";
-import { createSessionWorkspaceState, resolvePaneAgent } from "./chat-session-workspace-model.ts";
+import {
+  createSessionWorkspaceState,
+  resolvePaneAgent,
+  resolveSessionWorkspaceTarget,
+} from "./chat-session-workspace-model.ts";
 import type {
   SessionWorkspaceArtifacts,
   SessionWorkspaceHost,
@@ -56,32 +60,103 @@ export function trackSessionCheckoutSidebar(content: SidebarSelection) {
   checkoutSidebarContents.add(content);
 }
 
-function clearSessionCheckoutSidebar(state: SessionWorkspaceHost) {
-  if (state.sidebarContent && checkoutSidebarContents.has(state.sidebarContent)) {
+function clearSessionCheckoutSidebar(
+  state: SessionWorkspaceHost,
+  workspace: SessionWorkspaceState | undefined,
+) {
+  const content = state.sidebarContent;
+  if (
+    content?.kind === "session-diff" &&
+    content.owner === workspace &&
+    checkoutSidebarContents.has(content)
+  ) {
     state.sidebarContent = null;
   }
+}
+
+const chatDiffWorkspaces = new WeakMap<SessionWorkspaceHost, SessionWorkspaceState>();
+
+/** Chat's diff remains bound to Chat when the Files rail presents another conversation. */
+export function getChatSessionWorkspace(state: SessionWorkspaceHost): SessionWorkspaceState {
+  const target = { sessionKey: state.sessionKey, agentId: resolvePaneAgent(state) };
+  const files = resolveSessionWorkspaceTarget(state);
+  if (files.sessionKey === target.sessionKey && files.agentId === target.agentId) {
+    return getSessionWorkspace(state);
+  }
+  const primary = state.sessionWorkspaceState;
+  if (
+    primary &&
+    primary.sessionKey === target.sessionKey &&
+    primary.agentId === target.agentId &&
+    primary.connectionEpoch === state.connectionEpoch
+  ) {
+    chatDiffWorkspaces.set(state, primary);
+    return primary;
+  }
+  const current = chatDiffWorkspaces.get(state);
+  if (
+    current &&
+    current.sessionKey === target.sessionKey &&
+    current.agentId === target.agentId &&
+    current.connectionEpoch === state.connectionEpoch
+  ) {
+    return current;
+  }
+  const next = createSessionWorkspaceState(state, target);
+  chatDiffWorkspaces.set(state, next);
+  return next;
 }
 
 export function isCurrentSessionWorkspace(
   state: SessionWorkspaceHost,
   workspace: SessionWorkspaceState,
 ) {
+  const target =
+    chatDiffWorkspaces.get(state) === workspace
+      ? { sessionKey: state.sessionKey, agentId: resolvePaneAgent(state) }
+      : state.sessionWorkspaceState === workspace
+        ? resolveSessionWorkspaceTarget(state)
+        : undefined;
   return (
-    state.sessionWorkspaceState === workspace &&
-    workspace.sessionKey === state.sessionKey &&
-    workspace.agentId === resolvePaneAgent(state) &&
+    target !== undefined &&
+    workspace.sessionKey === target.sessionKey &&
+    workspace.agentId === target.agentId &&
     workspace.connectionEpoch === state.connectionEpoch
   );
 }
 
 export function getSessionWorkspace(state: SessionWorkspaceHost): SessionWorkspaceState {
+  const target = resolveSessionWorkspaceTarget(state);
   const current = state.sessionWorkspaceState;
-  if (current && isCurrentSessionWorkspace(state, current)) {
+  if (
+    current &&
+    current.sessionKey === target.sessionKey &&
+    current.agentId === target.agentId &&
+    current.connectionEpoch === state.connectionEpoch
+  ) {
     return current;
   }
-  clearSessionCheckoutSidebar(state);
+  // Keep Chat's existing diff and draft identities while Files changes its target.
+  if (
+    current &&
+    current.sessionKey === state.sessionKey &&
+    current.agentId === resolvePaneAgent(state) &&
+    current.connectionEpoch === state.connectionEpoch
+  ) {
+    chatDiffWorkspaces.set(state, current);
+  }
+  if (current !== chatDiffWorkspaces.get(state)) {
+    clearSessionCheckoutSidebar(state, current);
+  }
   clearWorkspaceTimer(current);
-  const next = createSessionWorkspaceState(state);
+  const retainedChat = chatDiffWorkspaces.get(state);
+  const next =
+    retainedChat &&
+    retainedChat.sessionKey === target.sessionKey &&
+    retainedChat.agentId === target.agentId &&
+    retainedChat.connectionEpoch === state.connectionEpoch
+      ? retainedChat
+      : createSessionWorkspaceState(state);
   state.sessionWorkspaceState = next;
   return next;
 }
@@ -135,13 +210,14 @@ function requestWorkspaceFiles(
   return request;
 }
 
-/** One owner, separate native query variants: summaries do not expose message role. */
+/** Outputs follows Chat; the complete catalog follows the independent Files target. */
 export function loadSessionWorkspaceArtifacts(
   state: SessionWorkspaceHost,
   force = false,
   messageRole?: "assistant",
 ): Promise<void> {
-  const workspace = getSessionWorkspace(state);
+  const workspace =
+    messageRole === "assistant" ? getChatSessionWorkspace(state) : getSessionWorkspace(state);
   const key = messageRole === "assistant" ? "assistantArtifacts" : "artifacts";
   const artifacts = (workspace[key] ??= {
     items: [],
@@ -394,14 +470,15 @@ export function refreshSessionWorkspaceState(
   refreshFiles: boolean,
 ): boolean {
   const workspace = state.sessionWorkspaceState;
-  if (!workspace || workspace.sessionKey !== state.sessionKey) {
+  if (!workspace || !isCurrentSessionWorkspace(state, workspace)) {
     return false;
   }
   const diffOpen =
     workspace.diffContent !== undefined && state.sidebarContent === workspace.diffContent;
   delete workspace.diffContent;
   for (const role of ["all", "assistant"] as const) {
-    const artifacts = role === "all" ? workspace.artifacts : workspace.assistantArtifacts;
+    const artifacts =
+      role === "all" ? workspace.artifacts : getChatSessionWorkspace(state).assistantArtifacts;
     if (artifacts) {
       // Keep prior facts during refresh; the invalidated request cannot replace them.
       artifacts.loaded = false;
@@ -426,11 +503,13 @@ export function refreshSessionWorkspaceState(
 
 /** Retire facts owned by one checkout without disturbing panel layout or retained drafts. */
 export function retireSessionWorkspaceCheckout(state: SessionWorkspaceHost) {
+  clearSessionCheckoutSidebar(state, chatDiffWorkspaces.get(state));
+  chatDiffWorkspaces.delete(state);
   const current = state.sessionWorkspaceState;
-  if (!current || current.sessionKey !== state.sessionKey) {
+  if (!current || !isCurrentSessionWorkspace(state, current)) {
     return;
   }
-  clearSessionCheckoutSidebar(state);
+  clearSessionCheckoutSidebar(state, current);
   clearWorkspaceTimer(current);
   state.sessionWorkspaceState = createSessionWorkspaceState(state);
   for (const [role, count] of artifactDemands.get(state) ?? []) {

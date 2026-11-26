@@ -181,9 +181,9 @@ describe("workboard gateway methods", () => {
     const { methods, invoke, store } = createGateway();
     for (const [scope, names] of Object.entries({
       "operator.read":
-        "cards.list cards.diagnostics cards.export cards.runs cards.attachments.get notifications.list notifications.events",
+        "cards.list cards.diagnostics cards.export cards.runs cards.attachments.get resultReviews.list resultReviews.get notifications.list notifications.events",
       "operator.write":
-        "cards.diagnostics.refresh cards.create cards.attachments.add boards.upsert notifications.advance",
+        "cards.diagnostics.refresh cards.create cards.attachments.add resultReviews.resolve boards.upsert notifications.advance",
     })) {
       for (const name of names.split(" ")) {
         expect(methods.get(`workboard.${name}`)?.opts).toEqual({ scope });

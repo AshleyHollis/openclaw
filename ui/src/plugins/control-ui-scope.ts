@@ -124,6 +124,14 @@ export function scopeControlUiHost(
       check();
       return result;
     },
+    httpRequest: async (request, options) => {
+      check();
+      const result = await host.httpRequest(request, {
+        signal: options?.signal ? AbortSignal.any([signal, options.signal]) : signal,
+      });
+      check();
+      return result;
+    },
     onEvent: (name, listener) => {
       check();
       return keep(host.onEvent(name, bindCallback(listener)));

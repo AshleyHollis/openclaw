@@ -31,7 +31,7 @@ export function readSessionActorMemoryVisibleDelta(
   scope: SessionActorMemoryHistoryScope,
   limits: SessionTranscriptVisibleMessageDeltaLimits,
 ): SessionTranscriptVisibleMessageDeltaResult {
-  const { maxBytes, maxMessages, start } = normalizeVisibleDeltaLimits(limits);
+  const { maxBytes, maxMessages, start, offset } = normalizeVisibleDeltaLimits(limits);
   const generation = window.hot.transcript.version.generation;
   const sessionId = window.hot.entry?.sessionId;
   if (!generation || !sessionId) {
@@ -89,6 +89,13 @@ export function readSessionActorMemoryVisibleDelta(
   }
   const messages = navigation.active.filter((row) => row.messagePosition !== null);
   let anchorActivePosition = -1;
+  if (limits.cursor === undefined && offset > 0) {
+    const anchor = messages[Math.min(offset, messages.length) - 1];
+    if (anchor) {
+      cursor.lastEventSeq = anchor.rawSeq;
+      cursor.lastMessagePosition = anchor.messagePosition!;
+    }
+  }
   if (cursor.lastEventSeq >= 0) {
     const anchor = messages.find((row) => row.rawSeq === cursor.lastEventSeq);
     if (!anchor) {
@@ -138,6 +145,9 @@ export function readSessionActorMemoryVisibleDelta(
   }
   return {
     kind: "page",
+    activeLeafEntryId: navigation.tree.leafId,
+    generation,
+    totalMessages: messages.length,
     cursor: encodeVisibleMessageCursor({ ...cursor, lastEventSeq, lastMessagePosition }),
     events,
     hasMore,

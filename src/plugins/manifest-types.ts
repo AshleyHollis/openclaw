@@ -332,6 +332,8 @@ export type PluginManifestControlUi = {
   /** Omission retains ordinary runtime activation. */
   activation?: "settings-only";
   settingsViews?: import("../../packages/gateway-protocol/src/plugin-control-ui-settings.js").ControlUiSettingsPlacement[];
+  /** Canonical exact POST routes admitted for this browser build. */
+  httpRoutes?: string[];
 };
 
 export type PluginManifestMcpServer = Record<string, unknown>;

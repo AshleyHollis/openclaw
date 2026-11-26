@@ -208,7 +208,7 @@ export type ChatThreadProps = Omit<
     onOpenWorkspaceFile?: (target: MarkdownFileLinkTarget) => void;
     onOpenManagedArtifact?: (href: string) => boolean;
     onOpenSessionLink?: (target: SessionLinkTarget) => void;
-    onNavigate?: (routeId: "cron", options: { search: string }) => void;
+    onNavigate?: (routeId: "cron" | "plugin", options: { search: string; hash?: string }) => void;
     onHistoryIntent?: (event: Event) => void;
     onHistorySentinelRef?: (element: HTMLElement) => void | (() => void);
     onTranscriptAnnouncementRef?: (element: HTMLElement) => void | (() => void);

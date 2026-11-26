@@ -57,7 +57,12 @@ it("carries normalized built entrypoints through discovery into runtime ownershi
   useNoBundledPlugins();
   const style = "dist/control-ui/theme.css";
   const plugin = fixture(
-    { entry: `./${entry}`, styles: [`./${style}`, style], panelIcon: "./assets/panel.svg" },
+    {
+      entry: `./${entry}`,
+      styles: [`./${style}`, style],
+      panelIcon: "./assets/panel.svg",
+      httpRoutes: ["/plugins/native-ui/api/action", "/plugins/native-ui/api/action"],
+    },
     ["widget", "page", "widget"],
   );
   const registry = loadOpenClawPlugins({
@@ -69,7 +74,12 @@ it("carries normalized built entrypoints through discovery into runtime ownershi
   expect(registry.plugins.find((record) => record.id === plugin.id)).toMatchObject({
     status: "loaded",
     uiCapabilities: ["page", "widget"],
-    controlUi: { entry, styles: [style], panelIcon: "assets/panel.svg" },
+    controlUi: {
+      entry,
+      styles: [style],
+      panelIcon: "assets/panel.svg",
+      httpRoutes: ["/plugins/native-ui/api/action"],
+    },
   });
 });
 
@@ -140,6 +150,8 @@ it.each([
   { panelIcon: "assets/icon.png" },
   { panelIcon: "assets\\icon.svg" },
   { root: "/private" },
+  { httpRoutes: ["/plugins/foreign/api/action"] },
+  { httpRoutes: ["/plugins/native-ui/api/action?mode=write"] },
 ])("rejects unsafe or source declarations %j", (overrides) => {
   expect(readManifest({ entry, ...overrides })).toMatchObject({
     ok: false,

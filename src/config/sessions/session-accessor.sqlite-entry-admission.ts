@@ -2,6 +2,7 @@ import path from "node:path";
 import { readSqliteDatabaseWriteTokenForPath } from "../../infra/sqlite-database-admission.js";
 import { readDatabasePathIdentity } from "../../infra/sqlite-worker-identity.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
+import type { OpenClawAgentDatabaseOptions } from "../../state/openclaw-agent-db-contract.js";
 import { resolveOpenClawAgentSqlitePath } from "../../state/openclaw-agent-db.js";
 import type { AgentDatabaseRequestExecutionSource } from "../../state/openclaw-agent-execution-admission-contract.js";
 import type { OpenClawAgentDatabaseExecution } from "../../state/openclaw-agent-execution-contract.js";
@@ -35,6 +36,11 @@ export type { SessionAdmissionDatabaseClaim } from "./session-admission-claim.ty
 
 type SessionAdmissionEntryIdentity = SessionAdmissionTransition["current"];
 
+export type SessionAdmissionWorker = Readonly<{
+  databaseOptions: OpenClawAgentDatabaseOptions;
+  execution: OpenClawAgentDatabaseExecution;
+}>;
+
 /** Admission retains the exact owner that supplied its row across asynchronous policy work. */
 export async function loadSessionEntryForAdmission(
   input: SessionAccessScope,
@@ -43,7 +49,12 @@ export async function loadSessionEntryForAdmission(
     assertCurrent?: () => void;
     onRegistryChange?: AgentDatabaseRequestExecutionSource["onRegistryChange"];
   } = {},
-): Promise<{ entry: SessionEntry | undefined; databaseClaim: SessionAdmissionDatabaseClaim }> {
+): Promise<{
+  entry: SessionEntry | undefined;
+  databaseClaim: SessionAdmissionDatabaseClaim;
+  /** Borrowed from the returned claim; releasing the claim retires this execution. */
+  worker?: SessionAdmissionWorker;
+}> {
   const assertCurrent = () => {
     preparation.signal?.throwIfAborted();
     preparation.assertCurrent?.();
@@ -299,7 +310,11 @@ export async function loadSessionEntryForAdmission(
               };
               claim = createClaim(execution, entry);
               transferred = true;
-              return { entry, databaseClaim: claim };
+              return {
+                entry,
+                databaseClaim: claim,
+                worker: { databaseOptions: { ...options, path: execution.path }, execution },
+              };
             } finally {
               if (!transferred) {
                 await execution.release();

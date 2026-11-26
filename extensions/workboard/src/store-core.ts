@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
+import { stableStringify } from "@openclaw/normalization-core/stable-stringify";
 import type {
   WorkboardCard,
   WorkboardDeleteResult,
@@ -8,6 +9,7 @@ import type {
   WorkboardStatus,
 } from "@openclaw/workboard-contract";
 import { resolveNonNegativeIntegerOption } from "openclaw/plugin-sdk/number-runtime";
+import type { PreparedSessionTranscriptSourceAdmission } from "openclaw/plugin-sdk/session-transcript-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { definedFields } from "../record-fields.js";
 import type { PersistedWorkboardCard } from "./persistence-types.js";
@@ -246,14 +248,29 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     input: WorkboardLinkedCreateInput,
     scope?: WorkboardMutationScope,
     assertOwnerCurrent?: () => void,
+    source?: PreparedSessionTranscriptSourceAdmission,
   ): Promise<WorkboardCard> {
-    return await this.enqueueMutation(() => this.createDirect(input, scope), assertOwnerCurrent);
+    try {
+      if (source && (!assertOwnerCurrent || !this.store.registerSource)) {
+        throw new Error("Workboard source admission requires current-owner SQLite persistence.");
+      }
+      return await this.enqueueMutation(
+        () => this.createDirect(input, scope, { source }),
+        assertOwnerCurrent,
+      );
+    } finally {
+      await source?.close();
+    }
   }
 
   protected async createDirect(
     input: WorkboardLinkedCreateInput,
     scope?: WorkboardMutationScope,
-    options: { cardId?: string; insertIfAbsent?: boolean } = {},
+    options: {
+      cardId?: string;
+      insertIfAbsent?: boolean;
+      source?: PreparedSessionTranscriptSourceAdmission;
+    } = {},
   ): Promise<WorkboardCard> {
     const now = Date.now();
     const requestedStatus = normalizeStatus(input.status, "todo");
@@ -269,7 +286,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
       status = "todo";
       heldByDependencies = true;
     }
-    if (automation?.idempotencyKey) {
+    if (automation?.idempotencyKey && !options.source) {
       const existing = cards.find(
         (card) =>
           card.metadata?.automation?.idempotencyKey === automation.idempotencyKey &&
@@ -365,7 +382,46 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
       ...(completedAt ? { completedAt } : {}),
       ...(!metadataIsEmpty(syncedMetadata) ? { metadata: syncedMetadata } : {}),
     };
-    if (options.insertIfAbsent) {
+    if (options.source) {
+      const registerSource = this.store.registerSource;
+      if (!registerSource) {
+        throw new Error("Workboard source publication is unavailable.");
+      }
+      const intent = card.metadata?.automation?.idempotencyKey
+        ? stableStringify({
+            version: 1,
+            title: card.title,
+            notes,
+            status: requestedStatus,
+            priority: card.priority,
+            labels: card.labels,
+            parents,
+            position: Number.isFinite(normalizedPosition) ? normalizedPosition : undefined,
+            agentId,
+            sessionKey,
+            runId,
+            sourceUrl,
+            startedAt:
+              input.startedAt === undefined ? undefined : normalizeTimestamp(input.startedAt, 0),
+            completedAt:
+              input.completedAt === undefined
+                ? undefined
+                : normalizeTimestamp(input.completedAt, 0),
+            execution: input.execution,
+            metadata: input.metadata,
+            templateId: normalizeTemplateId(input.templateId),
+            automation: childAutomation,
+          })
+        : undefined;
+      const result = await registerSource(
+        { value: { version: 1, card }, intent, parentIds: parents },
+        options.source,
+      );
+      if (!result.inserted) {
+        this.refreshWriteReceipt();
+        return result.card;
+      }
+    } else if (options.insertIfAbsent) {
       const inserted = await this.store.registerIfAbsent(card.id, { version: 1, card });
       if (!inserted) {
         const winner = await this.get(card.id);
@@ -601,6 +657,22 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
         throw new Error(`Owner ${options.ownerSlot.ownerId} already has active Workboard work.`);
       }
       updated = result === "updated";
+    } else if (options.resultReview) {
+      const result = await this.resultReviewStore().register(
+        next.id,
+        nextEntry,
+        expectedUpdatedAt,
+        options.resultReview,
+      );
+      if (result) {
+        if (result.inserted) {
+          await this.deleteDetachedAttachments(existing, result.card);
+        } else {
+          this.refreshWriteReceipt();
+        }
+        return result.card;
+      }
+      updated = false;
     } else {
       updated = await this.store.registerIfUpdatedAt(next.id, nextEntry, expectedUpdatedAt);
     }

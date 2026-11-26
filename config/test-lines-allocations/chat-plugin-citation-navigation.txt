@@ -1,0 +1,2 @@
+# Chat's ordinary local plugin citation click retains its exact route and leaves browser-owned links alone.
+46

@@ -5,19 +5,28 @@ import type {
   ControlUiPageNavigationOptions,
   ControlUiPageTarget,
 } from "../../../src/plugin-sdk/control-ui.js";
+import { isControlUiHttpRoute } from "../../../src/plugins/control-ui-http-routes.js";
 import { isPluginInlineViewVersion } from "../../../src/shared/plugin-inline-view.js";
+import type { GatewayBrowserClient } from "../api/gateway.ts";
 import { serializeSidebarEntry } from "../app-navigation.ts";
 import { isRouteId, pathForRoute, pluginTabLocation } from "../app-route-paths.ts";
+import { selectApplicationSession } from "../app/agent-selection.ts";
 import type { ApplicationContext } from "../app/context.ts";
+import { isSameOriginGateway } from "../app/gateway-control-ui-reload.ts";
 import { hasOperatorReadAccess, readGatewayOperatorAccess } from "../app/operator-access.ts";
 import {
+  FILES_PANEL_OPEN_EVENT,
+  type FilesPanelOpenDetail,
   PLUGIN_PANEL_TOGGLE_EVENT,
   type PluginPanelToggleDetail,
 } from "../components/panel-toggle-contract.ts";
 import { rememberSessionPanelToggle } from "../components/session-panel-toggle-buffer.ts";
 import { i18n } from "../i18n/index.ts";
 import { redactToolDetail } from "../lib/browser-redact.ts";
-import { openPreferredApplicationSession } from "../lib/sessions/route-navigation.ts";
+import {
+  openPreferredApplicationSession,
+  sessionNavigationTarget,
+} from "../lib/sessions/route-navigation.ts";
 import {
   normalizeSessionKeyForUiComparison,
   parseAgentSessionKey,
@@ -26,11 +35,81 @@ import { createControlUiComponents } from "./control-ui-components.ts";
 import { createPluginRecoveryStorage } from "./control-ui-recovery-storage.ts";
 import type { ControlUiPluginOwner, ControlUiPluginRuntime } from "./control-ui-runtime.ts";
 
+type ControlUiHttpRequest = Parameters<ControlUiHost["httpRequest"]>[0];
+type ControlUiHttpResponse = Awaited<ReturnType<ControlUiHost["httpRequest"]>>;
+
+function declaredPluginHttpRoute(
+  routes: ReadonlySet<string>,
+  request: ControlUiHttpRequest,
+): string {
+  if (request.method !== "POST" || typeof request.body !== "string") {
+    throw new Error("Unsupported plugin HTTP request.");
+  }
+  if (!routes.has(request.path)) {
+    throw new Error("Undeclared plugin HTTP route.");
+  }
+  if (new TextEncoder().encode(request.body).byteLength > 12 * 1024 * 1024) {
+    throw new Error("Plugin HTTP request exceeds the supported size.");
+  }
+  return request.path;
+}
+
+async function relayDeclaredPluginHttpRequest(
+  context: ApplicationContext,
+  routes: ReadonlySet<string>,
+  client: GatewayBrowserClient,
+  request: ControlUiHttpRequest,
+  signal?: AbortSignal,
+): Promise<ControlUiHttpResponse> {
+  const path = declaredPluginHttpRoute(routes, request);
+  // A manual connection can target another Gateway after this document was served.
+  // Never deliver its credential to the serving origin's HTTP recipient.
+  if (
+    !isSameOriginGateway(client.gatewayUrl) ||
+    !isSameOriginGateway(context.gateway.connection.gatewayUrl)
+  ) {
+    throw new Error("Plugin HTTP access requires the Control UI served by the connected Gateway.");
+  }
+  const credential = (
+    context.gateway.connection.token || context.gateway.connection.bootstrapToken
+  ).trim();
+  if (!credential) {
+    throw new Error("Authenticated plugin HTTP access is unavailable.");
+  }
+  const target = new URL(path, window.location.origin);
+  if (target.origin !== window.location.origin) {
+    throw new Error("Plugin HTTP relay must remain same-origin.");
+  }
+  const response = await fetch(target, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: "Bearer " + credential,
+      "Content-Type": "application/json",
+    },
+    body: request.body,
+    credentials: "same-origin",
+    redirect: "error",
+    signal,
+  });
+  const body = await response.text();
+  if (new TextEncoder().encode(body).byteLength > 1024 * 1024) {
+    throw new Error("Plugin HTTP response exceeds the supported size.");
+  }
+  return { status: response.status, body };
+}
+
 export function createControlUiPluginHost(
   getContext: () => ApplicationContext,
   runtime: ControlUiPluginRuntime,
   owner: Omit<ControlUiPluginOwner, "host">,
 ): ControlUiHost {
+  // Capture this admitted build's declaration; later metadata cannot widen its activation.
+  const routes = new Set(
+    (owner.descriptor.httpRoutes ?? []).filter((route) =>
+      isControlUiHttpRoute(owner.descriptor.pluginId, route),
+    ),
+  );
   const current = () => {
     if (!runtime.isCurrent(owner)) {
       throw new Error("This plugin UI activation has ended. Use the current activation.");
@@ -130,6 +209,18 @@ export function createControlUiPluginHost(
       );
     },
     request: (method, params = {}) => call(() => owner.client.request(method, params)),
+    httpRequest: (request, options) =>
+      call((context) =>
+        relayDeclaredPluginHttpRequest(
+          context,
+          routes,
+          owner.client,
+          request,
+          options?.signal
+            ? AbortSignal.any([owner.abort.signal, options.signal])
+            : owner.abort.signal,
+        ),
+      ),
     onEvent(event, listener) {
       return retain(
         current().gateway.subscribeEvents(
@@ -223,6 +314,47 @@ export function createControlUiPluginHost(
       },
       open({ sessionKey, agentId }) {
         openPreferredApplicationSession(current(), sessionKey, agentId);
+      },
+      openChat({ sessionKey, agentId }) {
+        const context = current();
+        const target = sessionNavigationTarget({
+          context,
+          face: "chat",
+          sessionKey,
+          agentId,
+          exactKey: true,
+        });
+        selectApplicationSession({
+          selection: context.agentSelection,
+          gateway: context.gateway,
+          sessionKey,
+          agentId,
+        });
+        context.navigate("chat", target.options);
+      },
+      openFiles({ sessionKey, agentId }) {
+        const context = current();
+        const chatSessionKey = context.gateway.snapshot.sessionKey;
+        const event = new CustomEvent<FilesPanelOpenDetail>(FILES_PANEL_OPEN_EVENT, {
+          cancelable: true,
+          detail: {
+            client: owner.client,
+            sessionKey: chatSessionKey,
+            target: { sessionKey, agentId },
+            signal: owner.abort.signal,
+          },
+        });
+        if (window.dispatchEvent(event)) {
+          // A non-Chat page has no pane to claim this intent until navigation commits.
+          rememberSessionPanelToggle("workspace", event);
+          const chat = sessionNavigationTarget({
+            context,
+            face: "chat",
+            sessionKey: chatSessionKey,
+            exactKey: true,
+          });
+          context.navigate("chat", chat.options);
+        }
       },
       create: (params) =>
         call((context) => context.sessions.create(params, { signal: owner.abort.signal })),

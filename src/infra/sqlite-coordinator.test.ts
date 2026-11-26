@@ -1,0 +1,283 @@
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { tryAcquireExclusiveSqliteCoordinator } from "../plugin-sdk/sqlite-runtime.js";
+import * as sqlite from "./node-sqlite.js";
+import { openNodeSqliteDatabase } from "./node-sqlite.js";
+import { captureCoordinatorDatabase } from "./sqlite-coordinator.test-support.js";
+import { retainSqliteWriteAdmissionService } from "./sqlite-transaction.js";
+
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const loader = new URL("../../scripts/tsx.mjs", import.meta.url).href;
+const moduleUrl = new URL("../plugin-sdk/sqlite-runtime.ts", import.meta.url).href;
+
+function observeDirectory(directory: string) {
+  // Stat only: opening and closing the coordinator in this process could drop
+  // the holder's POSIX locks and invalidate the contender observation.
+  return [".", ...fs.readdirSync(directory).toSorted()].map((name) => {
+    const stat = fs.lstatSync(path.join(directory, name), { bigint: true });
+    return {
+      name,
+      dev: stat.dev,
+      ino: stat.ino,
+      mode: stat.mode,
+      size: stat.size,
+      mtimeNs: stat.mtimeNs,
+      ctimeNs: stat.ctimeNs,
+    };
+  });
+}
+
+function runPeer(script: string, pathname: string) {
+  return execFileSync(
+    process.execPath,
+    ["--import", loader, "--input-type=module", "-e", script, pathname],
+    { encoding: "utf8", timeout: 15_000, stdio: ["ignore", "pipe", "pipe"] },
+  ).trim();
+}
+
+const acquirePeer = `
+  import { tryAcquireExclusiveSqliteCoordinator } from ${JSON.stringify(moduleUrl)};
+  const coordinator = tryAcquireExclusiveSqliteCoordinator(process.argv[1]);
+  process.stdout.write(coordinator ? "held" : "blocked");
+  coordinator?.release();
+`;
+
+describe("data-free SQLite coordinator", () => {
+  afterEach(() => vi.restoreAllMocks());
+  it.each([-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects invalid busy timeout %s before opening a database",
+    (busyTimeoutMs) => {
+      const opening = vi.spyOn(sqlite, "openNodeSqliteDatabase");
+      expect(() =>
+        tryAcquireExclusiveSqliteCoordinator("not-opened.sqlite", { busyTimeoutMs }),
+      ).toThrow(RangeError);
+      expect(opening).not.toHaveBeenCalled();
+    },
+  );
+
+  it("services the existing admission owner while waiting without replaying acquisition after refusal", () => {
+    const pathname = path.join(tempDirs.make("openclaw-coordinator-admission-"), "lock.sqlite");
+    const database = openNodeSqliteDatabase(pathname);
+    const opening = vi.spyOn(sqlite, "openNodeSqliteDatabase").mockReturnValueOnce(database);
+    const exec = vi.spyOn(database, "exec").mockImplementationOnce(() => {
+      throw Object.assign(new Error("Fixture holder is busy"), { errcode: 5 });
+    });
+    const refusal = new Error("admission owner closed");
+    const service = vi.fn(() => {
+      throw refusal;
+    });
+    const releaseService = retainSqliteWriteAdmissionService([pathname], service);
+    try {
+      expect(() =>
+        tryAcquireExclusiveSqliteCoordinator(pathname, { busyTimeoutMs: 1_000 }),
+      ).toThrow(refusal);
+      expect(service).toHaveBeenCalledOnce();
+      expect(exec).toHaveBeenCalledOnce();
+      expect(database.isOpen).toBe(false);
+    } finally {
+      releaseService();
+      opening.mockRestore();
+      exec.mockRestore();
+      if (database.isOpen) {
+        database.close();
+      }
+    }
+  });
+
+  it("retains the acquisition failure as cause when native close also fails", () => {
+    const pathname = path.join(
+      tempDirs.make("openclaw-coordinator-acquisition-failure-"),
+      "lock.sqlite",
+    );
+    const database = openNodeSqliteDatabase(pathname);
+    const closeNative = database.close.bind(database);
+    const acquisitionFailure = Object.assign(new Error("Fixture acquisition failed"), {
+      errcode: 5,
+    });
+    const closeFailure = new Error("Fixture close failed after close");
+    const opening = vi.spyOn(sqlite, "openNodeSqliteDatabase").mockReturnValueOnce(database);
+    const exec = vi.spyOn(database, "exec").mockImplementationOnce(() => {
+      throw acquisitionFailure;
+    });
+    const close = vi.spyOn(database, "close").mockImplementationOnce(() => {
+      closeNative();
+      throw closeFailure;
+    });
+    try {
+      let failure: unknown;
+      try {
+        tryAcquireExclusiveSqliteCoordinator(pathname);
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(AggregateError);
+      if (!(failure instanceof AggregateError)) {
+        throw new TypeError("Expected acquisition and close to fail together");
+      }
+      expect(failure.message).toBe("SQLite coordinator acquisition and close failed");
+      expect(failure.cause).toBe(acquisitionFailure);
+      expect(failure.errors).toHaveLength(2);
+      expect(failure.errors[0]).toBe(acquisitionFailure);
+      expect(failure.errors[1]).toBe(closeFailure);
+      expect(close).toHaveBeenCalledOnce();
+      expect(database.isOpen).toBe(false);
+    } finally {
+      opening.mockRestore();
+      exec.mockRestore();
+      close.mockRestore();
+      if (database.isOpen) {
+        closeNative();
+      }
+    }
+  });
+
+  it.each([false, true])(
+    "retries only unfinished native cleanup after a close error (physically closed: %s)",
+    (physicallyClosed) => {
+      const pathname = path.join(tempDirs.make("openclaw-coordinator-close-retry-"), "lock.sqlite");
+      const { result: coordinator, database } = captureCoordinatorDatabase(() =>
+        tryAcquireExclusiveSqliteCoordinator(pathname),
+      );
+      if (!coordinator) {
+        throw new Error("Fixture coordinator was not acquired");
+      }
+      const closeNative = database.close.bind(database);
+      const close = vi.spyOn(database, "close").mockImplementationOnce(() => {
+        if (physicallyClosed) {
+          closeNative();
+        }
+        throw new Error("Fixture native close failed");
+      });
+      const exec = vi.spyOn(database, "exec");
+      try {
+        expect(() => coordinator.release()).toThrow("Fixture native close failed");
+        expect(coordinator.closed).toBe(physicallyClosed);
+        expect(database.isOpen).toBe(!physicallyClosed);
+        expect(() => coordinator.release()).not.toThrow();
+        expect(coordinator.closed).toBe(true);
+        expect(close).toHaveBeenCalledTimes(physicallyClosed ? 1 : 2);
+        expect(exec).toHaveBeenCalledExactlyOnceWith("ROLLBACK");
+        coordinator.release();
+        expect(close).toHaveBeenCalledTimes(physicallyClosed ? 1 : 2);
+      } finally {
+        close.mockRestore();
+        exec.mockRestore();
+        coordinator.release();
+      }
+    },
+  );
+
+  it("leaves an existing coordinator unchanged while excluding current and default-journal peers", () => {
+    const directory = tempDirs.make("openclaw-sqlite-coordinator-");
+    const pathname = path.join(directory, "coordinator.sqlite");
+    const initialize = openNodeSqliteDatabase(pathname);
+    initialize.exec("BEGIN EXCLUSIVE; ROLLBACK;");
+    initialize.close();
+    const before = observeDirectory(directory);
+    const bytes = fs.readFileSync(pathname);
+    const coordinator = tryAcquireExclusiveSqliteCoordinator(pathname);
+    expect(coordinator).not.toBeNull();
+    try {
+      expect(observeDirectory(directory)).toEqual(before);
+      expect(runPeer(acquirePeer, pathname)).toBe("blocked");
+      // Swift and older Node peers use the default rollback journal mode.
+      expect(
+        runPeer(
+          `import { DatabaseSync } from "node:sqlite";
+          const database = new DatabaseSync(process.argv[1]);
+          try {
+            database.exec("PRAGMA busy_timeout=0; BEGIN EXCLUSIVE;");
+            process.stdout.write("held");
+            database.exec("ROLLBACK;");
+          } catch (error) {
+            if (error.errcode !== 5) throw error;
+            process.stdout.write("blocked");
+          } finally { database.close(); }`,
+          pathname,
+        ),
+      ).toBe("blocked");
+      expect(observeDirectory(directory)).toEqual(before);
+    } finally {
+      coordinator?.release();
+    }
+    expect(runPeer(acquirePeer, pathname)).toBe("held");
+    expect(observeDirectory(directory)).toEqual(before);
+    expect(fs.readFileSync(pathname)).toEqual(bytes);
+  });
+
+  it("creates a missing coordinator without a journal and permits retry after owner exit", () => {
+    const directory = tempDirs.make("openclaw-sqlite-coordinator-exit-");
+    const pathname = path.join(directory, "coordinator.sqlite");
+    const coordinator = tryAcquireExclusiveSqliteCoordinator(pathname);
+    expect(coordinator).not.toBeNull();
+    try {
+      expect(fs.readdirSync(directory)).toEqual(["coordinator.sqlite"]);
+    } finally {
+      coordinator?.release();
+    }
+    const before = observeDirectory(directory);
+    expect(
+      runPeer(
+        `import { tryAcquireExclusiveSqliteCoordinator } from ${JSON.stringify(moduleUrl)};
+        if (!tryAcquireExclusiveSqliteCoordinator(process.argv[1])) process.exit(1);
+        process.stdout.write("held");
+        process.exit(0);`,
+        pathname,
+      ),
+    ).toBe("held");
+    expect(runPeer(acquirePeer, pathname)).toBe("held");
+    expect(observeDirectory(directory)).toEqual(before);
+    expect(fs.readFileSync(pathname)).toHaveLength(0);
+  });
+
+  it("releases an exclusive lease when its process is killed without cleanup", () => {
+    const directory = tempDirs.make("openclaw-sqlite-coordinator-crash-");
+    const pathname = path.join(directory, "coordinator.sqlite");
+    try {
+      runPeer(
+        `import fs from "node:fs";
+        import { tryAcquireExclusiveSqliteCoordinator } from ${JSON.stringify(moduleUrl)};
+        if (!tryAcquireExclusiveSqliteCoordinator(process.argv[1])) process.exit(1);
+        fs.writeSync(1, "held");
+        process.kill(process.pid, "SIGKILL");`,
+        pathname,
+      );
+      throw new Error("Fixture peer unexpectedly survived SIGKILL");
+    } catch (error) {
+      expect(error).toMatchObject({ signal: "SIGKILL", stdout: "held" });
+    }
+    expect(runPeer(acquirePeer, pathname)).toBe("held");
+    expect(fs.readdirSync(directory)).toEqual(["coordinator.sqlite"]);
+    expect(fs.readFileSync(pathname)).toHaveLength(0);
+  });
+
+  it("does not change ordinary state connection durability", () => {
+    const directory = tempDirs.make("openclaw-sqlite-state-durability-");
+    const pathname = path.join(directory, "state.sqlite");
+    const database = openNodeSqliteDatabase(pathname);
+    try {
+      database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE probe(id);");
+      const coordinator = tryAcquireExclusiveSqliteCoordinator(path.join(directory, "lock.sqlite"));
+      expect(coordinator).not.toBeNull();
+      try {
+        expect(database.prepare("PRAGMA journal_mode").get()).toEqual({ journal_mode: "wal" });
+        expect(database.prepare("PRAGMA synchronous").get()).toEqual({ synchronous: 2 });
+        database.exec("INSERT INTO probe VALUES(1);");
+      } finally {
+        coordinator?.release();
+      }
+    } finally {
+      database.close();
+    }
+    const reopened = openNodeSqliteDatabase(pathname);
+    try {
+      expect(reopened.prepare("SELECT id FROM probe").all()).toEqual([{ id: 1 }]);
+      expect(reopened.prepare("PRAGMA journal_mode").get()).toEqual({ journal_mode: "wal" });
+    } finally {
+      reopened.close();
+    }
+  });
+});

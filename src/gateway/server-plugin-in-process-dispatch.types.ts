@@ -58,6 +58,7 @@ export type DispatchGatewayMethodInProcessOptions = {
   delegatedToolPolicyHandoff?: SubagentCompletionToolHandoffRegistration;
   sessionCreation?: TrustedSessionCreation;
   requireScopedClient?: boolean;
+  sessionTranscriptSource?: GatewayRequestOptions["sessionTranscriptSource"];
   syntheticScopes?: string[];
   /** Built-in adapters distinguish method minima from explicit or retained scope ceilings. */
   syntheticScopeMode?: "minimum" | "exact";

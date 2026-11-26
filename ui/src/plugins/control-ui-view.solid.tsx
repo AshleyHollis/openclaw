@@ -39,6 +39,7 @@ type PluginViewProps = {
   mountDefaultView: ((target: HTMLElement) => () => void) | undefined;
   mountReplacementCompanion: ((target: HTMLElement) => () => void) | undefined;
   presented: boolean;
+  panelPresentation: ControlUiViewContext["panel"];
 };
 type PluginViewElement = SolidBridgeElement<
   PluginViewProps,
@@ -113,7 +114,15 @@ function PluginViewContent(props: PluginViewProps, host: PluginViewElement) {
   };
   const scheduleSync = observeSolidBridgeProperties(
     host,
-    ["props", "presented", "kind", "contributionKey", "surface", "mountDefaultView"],
+    [
+      "props",
+      "presented",
+      "kind",
+      "contributionKey",
+      "surface",
+      "mountDefaultView",
+      "panelPresentation",
+    ],
     (key, before, after) => {
       if (key === "presented") {
         composerGeneration += 1;
@@ -207,6 +216,7 @@ function PluginViewContent(props: PluginViewProps, host: PluginViewElement) {
         ...viewContext,
         props: scopedProps(mountAbort.signal),
         presented: host.presented,
+        panel: viewContext.panel,
       };
       handle?.update?.(viewContext);
     } catch (failure) {
@@ -250,6 +260,16 @@ function PluginViewContent(props: PluginViewProps, host: PluginViewElement) {
         signal: abort.signal,
         props: scopedProps(abort.signal),
         presented: host.presented,
+        panel: host.panelPresentation
+          ? {
+              showInMain: () => {
+                if (!host.isConnected || abort.signal.aborted || !host.presented) {
+                  throw new Error("This plugin UI view has ended.");
+                }
+                host.panelPresentation?.showInMain();
+              },
+            }
+          : undefined,
         mountDefault: (target) => {
           if (!host.isConnected || abort.signal.aborted) {
             throw new Error("This plugin UI view has ended.");
@@ -371,6 +391,7 @@ export const PluginView = defineSolidBridge<
     mountDefaultView: { default: undefined, attribute: false },
     mountReplacementCompanion: { default: undefined, attribute: false },
     presented: { default: true, type: Boolean },
+    panelPresentation: { default: undefined, attribute: false },
   },
   connected: (host) => views.get(host)?.connected(),
   methods: { focus: (host, options) => views.get(host)?.focus(options) },
@@ -385,6 +406,7 @@ export function PluginSurface<S extends ControlUiSurface>(props: {
   presented?: boolean;
   enabled?: boolean;
   replacementRef?: (element: HTMLElement) => void | (() => void);
+  panelPresentation?: ControlUiViewContext["panel"];
 }) {
   // Delegated mounts run later inside a foreign plugin and retain the host's owner.
   const owner = getOwner();
@@ -434,6 +456,7 @@ export function PluginSurface<S extends ControlUiSurface>(props: {
         surface={props.surface}
         props={props.props}
         presented={presented()}
+        panelPresentation={props.panelPresentation}
         mountDefaultView={mountDefault}
         mountReplacementCompanion={mountCompanion}
       />

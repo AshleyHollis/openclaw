@@ -490,6 +490,8 @@ export type GatewayRequestOptions = {
   expectedProfileBinding?: import("../expected-profile.js").ExpectedProfileBinding;
   /** In-process source refresh before handler entry; never retained by the handler. */
   prepareDispatchCurrent?: () => Promise<void>;
+  /** Retained host input. Never sourced from a Gateway request frame. */
+  sessionTranscriptSource?: import("../session-transcript-source-handoff.js").SessionTranscriptGatewaySource;
   /**
    * In-process Gateway lifetime guard composed into durable session mutations.
    * @deprecated For approval persistence use api.runtime.gateway.request with host-bound authority;
@@ -578,7 +580,7 @@ export type SessionMutationAuthorization = {
 /** Normalized method invocation options passed to registered handlers. */
 export type GatewayRequestHandlerOptions = Omit<
   GatewayRequestOptions,
-  "methodRegistry" | "expectedProfileBinding" | "prepareDispatchCurrent"
+  "methodRegistry" | "expectedProfileBinding" | "prepareDispatchCurrent" | "sessionTranscriptSource"
 > & {
   params: Record<string, unknown>;
   /** Plugin registrations receive a live owner fence; recheck after awaits and before effects. */
@@ -593,6 +595,7 @@ export type GatewayRequestHandlerOptions = Omit<
     resolveOnly?: true;
   }) => Promise<void>;
   sessionCreationOperation?: import("../../config/sessions/session-creation-operation.js").SessionCreationOperation;
+  takeSessionTranscriptSourceAdmission?: () => import("../../config/sessions/session-transcript-source-admission.js").PreparedSessionTranscriptSourceAdmission;
   /** Synchronously consume current chat.send authority without starting a turn. */
   withSessionTurnAuthority?: <T>(
     target: { sessionKey: string; agentId?: string; sessionId: string },

@@ -375,6 +375,7 @@ function copyMetadata(params: CopyMetadataParams): void {
       const pluginId = typeof manifest.id === "string" ? manifest.id : undefined;
       const controlUi = loadPluginControlUiDeclaration({
         rootDir: pluginDir,
+        pluginId,
         controlUi: manifest.controlUi,
         channels: manifest.channels,
         rejectHardlinks: false,

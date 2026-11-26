@@ -1,5 +1,4 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { readNonBlankString as readNonEmptyString } from "@openclaw/normalization-core/string-coerce";
 import { buildSessionsYieldContextMessage } from "../agents/sessions-yield-context.js";
 import { makeZeroUsageSnapshot } from "../agents/usage.js";
 import {
@@ -40,6 +39,10 @@ import {
   type SessionTranscriptReplayGroup,
   type SessionTranscriptReplaySelection,
 } from "../config/sessions/session-transcript-replay.types.js";
+import {
+  projectVisibleMessageEntry,
+  type SessionTranscriptMessageEntry,
+} from "../config/sessions/session-transcript-visible-message.js";
 import { sessionStoreLane } from "../config/sessions/session-transcript-worker-resources.js";
 import { recordAssistantManagedMediaUrls } from "../config/sessions/transcript-assistant-delivery.js";
 import {
@@ -80,7 +83,6 @@ import {
 import {
   findEquivalentAssistantMessageInRun,
   findLatestEquivalentAssistantMessageId,
-  isAgentMessageRecord,
   isDeliveryMirrorAssistantMessage,
 } from "./session-transcript-mirror-correlation.js";
 
@@ -88,6 +90,11 @@ export type {
   TranscriptEntryAnchor,
   TranscriptTurnAdmission,
 } from "../config/sessions/session-accessor.js";
+export {
+  withSessionTranscriptSourceLock,
+  type SessionTranscriptSourceLockFacts,
+} from "../config/sessions/session-accessor.sqlite-source-lock.js";
+export { redactHistoricalUserTranscriptMessage as redactSessionTranscriptMessage } from "../agents/transcript-historical-user-redaction.js";
 export { scopeCommandTranscriptId } from "../config/sessions/command-transcript.js";
 export { hasPromptImageInput } from "../media/prompt-image-input.js";
 export {
@@ -203,16 +210,22 @@ export type SessionTranscriptVisibleMessageDeltaParams = Pick<
 export type SessionTranscriptVisibleMessageDeltaResult =
   | {
       kind: "page";
+      /** Active leaf of the same admitted snapshot as the returned entries. */
+      activeLeafEntryId: string | null;
       /** Opaque cursor positioned after the last returned visible message. */
       cursor: string;
       /** Ordered active-path message entries selected for this page, oldest first. */
       entries: SessionTranscriptMessageEntry[];
+      /** Native transcript generation for the selected page. */
+      generation: string;
       /** True when another visible message remains after this page. */
       hasMore: boolean;
       /** First unread event size when it cannot fit under maxBytes. */
       requiredBytes?: number;
       /** Stored JSONL bytes represented by entries. */
       serializedBytes: number;
+      /** Active messages visible to the caller, including entries outside this page. */
+      totalMessages: number;
     }
   | {
       kind: "reset";
@@ -238,27 +251,28 @@ export type SessionTranscriptVisibleMessageDeltaResult =
   | { kind: "unavailable"; reason: "projection_rebuilding" }
   | { kind: "missing" };
 
-export type SessionTranscriptMessageEntry = {
-  /** Stable transcript event id for this message entry. */
-  entryId: string;
-  /** Parent id after active-branch normalization; null when this is a visible root. */
-  parentId: string | null;
-  /**
-   * Ordered read metadata, not a resumable cursor. Delta reads report the one-based
-   * active-path message ordinal; full reads report the original transcript line.
-   */
-  seq: number;
-  /** Agent message payload as persisted by the runtime. */
-  message: AgentMessage;
-  /** Convenience mirror of message.role. */
-  role: AgentMessage["role"];
-  /** Entry timestamp recorded by the transcript store, when present. */
-  createdAt?: string;
-  /** Message idempotency key, when the persisted message has one. */
-  idempotencyKey?: string;
-  /** Entry id this message replaced when a transcript rewrite re-appended it. */
-  supersedesEntryId?: string;
-};
+export {
+  createSessionTranscriptVisibleMessageDigest,
+  type SessionTranscriptMessageEntry,
+} from "../config/sessions/session-transcript-visible-message.js";
+export {
+  prepareSessionTranscriptSourceAdmission,
+  runSessionTranscriptSourceAdmissionOperation,
+  type PreparedSessionTranscriptSourceAdmission,
+  type SessionTranscriptSourceAuthority,
+  type SessionTranscriptSourceSelection,
+} from "../config/sessions/session-transcript-source-admission.js";
+export {
+  ACCEPTED_SESSION_ATTACHMENT_ADMISSION_VERSION,
+  ACCEPTED_SESSION_ATTACHMENT_MAX_BYTES,
+  prepareAcceptedSessionAttachmentAdmission,
+  type AcceptedSessionAttachmentAuthority,
+} from "../config/sessions/session-attachment-admission.js";
+export {
+  AcceptedSessionAttachmentPublicationError,
+  type AcceptedSessionAttachmentAdmission,
+  type AcceptedSessionAttachmentSelection,
+} from "../config/sessions/session-attachment-admission.types.js";
 
 export type SessionTranscriptTarget = SessionTranscriptIdentity & {
   targetKind: "runtime-session";
@@ -397,9 +411,9 @@ export async function readSessionTranscriptRawDelta(
 export async function readSessionTranscriptVisibleMessageDelta(
   params: SessionTranscriptVisibleMessageDeltaParams,
 ): Promise<SessionTranscriptVisibleMessageDeltaResult> {
-  const { cursor, maxBytes, maxMessages, start, ...target } = params;
+  const { cursor, maxBytes, maxMessages, start, offset, ...target } = params;
   const scope = bindSessionTranscriptStoreScope(target);
-  normalizeVisibleDeltaLimits({ maxBytes, maxMessages, start });
+  normalizeVisibleDeltaLimits({ cursor, maxBytes, maxMessages, start, offset });
   let result: import("../config/sessions/session-accessor.sqlite-contract.js").SessionTranscriptVisibleMessageDeltaResult;
   try {
     result = await withSessionTranscriptDeltaReader(scope, (reader) =>
@@ -408,6 +422,7 @@ export async function readSessionTranscriptVisibleMessageDelta(
         ...(maxBytes !== undefined ? { maxBytes } : {}),
         ...(maxMessages !== undefined ? { maxMessages } : {}),
         ...(start !== undefined ? { start } : {}),
+        ...(offset !== undefined ? { offset } : {}),
       }),
     );
   } catch (error) {
@@ -774,37 +789,6 @@ function createAssistantMirrorMessage(params: {
       : {}),
   };
   return recordAssistantManagedMediaUrls(message, params.mediaUrls);
-}
-
-function projectVisibleMessageEntry(entry: {
-  event: SessionTranscriptEvent;
-  parentId: string | null;
-  seq: number;
-}): SessionTranscriptMessageEntry[] {
-  const event = entry.event;
-  if (!isRecord(event) || event.type !== "message") {
-    return [];
-  }
-  const entryId = readNonEmptyString(event.id);
-  const message = event.message;
-  if (!entryId || !isAgentMessageRecord(message)) {
-    return [];
-  }
-  const createdAt = readNonEmptyString(event.timestamp);
-  const idempotencyKey = readNonEmptyString(message.idempotencyKey);
-  const supersedesEntryId = readNonEmptyString(event.supersedesEntryId);
-  return [
-    {
-      entryId,
-      parentId: entry.parentId,
-      seq: entry.seq,
-      message,
-      role: message.role,
-      ...(createdAt ? { createdAt } : {}),
-      ...(idempotencyKey ? { idempotencyKey } : {}),
-      ...(supersedesEntryId ? { supersedesEntryId } : {}),
-    },
-  ];
 }
 
 export { recordDeliveredCommandExchange } from "../config/sessions/command-transcript.js";

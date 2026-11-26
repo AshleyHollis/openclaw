@@ -310,6 +310,22 @@ applicable policy also requires fresh publication admission.
     delivery, not completion of a plugin's asynchronous document load. Native
     UI must be enabled and the plugin must register the named panel.
 
+    `api.runtime.gateway.sendPrivateWebPush(target, publication)` is available
+    to plugins granted authenticated-request dispatch during a current operator
+    write request. The target contains the plugin's page ID, a random UUIDv4
+    record ID and an expiry up to one hour ahead. Control UI receives the record
+    as `notificationRecord` on that plugin page. The Gateway supplies generic
+    lock-screen text and uses only enabled subscriptions on the current operator
+    profile. Device preferences and quiet hours still apply.
+
+    `publication.prepare()` rechecks the plugin's source after transport
+    preparation. `publication.claim()` runs synchronously immediately before
+    provider send and returns true only after the plugin durably claims this
+    alert. Keep the claim after an uncertain provider outcome to prevent a
+    duplicate. The result counts attempts and provider acceptances. The click
+    destination independently checks expiry, authorization and current record
+    state.
+
     `await api.runtime.gateway.readSessionFacts({ sessionKeys })` reads at most
     40 sessions and returns typed `{ sessions, warnings? }` data. Each session
     includes its key, identity, agent, bounded title and message preview without secret masking,

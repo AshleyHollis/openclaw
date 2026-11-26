@@ -516,6 +516,20 @@ describe("memory transcript read adapters", () => {
           expect(await reader.replayGroups({ entryIds: ["user", "current-user"] })).toMatchObject([
             { entryId: "user", message: { role: "user", content: "Question" }, carriers: [] },
           ]);
+          expect(visible).toMatchObject({
+            activeLeafEntryId: "answer",
+            generation: anchor.generation,
+            totalMessages: 2,
+          });
+          const offset = await reader.visible({ offset: 1 });
+          expect(offset).toMatchObject({
+            kind: "page",
+            activeLeafEntryId: "answer",
+            cursor: visible.cursor,
+            generation: visible.generation,
+            totalMessages: 2,
+            events: [{ event: { id: "answer" } }],
+          });
         });
       }),
     );

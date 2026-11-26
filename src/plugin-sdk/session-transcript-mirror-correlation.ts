@@ -1,11 +1,10 @@
 import { isDeepStrictEqual } from "node:util";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { readNonBlankString as readNonEmptyString } from "@openclaw/normalization-core/string-coerce";
 import { sanitizeTranscriptMessage } from "../agents/transcript-sanitize.js";
+import { isAgentMessageRecord } from "../config/sessions/session-transcript-visible-message.js";
 import { projectAssistantTranscriptText } from "../config/sessions/transcript-assistant-delivery-read.js";
 import type { SessionTranscriptAssistantMessage } from "../config/sessions/transcript.js";
 import { readSessionTranscriptRunId } from "../sessions/transcript-events.js";
-import type { AgentMessage } from "./agent-core.js";
 
 export function findLatestEquivalentAssistantMessageId(
   events: readonly unknown[],
@@ -97,10 +96,4 @@ export function isDeliveryMirrorAssistantMessage(
   message: SessionTranscriptAssistantMessage,
 ): boolean {
   return message.provider === "openclaw" && message.model === "delivery-mirror";
-}
-
-export function isAgentMessageRecord(
-  value: unknown,
-): value is AgentMessage & Record<string, unknown> {
-  return isRecord(value) && readNonEmptyString(value.role) !== undefined;
 }

@@ -14,6 +14,7 @@ import {
   pluginControlUiRevision,
   type PluginControlUiAsset,
 } from "../plugins/control-ui-assets.js";
+import { isControlUiHttpRoute } from "../plugins/control-ui-http-routes.js";
 import { shouldRejectHardlinkedPluginFiles } from "../plugins/hardlink-policy.js";
 import { loadPluginManifest, type PluginManifestControlUi } from "../plugins/manifest.js";
 import { createPluginCache, withPluginCache } from "../plugins/plugin-cache.js";
@@ -101,12 +102,30 @@ function browserOwners(registry: PluginRegistry): PluginRecord[] {
 
 async function snapshotBrowserBuild(
   compile: ReturnType<typeof createPluginBrowserCompiler>,
+  registry: PluginRegistry,
   record: PluginRecord,
   declaration = record.controlUi,
   uiCapabilities?: PluginRecord["uiCapabilities"],
 ): Promise<BrowserBuild> {
   if (!declaration || !record.rootDir || !isControlUiPluginAllowed(record)) {
     throw new Error("plugin is no longer active");
+  }
+  for (const path of declaration.httpRoutes ?? []) {
+    if (
+      !isControlUiHttpRoute(record.id, path) ||
+      !registry.httpRoutes.some(
+        (route) =>
+          route.pluginId === record.id &&
+          route.path === path &&
+          route.auth === "gateway" &&
+          route.match === "exact" &&
+          !route.handoff,
+      )
+    ) {
+      throw new Error(
+        "Control UI HTTP route requires an exact gateway-authenticated route owned by the plugin",
+      );
+    }
   }
   const { entryName, styles, assets, bytes, panelIcon } = await readPluginControlUiAssets(
     record.rootDir,
@@ -167,6 +186,7 @@ async function snapshotBrowserBuild(
       imports,
       styles: styles.map(assetUrl),
       ...(panelIcon ? { panelIcon: panelIcon.dataUrl } : {}),
+      ...(declaration.httpRoutes?.length ? { httpRoutes: [...declaration.httpRoutes] } : {}),
       ...(uiCapabilities !== undefined ? { uiCapabilities } : {}),
       ...(hasCanonicalPluginDistribution(record) && record.packageName && record.packageVersion
         ? {
@@ -228,7 +248,7 @@ async function refreshBrowserCatalog(
         declaration = loaded.manifest.controlUi;
         uiCapabilities = loaded.manifest.uiCapabilities;
       }
-      const build = await snapshotBrowserBuild(compile, record, declaration, uiCapabilities);
+      const build = await snapshotBrowserBuild(compile, registry, record, declaration, uiCapabilities);
       const revisionKey = build.module.revision;
       if (!state.revisions.has(revisionKey)) {
         let bytes = build.bytes;

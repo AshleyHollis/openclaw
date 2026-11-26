@@ -36,6 +36,10 @@ export function createSqliteWorkerBackend(
     "cards.listBoardAggregates": kernel.cards.listBoardAggregates.bind(kernel.cards),
     "cards.listStatsAggregates": kernel.cards.listStatsAggregates.bind(kernel.cards),
     "cards.hasCards": kernel.cards.hasCards.bind(kernel.cards),
+    "resultReviews.get": kernel.resultReviews.get,
+    "resultReviews.list": kernel.resultReviews.list,
+    "resultReviews.register": kernel.resultReviews.register,
+    "resultReviews.resolve": kernel.resultReviews.resolve,
     "boards.register": kernel.boards.register.bind(kernel.boards),
     "boards.lookup": kernel.boards.lookup.bind(kernel.boards),
     "boards.delete": kernel.boards.delete.bind(kernel.boards),
@@ -71,6 +75,8 @@ export function createSqliteWorkerBackend(
           "cards.listBoardAggregates",
           "cards.listStatsAggregates",
           "cards.hasCards",
+          "resultReviews.get",
+          "resultReviews.list",
           "boards.lookup",
           "boards.entries",
           "sessionsBoard.get",
@@ -80,21 +86,23 @@ export function createSqliteWorkerBackend(
           "attachments.lookup",
           "attachments.entries",
         ].includes(command.type);
-        const value = !readOnly
-          ? runEngineWorkerWrite(
-              input,
-              () => execute(command),
-              (operation) => {
-                requestSqliteWorkerOperationAdmission({ stage: "transaction", facts: undefined });
-                return kernel.withWriteTransaction(operation, {
-                  withCommit(commit) {
-                    requestSqliteWorkerOperationAdmission({ stage: "commit", facts: undefined });
-                    commit();
-                  },
-                });
-              },
-            )
-          : execute(command);
+        const admittedWrite = <T>(operation: () => T): T => {
+          requestSqliteWorkerOperationAdmission({ stage: "transaction", facts: undefined });
+          return kernel.withWriteTransaction(operation, {
+            withCommit(commit) {
+              requestSqliteWorkerOperationAdmission({ stage: "commit", facts: undefined });
+              commit();
+            },
+          });
+        };
+        const operation = () => execute(command);
+        const reviewWrite =
+          command.type === "resultReviews.register" || command.type === "resultReviews.resolve";
+        const value = reviewWrite
+          ? admittedWrite(operation)
+          : readOnly
+            ? operation()
+            : runEngineWorkerWrite(input, operation, admittedWrite);
         return { ok: true, value };
       } catch (error) {
         return { ok: false, failure: encodeWorkboardSqliteFailure(error) };

@@ -4,7 +4,6 @@ import {
   MAX_PLUGIN_RECOMMENDED_PROMPTS,
   MAX_PLUGIN_RECOMMENDED_PROMPT_LENGTH,
 } from "../../../plugin-package-contract/src/recommended-prompts.js";
-import { PLUGIN_UI_CAPABILITIES } from "../plugin-ui-capabilities.js";
 import {
   ClawHubDownloadabilitySchema,
   ClawHubSelectedReleaseSchema,
@@ -31,6 +30,7 @@ import {
 } from "./plugin-inspection.js";
 import { PluginJsonValueSchema } from "./plugin-json-value.js";
 import { PluginInspectRuntimeRetentionSchema } from "./plugin-retention.js";
+import { PluginUiCapabilitiesSchema } from "./plugin-ui-capabilities.js";
 import { NonEmptyString } from "./primitives.js";
 import { stringLiteralUnion } from "./string-literal-union.js";
 
@@ -47,6 +47,8 @@ export {
   validatePluginUiCapabilities,
   type PluginUiCapability,
 } from "../plugin-ui-capabilities.js";
+
+export { PluginUiCapabilitySchema } from "./plugin-ui-capabilities.js";
 
 export {
   PluginInstallActivitySchema,
@@ -137,12 +139,6 @@ export const PluginsUiDescriptorsResultSchema = closedObject({
   pluginSurfaceUrls: Type.Optional(Type.Record(NonEmptyString, NonEmptyString)),
 });
 
-export const PluginUiCapabilitySchema = Type.Enum(PLUGIN_UI_CAPABILITIES, { type: "string" });
-const PluginUiCapabilitiesSchema = Type.Array(PluginUiCapabilitySchema, {
-  maxItems: PLUGIN_UI_CAPABILITIES.length,
-  uniqueItems: true,
-});
-
 /** One immutable browser build owned by an active native plugin. */
 export const PluginControlUiModuleSchema = closedObject({
   pluginId: NonEmptyString,
@@ -157,6 +153,9 @@ export const PluginControlUiModuleSchema = closedObject({
     closedObject({ packageName: NonEmptyString, packageVersion: NonEmptyString }),
   ),
   styles: Type.Array(NonEmptyString, { maxItems: 16 }),
+  httpRoutes: Type.Optional(
+    Type.Array(Type.String({ minLength: 1, maxLength: 512 }), { maxItems: 16, uniqueItems: true }),
+  ),
 });
 
 export const PluginControlUiDiagnosticSchema = closedObject({

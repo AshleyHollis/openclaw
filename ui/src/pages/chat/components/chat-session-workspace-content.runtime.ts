@@ -320,6 +320,7 @@ export async function loadSessionWorkspaceArtifactContent(
   workspace: SessionWorkspaceState,
   artifactId: string,
   previewSignal: AbortSignal,
+  readWorkspace: () => SessionWorkspaceState = () => getSessionWorkspace(state),
 ) {
   const query = {
     sessionKey: workspace.sessionKey,
@@ -327,7 +328,7 @@ export async function loadSessionWorkspaceArtifactContent(
     ...(workspace.agentId ? { agentId: workspace.agentId } : {}),
   };
   const read = async (signal: AbortSignal, readBinary = false) => {
-    const currentWorkspace = getSessionWorkspace(state);
+    const currentWorkspace = readWorkspace();
     if (
       currentWorkspace.sessionKey !== query.sessionKey ||
       currentWorkspace.agentId !== workspace.agentId

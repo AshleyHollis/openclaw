@@ -6,6 +6,7 @@ export type SessionPanelToggleSlot =
   | "portal"
   | "terminal"
   | "link-reader"
+  | "workspace"
   | `plugin:${string}/${string}`;
 
 const INTENT_TTL_MS = 10_000;

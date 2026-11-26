@@ -260,6 +260,17 @@ export function openSlot(layout: SidebarLayout, slot: SidebarSlotId): SidebarLay
   return next;
 }
 
+/** Keep Chat visible beside Files, regardless of which of the two is already main. */
+export function openFilesWithConversation(layout: SidebarLayout): SidebarLayout {
+  let next = ensureSidebarConversation(layout);
+  const mainSlot = sidebarMainPanel(next)?.slot;
+  if (mainSlot !== "conversation" && mainSlot !== "workspace") {
+    const conversation = next.columns[0]!.panels.find((panel) => panel.slot === "conversation")!;
+    next = promoteSidebarPanel(next, conversation.id);
+  }
+  return openSlot(openSlot(next, "conversation"), "workspace");
+}
+
 export function closeSlot(layout: SidebarLayout, slot: SidebarSlotId): SidebarLayout {
   if (!layout.columns[0]?.panels.some((panel) => panel.slot === slot)) {
     return layout.columns.length === 0 && layout.open !== false

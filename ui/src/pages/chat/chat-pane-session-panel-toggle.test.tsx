@@ -5,6 +5,7 @@ import "./components/chat-sidebar-region.runtime.tsx";
 import { createDeferred } from "../../../../test/helpers/promise.js";
 import {
   BROWSER_PANEL_TOGGLE_EVENT,
+  FILES_PANEL_OPEN_EVENT,
   LINK_READER_PANEL_TOGGLE_EVENT,
   PLUGIN_PANEL_TOGGLE_EVENT,
   TERMINAL_PANEL_TOGGLE_EVENT,
@@ -333,5 +334,58 @@ describe("session link-reader intent delivery", () => {
     f.ready();
     await f.definitions.promise;
     expect(f.deliverPanelEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("Files conversation intent", () => {
+  it.each([false, true])(
+    "claims only the active Chat and retains its conversation (buffered=%s)",
+    (buffered) => {
+      const f = fixture();
+      const signal = new AbortController().signal;
+      const event = new CustomEvent(FILES_PANEL_OPEN_EVENT, {
+        cancelable: true,
+        detail: {
+          client: f.state.client,
+          sessionKey: f.state.sessionKey,
+          target: { sessionKey: "agent:fictional:files", agentId: "fictional" },
+          signal,
+        },
+      });
+      if (buffered) {
+        rememberSessionPanelToggle("workspace", event);
+        f.flush();
+      } else {
+        window.dispatchEvent(event);
+      }
+      expect(event.defaultPrevented).toBe(true);
+      expect(f.state.sessionKey).toBe("session-a");
+      expect(f.state.sessionWorkspaceTarget).toEqual({
+        sessionKey: "agent:fictional:files",
+        agentId: "fictional",
+        chatSessionKey: "session-a",
+        connectionEpoch: f.state.connectionEpoch,
+      });
+      expect(isSidebarSlotVisible(f.state.sidebarLayout, "workspace")).toBe(true);
+    },
+  );
+
+  it.each(["foreign-chat", "foreign-client", "retired-view"])("refuses a %s intent", (kind) => {
+    const f = fixture();
+    const abort = new AbortController();
+    if (kind === "retired-view") abort.abort();
+    const event = new CustomEvent(FILES_PANEL_OPEN_EVENT, {
+      cancelable: true,
+      detail: {
+        client: kind === "foreign-client" ? createGatewayBrowserClientFixture() : f.state.client,
+        sessionKey: kind === "foreign-chat" ? "another-chat" : f.state.sessionKey,
+        target: { sessionKey: "agent:fictional:files" },
+        signal: abort.signal,
+      },
+    });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(f.state.sessionWorkspaceTarget).toBeUndefined();
+    expect(f.updateSidebarLayout).not.toHaveBeenCalled();
   });
 });

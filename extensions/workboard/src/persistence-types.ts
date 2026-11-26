@@ -4,10 +4,12 @@ import type {
   WorkboardCard,
   WorkboardCardCursor,
   WorkboardNotificationSubscription,
+  WorkboardResultReviewRequest,
   WorkboardSessionPlacement,
   WorkboardSessionsBoard,
   WorkboardSessionsBoardSpec,
 } from "@openclaw/workboard-contract";
+import type { PreparedSessionTranscriptSourceAdmission } from "openclaw/plugin-sdk/session-transcript-runtime";
 
 /**
  * Guard the first accepted write (including CAS retries), then allow its settlement.
@@ -22,6 +24,14 @@ export type PersistedWorkboardCard = {
   version: 1;
   card: WorkboardCard;
 };
+
+export type WorkboardSourceCardInput = {
+  value: PersistedWorkboardCard;
+  intent?: string;
+  parentIds: readonly string[];
+};
+
+export type WorkboardSourceCardResult = { card: WorkboardCard; inserted: boolean };
 
 export type PersistedWorkboardBoard = {
   version: 1;
@@ -120,6 +130,10 @@ export type WorkboardCardStore = Omit<WorkboardKeyedStore, "entries"> & {
     scope?: WorkboardCardReadScope,
   ): Promise<Array<{ key: string; value: PersistedWorkboardCard }>>;
   registerIfAbsent(key: string, value: PersistedWorkboardCard): Promise<boolean>;
+  registerSource?(
+    input: WorkboardSourceCardInput,
+    source: PreparedSessionTranscriptSourceAdmission,
+  ): Promise<WorkboardSourceCardResult>;
   registerIfUpdatedAt(
     key: string,
     value: PersistedWorkboardCard,
@@ -138,8 +152,31 @@ export type WorkboardCardStore = Omit<WorkboardKeyedStore, "entries"> & {
   hasCards(boardId: string): Promise<boolean>;
 };
 
+export type WorkboardResultReviewStore = {
+  get(id: string): Promise<WorkboardResultReviewRequest | undefined>;
+  list(scope: {
+    tenant: string;
+    boardId: string;
+    cardId: string;
+  }): Promise<WorkboardResultReviewRequest[]>;
+  register(
+    key: string,
+    value: PersistedWorkboardCard,
+    expectedUpdatedAt: number,
+    request: WorkboardResultReviewRequest,
+  ): Promise<false | { card: WorkboardCard; inserted: boolean }>;
+  resolve(
+    id: string,
+    expectedRevision: number,
+    expectedUpdatedAt: number,
+    decision: "reviewed" | "withdrawn",
+    now: number,
+  ): Promise<{ request: WorkboardResultReviewRequest; card: WorkboardCard } | undefined>;
+};
+
 export type WorkboardPersistence = {
   cards: WorkboardCardStore;
+  resultReviews?: WorkboardResultReviewStore;
   boards: WorkboardKeyedStore<PersistedWorkboardBoard>;
   sessionsBoard: WorkboardSessionsBoardStore;
   subscriptions: WorkboardSubscriptionStore;

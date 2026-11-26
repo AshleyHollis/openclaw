@@ -49,6 +49,12 @@ export function createKernelStores(
       listStatsAggregates: async (boardId) => kernel.cards.listStatsAggregates(boardId),
       hasCards: async (boardId) => kernel.cards.hasCards(boardId),
     },
+    resultReviews: {
+      get: async (...args) => kernel.resultReviews.get(...args),
+      list: async (...args) => kernel.resultReviews.list(...args),
+      register: async (...args) => kernel.resultReviews.register(...args),
+      resolve: async (...args) => kernel.resultReviews.resolve(...args),
+    },
     boards: asyncKeyedStore(kernel.boards),
     sessionsBoard: {
       get: async (boardId) => kernel.sessionsBoard.get(boardId),

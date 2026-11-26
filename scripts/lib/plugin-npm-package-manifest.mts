@@ -1099,6 +1099,7 @@ export function resolveAugmentedPluginNpmManifest(params: PluginPackageParams) {
   const controlUi = withPluginCache(createPluginCache(), () =>
     loadPluginControlUiDeclaration({
       rootDir: packageDir,
+      pluginId,
       controlUi: manifest.controlUi,
       channels: manifest.channels,
       rejectHardlinks: false,

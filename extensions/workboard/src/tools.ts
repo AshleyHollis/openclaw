@@ -8,6 +8,7 @@ import { resolveIntegerOption } from "openclaw/plugin-sdk/number-runtime";
 import type { AnyAgentTool, OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import { Type } from "typebox";
 import { redactClaimToken } from "./card-redaction.js";
+import { synchronousResultReviewAuthority } from "./result-review.js";
 import { normalizeCappedStringList } from "./store-string-lists.js";
 import type { WorkboardStore } from "./store.js";
 import {
@@ -398,8 +399,100 @@ export function createWorkboardTools(params: {
       label: "Workboard Complete",
       description:
         "Complete a claimed Workboard card with a structured summary, proof, artifacts, and created-card manifest.",
-      parameters: toolSchemas.complete,
-      execute: claimedCardMutation((id, record, scope) => store.complete(id, record, scope)),
+      parameters: strictObject({
+        ...toolSchemas.complete.properties,
+        id: cardIdField(),
+        token: claimTokenField(),
+        summary: Type.Optional(Type.String({ description: "Completion summary." })),
+        proofId: Type.Optional(
+          Type.String({
+            description: "Proof id returned by workboard_proof when resolving that pending proof.",
+          }),
+        ),
+        proof: Type.Optional(
+          strictObject({
+            status: Type.Optional(
+              Type.String({ description: "passed, failed, skipped, or unknown." }),
+            ),
+            label: Type.Optional(Type.String({ description: "Proof label." })),
+            command: Type.Optional(Type.String({ description: "Command or step run." })),
+            url: Type.Optional(Type.String({ description: "Proof URL." })),
+            note: Type.Optional(Type.String({ description: "Proof note." })),
+          }),
+        ),
+        artifacts: Type.Optional(
+          Type.Array(
+            strictObject({
+              label: Type.Optional(Type.String()),
+              url: Type.Optional(Type.String()),
+              path: Type.Optional(Type.String()),
+              mimeType: Type.Optional(Type.String()),
+            }),
+          ),
+        ),
+        expectedUpdatedAt: Type.Optional(
+          Type.Integer({
+            minimum: 1,
+            description: "Exact original card revision, required for an explicit result review.",
+          }),
+        ),
+        resultReview: Type.Optional(
+          strictObject({
+            logicalOperationId: Type.String({
+              minLength: 1,
+              maxLength: 120,
+              description:
+                "Stable caller operation id for one explicitly requested completed-result review.",
+            }),
+          }),
+        ),
+        createdCardIds: Type.Optional(
+          Type.Array(Type.String(), { description: "Cards created during this run." }),
+        ),
+      }),
+      execute: async (_toolCallId, rawParams) => {
+        const requestsReview =
+          rawParams &&
+          typeof rawParams === "object" &&
+          Reflect.get(rawParams, "resultReview") !== undefined;
+        if (requestsReview) {
+          if (
+            !params.context?.assertInvocationCurrent ||
+            !params.context.sessionKey ||
+            !params.context.runId
+          ) {
+            throw new Error("Explicit result review requires a current native session invocation.");
+          }
+          synchronousResultReviewAuthority(params.context.assertInvocationCurrent)();
+        }
+        const { record, id, scope } = await readScopedCardToolParams(rawParams);
+        if (record.resultReview !== undefined) {
+          const assertCurrent = synchronousResultReviewAuthority(
+            params.context?.assertInvocationCurrent,
+          );
+          if (!params.context?.sessionKey || !params.context.runId) {
+            throw new Error("Explicit result review requires a current native session invocation.");
+          }
+          assertCurrent();
+          const card = await store.get(id);
+          if (
+            !card ||
+            (card.execution?.sessionKey ?? card.sessionKey) !== params.context.sessionKey ||
+            (card.execution?.runId ?? card.runId) !== params.context.runId
+          ) {
+            throw new Error(
+              "Result review must come from the exact producing card session and run.",
+            );
+          }
+          assertCurrent();
+          return jsonResult({
+            card: redactClaimToken(await store.complete(id, record, scope, assertCurrent)),
+          });
+        }
+        return claimedCardMutation((cardId, input, claimScope) =>
+          store.complete(cardId, input, claimScope),
+        )(_toolCallId, rawParams);
+      },
     },
     {
       name: "workboard_verify",

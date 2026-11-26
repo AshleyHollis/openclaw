@@ -515,6 +515,7 @@ export function loadPluginManifest(
   const recommendedPrompts = validatePluginRecommendedPrompts(raw.recommendedPrompts);
   const controlUiResult = loadPluginControlUiDeclaration({
     rootDir,
+    pluginId: id,
     controlUi: raw.controlUi,
     channels,
     rejectHardlinks,

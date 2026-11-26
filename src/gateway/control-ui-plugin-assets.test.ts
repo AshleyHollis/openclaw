@@ -999,3 +999,51 @@ it("removes the ID plugin catalog, grants and routes immediately when its Labs s
     }
   });
 });
+
+it("binds relay paths to exact gateway-authenticated routes and the browser revision", async () => {
+  const { record, registry, rootDir } = activateFixture();
+  const route = "/plugins/native-ui/api/action";
+  record.controlUi!.httpRoutes = [route];
+  registry.httpRoutes.push({
+    pluginId: record.id,
+    path: route,
+    auth: "gateway",
+    match: "exact",
+    handler: async () => true,
+  });
+  const first = await listControlUiPluginCatalog();
+  expect(first.plugins[0]?.httpRoutes).toEqual([route]);
+  fs.writeFileSync(
+    path.join(rootDir, "openclaw.plugin.json"),
+    JSON.stringify({
+      id: record.id,
+      configSchema: { type: "object" },
+      controlUi: { ...record.controlUi, httpRoutes: [] },
+    }),
+  );
+  const next = await reloadControlUiPluginCatalog(record.id);
+  expect(next.plugins[0]?.httpRoutes).toBeUndefined();
+  expect(next.plugins[0]?.revision).not.toBe(first.plugins[0]?.revision);
+});
+
+it.each(["missing", "foreign", "plugin-auth", "prefix", "handoff"])(
+  "rejects %s backend relay authority",
+  async (kind) => {
+    const { record, registry } = activateFixture();
+    const route = "/plugins/native-ui/api/action";
+    record.controlUi!.httpRoutes = [route];
+    if (kind !== "missing") {
+      registry.httpRoutes.push({
+        pluginId: kind === "foreign" ? "foreign" : record.id,
+        path: route,
+        auth: kind === "plugin-auth" ? "plugin" : "gateway",
+        match: kind === "prefix" ? "prefix" : "exact",
+        ...(kind === "handoff" ? { handoff: true as const } : {}),
+        handler: async () => true,
+      });
+    }
+    const catalog = await listControlUiPluginCatalog();
+    expect(catalog.plugins).toEqual([]);
+    expect(catalog.diagnostics[0]?.message).toContain("could not be loaded");
+  },
+);

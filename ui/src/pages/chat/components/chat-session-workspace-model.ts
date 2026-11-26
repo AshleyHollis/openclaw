@@ -25,7 +25,30 @@ export function resolvePaneAgent(state: SessionScopeHostWithKey): string {
   );
 }
 
-export function createSessionWorkspaceState(state: SessionWorkspaceHost): SessionWorkspaceState {
+export function resolveSessionWorkspaceTarget(state: SessionWorkspaceHost) {
+  const target = state.sessionWorkspaceTarget;
+  if (
+    target &&
+    target.chatSessionKey === state.sessionKey &&
+    target.connectionEpoch === state.connectionEpoch
+  ) {
+    return {
+      sessionKey: target.sessionKey,
+      agentId: normalizeOptionalString(target.agentId)
+        ? normalizeAgentId(target.agentId)
+        : resolvePaneAgent({ ...state, sessionKey: target.sessionKey }),
+    };
+  }
+  if (target) {
+    delete state.sessionWorkspaceTarget;
+  }
+  return { sessionKey: state.sessionKey, agentId: resolvePaneAgent(state) };
+}
+
+export function createSessionWorkspaceState(
+  state: SessionWorkspaceHost,
+  target = resolveSessionWorkspaceTarget(state),
+): SessionWorkspaceState {
   return {
     tree: {
       expandedPaths: [""],
@@ -40,7 +63,7 @@ export function createSessionWorkspaceState(state: SessionWorkspaceHost): Sessio
     previews: [],
     activePreviewId: null,
     activeId: null,
-    agentId: resolvePaneAgent(state),
+    agentId: target.agentId,
     browserPath: "",
     browserSearch: "",
     filter: "all",
@@ -50,6 +73,6 @@ export function createSessionWorkspaceState(state: SessionWorkspaceHost): Sessio
     list: null,
     loading: false,
     pendingReload: false,
-    sessionKey: state.sessionKey,
+    sessionKey: target.sessionKey,
   };
 }

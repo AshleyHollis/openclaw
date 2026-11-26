@@ -6,7 +6,7 @@ import { selectedChatSessionRow } from "../chat-state-route.ts";
 import { openSlot } from "../sidebar-layout.ts";
 import { ChatLazyBoundary } from "./chat-lazy-boundary.tsx";
 import { assistantMediaPolicyKey } from "./chat-message-media.ts";
-import { getSessionWorkspace } from "./chat-session-workspace-state.ts";
+import { getChatSessionWorkspace, getSessionWorkspace } from "./chat-session-workspace-state.ts";
 import {
   openSessionWorkspaceFile,
   openSessionWorkspaceFileView,
@@ -50,11 +50,15 @@ export function ChatDetailSlot(props: ChatDetailSlotProps) {
           value.presentation?.openFileView ??
           (value.openFile
             ? (path: string, view: import("./chat-sidebar-content-types.ts").FileReaderView) => {
-                if (value.owner !== getSessionWorkspace(props.host)) {
+                const files = getSessionWorkspace(props.host);
+                const chat = getChatSessionWorkspace(props.host);
+                const source =
+                  value.owner === files ? files : value.owner === chat ? chat : undefined;
+                if (!source) {
                   return;
                 }
                 // The workspace owner resolves aliases and retains the actual file/editor identity.
-                void openSessionWorkspaceFileView(props.host, path, view);
+                void openSessionWorkspaceFileView(props.host, path, view, source);
                 if (props.host.connected && props.host.client) {
                   props.onWorkspaceIntent?.();
                 }

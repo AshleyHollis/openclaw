@@ -16,6 +16,7 @@ import type {
   PersistedWorkboardBoard,
   WorkboardCardStore,
   WorkboardKeyedStore,
+  WorkboardResultReviewStore,
   WorkboardSessionPlacementWrite,
   WorkboardSessionsBoardStore,
   WorkboardSubscriptionStore,
@@ -37,6 +38,7 @@ export class WorkboardBoardStore extends WorkboardStoreRuntime {
   protected readonly boardStore: WorkboardKeyedStore<PersistedWorkboardBoard>;
   protected readonly subscriptionStore: WorkboardSubscriptionStore;
   protected readonly attachmentStore: WorkboardKeyedStore<PersistedWorkboardAttachment>;
+  private readonly reviews?: WorkboardResultReviewStore;
   private readonly sessionsBoardStore: WorkboardSessionsBoardStore;
 
   constructor(
@@ -46,6 +48,7 @@ export class WorkboardBoardStore extends WorkboardStoreRuntime {
       sessionsBoard: WorkboardSessionsBoardStore;
       subscriptions: WorkboardSubscriptionStore;
       attachments: WorkboardKeyedStore<PersistedWorkboardAttachment>;
+      resultReviews?: WorkboardResultReviewStore;
       ready?: Promise<void>;
       close?: () => void | Promise<void>;
       runWithWriteAuthority?: WorkboardWriteAuthority;
@@ -54,6 +57,19 @@ export class WorkboardBoardStore extends WorkboardStoreRuntime {
   ) {
     super(stores.close, stores.ready, stores.runWithWriteAuthority, stores.readWriteToken);
     this.store = this.trackCardStore(store);
+    const reviews = stores.resultReviews;
+    if (reviews) {
+      this.reviews = {
+        get: (id) => this.runOperation(() => reviews.get(id)),
+        list: (scope) => this.runOperation(() => reviews.list(scope)),
+        register: (...args) =>
+          this.trackMutation(
+            () => reviews.register(...args),
+            (result) => result !== false && result.inserted,
+          ),
+        resolve: (...args) => this.trackMutation(() => reviews.resolve(...args)),
+      };
+    }
     this.boardStore = this.track(stores.boards, { sessions: true });
     this.sessionsBoardStore = stores.sessionsBoard;
     this.subscriptionStore = {
@@ -65,6 +81,13 @@ export class WorkboardBoardStore extends WorkboardStoreRuntime {
       // Deletion also removes the card's metadata row, unlike blob-only registration.
       delete: (key) => this.trackMutation(() => stores.attachments.delete(key)),
     };
+  }
+
+  protected resultReviewStore(): WorkboardResultReviewStore {
+    if (!this.reviews) {
+      throw new Error("Workboard result review persistence is unavailable.");
+    }
+    return this.reviews;
   }
 
   async list(options: WorkboardListOptions = {}): Promise<WorkboardCard[]> {

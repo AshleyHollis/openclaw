@@ -762,6 +762,18 @@ export function redactSensitiveFieldValue(
   return redactSensitiveFieldValueWithOptions(key, value, options ?? resolveToolPayloadRedaction());
 }
 
+export function redactSensitiveFieldValueWithConfig(
+  key: string,
+  value: string,
+  loggingConfig?: LoggingConfig,
+): string {
+  return redactSensitiveFieldValueWithOptions(
+    key,
+    value,
+    resolveToolPayloadRedaction(loggingConfig),
+  );
+}
+
 function shouldRedactStructuredPrimitiveField(key: string, path: readonly string[]): boolean {
   const normalizedKey = key.toLowerCase();
   return (

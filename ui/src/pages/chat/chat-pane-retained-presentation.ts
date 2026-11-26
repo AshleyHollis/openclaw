@@ -49,7 +49,7 @@ import { getChatComposerState } from "./components/chat-composer-state.ts";
 import { dismissConfirmedActionPopovers } from "./components/chat-message-confirmation-view.tsx";
 import {
   clearSessionWorkspacePreviews,
-  getSessionWorkspace,
+  getChatSessionWorkspace,
 } from "./components/chat-session-workspace-state.ts";
 import {
   dismissThreadPortals,
@@ -91,7 +91,7 @@ export abstract class ChatPaneRetainedPresentation extends ChatPaneBoard {
       this.retireDetailsOutputs();
       return {};
     }
-    const workspace = getSessionWorkspace(state);
+    const workspace = getChatSessionWorkspace(state);
     const board = this.resolveBoardView();
     const scope = gatewayPresentationScope(this.context.gateway);
     const boardReady =

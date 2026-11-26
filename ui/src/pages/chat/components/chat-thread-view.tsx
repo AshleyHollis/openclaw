@@ -1,4 +1,5 @@
 import { Loading, Show, lazy, createMemo, createSignal, onSettled, useContext } from "solid-js";
+import { INTERNAL_PLUGIN_PATH_PARAM, pathForRoute } from "../../../app-route-paths.ts";
 import { handleMarkdownCodeBlockClick } from "../../../components/markdown-code-blocks.ts";
 import {
   linkReaderPrefetchRef as createLinkReaderPrefetchRef,
@@ -90,6 +91,34 @@ function openManagedArtifactLink(event: Event, props: ChatThreadProps): boolean 
   }
   event.preventDefault();
   return true;
+}
+
+function navigatePluginPageLink(event: MouseEvent, props: ChatThreadProps): void {
+  const anchor = anchorFromNavigationEvent(event);
+  if (
+    !props.onNavigate ||
+    !anchor ||
+    anchor.hasAttribute("download") ||
+    (anchor.target && anchor.target.toLowerCase() !== "_self")
+  ) {
+    return;
+  }
+  const url = URL.parse(anchor.href);
+  if (
+    !url ||
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.origin !== globalThis.location.origin ||
+    url.username ||
+    url.password ||
+    url.pathname !== pathForRoute("plugin", props.basePath) ||
+    url.searchParams.has(INTERNAL_PLUGIN_PATH_PARAM) ||
+    !url.searchParams.get("plugin")?.trim() ||
+    !url.searchParams.get("id")?.trim()
+  ) {
+    return;
+  }
+  event.preventDefault();
+  props.onNavigate("plugin", { search: url.search, hash: url.hash });
 }
 
 type ChatThreadInput = {
@@ -471,11 +500,16 @@ function ChatThreadContent(input: ChatThreadInput & { presented: boolean }) {
             input.props.onOpenWorkspaceFile?.(target);
             return;
           }
+          if (!shouldHandleNavigationClick(event)) {
+            return;
+          }
           const sessionTarget = markdownSessionLinkFromEvent(event, input.props.basePath);
           if (sessionTarget && navigation) {
             event.preventDefault();
             input.props.onOpenSessionLink?.(sessionTarget);
+            return;
           }
+          navigatePluginPageLink(event, input.props);
         }}
         onMouseDown={(event) => {
           stopSelectionGesture?.();

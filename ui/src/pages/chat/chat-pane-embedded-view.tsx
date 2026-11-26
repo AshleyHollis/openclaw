@@ -7,9 +7,11 @@ import { PanelLoadingSkeleton } from "../../components/solid/panel-loading-skele
 import { elementRef } from "../../lib/reactive/element-ref.ts";
 import { t } from "../../lib/reactive/i18n.ts";
 import { ContentPresentation } from "../../lib/solid/presentation.ts";
+import { PluginSurface } from "../../plugins/control-ui-view.solid.tsx";
 import type { ElementProperties } from "../../types/solid-elements.d.ts";
 import { buildChatBoardPanel } from "./chat-pane-board-panel.ts";
 import { buildChatDiscussionPanel } from "./chat-pane-discussion-panel.ts";
+import { panelPresentationFor } from "./chat-pane-embedded-panels.ts";
 import type { SidebarPanelDefinitionParams, SidebarPanelData } from "./chat-pane-embedded-types.ts";
 import { EmbeddedPluginPanel } from "./chat-pane-plugin-panel.tsx";
 import { usePanePresentation } from "./chat-pane-presentation.ts";
@@ -255,21 +257,29 @@ function WorkspacePanel(props: Props & { workspaceState: SessionWorkspaceState }
     );
   };
   return (
-    <Files
-      data-sidebar-panel-host
-      ref={[elementRef(props.registerPanelHost)]}
-      sessionKey={props.state.sessionKey}
-      tabsInHeader={sidebarMainPanel(props.state.sidebarLayout)?.slot !== "workspace"}
-      previews={presented() ? props.workspaceState.previews : []}
-      activeId={presented() ? props.workspaceState.activePreviewId : null}
-      presentation={props.workspace?.presentation}
-      treeVisible={props.workspace?.navigation?.treeVisible !== false}
-      folderView={props.workspace?.folderView === true}
-      workspace={props.workspace}
-      browserPresented={browserPresented}
-      renderDetail={Detail}
-      onSelect={(id: string | null) => selectSessionWorkspacePreview(props.state, id)}
-      onClose={(id: string) => requestCloseSessionWorkspacePreview(props.state, id)}
+    <PluginSurface
+      surface="session-files"
+      props={{ sessionKey: props.workspaceState.sessionKey, agentId: props.workspaceState.agentId }}
+      presented={workspaceVisible()}
+      panelPresentation={panelPresentationFor(props.state, "workspace")}
+      renderDefault={() => (
+        <Files
+          data-sidebar-panel-host
+          ref={[elementRef(props.registerPanelHost)]}
+          sessionKey={props.workspaceState.sessionKey}
+          tabsInHeader={sidebarMainPanel(props.state.sidebarLayout)?.slot !== "workspace"}
+          previews={presented() ? props.workspaceState.previews : []}
+          activeId={presented() ? props.workspaceState.activePreviewId : null}
+          presentation={props.workspace?.presentation}
+          treeVisible={props.workspace?.navigation?.treeVisible !== false}
+          folderView={props.workspace?.folderView === true}
+          workspace={props.workspace}
+          browserPresented={browserPresented}
+          renderDetail={Detail}
+          onSelect={(id: string | null) => selectSessionWorkspacePreview(props.state, id)}
+          onClose={(id: string) => requestCloseSessionWorkspacePreview(props.state, id)}
+        />
+      )}
     />
   );
 }
@@ -419,6 +429,7 @@ export function SidebarPanel(
                     agentId: data().agentId ?? undefined,
                   }}
                   presentation={data().isPluginPanelPresented(props.definition.slot)}
+                  panelPresentation={panelPresentationFor(data().state, props.definition.slot)}
                 />
               </Show>
             )}

@@ -71,6 +71,10 @@ import {
 import { resolveRequestedSessionAgentId } from "./session-request-agent.js";
 import { withReadySessionRows } from "./session-row-prepared-read.js";
 import { requireSessionRowProjection } from "./session-row-projection-access.js";
+import {
+  captureScopedSessionTranscriptGatewaySource,
+  SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION,
+} from "./session-transcript-source-handoff.js";
 
 export {
   dispatchGatewayMethodInProcess,
@@ -104,6 +108,11 @@ export async function dispatchTrustedPluginGatewayMethod<T>(
       } See https://docs.openclaw.ai/plugins/sdk-runtime#api-runtime-gateway`,
     );
   }
+  const sessionTranscriptSource = captureScopedSessionTranscriptGatewaySource(
+    method,
+    options,
+    scope,
+  );
   const syntheticScopes = normalizeOperatorScopeList(options?.scopes);
   let requestParams = params;
   const expectedSession = options?.sessionDeliveryGeneration;
@@ -149,7 +158,10 @@ export async function dispatchTrustedPluginGatewayMethod<T>(
     requestParams = bindInProcessSessionDeliveryGeneration(params, generation);
   }
   return await dispatchGatewayMethodInProcess<T>(method, requestParams, {
-    forceSyntheticClient: true,
+    forceSyntheticClient: sessionTranscriptSource === undefined,
+    ...(sessionTranscriptSource === undefined
+      ? {}
+      : { disableSyntheticClient: true, requireScopedClient: true, sessionTranscriptSource }),
     pluginRuntimeOwnerId: pluginId,
     ...(method === "plugin.approval.request" && syntheticScopes?.includes(APPROVALS_SCOPE)
       ? { allowHostPluginApprovalRequest: true }
@@ -332,11 +344,21 @@ function createGatewayPluginRuntimeBindings(
           : await run();
       },
       gateway: {
+        sessionTranscriptSourceAdmissionVersion:
+          SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION,
+        authenticatedSessionTranscriptSourceAdmissionVersion:
+          SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION,
         isAvailable: async () => hasInProcessGatewayContext(resolveBoundGatewayContext),
         request: (method, params, options) =>
           dispatchTrustedPluginGatewayMethod(method, params, options, resolveBoundGatewayContext),
         openPluginPanel: (params) =>
           openPluginPanelForRequester(params, resolveBoundGatewayContext),
+        sendPrivateWebPush: async (target, publication) =>
+          (await import("./server-plugin-web-push.js")).sendPrivateWebPushForRequester(
+            target,
+            publication,
+            resolveBoundGatewayContext,
+          ),
         readSessionFacts: (params) =>
           readTrustedPluginSessionFacts(params, resolveBoundGatewayContext),
         withSessionFacts: (select, run) =>

@@ -621,7 +621,7 @@ export abstract class ChatPaneLayoutRender extends ChatPaneHeaderLayout {
       subagentHeader || this.compact
         ? null
         : this.renderPaneHeader(
-            headerWorkspace,
+            { ...headerWorkspace, onOpenDiff: chatProps.onOpenSessionDiff },
             selectedSession,
             catalog,
             agentWorkspace,

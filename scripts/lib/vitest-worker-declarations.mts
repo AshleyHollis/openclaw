@@ -144,6 +144,8 @@ export const vitestWorkerDeclarationEntries = {
     "extensions/team-reports/src/sqlite-backend-entrypoint.test-support.ts",
   "extensions/workboard/sqlite-backend-entrypoint.test-support":
     "extensions/workboard/src/sqlite-backend-entrypoint.test-support.ts",
+  "extensions/workboard/sqlite-source-entrypoint":
+    "extensions/workboard/src/sqlite-source-entrypoint.ts",
   "infra/triage-runtime.test-support": "src/infra/triage-runtime.test-support.ts",
   "infra/sqlite-readonly-worker.compile-cache-runtime.test-support":
     "src/infra/sqlite-readonly-worker.compile-cache-runtime.test-support.ts",

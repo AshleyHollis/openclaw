@@ -1,8 +1,10 @@
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { onCleanup } from "solid-js";
 import type { ControlUiLinkReaderDescriptor } from "../../../../src/shared/control-ui-link-reader.js";
 import { resolveLinkReaderTarget } from "../../components/link-reader-target.ts";
 import {
   BROWSER_PANEL_TOGGLE_EVENT,
+  FILES_PANEL_OPEN_EVENT,
   LINK_READER_PANEL_TOGGLE_EVENT,
   DESKTOP_PANEL_TOGGLE_EVENT,
   PORTAL_PANEL_TOGGLE_EVENT,
@@ -27,6 +29,7 @@ import type { ChatPageHost } from "./chat-state-host.ts";
 import { resolveChatAgentId } from "./chat-state-route.ts";
 import {
   closeSlot,
+  openFilesWithConversation,
   openSlot,
   setSidebarDock,
   setSidebarExpanded,
@@ -78,6 +81,38 @@ export function createChatPaneSessionPanelToggles(options: SessionPanelToggleOpt
     const requests = new Map(options.pending.requests);
     requests.delete(slot);
     options.pending.requests = requests;
+  }
+
+  function handleFilesOpen(event: Event): void {
+    const state = options.current()?.state;
+    const detail: unknown = event instanceof CustomEvent ? event.detail : undefined;
+    if (
+      !state?.connected ||
+      !state.client ||
+      event.defaultPrevented ||
+      !isRecord(detail) ||
+      detail.client !== state.client ||
+      typeof detail.sessionKey !== "string" ||
+      !areUiSessionKeysEquivalent(detail.sessionKey, state.sessionKey) ||
+      !(detail.signal instanceof AbortSignal) ||
+      detail.signal.aborted ||
+      !isRecord(detail.target) ||
+      typeof detail.target.sessionKey !== "string" ||
+      !detail.target.sessionKey.trim() ||
+      (detail.target.agentId !== undefined && typeof detail.target.agentId !== "string")
+    ) {
+      return;
+    }
+    state.sessionWorkspaceTarget = {
+      sessionKey: detail.target.sessionKey,
+      agentId: detail.target.agentId,
+      chatSessionKey: state.sessionKey,
+      connectionEpoch: state.connectionEpoch,
+    };
+    clearSessionPanelToggle("workspace", event);
+    options.updateSidebarLayout(openFilesWithConversation(state.sidebarLayout));
+    options.onOpenPanel?.("workspace");
+    event.preventDefault();
   }
 
   function handlePluginPanel(event: Event): void {
@@ -281,6 +316,10 @@ export function createChatPaneSessionPanelToggles(options: SessionPanelToggleOpt
         handlePluginPanel(event);
       }
     }
+    let filesEvent: Event | null;
+    while ((filesEvent = takeSessionPanelToggle("workspace", owner.state.sessionKey))) {
+      handleFilesOpen(filesEvent);
+    }
     for (const [, slot] of panelToggleEvents) {
       let event: Event | null;
       while ((event = takeSessionPanelToggle(slot, owner.state.sessionKey))) {
@@ -297,6 +336,7 @@ export function createChatPaneSessionPanelToggles(options: SessionPanelToggleOpt
   );
   stop.push(
     listen(window, PLUGIN_PANEL_TOGGLE_EVENT, handlePluginPanel),
+    listen(window, FILES_PANEL_OPEN_EVENT, handleFilesOpen),
     listen(window, TERMINAL_PANEL_DOCK_BOTTOM_EVENT, () => {
       const owner = options.current();
       if (owner) {

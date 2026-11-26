@@ -55,6 +55,7 @@ export const databaseWorkerCoreTestFiles = [
   "src/gateway/config-revision-token.test.ts",
   "src/gateway/local-request-context.session-archive.test.ts",
   "src/gateway/local-request-context.session-rename.test.ts",
+  "src/gateway/server-methods.workboard-source-handoff.test.ts",
   "src/plugin-sdk/provider-catalog-runtime.test.ts",
   "src/plugin-sdk/memory-core-bundled-runtime.recall.test.ts",
   "test/talk-browser-defaults.test.ts",

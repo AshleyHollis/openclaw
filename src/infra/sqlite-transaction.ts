@@ -134,6 +134,13 @@ export function retainSqliteWriteAdmissionService(
   };
 }
 
+/** Services retain their own authority; this accessor grants no write admission. */
+export function sqliteWriteAdmissionServicesForLocation(
+  location: string,
+): ReadonlySet<() => void> | undefined {
+  return writeAdmissionServices.get(normalizeDatabasePath(location));
+}
+
 type SqliteBeginAdmissionDiagnostics = {
   nativeAttempts: number;
   nativeMs: number;

@@ -252,8 +252,8 @@ export type SessionTranscriptRawDeltaLimits = {
   maxEvents?: number;
 };
 
-type SessionTranscriptDeltaResult<TEvent, TResetReason extends string> =
-  | {
+type SessionTranscriptDeltaResult<TEvent, TResetReason extends string, TPage = unknown> =
+  | ({
       kind: "page";
       /** Cursor positioned after the last returned event. */
       cursor: string;
@@ -265,7 +265,7 @@ type SessionTranscriptDeltaResult<TEvent, TResetReason extends string> =
       requiredBytes?: number;
       /** Stored JSONL bytes represented by events. */
       serializedBytes: number;
-    }
+    } & TPage)
   | {
       kind: "reset";
       /** Fresh bootstrap cursor for the current generation. */
@@ -285,6 +285,8 @@ export type SessionTranscriptRawDeltaResult = SessionTranscriptDeltaResult<
 export type SessionTranscriptVisibleMessageDeltaLimits = {
   /** Opaque continuation cursor; store and return it unchanged. */
   cursor?: string;
+  /** Zero-based active-message offset for the initial page; cannot be combined with a cursor. */
+  offset?: number;
   /** Maximum serialized JSONL bytes returned by this page. */
   maxBytes?: number;
   /** Maximum number of visible messages returned by this page. */
@@ -314,7 +316,8 @@ export type SessionTranscriptVisibleMessageDeltaResult = SessionTranscriptDeltaR
   | "invalid_cursor"
   | "scope_mismatch"
   /** Reset-window cursors only: a newer same-session reset closed the drained window. */
-  | "session_reset"
+  | "session_reset",
+  { activeLeafEntryId: string | null; generation: string; totalMessages: number }
 >;
 
 export type TranscriptMessageAppendOptions<TMessage> = {

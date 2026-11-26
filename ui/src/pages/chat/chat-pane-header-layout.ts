@@ -27,7 +27,7 @@ import {
   retainedPublication,
 } from "./components/chat-pull-requests.ts";
 import {
-  getSessionWorkspace,
+  getChatSessionWorkspace,
   isCurrentSessionWorkspace,
   trackSessionCheckoutSidebar,
 } from "./components/chat-session-workspace-state.ts";
@@ -260,7 +260,7 @@ export abstract class ChatPaneHeaderLayout extends ChatPaneBrowserAnnotationRend
       conversationVisible,
     } = input;
     const detailsOutputs = this.captureDetailsOutputs();
-    const diffWorkspace = getSessionWorkspace(state);
+    const diffWorkspace = getChatSessionWorkspace(state);
     const diffContent = resolveSessionDiffSidebarContent(state);
     const environment =
       diffContent?.kind === "session-diff"

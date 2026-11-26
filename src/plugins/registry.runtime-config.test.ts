@@ -692,6 +692,35 @@ describe("plugin registry runtime config scope", () => {
     expect(scope.scopes[0]?.pluginOrigin).toBe("bundled");
   });
 
+  it("exposes private Web Push through the owning plugin Gateway facade", async () => {
+    let sendScope = getPluginRuntimeGatewayRequestScope();
+    const runtime = createPluginRuntime();
+    const send = vi.fn<NonNullable<PluginRuntime["gateway"]["sendPrivateWebPush"]>>(async () => {
+      sendScope = getPluginRuntimeGatewayRequestScope();
+      return { attempted: 1, accepted: 1 };
+    });
+    runtime.gateway.sendPrivateWebPush = send;
+    const { api, builder } = registered("fictional-attention-plugin", {}, runtime);
+    const target = {
+      pageId: "attention",
+      recordId: "3aa44d5e-daca-4eb7-854e-8f1f1df20ea4",
+      expiresAtMs: Date.now() + 60_000,
+    };
+    const publication = { prepare: async () => {}, claim: () => true };
+
+    const sendFromPlugin = expectDefined(api.runtime.gateway.sendPrivateWebPush);
+    await expect(sendFromPlugin(target, publication)).resolves.toEqual({
+      attempted: 1,
+      accepted: 1,
+    });
+    expect(send).toHaveBeenCalledExactlyOnceWith(target, publication);
+    expect(sendScope?.pluginId).toBe("fictional-attention-plugin");
+    expect(sendScope?.pluginRegistry).toBe(builder.registry);
+
+    runtime.gateway.sendPrivateWebPush = undefined;
+    expect(api.runtime.gateway.sendPrivateWebPush).toBeUndefined();
+  });
+
   it("limits harness session creation to the registering plugin", async () => {
     const { builder, api: ownerApi, createSessionEntry, scope } = sessionFixture("codex-owner");
     const otherRecord = createRecord("other-plugin", { origin: "bundled" });

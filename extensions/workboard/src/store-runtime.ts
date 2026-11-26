@@ -132,8 +132,18 @@ export class WorkboardStoreRuntime {
   }
 
   protected trackCardStore(store: WorkboardCardStore): WorkboardCardStore {
+    const registerSource = store.registerSource?.bind(store);
     return {
       ...this.track(store),
+      ...(registerSource
+        ? {
+            registerSource: (...args: Parameters<typeof registerSource>) =>
+              this.trackMutation(
+                () => registerSource(...args),
+                (result) => result.inserted,
+              ),
+          }
+        : {}),
       entries: (scope) => this.runOperation(() => store.entries(scope)),
       registerIfAbsent: (key, value) =>
         this.trackMutation(() => store.registerIfAbsent(key, value)),

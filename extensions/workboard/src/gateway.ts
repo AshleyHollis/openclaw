@@ -20,6 +20,7 @@ import { z } from "zod";
 import type { OpenClawPluginApi } from "../api.js";
 import { redactClaimToken, redactDispatchResult } from "./card-redaction.js";
 import { dispatchAndStartWorkboardCards } from "./dispatcher.js";
+import { registerWorkboardResultReviewMethods } from "./gateway-result-review.js";
 import type { WorkboardSessionsBoardService } from "./sessions-board.js";
 import { resolveWorkboardSqliteWorkerModuleUrl } from "./sqlite-store-paths.js";
 import { registerWorkboardStoreLifecycle } from "./store-lifecycle.js";
@@ -449,13 +450,25 @@ export function registerWorkboardGatewayMethods(params: {
   });
   for (const method of ["create", "captureSession"] as const) {
     register(`workboard.cards.${method}`, WRITE_SCOPE, async (request) => {
+      if (
+        request.params.sourceAdmission !== undefined ||
+        request.params.sessionTranscriptSource !== undefined ||
+        request.params.takeSessionTranscriptSourceAdmission !== undefined
+      ) {
+        throw new Error(
+          "Transcript source authority cannot be supplied in Workboard request JSON.",
+        );
+      }
       const prepared = await prepareWorkspaceInput(request, request.params, "create");
       assertSupportedMetadataKeys(prepared.metadata);
-      return redactCardResult(
-        method === "create"
-          ? store.create(prepared, undefined, request.sessionMutationCommitGuard)
-          : store.captureSession(prepared),
-      );
+      if (method === "captureSession") {
+        return redactCardResult(store.captureSession(prepared));
+      }
+      const source = request.takeSessionTranscriptSourceAdmission?.();
+      const assertCurrent = source
+        ? sessionsBoardCaller(request).assertCurrent
+        : request.sessionMutationCommitGuard;
+      return redactCardResult(store.create(prepared, undefined, assertCurrent, source));
     });
   }
   register("workboard.cards.update", WRITE_SCOPE, async (request) => {
@@ -498,7 +511,19 @@ export function registerWorkboardGatewayMethods(params: {
   cardMutation("promote", (id, input) => store.promote(id, input, null));
   cardMutation("reassign", (id, input) => store.reassign(id, input, null));
   cardMutation("reclaim", (id, input) => store.reclaim(id, input, null));
-  cardMutation("complete", (id, input) => store.complete(id, input, null));
+  register("workboard.cards.complete", WRITE_SCOPE, (request) =>
+    redactCardResult(
+      store.complete(
+        readId(request.params),
+        request.params,
+        null,
+        request.params.resultReview === undefined || !request.sessionMutationAuthorization
+          ? undefined
+          : sessionsBoardCaller(request).assertCurrent,
+      ),
+    ),
+  );
+  registerWorkboardResultReviewMethods(api, store);
   cardMutation("block", (id, input) => store.block(id, input, null));
   cardMutation("unblock", (id) => store.unblock(id));
   register("workboard.cards.bulk", WRITE_SCOPE, async (request) => {

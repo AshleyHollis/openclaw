@@ -296,6 +296,8 @@ describe("session transcript visible cursor SDK", () => {
     const first = await read();
     expect(first).toMatchObject({
       kind: "page",
+      activeLeafEntryId: firstBranch.messageId,
+      generation: expect.any(String),
       entries: [
         {
           entryId: root.messageId,
@@ -304,6 +306,7 @@ describe("session transcript visible cursor SDK", () => {
         },
       ],
       hasMore: true,
+      totalMessages: 2,
     });
     assert(first.kind === "page", "expected first visible transcript page");
 
@@ -330,6 +333,24 @@ describe("session transcript visible cursor SDK", () => {
     assert(second.kind === "page", "expected second visible transcript page");
     const movedAnchorCursor = rewriteCursor(second.cursor, { lastMessagePosition: 0 });
     await expectReset(read(movedAnchorCursor), "anchor_moved");
+    await expect(
+      readSessionTranscriptVisibleMessageDelta({ ...scope, offset: 1, maxMessages: 1 }),
+    ).resolves.toEqual(second);
+    await expect(
+      readSessionTranscriptVisibleMessageDelta({ ...scope, offset: Number.MAX_SAFE_INTEGER }),
+    ).resolves.toMatchObject({
+      kind: "page",
+      cursor: second.cursor,
+      entries: [],
+      generation: first.generation,
+      totalMessages: 2,
+    });
+    await expect(
+      readSessionTranscriptVisibleMessageDelta({ ...scope, cursor: first.cursor, offset: 0 }),
+    ).rejects.toThrow("cursor and offset cannot be combined");
+    await expect(
+      readSessionTranscriptVisibleMessageDelta({ ...scope, offset: -1 }),
+    ).rejects.toThrow(RangeError);
 
     const appended = await append(scope, "user", "linear append", 3_000, firstBranch.messageId);
     await expect(read(second.cursor)).resolves.toMatchObject({
@@ -418,18 +439,22 @@ describe("session transcript visible cursor SDK", () => {
     );
     expect(fenced).toMatchObject({
       kind: "page",
+      activeLeafEntryId: prior.messageId,
       entries: [{ entryId: prior.messageId, message: { content: "same prompt" } }],
       hasMore: false,
+      totalMessages: 1,
     });
     assert(fenced.kind === "page", "expected fenced visible transcript page");
 
     await expect(read(fenced.cursor)).resolves.toMatchObject({
       kind: "page",
+      activeLeafEntryId: assistant.messageId,
       entries: [
         { entryId: admitted.messageId, message: { content: "same prompt" } },
         { entryId: assistant.messageId, message: { content: "answer" } },
       ],
       hasMore: false,
+      totalMessages: 3,
     });
   });
 });

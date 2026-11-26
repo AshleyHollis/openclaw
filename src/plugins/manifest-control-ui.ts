@@ -1,6 +1,7 @@
 import type { ControlUiSettingsPlacement } from "../../packages/gateway-protocol/src/plugin-control-ui-settings.js";
 import { isRecord } from "../../packages/normalization-core/src/record-coerce.js";
 import { err, ok, type Result } from "../../packages/normalization-core/src/result.js";
+import { isControlUiHttpRoute } from "./control-ui-http-routes.js";
 import type { PluginManifestControlUi } from "./manifest-types.js";
 
 /** Package authoring metadata names source; the runtime manifest names only built assets. */
@@ -20,6 +21,7 @@ export function controlUiSource(packageManifest: Record<string, unknown>): strin
 export function normalizeManifestControlUi(
   value: unknown,
   channels: unknown = [],
+  pluginId?: string,
 ): Result<PluginManifestControlUi | undefined, string> {
   if (value === undefined) {
     return ok(undefined);
@@ -27,7 +29,7 @@ export function normalizeManifestControlUi(
   if (
     !isRecord(value) ||
     Object.keys(value).some(
-      (key) => !["entry", "styles", "panelIcon", "activation", "settingsViews"].includes(key),
+      (key) => !["entry", "styles", "panelIcon", "activation", "settingsViews", "httpRoutes"].includes(key),
     )
   ) {
     return err("controlUi contains an unknown field");
@@ -114,11 +116,26 @@ export function normalizeManifestControlUi(
       styles.push(style);
     }
   }
+  const httpRoutes: string[] = [];
+  if (value.httpRoutes !== undefined) {
+    if (
+      !pluginId ||
+      !Array.isArray(value.httpRoutes) ||
+      value.httpRoutes.length > 16 ||
+      !value.httpRoutes.every((route) => isControlUiHttpRoute(pluginId, route))
+    ) {
+      return err(
+        "controlUi.httpRoutes must contain at most 16 canonical paths under the plugin's namespace",
+      );
+    }
+    httpRoutes.push(...new Set(value.httpRoutes));
+  }
   return ok({
     entry,
     ...(panelIcon ? { panelIcon } : {}),
     ...(styles.length > 0 ? { styles } : {}),
     ...(value.activation === "settings-only" ? { activation: value.activation } : {}),
     ...(settingsViews.length > 0 ? { settingsViews } : {}),
+    ...(httpRoutes.length > 0 ? { httpRoutes } : {}),
   });
 }

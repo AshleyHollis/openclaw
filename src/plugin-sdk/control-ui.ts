@@ -38,6 +38,18 @@ export type ControlUiConnection = {
   assistantAgentId: string | null;
 };
 
+/** A host-relayed, declared same-origin HTTP route. Credentials stay host-owned. */
+type ControlUiHttpRequest = Readonly<{
+  method: "POST";
+  path: string;
+  body: string;
+}>;
+
+type ControlUiHttpResponse = Readonly<{
+  status: number;
+  body: string;
+}>;
+
 export type ControlUiSession = Readonly<
   SessionRow & {
     /** Live activity from the Control UI session owner; absent while activity is unknown. */
@@ -95,6 +107,7 @@ export type ControlUiPageNavigationOptions = {
 };
 
 export type ControlUiSurfaceProps = {
+  "session-files": BoardGetParams;
   "session-list": BoardGetParams & { sessions: readonly ControlUiSession[] };
   composer: BoardGetParams & {
     agentId: string;
@@ -132,6 +145,8 @@ export type ControlUiViewContext<T = Readonly<Record<string, string>>> = {
   reportError?: (error: unknown) => void;
   /** Presentation can pause a retained view without ending its host lifetime. */
   readonly presented: boolean;
+  /** Move the mounted panel to the main position without changing its conversation. */
+  readonly panel?: Readonly<{ showInMain: () => void }>;
   /** Mount the host's built-in view inside a replacement; it keeps receiving host updates. */
   mountDefault: (container: HTMLElement) => ControlUiDisposer;
 };
@@ -256,6 +271,11 @@ export type ControlUiHost = {
    * The Gateway enforces connection scopes, not a per-plugin RPC allowlist.
    */
   request: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
+  /** Relays this build's admitted controlUi.httpRoutes with the operator credential kept private. */
+  httpRequest: (
+    request: ControlUiHttpRequest,
+    options?: Readonly<{ signal?: AbortSignal }>,
+  ) => Promise<ControlUiHttpResponse>;
   /**
    * `session.message` listeners receive complete message bodies. Registration is
    * synchronous, but delivery starts after the Gateway acknowledges full-body
@@ -276,6 +296,10 @@ export type ControlUiHost = {
       listener: (snapshot: ControlUiSessionListSnapshot) => void,
     ) => ControlUiSessionListSubscription;
     open: (session: BoardGetParams) => void;
+    /** Open the exact conversation in Chat without changing its saved default view. */
+    openChat: (session: BoardGetParams) => void;
+    /** Show the exact conversation's Files without changing the current Chat. */
+    openFiles: (session: BoardGetParams) => void;
     create: (params?: {
       agentId?: string;
       label?: string;

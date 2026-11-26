@@ -6,6 +6,7 @@ import { recordToolSkillUse } from "../../agents/tool-skill-use-scope.js";
 import { enqueueSessionEventForHost } from "../../auto-reply/reply/session-event-handoff.js";
 import { runWithLocalStateOwner } from "../../cli/local-state-owner.js";
 import { captureMemoryExactSessionReader } from "../../config/sessions/session-accessor.memory-exact-read.js";
+import { SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION } from "../../gateway/session-transcript-source-handoff.js";
 import { onAgentEvent } from "../../infra/agent-events.js";
 import {
   listImageGenerationProviders,
@@ -52,6 +53,9 @@ const loadGatewayPluginRuntime = createLazyRuntimeModule(
 
 function createRuntimeGateway(): PluginRuntime["gateway"] {
   return {
+    sessionTranscriptSourceAdmissionVersion: SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION,
+    authenticatedSessionTranscriptSourceAdmissionVersion:
+      SESSION_TRANSCRIPT_GATEWAY_SOURCE_ADMISSION_VERSION,
     isAvailable: async () => Boolean(getInProcessGatewayRequestContext()),
     request: async (method, params, options) => {
       const runtime = await loadGatewayPluginRuntime();
@@ -59,6 +63,11 @@ function createRuntimeGateway(): PluginRuntime["gateway"] {
     },
     openPluginPanel: async (params) =>
       (await loadGatewayPluginRuntime()).openPluginPanelForRequester(params),
+    sendPrivateWebPush: async (target, publication) =>
+      (await import("../../gateway/server-plugin-web-push.js")).sendPrivateWebPushForRequester(
+        target,
+        publication,
+      ),
     readSessionFacts: async (params) =>
       (await loadGatewayPluginRuntime()).readTrustedPluginSessionFacts(params),
     withSessionFacts: async (select, run) =>

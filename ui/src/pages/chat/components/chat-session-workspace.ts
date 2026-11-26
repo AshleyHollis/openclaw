@@ -26,6 +26,7 @@ import {
   loadSessionWorkspaceDirectory,
   clearWorkspaceTimer,
   getSessionWorkspace,
+  getChatSessionWorkspace,
   isCurrentSessionWorkspace,
   loadSessionWorkspace,
   loadSessionWorkspaceArtifacts,
@@ -54,8 +55,14 @@ export { retireSessionWorkspaceCheckout } from "./chat-session-workspace-state.t
 export type { SessionWorkspaceHost } from "./chat-session-workspace-types.ts";
 
 export function refreshSessionWorkspace(state: SessionWorkspaceHost, refreshFiles: boolean) {
-  if (refreshSessionWorkspaceState(state, refreshFiles)) {
-    state.sidebarContent = resolveSessionDiffSidebarContent(state);
+  const chat = getChatSessionWorkspace(state);
+  const chatDiffOpen = chat.diffContent !== undefined && state.sidebarContent === chat.diffContent;
+  delete chat.diffContent;
+  const filesDiffOpen = refreshSessionWorkspaceState(state, refreshFiles);
+  if (chatDiffOpen || filesDiffOpen) {
+    state.sidebarContent = chatDiffOpen
+      ? resolveSessionDiffSidebarContent(state)
+      : resolveFilesDiffSidebarContent(state);
     sessionWorkspaceForHost(state).publish();
   }
 }
@@ -101,7 +108,7 @@ function openFile(
   const agentId =
     opts.agentId ??
     (opts.sessionKey ? parseAgentSessionKey(opts.sessionKey)?.agentId : workspace.agentId);
-  const viewingSession = sessionKey === workspace.sessionKey;
+  const viewingSession = sessionKey === workspace.sessionKey && agentId === workspace.agentId;
   const draftScope = state.sessionWorkspaceDraftScope;
   const draftContext = state.sessionWorkspaceDraftContext;
   const gatewayUrl = state.settings?.gatewayUrl ?? "";
@@ -110,7 +117,7 @@ function openFile(
     workspace,
     viewingSession && !opts.messageEntryId
       ? `file:${requestPath}`
-      : JSON.stringify(["file", sessionKey, requestPath, opts.messageEntryId]),
+      : JSON.stringify(["file", agentId, sessionKey, requestPath, opts.messageEntryId]),
     () =>
       readWorkspaceContent(state, workspace, (runtime) =>
         runtime.loadSessionWorkspaceFileContent(
@@ -263,18 +270,26 @@ export async function openSessionWorkspaceFileView(
   state: SessionWorkspaceHost,
   path: string,
   view: FileReaderView,
+  sourceWorkspace = getSessionWorkspace(state),
 ) {
+  if (!isCurrentSessionWorkspace(state, sourceWorkspace)) {
+    return;
+  }
   const workspace = getSessionWorkspace(state);
   const client = state.client;
   const epoch = state.connectionEpoch;
   const order = (workspace.navigationOrder = (workspace.navigationOrder ?? 0) + 1);
-  const preview = await openFile(state, workspace, path);
+  const preview = await openFile(state, workspace, path, {
+    sessionKey: sourceWorkspace.sessionKey,
+    agentId: sourceWorkspace.agentId,
+  });
   if (
     !preview ||
     !state.connected ||
     state.client !== client ||
     state.connectionEpoch !== epoch ||
     !isCurrentSessionWorkspace(state, workspace) ||
+    !isCurrentSessionWorkspace(state, sourceWorkspace) ||
     workspace.navigationOrder !== order ||
     workspace.activePreviewId !== preview.id ||
     !workspace.previews.includes(preview) ||
@@ -289,6 +304,49 @@ export async function openSessionWorkspaceFileView(
   file.navigation = navigation;
   workspace.previews = [...workspace.previews];
   sessionWorkspaceForHost(state).publish();
+}
+
+/** Read the source conversation while retaining previews in the current Files owner. */
+export function openSessionWorkspaceArtifact(
+  state: SessionWorkspaceHost,
+  artifactId: string,
+  options: { disposition?: "pinned" | "preview"; intent?: "navigate" } = {},
+  source = getSessionWorkspace(state),
+  readWorkspace: (state: SessionWorkspaceHost) => SessionWorkspaceState = getSessionWorkspace,
+) {
+  if (!isCurrentSessionWorkspace(state, source)) {
+    return;
+  }
+  const workspace = getSessionWorkspace(state);
+  const sameSource =
+    source.sessionKey === workspace.sessionKey && source.agentId === workspace.agentId;
+  return openWorkspaceItem(
+    state,
+    workspace,
+    sameSource
+      ? `artifact:${artifactId}`
+      : JSON.stringify(["artifact", source.agentId, source.sessionKey, artifactId]),
+    (signal) =>
+      readWorkspaceContent(state, source, (runtime) =>
+        runtime.loadSessionWorkspaceArtifactContent(state, source, artifactId, signal, () =>
+          readWorkspace(state),
+        ),
+      ),
+    (result) => result.content,
+    `Couldn't load artifact ${artifactId}. Check that the artifact is still available.`,
+    {
+      ...options,
+      label:
+        (source.list?.artifacts ?? source.assistantArtifacts?.items)?.find(
+          (artifact) => artifact.id === artifactId,
+        )?.title || t("chat.workspaceFiles.artifacts"),
+      resolveLabel: (result) => result.artifact?.title,
+      resolveKey: (result) =>
+        sameSource
+          ? `artifact:${result.artifact.id}`
+          : JSON.stringify(["artifact", source.agentId, source.sessionKey, result.artifact.id]),
+    },
+  );
 }
 
 export function revealSessionWorkspaceFile(state: SessionWorkspaceHost, path: string) {
@@ -339,11 +397,11 @@ export function createSessionWorkspaceProps(
     !workspace.loading &&
     !workspace.browserSearchTimer &&
     (!workspace.error || workspace.pendingReload) &&
-    (workspace.pendingReload || workspace.list?.sessionKey !== state.sessionKey)
+    (workspace.pendingReload || workspace.list?.sessionKey !== workspace.sessionKey)
   ) {
     loadSessionWorkspace(state, workspace);
   }
-  const diffContent = resolveSessionDiffSidebarContent(state);
+  const diffContent = resolveFilesDiffSidebarContent(state);
   const navigation = captureSessionWorkspaceNavigation(workspace);
   const mobile =
     options?.presentation === "mobile"
@@ -456,10 +514,10 @@ export function createSessionWorkspaceProps(
         workspace.tree!.sessionScroll = top;
       }
     },
-    sessionKey: state.sessionKey,
+    sessionKey: workspace.sessionKey,
     readState: workspace,
     readResult: workspace.readResult,
-    list: workspace.list?.sessionKey === state.sessionKey ? workspace.list : null,
+    list: workspace.list?.sessionKey === workspace.sessionKey ? workspace.list : null,
     loading: workspace.loading,
     error: workspace.error ?? workspace.artifacts?.error ?? null,
     activeId: workspace.activeId,
@@ -588,28 +646,14 @@ export function createSessionWorkspaceProps(
       return true;
     },
     onOpenArtifact: (artifactId: string, disposition?: "pinned" | "preview") => {
-      const artifactDisposition =
-        options?.presentation === "desktop" ? (disposition ?? "preview") : undefined;
-      const openIntent = options?.openIntent;
-      void openWorkspaceItem(
+      void openSessionWorkspaceArtifact(
         state,
-        workspace,
-        `artifact:${artifactId}`,
-        (signal) =>
-          readWorkspaceContent(state, workspace, (runtime) =>
-            runtime.loadSessionWorkspaceArtifactContent(state, workspace, artifactId, signal),
-          ),
-        (result) => result.content,
-        `Couldn’t load artifact ${artifactId}. Check that the artifact is still available.`,
+        artifactId,
         {
-          disposition: artifactDisposition,
-          intent: openIntent,
-          label:
-            workspace.list?.artifacts?.find((artifact) => artifact.id === artifactId)?.title ||
-            t("chat.workspaceFiles.artifacts"),
-          resolveLabel: (result) => result.artifact?.title,
-          resolveKey: (result) => `artifact:${result.artifact.id}`,
+          disposition: options?.presentation === "desktop" ? (disposition ?? "preview") : undefined,
+          intent: options?.openIntent,
         },
+        workspace,
       );
     },
     onOpenDiff: diffContent ? () => state.handleOpenSidebar(diffContent) : undefined,
@@ -619,10 +663,24 @@ export function createSessionWorkspaceProps(
 export function resolveSessionDiffSidebarContent(
   state: SessionWorkspaceHost,
 ): SidebarSelection | null {
-  const workspace = getSessionWorkspace(state);
+  return resolveWorkspaceDiffSidebarContent(state, getChatSessionWorkspace(state));
+}
+
+function resolveFilesDiffSidebarContent(state: SessionWorkspaceHost): SidebarSelection | null {
+  return resolveWorkspaceDiffSidebarContent(state, getSessionWorkspace(state));
+}
+
+function resolveWorkspaceDiffSidebarContent(
+  state: SessionWorkspaceHost,
+  workspace: SessionWorkspaceState,
+): SidebarSelection | null {
   return resolveSessionWorkspaceDiff(
     state,
-    (path) => openFile(state, getSessionWorkspace(state), path),
+    (path) =>
+      openFile(state, getSessionWorkspace(state), path, {
+        sessionKey: workspace.sessionKey,
+        agentId: workspace.agentId,
+      }),
     async (path) => {
       const client = state.client;
       if (!client || !state.connected || !isCurrentSessionWorkspace(state, workspace)) {
@@ -655,5 +713,6 @@ export function resolveSessionDiffSidebarContent(
         return false;
       }
     },
+    workspace,
   );
 }

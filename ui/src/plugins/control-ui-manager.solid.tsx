@@ -108,35 +108,41 @@ export function PluginManager() {
             }
           />
           <For each={surfaces()}>
-            {(surface) => (
-              <SettingsRow
-                title={t(`pluginUi.surface.${surface}`)}
-                carapace
-                stackedOnNarrow
-                control={
-                  <select
-                    class="settings-select oc-select"
-                    aria-label={t(`pluginUi.surface.${surface}`)}
-                    value={source.read().selectedReplacement(surface)?.key ?? ""}
-                    onChange={(event) =>
-                      source.read().selectReplacement(surface, event.currentTarget.value || null)
-                    }
-                  >
-                    <option value="">{t("pluginUi.builtin")}</option>
-                    <For
-                      each={replacements().filter((entry) => entry.value.surface === surface)}
-                      keyed={(entry) => entry.key}
+            {(surface) => {
+              const label =
+                surface === "session-files"
+                  ? "chat.sidePanel.files"
+                  : `pluginUi.surface.${surface}`;
+              return (
+                <SettingsRow
+                  title={t(label)}
+                  carapace
+                  stackedOnNarrow
+                  control={
+                    <select
+                      class="settings-select oc-select"
+                      aria-label={t(label)}
+                      value={source.read().selectedReplacement(surface)?.key ?? ""}
+                      onChange={(event) =>
+                        source.read().selectReplacement(surface, event.currentTarget.value || null)
+                      }
                     >
-                      {(entry) => (
-                        <option value={entry().key}>
-                          {entry().value.label} ({entry().pluginId})
-                        </option>
-                      )}
-                    </For>
-                  </select>
-                }
-              />
-            )}
+                      <option value="">{t("pluginUi.builtin")}</option>
+                      <For
+                        each={replacements().filter((entry) => entry.value.surface === surface)}
+                        keyed={(entry) => entry.key}
+                      >
+                        {(entry) => (
+                          <option value={entry().key}>
+                            {entry().value.label} ({entry().pluginId})
+                          </option>
+                        )}
+                      </For>
+                    </select>
+                  }
+                />
+              );
+            }}
           </For>
           <For each={source.read().errors} keyed={(entry) => entry.pluginId}>
             {(entry) => (

@@ -1,4 +1,7 @@
-import type { ControlUiPanel } from "../../../../src/plugin-sdk/control-ui.js";
+import type {
+  ControlUiPanel,
+  ControlUiViewContext,
+} from "../../../../src/plugin-sdk/control-ui.js";
 import { isIconName } from "../../components/icon-data.ts";
 import type { IconName } from "../../components/solid/icon.tsx";
 import { t } from "../../i18n/index.ts";
@@ -8,11 +11,13 @@ import { canCallGatewayMethod } from "../../lib/gateway-methods.ts";
 import type { ControlUiRegistration } from "../../plugins/control-ui-capability.ts";
 import type { SidebarPanelDefinitionParams, SidebarPanelData } from "./chat-pane-embedded-types.ts";
 import { SIDEBAR_PANEL_SHORTCUTS } from "./chat-pane-panel-shortcuts.ts";
+import type { ChatPageHost } from "./chat-state-host.ts";
 import { getSessionWorkspace } from "./components/chat-session-workspace-state.ts";
 import { resolveSessionDiffSidebarContent } from "./components/chat-session-workspace.ts";
 import type { SidebarPanelDefinition } from "./components/chat-sidebar-region-types.ts";
 import { sidebarMainPanel } from "./sidebar-layout-geometry.ts";
 import type { SidebarSlotId } from "./sidebar-layout-types.ts";
+import { promoteSidebarPanel } from "./sidebar-layout.ts";
 
 registerChatSessionEnglish();
 
@@ -20,6 +25,31 @@ registerFilePreviewEnglish();
 
 function panelExternalLink(href: string | null | undefined, label: string) {
   return href ? { href, label } : undefined;
+}
+
+export function panelPresentationFor(
+  state: ChatPageHost,
+  slot: SidebarSlotId,
+): ControlUiViewContext["panel"] {
+  const { client, sessionKey, connectionEpoch } = state;
+  return {
+    showInMain() {
+      if (
+        !state.connected ||
+        state.client !== client ||
+        state.sessionKey !== sessionKey ||
+        state.connectionEpoch !== connectionEpoch
+      ) {
+        return;
+      }
+      const panel = state.sidebarLayout.columns
+        .flatMap((column) => column.panels)
+        .find((entry) => entry.slot === slot);
+      if (panel) {
+        state.updateSidebarLayout(promoteSidebarPanel(state.sidebarLayout, panel.id));
+      }
+    },
+  };
 }
 
 /** One ordered declaration for every chat side-panel slot. */

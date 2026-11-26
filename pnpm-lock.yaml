@@ -384,6 +384,9 @@ importers:
       jszip:
         specifier: 3.10.2
         version: 3.10.2
+      koffi:
+        specifier: 3.3.3
+        version: 3.3.3
       kysely:
         specifier: 0.29.7
         version: 0.29.7

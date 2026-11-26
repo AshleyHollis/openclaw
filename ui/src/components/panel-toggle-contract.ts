@@ -34,6 +34,16 @@ export type PluginPanelToggleDetail = {
   expanded?: boolean;
 };
 
+export const FILES_PANEL_OPEN_EVENT = "openclaw:files-panel-open";
+
+export type FilesPanelOpenDetail = {
+  client: import("../api/gateway.ts").GatewayBrowserClient;
+  /** The current Chat owns the pane, while target owns the Files requests. */
+  sessionKey: string;
+  target: { sessionKey: string; agentId?: string };
+  signal: AbortSignal;
+};
+
 export const UI_COMMAND_EVENT = "openclaw:ui-command";
 
 export type UiCommandDetail = UiCommandParams;

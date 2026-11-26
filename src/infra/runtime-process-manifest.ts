@@ -190,6 +190,12 @@ export function createRuntimeProcessEntrypoints(currentModuleUrl: string) {
     ),
     sessionTranscript: runtimeProcessEntrypoint("config/sessions/session-transcript.worker"),
     usageOverview: runtimeProcessEntrypoint("infra/session-cost-usage-overview-report.worker"),
+    sessionTranscriptSourceAdmission: runtimeProcessEntrypoint(
+      "config/sessions/session-transcript-source-admission.worker",
+    ),
+    sessionAttachmentAdmission: runtimeProcessEntrypoint(
+      "config/sessions/session-attachment-admission.worker",
+    ),
     workerTranscriptCommit: runtimeProcessEntrypoint(
       "gateway/worker-environments/transcript-commit.worker",
     ),

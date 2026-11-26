@@ -57,6 +57,7 @@ import type { ChatProps } from "./chat-view.tsx";
 import {
   openSessionWorkspaceFile,
   openSessionWorkspaceManagedArtifact,
+  resolveSessionDiffSidebarContent,
 } from "./components/chat-session-workspace.ts";
 import { chatFailureRunId, hasAbortableSessionRun, hasDirectSessionRun } from "./run-lifecycle.ts";
 import { lockChatScroll, scheduleChatScroll } from "./scroll.ts";
@@ -183,6 +184,7 @@ export class ChatPaneRuntime extends ChatPaneLayoutRender {
         updateSidebarLayout: (layout) => this.commitSidebarLayout(layout),
         onOpenPanel: this.onSidebarPanelOpened,
       });
+    const chatDiff = resolveSessionDiffSidebarContent(state);
     const gatewayScope = gatewayPresentationScope(this.context.gateway);
     const selfUser = resolveCurrentSelfUser({
       snapshotUser:
@@ -568,7 +570,7 @@ export class ChatPaneRuntime extends ChatPaneLayoutRender {
       onDismissPullRequest: this.dismissSessionPullRequest,
       onDismissPullRequestsBranch: this.dismissSessionPullRequestsBranch,
 
-      onOpenSessionDiff: sessionWorkspace.onOpenDiff,
+      onOpenSessionDiff: chatDiff ? () => state.handleOpenSidebar(chatDiff) : undefined,
       githubPublication: this.publication.binding?.view(),
       onOpenWorkspaceFile: (target) => void openSessionWorkspaceFile(state, target),
       onFindWorkspaceFile: state.connected && !catalog ? onFindWorkspaceFile : undefined,
