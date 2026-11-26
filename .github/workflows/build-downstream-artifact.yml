@@ -34,14 +34,15 @@ on:
 
 concurrency:
   group: >-
-    ${{ inputs.artifact_kind == 'offline-session-helper' && format('build-nas-downstream-helper-{0}', inputs.helper_source_sha) ||
+    ${{ github.ref == 'refs/heads/prep/life-20261110-command-center-ci' && 'life-20261110-command-center-package' ||
+    inputs.artifact_kind == 'offline-session-helper' && format('build-nas-downstream-helper-{0}', inputs.helper_source_sha) ||
     inputs.artifact_kind == 'runtime-package' && format('build-nas-runtime-package-{0}', inputs.runtime_source_sha) ||
     format('build-nas-downstream-{0}', inputs.release_manifest) }}
   cancel-in-progress: false
 
 jobs:
   build:
-    if: github.actor == github.repository_owner && inputs.artifact_kind == 'release'
+    if: github.ref != 'refs/heads/prep/life-20261110-command-center-ci' && github.actor == github.repository_owner && inputs.artifact_kind == 'release'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -287,7 +288,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   runtime-image:
-    if: github.actor == github.repository_owner && inputs.artifact_kind == 'runtime-image'
+    if: github.ref != 'refs/heads/prep/life-20261110-command-center-ci' && github.actor == github.repository_owner && inputs.artifact_kind == 'runtime-image'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -425,7 +426,7 @@ jobs:
             'No production alias or deployment changed. Matching Command Center artifact, real-data rehearsal, final acceptance and independent evaluation remain required.' >> "$GITHUB_STEP_SUMMARY"
 
   runtime-package:
-    if: github.actor == github.repository_owner && inputs.artifact_kind == 'runtime-package'
+    if: github.ref != 'refs/heads/prep/life-20261110-command-center-ci' && github.actor == github.repository_owner && inputs.artifact_kind == 'runtime-package'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
@@ -494,7 +495,7 @@ jobs:
           printf '%s\n' 'Candidate package only. No registry publish, release qualification, deployment or promotion. Matching plugin, real-data rehearsal and final acceptance remain required.' >> "$GITHUB_STEP_SUMMARY"
 
   offline-session-helper:
-    if: github.actor == github.repository_owner && inputs.artifact_kind == 'offline-session-helper'
+    if: github.ref != 'refs/heads/prep/life-20261110-command-center-ci' && github.actor == github.repository_owner && inputs.artifact_kind == 'offline-session-helper'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -613,3 +614,90 @@ jobs:
               echo "- Verified helper: ghcr.io/ashleyhollis/openclaw@$IMAGE_DIGEST"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+  life-command-center-package:
+    if: github.actor == github.repository_owner && github.ref == 'refs/heads/prep/life-20261110-command-center-ci' && inputs.artifact_kind == 'runtime-package' && !inputs.publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    env:
+      COMMAND_CENTER_SOURCE_COMMIT: 7c0fe2c1eafe840dd16c03a4b52fd789a48b78bb
+      TOOLCHAIN: docker.io/library/node@sha256:0925478b811e8890f5508ad2a75135933310effd45492696ecf7c111c8339d02
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+          path: gateway
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: AshleyHollis/openclaw-command-center
+          ref: 7c0fe2c1eafe840dd16c03a4b52fd789a48b78bb
+          persist-credentials: false
+          path: command-center
+      - name: Download exact Gateway build output
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
+        with:
+          github-token: ${{ github.token }}
+          run-id: '45801130969'
+          artifact-ids: '15107987581'
+          path: ${{ runner.temp }}/life-gateway-zip
+          skip-decompress: 'true'
+          digest-mismatch: error
+      - name: Stage verified inputs and install locked dependencies
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          zips=("$RUNNER_TEMP"/life-gateway-zip/*.zip)
+          [ "${#zips[@]}" -eq 1 ] && [ -f "${zips[0]}" ] && [ ! -L "${zips[0]}" ] || exit 1
+          deps="$RUNNER_TEMP/life-command-center-dependencies"
+          test "$(git -C command-center rev-parse HEAD)" = "$COMMAND_CENTER_SOURCE_COMMIT"
+          python3 gateway/downstream/scripts/stage_life_gateway.py "${zips[0]}" "$deps"
+          install -m 0644 command-center/package.json command-center/package-lock.json "$deps/"
+          docker pull "$TOOLCHAIN"
+          docker run --rm --init --read-only --user "$(id -u):$(id -g)" \
+            --cap-drop ALL --security-opt no-new-privileges --cpus 2 --memory 8g --pids-limit 256 \
+            --tmpfs /tmp:rw,nosuid,nodev,size=1073741824,mode=1777 \
+            --mount "type=bind,src=$deps,dst=/input" --workdir /input --env HOME=/tmp \
+            --entrypoint /bin/sh "$TOOLCHAIN" -euc '
+              test "$(node --version)" = v24.22.1
+              echo "c2b58d66dfe0065f46b3f9588cad6e555b60238ada13488bbc06f5af4b8a09e7  openclaw-current.tgz" | sha256sum -c -
+              npm ci --cache /tmp/fresh-npm-cache --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund
+            '
+      - name: Package and test without network access
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/life-command-center-output"
+          sudo install -d -o 10001 -g 10001 -m 0700 "$out"
+          docker run --rm --init --network none --read-only --user 10001:10001 \
+            --cap-drop ALL --security-opt no-new-privileges --cpus 2 --memory 8g --pids-limit 256 \
+            --tmpfs /tmp:rw,exec,nosuid,nodev,size=1073741824,mode=1777 \
+            --mount "type=tmpfs,dst=/workspace,tmpfs-size=1073741824,tmpfs-mode=1777" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/command-center,dst=/candidate,readonly" \
+            --mount "type=bind,src=$RUNNER_TEMP/life-command-center-dependencies/node_modules,dst=/workspace/node_modules,readonly" \
+            --mount "type=bind,src=$out,dst=/output" --env COMMAND_CENTER_SOURCE_COMMIT --env HOME=/tmp \
+            --entrypoint /bin/sh "$TOOLCHAIN" -euc '
+              cp -R /candidate/. /workspace/
+              cd /workspace
+              node --test test/compatibility.test.mjs test/native-http-declaration.test.mjs test/plugin-artifact.test.mjs \
+                test/note-folder-identity-migration.test.mjs test/historical-backfill-operator.test.mjs \
+                test/historical-backfill.test.mjs test/historical-backfill-store.test.mjs test/reconcile-cli.test.mjs
+              node scripts/package-candidate.mjs --output /output/artifact
+            '
+          sudo chown --no-dereference "$(id -u):$(id -g)" "$out"
+          test -d "$out/artifact" && test ! -L "$out/artifact"
+          sudo chown --no-dereference "$(id -u):$(id -g)" "$out/artifact"
+          for file in "$out/artifact/command-center.tgz" "$out/artifact/receipt.json"; do
+            test -f "$file" && test ! -L "$file"
+            test "$(stat -c %h "$file")" = 1
+            sudo chown --no-dereference "$(id -u):$(id -g)" "$file"
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: life-command-center-2026-11-10-candidate
+          path: |
+            ${{ runner.temp }}/life-command-center-output/artifact/command-center.tgz
+            ${{ runner.temp }}/life-command-center-output/artifact/receipt.json
+          if-no-files-found: error
+          retention-days: 14
