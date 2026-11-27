@@ -749,7 +749,11 @@ jobs:
         run: |
           set -euo pipefail
           base="$RUNNER_TEMP/life-runtime-locks"
+          # npm 12's lock-only path misclassifies registry tarballs with bundled dependencies.
+          # Resolve through its normal install path in scratch, with scripts and non-registry URLs blocked.
           docker pull "$TOOLCHAIN"
+          available_kib="$(df -Pk "$base/work" | awk 'NR == 2 {print $4}')"
+          test "$available_kib" -ge 8388608 || { echo "Life lock generation needs 8 GiB free in runner scratch" >&2; exit 1; }
           docker run --rm --init --read-only --user "$(id -u):$(id -g)" \
             --cap-drop ALL --security-opt no-new-privileges --cpus 2 --memory 4g --pids-limit 128 \
             --tmpfs /cache:rw,nosuid,nodev,size=1073741824,mode=1777 \
@@ -762,10 +766,14 @@ jobs:
             --entrypoint /bin/sh "$TOOLCHAIN" -euc '
               test "$(node --version)" = v24.22.1
               test "$(node /npm/bin/npm-cli.js --version)" = 12.2.0
+              mkdir -m 700 /cache/tmp
+              export TMPDIR=/cache/tmp
+              echo "Generating the Gateway dependency lock"
               cd /app
-              node /npm/bin/npm-cli.js install --package-lock-only --ignore-scripts --registry=https://registry.npmjs.org/ --no-audit --no-fund
+              node /npm/bin/npm-cli.js install --ignore-scripts --allow-remote=none --allow-git=none --registry=https://registry.npmjs.org/ --no-audit --no-fund
+              echo "Generating the plugin dependency lock"
               cd /opt/openclaw-plugin-runtime
-              node /npm/bin/npm-cli.js install --package-lock-only --ignore-scripts --install-strategy=nested --registry=https://registry.npmjs.org/ --no-audit --no-fund
+              node /npm/bin/npm-cli.js install --ignore-scripts --allow-remote=none --allow-git=none --install-strategy=nested --registry=https://registry.npmjs.org/ --no-audit --no-fund
             '
           python3 downstream/scripts/life_runtime_locks.py verify "$base/input" "$base/work" "$base/output"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
